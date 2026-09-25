@@ -4,7 +4,7 @@
 //     code / QR; MobileSession persisted in token_storage)
 //   docs/ui-design/demo/mobile.html frame 1 (instance list: paired PC + cloud
 //     instance)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (entering the 4-digit code is
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (entering the 4-digit code is
 //     mandatory; connect goes through the existing
 //     socket_core / mobile_reconnect_flow; token goes through R3-1 token_storage)
 //   CLAUDE.md red line: no silent failures

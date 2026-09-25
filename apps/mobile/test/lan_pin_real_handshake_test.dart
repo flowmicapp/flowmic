@@ -2,7 +2,7 @@
 // pinMismatch fact, on the REAL dial stack?
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-10-w8-real-device-findings.md §2-A (the silent tap)
+//   docs/archive/strategy/2026-08-10-w8-real-device-findings.md §2-A (the silent tap)
 //   apps/mobile/lib/src/signaling/lan_pinning.dart (the funnel under test)
 //   apps/mobile/lib/src/signaling/socket_core.dart `webSocketConnector` wiring
 //   test/support/mint_lan_tls_identity.mjs (where the served identity comes from)

@@ -1,7 +1,7 @@
 // UP-3b — the MSI hand-off.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §4.3 ④ / ⑥, §4.4
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §4.3 ④ / ⑥, §4.4
 //
 // ── 🔴 LAUNCH THE INSTALLER *BEFORE* EXITING ────────────────────────────────
 //

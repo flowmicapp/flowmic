@@ -2,7 +2,7 @@
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (mobile:pair / mobile:reconnect /
 //     mobile:list-pcs; acks = MobilePairAck; pc:mobile-joined / -left presence)
 //   docs/rebuild/05-DATA-MODEL.md §1/§7 (mobile_pairings row, mobile_token)
-//   docs/strategy/2026-08-12-a2-3-restricted-use-design.md §5 (F1: the ADMISSION
+//   docs/archive/strategy/2026-08-12-a2-3-restricted-use-design.md §5 (F1: the ADMISSION
 //     gate for "restricted use" — §5 row ③ is the hole this file used to be)
 //   src/auth/account-restriction.ts (the ONE conversion site this file asks)
 //   *** HUMAN-AUDIT SENSITIVE (auth/pairing/slot) — reviewable in isolation ***
@@ -30,7 +30,7 @@ import { RECOVERY_CAPABILITY_ACK, targetCapsAck } from './mobile-ack-fields';
 import type { PcRecord } from '../../db/repos/pc.repo';
 import { errorPayload } from '../../errors';
 import { logAuthRefusal } from '../../auth/refusal-log';
-import { getAccount, getAuth, safeAck, setAuth, setCloudSession, setRoomUuid } from '../wire';
+import { getAccount, getAuth, safeAck, setAuth, setClientCaps, setCloudSession, setRoomUuid } from '../wire';
 import { pushJoinBudget, pushMeteringSwitchBudget, withTarget } from './budget-frames';
 import { meteringPrincipal, roomKindOf, type MeteringPrincipalInput, type RoomKind } from '../../auth/metering-principal';
 import { clientIpFromHandshake } from '../../http/trusted-proxy';
@@ -38,6 +38,7 @@ import { joinAndNotify, liveContender } from './mobile-room-admission';
 import { makeMobileReconnectHandler } from './mobile-reconnect';
 import { type MobileHandlerDeps, refuseRestricted } from './mobile-handler-deps';
 import { log } from '../../log';
+import { assertIntegratorOrigin } from '../integrator-origin';
 import { dropRetiredPairingOnReplica } from '../../node/replica-row-reconcile';
 
 export { type MobileHandlerDeps, refuseRestricted };
@@ -178,9 +179,16 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
    * credential, both of which were fine.
    */
   const refuseUnbillableRoom = (pc: PcRecord, where: string, ack: unknown): boolean => {
-    if (farEndKind(pc) !== null) return false;
+    const kind = farEndKind(pc);
+    // W6b: no key relation must not mean "no key ceiling". Bootstrap resolves
+    // both the key row and its owner; a missing reader also refuses this kind.
+    const unboundKey = kind === 'integrator' && !deps.integratorKeyIdForRoom?.(pc.id);
+    if (kind !== null && !unboundKey) {
+      assertIntegratorOrigin(deps.integratorOrigin, pc, socket, 'mobile');
+      return false;
+    }
     log.error('admission refused — this build cannot tell who pays for that room', {
-      where, pc_id: pc.id, room_kind: pc.room_kind, node: deps.nodeId,
+      where, pc_id: pc.id, room_kind: pc.room_kind, unbound_key: unboundKey, node: deps.nodeId,
     });
     safeAck(ack, { error: 'PC_HANDSHAKE_PENDING' });
     return true;
@@ -240,11 +248,19 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
           payerReason: 'self', speakerRef: acting.userId, speakerSignedIn: true,
         });
         setRoomUuid(socket, pc.room_uuid);
+        setClientCaps(socket, parsed.data.client_caps); // card HANGUP-3
         setCloudSession(socket);
         // No desktop ever occupies a cloud-instance room, so the notify inside is
         // a no-op here; the displaced-socket handling is what this path wants.
         joinAndNotify(store, pc.room_uuid, mobile, socket, deps.armWebLiveness);
         return safeAck(ack, {
+          // card RC-C (2026-09-24) — this arm never carried the recovery bits
+          // (PR-1 put them on the code-pair arm and on reconnect only), so a
+          // phone that had just entered its light record read "server too old"
+          // and held every recovery candidate until its socket next reconnected.
+          // Pinned by test/admission-ack-capabilities.test.ts. No `targetCapsAck`:
+          // a virtual PC declares no target capabilities, and absence IS that.
+          ...RECOVERY_CAPABILITY_ACK,
           pairing_id: mobile.id,
           mobile_token: token,
           pc_id: pc.id,
@@ -363,6 +379,7 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
         speakerSignedIn: principal.speakerSignedIn,
       });
       setRoomUuid(socket, pc.room_uuid);
+      setClientCaps(socket, parsed.data.client_caps); // card HANGUP-3
       joinAndNotify(store, pc.room_uuid, mobile, socket, deps.armWebLiveness);
       // 🔴 A HOP INSTRUCTION LEAVES A TRACE, because it is the one thing on this
       // path that later looks like nothing at all. If the phone does not act on
@@ -431,7 +448,7 @@ export function registerMobileHandlers(socket: Socket, deps: MobileHandlerDeps):
   // ⚠️ ASYNC, and the only thing that awaits is the replica read-through below.
   // 2026-09-09 — moved VERBATIM to mobile-reconnect.ts (800-line cap).
   // Same behaviour, same comments, one call site.
-  socket.on('mobile:reconnect', makeMobileReconnectHandler(socket, deps, { pcOnline, meteringInput, noteMeteringSwitch }));
+  socket.on('mobile:reconnect', makeMobileReconnectHandler(socket, deps, { pcOnline, meteringInput, noteMeteringSwitch, refuseUnbillableRoom }));
 
   // ── v0.2.3 · mobile:unpair — the phone retires its OWN pairing ───────────
   //

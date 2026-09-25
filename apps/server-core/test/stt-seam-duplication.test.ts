@@ -2,7 +2,7 @@
 // side can answer it.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-07-w4s-server-batch-ledger.md §6.1 / §6.2
+//   docs/archive/strategy/2026-08-07-w4s-server-batch-ledger.md §6.1 / §6.2
 //   apps/mobile/lib/src/stt/segment_buffer.dart — `joined` doc, W5a/W2.5-H:
 //     「HOW OFTEN IT FIRES IS UNKNOWN AND CANNOT BE DETERMINED FROM THIS SIDE …
 //      The structurally correct fix is on the server, which is the only place

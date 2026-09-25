@@ -57,11 +57,15 @@ part of 'chat_controller.dart';
 /// notify listeners). All four are `sent: true, changed: <minted a row>` now —
 /// reporting 「nothing local moved」 as a failure would make every successful
 /// press look like a refusal.
-({bool sent, bool changed}) runControlKey(ChatController c, ControlKeyKind kind) {
-  if (!c.delivery.sendControlKey(kind)) {
+({bool sent, bool changed}) runControlKey(
+  ChatController c,
+  ControlKeyKind kind,
+) {
+  final String requestId = c.delivery.mintRequestId('k');
+  if (!c.delivery.sendControlKey(kind, requestId: requestId)) {
     return (sent: false, changed: false);
   }
-  return (sent: true, changed: _mintControlRow(c, kind));
+  return (sent: true, changed: _mintControlRow(c, kind, requestId));
 }
 
 /// 🔴 REQ-12-13 (owner P0 2026-08-12) — 「按了哪一个键」("which key was pressed")
@@ -84,15 +88,13 @@ part of 'chat_controller.dart';
 /// whitelist (deleting an event is an owner gate) and because
 /// `docs/rebuild/15 §2.0-e` scopes this row to the four chords in so many words
 /// — a kind with a glyph is not one of them.
-bool _mintControlRow(ChatController c, ControlKeyKind kind) {
+bool _mintControlRow(ChatController c, ControlKeyKind kind, String requestId) {
   if (controlKeyGlyph(kind) != null) return false;
   c.store.buildControlRow(
-    // Same mint as every other correlation id on this end (`mintRequestId`), with
-    // its own prefix so a keypress row can never collide with a delivery's. It
-    // correlates NOTHING across the wire — there is no receipt to match — it is
-    // only this row's local identity, which `buildControlRow` needs to stay
-    // idempotent against a double tap.
-    clientId: c.delivery.mintRequestId('k'),
+    // The id sent on `control:key` is also the row's local identity. The
+    // `control:key-result` echo can therefore settle exactly this press; older
+    // relays that strip it degrade to kind + recency matching.
+    clientId: requestId,
     kind: controlKeyWireName(kind),
   );
   return true;

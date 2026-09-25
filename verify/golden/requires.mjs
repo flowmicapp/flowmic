@@ -17,8 +17,8 @@
 // MEASURED 2026-08-06 (card IT-22 acceptance): export a public tree with
 // scripts/opensource-export.mjs, then run `pnpm verify:delivery` inside it —
 //
-//     G20  FAIL  missing required file(s): docs/strategy/2026-08-02-a2-real-device-sheet.md,
-//                                          docs/strategy/2026-08-01-real-device-session-sheet.md
+//     G20  FAIL  missing required file(s): docs/archive/strategy/2026-08-02-a2-real-device-sheet.md,
+//                                          docs/archive/strategy/2026-08-01-real-device-session-sheet.md
 //
 // Both files exist, and the reason G20 names them is a good one. But
 // `docs/strategy/` is EXCLUDEd wholesale from the public export (internal working

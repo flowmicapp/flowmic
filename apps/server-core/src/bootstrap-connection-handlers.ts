@@ -60,6 +60,7 @@ import { registerAudioHandlers } from './socket/handlers/audio.handler';
 import { registerComposeHandlers } from './socket/handlers/compose.handler';
 import { registerRelayHandlers } from './socket/handlers/relay.handler';
 import { wrapSocketHandlers } from './error-handling';
+import type { IntegratorOriginGuard } from './socket/integrator-origin';
 
 /** Everything the per-connection registration read out of `startServer`'s
  *  closure, named. Each field is the SAME instance bootstrap uses elsewhere —
@@ -89,6 +90,7 @@ export interface ConnectionHandlerWiring {
   /** Card MP-1 — WHICH key minted a room, for the payer decision. Read off the
    *  room→key edge (`integrator_rooms`), never off a client frame. */
   integratorKeyIdForRoom: (pcDeviceId: string) => string | null;
+  integratorOrigin: IntegratorOriginGuard;
   usageTracker: UsageTracker;
   audioRegistry: AudioSessionRegistry;
   budgetHeartbeatMs: number;
@@ -113,7 +115,7 @@ export function registerConnectionHandlers(socket: Socket, deps: ConnectionHandl
   const {
     io, config, expiryClock, authService, registerLimiter, qrGrants, db, nodeRuntime, nodeHostMap,
     budgetPusher, registry, store, resolveActingUser, releaseSuppression, pairLimiter, quotaGuard, webTrial,
-    integratorKeys, integratorKeyIdForRoom,
+    integratorKeys, integratorKeyIdForRoom, integratorOrigin,
     usageTracker, audioRegistry, budgetHeartbeatMs, sttSessionFactory, verificationGraceGuard,
     composeFactory, injectPending, cloudImages, now, grantPending, grantLimiter,
   } = deps;
@@ -168,7 +170,7 @@ export function registerConnectionHandlers(socket: Socket, deps: ConnectionHandl
   const stampHomeNodeHere = nodeRuntime.stampHomeNode === null
     ? null
     : (pcId: string): void => nodeRuntime.stampHomeNode?.(pcId, socketNodeId ?? undefined);
-  registerPcHandlers(socket, { io, budget: budgetPusher, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.mintCodeOnWriter ? { mintCodeOnWriter: nodeRuntime.mintCodeOnWriter } : {}), ...(stampHomeNodeHere ? { stampHomeNode: stampHomeNodeHere } : {}), ...(nodeRuntime.resolveTokenOnWriter /* B1: same instance authMiddleware/mobile:reconnect got above */ ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(nodeRuntime.forwardReleaseMobileOnWriter /* B5, WP-6: the generic handoff's release_mobile verb */ ? { forwardReleaseMobile: nodeRuntime.forwardReleaseMobileOnWriter } : {}), ...(socketNodeId /* OPS-1: refusal-log lines only, see pc.handler.ts's own doc */ ? { nodeId: socketNodeId } : {}) });
+  registerPcHandlers(socket, { integratorOrigin, io, budget: budgetPusher, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.mintCodeOnWriter ? { mintCodeOnWriter: nodeRuntime.mintCodeOnWriter } : {}), ...(stampHomeNodeHere ? { stampHomeNode: stampHomeNodeHere } : {}), ...(nodeRuntime.resolveTokenOnWriter /* B1: same instance authMiddleware/mobile:reconnect got above */ ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(nodeRuntime.forwardReleaseMobileOnWriter /* B5, WP-6: the generic handoff's release_mobile verb */ ? { forwardReleaseMobile: nodeRuntime.forwardReleaseMobileOnWriter } : {}), ...(socketNodeId /* OPS-1: refusal-log lines only, see pc.handler.ts's own doc */ ? { nodeId: socketNodeId } : {}) });
   // A2-3 F1 — "usage restricted" reaches the PHONE here. `restriction: authService` is
   // the SAME instance `console-routes.refuseRestricted` reads through and the
   // same one Bearers are verified with, so the HTTP gate and the two socket
@@ -185,7 +187,7 @@ export function registerConnectionHandlers(socket: Socket, deps: ConnectionHandl
   // `resolveTokenOnWriter` is the SAME instance `authMiddleware` got above (one
   // budget, one single-flight table) and is null on the writer and on every
   // single-node deployment, so that spread is empty there.
-  registerMobileHandlers(socket, { io, budget: budgetPusher, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, anonymousUser: anonymousRowReader(db.users) /* card W4-05 */, webTrial /* card R-1 */, demoPayerUserId: config.demoPayerUserId /* card MP-6 */, integratorKeyIdForRoom /* card MP-1 */, rowsFromReplicationPull: nodeRuntime.nodeConfig.role === 'replica', ...(nodeRuntime.resolveTokenOnWriter ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(socketNodeId ? { nodeId: socketNodeId } : {}), ...(nodeRuntime.forwardUnpairMobileOnWriter /* B4, WP-6: the generic handoff's unpair_mobile verb */ ? { forwardUnpairMobile: nodeRuntime.forwardUnpairMobileOnWriter } : {}) });
+  registerMobileHandlers(socket, { integratorOrigin, io, budget: budgetPusher, registry, store, pairLimiter, mode: config.mode, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, restriction: authService, anonymousUser: anonymousRowReader(db.users) /* card W4-05 */, webTrial /* card R-1 */, demoPayerUserId: config.demoPayerUserId /* card MP-6 */, integratorKeyIdForRoom /* card MP-1 */, rowsFromReplicationPull: nodeRuntime.nodeConfig.role === 'replica', ...(nodeRuntime.resolveTokenOnWriter ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(socketNodeId ? { nodeId: socketNodeId } : {}), ...(nodeRuntime.forwardUnpairMobileOnWriter /* B4, WP-6: the generic handoff's unpair_mobile verb */ ? { forwardUnpairMobile: nodeRuntime.forwardUnpairMobileOnWriter } : {}) });
   registerSettingsHandlers(socket, { io, repo: db.settings, registry, store, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.forwardSettingsUpdateOnWriter /* B6, WP-6: the generic handoff's settings_update verb */ ? { forwardSettingsUpdate: nodeRuntime.forwardSettingsUpdateOnWriter } : {}) });
   // (0.2.27) still registered, and now ONLY to refuse out loud: the five
   // history:* names answer HISTORY_SYNC_RETIRED. An unregistered event name is

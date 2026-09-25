@@ -149,6 +149,8 @@ check(
   'the plan DOES still build the protocol dist in stage 0',
 );
 check(plan.length >= 12, `the plan is not empty (${plan.length} commands)`);
+check(plan.some((c) => c.includes('verify:linux-copy-render')),
+  'Linux copy rendering is executed by the delivery gate (acceptance R-3)');
 
 const runnerSrc = readFileSync(RUNNER, 'utf8');
 check(
@@ -269,6 +271,13 @@ const extra = parallelStages.filter((c) => !seqStages.includes(c));
 check(seqStages.length >= 14, `the sequential chain still parses into stages (${seqStages.length})`);
 check(missing.length === 0, `every sequential stage is in the parallel plan (missing: ${missing.join(' | ')})`);
 check(extra.length === 0, `the parallel plan invents no stage of its own (extra: ${extra.join(' | ')})`);
+// The two checks that left verify:lint for the delivery gates (their headers
+// under verify/delivery-checks/ say why) must be in BOTH gates by name — the
+// set comparison above would also pass if both gates had dropped them.
+for (const stage of ['pnpm verify:web-target-cached-mode', 'pnpm verify:i18n-dev-placeholders']) {
+  check(seqStages.includes(stage), `the sequential release chain runs \`${stage}\``);
+  check(parallelStages.includes(stage), `the parallel plan runs \`${stage}\``);
+}
 // The preflight half of `verify:preflight` is not dropped, only unwrapped: the
 // parallel gate runs the toolchain probe directly and does the `--begin` itself.
 check(

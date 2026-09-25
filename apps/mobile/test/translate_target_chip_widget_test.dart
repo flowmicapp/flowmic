@@ -1,7 +1,7 @@
 // GA-01 (widget half) — the translate target chip beside the mode chip.
 //
 // SPEC-REF: docs/ui-design/REDESIGN-PLAN.md D4 ("choose in place with translate mode");
-//   docs/strategy/2026-07-25-full-gap-audit/03-MOBILE.md GA-01 ruling 2.
+//   docs/archive/strategy/2026-07-25-full-gap-audit/03-MOBILE.md GA-01 ruling 2.
 //
 // WP3 C12 (2026-08-18): the chip's tap is a PICKER SHEET now, not a two-value
 // cycle — the cycle's own rationale (「two languages is not a list」) ended when

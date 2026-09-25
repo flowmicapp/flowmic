@@ -40,6 +40,7 @@
         "statusUndelivered",
         "statusDeliveredNotInjected",
         "statusDeferredNotInjected",
+        "injectionUncertain",
         "statusNoFocus",
         "statusFailed",
         "statusRefused",
@@ -57,7 +58,10 @@
         "injectVerdictNote_INJECT_SECURE_INPUT_ACTIVE",
         "injectVerdictNote_INJECT_SELF_WINDOW_NO_INPUT",
         "injectVerdictNote_INJECT_SENDINPUT_FAIL",
-        "injectVerdictNote_INJECT_TARGET_INVALID"
+        "injectVerdictNote_INJECT_TARGET_INVALID",
+        "injectVerdictNote_INJECT_WAYLAND_UNSUPPORTED",
+        "injectVerdictNote_INJECT_DISPLAY_UNAVAILABLE",
+        "injectVerdictNote_INJECT_SUBMISSION_UNCERTAIN"
       ]
     },
     {
@@ -111,6 +115,15 @@
         "bannerContinuousOffline",
         "reconnectNowAction",
         "capsuleTakenNotice"
+      ]
+    },
+    {
+      "id": "reconnect-progress",
+      "why": "Card NR-96 (docs/strategy/2026-09-24-reconnect-visibility-design.md section 5.3). SELECTED ONLY: the sentences live in i18n/mobile/<locale>.json. recEngineReconnecting and recEngineReconnectingOf are the mic page recording caption while the relay re-dials the speech engine (card D wires them); bannerReconnectingNOf is the web link banner, whose ladder has a five-rung budget (card E2 on the web side). The engine family and the link family are two objects and must not share a word.",
+      "keys": [
+        "recEngineReconnecting",
+        "recEngineReconnectingOf",
+        "bannerReconnectingNOf"
       ]
     },
     {
@@ -774,7 +787,7 @@
     },
     {
       "id": "behaviour-parity",
-      "why": "Keys the 2026-09-10 behaviour-parity audit listed as blocked because they were not in this selection. SELECTED, with one exception named below: every other sentence already exists in all nine mobile locales. Recording-panel, STT-stall, and row-menu families have no existing group that answers the same question. AUTHORED by card MP-7 and RENAMED by card G-2a: goFarEndPays, the standing notice a web microphone shows when the room's FAR END is the payer (owner 2026-09-11 rule, docs/rebuild/22-METERING-AND-BILLING-BASELINE.md section 2 and section 7.3, sentence flags 1 and 6). It was written into i18n/mobile/<locale>.json like every other product sentence, and it sits here rather than in go-shell because the notice it names is the phone's status-banner behaviour arriving on the web page. THE OLD NAME AND THE OLD SENTENCE BOTH LIED, AND THE NAME IS WHY THE RENAME IS PART OF THAT CARD. goUnsignedFarEndPays ended 'Sign in to use your own', and signing in does not change the payer -- whenever a far end exists, it pays. A key called goUnsigned* also invites the next reader to gate the notice on being signed out, which is precisely the defect card G-2a removed from the web mic page. The sentence now states the fact and nothing else, and no call to action about signing in may sit beside it: there is nothing a visitor can sign in to do about this bill. The action key goUnsignedSignInCta stays in this group for the end-of-trial prompt, which is a different sentence answering a different question. ADDED by card WB-5a (2026-09-12, owner ruling item 5): the nine quotaRules* keys. They are the phone's quota-rules guide -- the card under the connections list and the short page behind it -- and the web client shows the SAME sentences after connecting, which is the only reason they are here. One wording for one rule on both screens, as sttStallIntegratorQuotaExceeded already is. THEY REPLACE A BANNER, NOT A PAGE: bannerFarEndPaysQuota was a standing line over the phone's transcript, keyed on one billing frame saying the far end pays, and owner removed it in the same ruling. That key is deleted from all nine mobile locales because it now has no producer. goFarEndPays STAYS and is a different sentence answering a different question: it is the web microphone's live status while the far end is in fact the payer, whereas the guide states every case and claims none of them is happening now. quotaRulesLine3 carries the only figure, 120 seconds per browser, because that number IS the demo rule (docs/rebuild/22-METERING-AND-BILLING-BASELINE.md section 0.2); no line here may print a far end's remainder, which is somebody else's commercial fact.",
+      "why": "Keys the 2026-09-10 behaviour-parity audit listed as blocked because they were not in this selection. SELECTED, with one exception named below: every other sentence already exists in all nine mobile locales. Recording-panel, STT-stall, and row-menu families have no existing group that answers the same question. AUTHORED by card MP-7 and RENAMED by card G-2a: goFarEndPays, the standing notice a web microphone shows when the room's FAR END is the payer (owner 2026-09-11 rule, docs/rebuild/22-METERING-AND-BILLING-BASELINE.md section 2 and section 7.3, sentence flags 1 and 6). It was written into i18n/mobile/<locale>.json like every other product sentence, and it sits here rather than in go-shell because the notice it names is the phone's status-banner behaviour arriving on the web page. THE OLD NAME AND THE OLD SENTENCE BOTH LIED, AND THE NAME IS WHY THE RENAME IS PART OF THAT CARD. goUnsignedFarEndPays ended 'Sign in to use your own', and signing in does not change the payer -- whenever a far end exists, it pays. A key called goUnsigned* also invites the next reader to gate the notice on being signed out, which is precisely the defect card G-2a removed from the web mic page. The sentence now states the fact and nothing else, and no call to action about signing in may sit beside it: there is nothing a visitor can sign in to do about this bill. The action key goUnsignedSignInCta stays in this group for the end-of-trial prompt, which is a different sentence answering a different question. ADDED by card WB-5a (2026-09-12, owner ruling item 5): the nine quotaRules* keys. They are the phone's quota-rules guide -- the card under the connections list and the short page behind it -- and the web client shows the SAME sentences after connecting, which is the only reason they are here. One wording for one rule on both screens, as sttStallIntegratorQuotaExceeded already is. THEY REPLACE A BANNER, NOT A PAGE: bannerFarEndPaysQuota was a standing line over the phone's transcript, keyed on one billing frame saying the far end pays, and owner removed it in the same ruling. That key is deleted from all nine mobile locales because it now has no producer. goFarEndPays STAYS and is a different sentence answering a different question: it is the web microphone's live status while the far end is in fact the payer, whereas the guide states every case and claims none of them is happening now. quotaRulesLine3 carries the only figure, 120 seconds per browser, because that number IS the demo rule (docs/rebuild/22-METERING-AND-BILLING-BASELINE.md section 0.2); no line here may print a far end's remainder, which is somebody else's commercial fact. CHANGED by card NR-89W (2026-09-24): the row menu follows the phone's NR-89 menu, so entryReprocess and entryReprocessSub (one item that re-ran the CURRENT mode) are replaced by entryRetranslate / entryRetranslateSub / entryReorganize / entryReorganizeSub (two explicit operations over the row's original words, offered in every mode). aiComposeError__1 and aiComposeError__3 are SELECTED for the same card: they are the sentences the phone's reprocessRefusalCopy (apps/mobile/lib/src/ui/chat_flow_entry_actions.dart) shows when a re-run could not start because the link is down or the request never left, and the web client's two start refusals are those two facts. CHANGED again by the NR-89W follow-up (2026-09-24): aiComposeError__3 is DROPPED from this selection. It says the request 'never left the phone', which is false in a browser, so the web maps every start refusal that is neither busy nor no-words to aiComposeError__1, and nothing on the web renders __3 any more. The sentence stays in i18n/mobile/<locale>.json, where the phone still uses it.",
       "keys": [
         "recInterruptedPartial",
         "recSwipeCancel",
@@ -801,6 +814,7 @@
         "sttStallNoEngineReached",
         "sttStallOpBindingConflict",
         "sttStallNotSignedIn",
+        "sttStallSegmentNotTranscribed",
         "sttStallPoolNoRoute",
         "sttStallQuotaExceeded",
         "sttStallQuotaExceededPcOwner",
@@ -813,8 +827,10 @@
         "entryEdit",
         "entryReInject",
         "entryReInjectSub",
-        "entryReprocess",
-        "entryReprocessSub",
+        "entryRetranslate",
+        "entryRetranslateSub",
+        "entryReorganize",
+        "entryReorganizeSub",
         "favoriteAdd",
         "favoriteAddResult__1",
         "favoriteAddResult__2",
@@ -828,6 +844,7 @@
         "imageCopyResult__3",
         "reprocessBusy",
         "reprocessUnavailable",
+        "aiComposeError__1",
         "controlRowLabel",
         "controlRowSent",
         "controlRowClearNote",
@@ -845,6 +862,33 @@
         "quotaRulesLine5",
         "quotaRulesClosing",
         "quotaRulesConsoleLink"
+      ]
+    },
+    {
+      "id": "web-microphone-device-choice",
+      "why": "Card B W3 selects the fourteen sentences for choosing this browser or a phone as the microphone, waiting for an explicit handover, and recovering without implying an automatic switch or a definite delivery failure. Formal nine-locale copy from the lead maintainer's rewriting pipeline landed in 9e8fb264; these entries are no longer DEV placeholders.",
+      "keys": [
+        "webMicChoiceTitle",
+        "webMicUsePhone",
+        "webMicUseThisDevice",
+        "webMicUsePhoneHint",
+        "webMicUseThisDeviceHint",
+        "webMicSwitchToPhone",
+        "webMicFinishingForPhone",
+        "webMicWaitingForLeave",
+        "webMicReadyForPhone",
+        "webMicPhoneLeft",
+        "webMicLocalConnectionExpired",
+        "webMicBusyWithoutRoster",
+        "webMicDeliveryStateUncertain",
+        "webMicConfigurationFailed"
+      ]
+    },
+    {
+      "id": "pc-admission-refusal-notes",
+      "why": "The selected browser target received the frame but refused it before transcript or injection work began. This is a target admission fact, not a relay delivery refusal or an injection-stage verdict; the existing phone outbox item remains queued for retry after target admission is restored. Formal nine-locale copy landed in 9e8fb264. Authority is the lead maintainer's docs/decisions/2026-09-22-inject-target-not-ready-lead-ruling-and-cached-mode-pin.md, reversible by the owner; its further en/ru correction is pending from the lead.",
+      "keys": [
+        "pcAdmissionRefusalNote_INJECT_TARGET_NOT_READY"
       ]
     },
     {

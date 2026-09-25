@@ -28,15 +28,26 @@ Future<void> _onLongPressRouted(
   TimelineEntry entry,
   AppStrings strings,
 ) async {
-  final EntryAction? action = await showEntryContextMenu(context, entry, strings: strings);
+  final EntryAction? action = await showEntryContextMenu(
+    context,
+    entry,
+    strings: strings,
+    // NR-89: the phone's persisted translate target, NOT a mode read — it is
+    // what the re-translate row names, and it exists in every session mode.
+    translateTarget: s.controller.aiTranslateTarget,
+  );
   if (action == null) return;
   switch (action) {
     case EntryAction.reInject:
       s.controller.reInject(entry);
-    case EntryAction.reprocess:
-      // GA-13: re-run the CURRENT mode over the original words. A failure to
-      // even start is said out loud here; the run's own terminal is reported
-      // through the usual compose banner.
+    case EntryAction.retranslate:
+    case EntryAction.reorganize:
+      // GA-13 / NR-89: re-run the operation the user PICKED over the original
+      // words. A failure to even start is said out loud here; the run's own
+      // terminal is reported through the usual compose banner.
+      // ⚠️ Correction (NR-89, 2026-09-23): this used to read 「re-run the
+      // CURRENT mode over the original words」 — the session mode chose the
+      // operation, so realtime refused and translate could not re-organize.
       //
       // Card F3: the refusals split into two, because they send the user to two
       // different actions — 「this row/this mode cannot be rerun」 is permanent
@@ -44,13 +55,16 @@ Future<void> _onLongPressRouted(
       // change something, 「the previous run is still going」 is over in seconds. Collapsing them
       // into one toast would tell a user whose only problem is timing that the
       // action does not apply to their row.
-      final AiComposeFailure? failed = s.controller.reprocessEntry(entry);
+      final AiComposeFailure? failed = s.controller.reprocessEntry(
+        entry,
+        action == EntryAction.retranslate ? FlowMode.translate : FlowMode.organize,
+      );
       if (!context.mounted) return;
-      if (failed == AiComposeFailure.busy) {
-        s._toast(context, strings.reprocessBusy);
-      } else if (failed != null) {
-        s._toast(context, strings.reprocessUnavailable);
-      }
+      // ⚠️ Correction (NR-89 copy landing, 2026-09-24): this used to read
+      // `busy ? reprocessBusy : reprocessUnavailable`, so a dropped socket
+      // (`wireFailed`) showed the row-has-no-words sentence. The mapping now
+      // lives in [reprocessRefusalCopy] below, one answer per failure.
+      if (failed != null) s._toast(context, reprocessRefusalCopy(strings, failed));
     case EntryAction.copy:
       // owner 2026-07-27: a picture row copies the PICTURE. Only the bounded
       // preview survives on this phone, so the outcome is announced — the one
@@ -126,6 +140,39 @@ Future<void> _onLongPressRouted(
       }
   }
 }
+
+/// NR-89 — the toast for a re-translate / re-organize press that could not
+/// start (`ChatController.reprocessEntry` returned a reason).
+///
+/// One answer per failure, because the reasons send the user to different
+/// actions:
+///   · [AiComposeFailure.busy] — the previous run still holds the slot; over
+///     in seconds ([AppStrings.reprocessBusy]).
+///   · [AiComposeFailure.emptyBuffer] — the row has no original words (or the
+///     caller passed a mode with no model stage, which the menu never does:
+///     `chat_utterance_processing.dart` `_reprocessEntry`). This is the only
+///     case [AppStrings.reprocessUnavailable] describes.
+///   · every other value — the run never left the phone. `start` in
+///     `utterance_compose.dart` returns [AiComposeFailure.wireFailed] when
+///     `ComposeGate.emitAiCompose` refuses (socket not connected, or the emit
+///     threw). The remaining values are not returned by `reprocessEntry`
+///     today; they get the AI run's own fail-loud sentence
+///     ([AppStrings.aiComposeError]) rather than a sentence about this row, so
+///     a future path that returns them is still told the truth.
+///
+/// The switch is exhaustive on purpose: a new [AiComposeFailure] value will not
+/// compile here until someone decides what the user reads for it.
+String reprocessRefusalCopy(AppStrings strings, AiComposeFailure failed) =>
+    switch (failed) {
+      AiComposeFailure.busy => strings.reprocessBusy,
+      AiComposeFailure.emptyBuffer => strings.reprocessUnavailable,
+      AiComposeFailure.notConnected ||
+      AiComposeFailure.wireFailed ||
+      AiComposeFailure.serverError ||
+      AiComposeFailure.timeout ||
+      AiComposeFailure.aborted =>
+        strings.aiComposeError(AiComposeOutcome(reason: failed)),
+    };
 
 // ── M2 / RV-15: send-failure resend ────────────────────────────────────────
 /// The rows the banner's resend would re-deliver. The judgement (and the whole

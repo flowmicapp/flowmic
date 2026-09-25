@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R5-WEB-TASK-CARDS.md WP-W1 ② (password reset surface)
+//   docs/archive/strategy/R5-WEB-TASK-CARDS.md WP-W1 ② (password reset surface)
 //   docs/rebuild/05-DATA-MODEL.md §5 (account.password_reset {reset_token,
 //     expires_at} 30-min TTL; account.* is on the mobile-broadcast deny-list, so
 //     writing it never fans out to a phone)

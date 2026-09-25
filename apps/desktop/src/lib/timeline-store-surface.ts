@@ -102,7 +102,7 @@ export const IMAGE_IDS_MAX = 500;
  *  evidence does not support it), and the two words exist separately so that
  *  mistake has to be made on purpose. */
 export type ReinjectVerdict =
-  | { ran: true; status: HistoryStatus }
+  | { ran: true; status: HistoryStatus; errorCode?: string | null }
   | { ran: false; reason: 'no-such-row' | 'not-a-transcript' | 'nothing-typed' };
 
 /** Which transport door a row's re-inject goes through, or `null` = refuse.

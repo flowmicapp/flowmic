@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (mobile:login / mobile:logout ack
 //     shapes)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md — frozen wire contract:
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md — frozen wire contract:
 //     mobile:login(saas) → {ok:true, token:<JWT>, user:{id,email,display_name,
 //       plan}, mode:'saas'} | {error:'AUTH_LOGIN_FAILED'}
 //     mobile:login(standalone) → {ok:true, mode:'standalone'} (legacy byte-compat,

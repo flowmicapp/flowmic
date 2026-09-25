@@ -68,10 +68,10 @@ function assertE2ePrefix(ciphertext: string): void {
 }
 
 // E-B0 (2026-08-08): a tombstone must actually FREE SPACE, not merely set a
-// flag. owner ruling, docs/strategy/2026-08-01-data-asset-lifecycle-design.md
+// flag. owner ruling, docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md
 // §4-5 (deleting history on the phone ⇒ the corresponding content in the cloud's
 // light record deletion **frees space**), restated as the fix in
-// docs/strategy/2026-08-08-design-e-blindstore-client.md §4.
+// docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §4.
 //
 // 🔴 Why this is the bare prefix and NOT the empty string. The design says
 // "clear the ciphertext"; the empty string cannot be used, because the WIRE

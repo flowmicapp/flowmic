@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §8 (settings save instantly on change, no save button),
 //     §9 (timeline four ops + incremental refresh)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-2 (main window drives settings +
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-2 (main window drives settings +
 //     timeline through the Rust socket)
 //
 // WP-R2-2 OUTBOUND verbs the main window drives (settings:*, pairing/device-page

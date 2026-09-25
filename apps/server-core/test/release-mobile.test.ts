@@ -23,7 +23,7 @@
 // from the short-code governor (the same clock that decides code validity).
 //
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.1; docs/rebuild/05-DATA-MODEL.md §7;
-//           docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08 / GA-18
+//           docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08 / GA-18
 
 import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';

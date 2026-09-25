@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   apps/mobile/lib/src/timeline/timeline_sqlite.dart (kOutboxTable schema,
 //     v1→v2 additive migration)
-//   docs/strategy/2026-07-31-mobile-outbox-design-draft.md §3.1 (persist to disk before sending)
+//   docs/archive/strategy/2026-07-31-mobile-outbox-design-draft.md §3.1 (persist to disk before sending)
 //
 // The outbox's disk. Deliberately thin: it stores and returns [OutboxItem]s and
 // makes no decisions about them — every rule about WHEN an item may move lives

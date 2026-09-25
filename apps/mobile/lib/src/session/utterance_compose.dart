@@ -4,7 +4,7 @@
 //   docs/rebuild/08-MOBILE-SPEC.md §5 (terminal final → compose → inject
 //     source:'llm'; local watchdog; failure fallback)
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.4 (compose:start/chunk/done/error)
-//   docs/strategy/2026-07-25-full-gap-audit/03-MOBILE.md GA-01 (rulings 1-7)
+//   docs/archive/strategy/2026-07-25-full-gap-audit/03-MOBILE.md GA-01 (rulings 1-7)
 //   CLAUDE.md red line: no silent failure / an LLM failure must not silently
 //     fall back to injecting the raw STT text / a latch closed by a remote
 //     event must have a local watchdog

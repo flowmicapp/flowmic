@@ -1,6 +1,6 @@
 // A2-5 / REQ-12-08 — the per-event usage log, end to end.
 //
-// SPEC-REF: docs/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md
+// SPEC-REF: docs/archive/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md
 //             §5.2 (columns) §5.3 (write points + the two hard constraints)
 //             §5.4 (retention) §5.5 (the read API) §5.6 (failure directions)
 //             §6 (this file is that acceptance table)

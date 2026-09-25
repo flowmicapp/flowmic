@@ -1,6 +1,6 @@
 // SPEC-REF:
-//   docs/strategy/R7-V2-TASK-CARDS.md V2-10 (boot autostart, installed version + portable version)
-//   docs/strategy/2026-07-28-0.1.x-private-line-report.md §6 (owner eyes-on item)
+//   docs/archive/strategy/R7-V2-TASK-CARDS.md V2-10 (boot autostart, installed version + portable version)
+//   docs/archive/strategy/2026-07-28-0.1.x-private-line-report.md §6 (owner eyes-on item)
 //   CLAUDE.md red line: no silent failures / showing an unverified state is false reporting
 //
 // V2-10 — the first link in 「pick up the phone and just speak」: the PC side has

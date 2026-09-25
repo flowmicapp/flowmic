@@ -185,10 +185,27 @@ const RELEASE_SUBJECT = /^chore\(release\):\s*(?:bump to\s+)?v?(\d+\.\d+\.\d+)/;
 
 const VERSION_RE = /\d+\.\d+\.\d+/g;
 
+// The history the commit being made will have. Normally that is HEAD's. While
+// a merge is being concluded it is HEAD's AND MERGE_HEAD's: merging `main`
+// into a branch brings main's baseline pin for a release whose
+// `chore(release)` commit is only reachable from MERGE_HEAD, and reading HEAD
+// alone reported that pin as "not in the release list" — which made the
+// pre-commit hook refuse every such merge commit (measured 2026-09-23,
+// merging 0.3.93 into feat/web-mic-choice-embed).
+function historyTips() {
+  try {
+    execFileSync('git', ['rev-parse', '-q', '--verify', 'MERGE_HEAD'],
+      { cwd: ROOT, stdio: ['ignore', 'ignore', 'ignore'] });
+    return ['HEAD', 'MERGE_HEAD'];
+  } catch {
+    return ['HEAD'];
+  }
+}
+
 function releasedVersions() {
   let log;
   try {
-    log = execFileSync('git', ['log', '--format=%s'], { cwd: ROOT, encoding: 'utf8' });
+    log = execFileSync('git', ['log', '--format=%s', ...historyTips()], { cwd: ROOT, encoding: 'utf8' });
   } catch {
     return null; // not a git checkout at all
   }

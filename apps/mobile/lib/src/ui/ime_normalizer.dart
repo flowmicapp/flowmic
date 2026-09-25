@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-2 ⑥ (real-device IME finding:
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-2 ⑥ (real-device IME finding:
 //     Chinese IMEs rewrite '.'/':'/digits to fullwidth '。'/'：'/'１'… so the raw
 //     endpoint/code value fails to parse; normalize fullwidth ASCII U+FF01-FF5E →
 //     U+0021-007E and ideographic '。' → '.')

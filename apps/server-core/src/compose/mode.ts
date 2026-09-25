@@ -5,7 +5,7 @@
 //     fan-out)
 //   docs/strategy/2026-07-23-relaunch-master-plan.md §4 (three modes locked,
 //     mode switch clears the buffer)
-//   docs/strategy/R1-TASK-CARDS.md WP-R1-4 (realtime passthrough / translate / organize)
+//   docs/archive/strategy/R1-TASK-CARDS.md WP-R1-4 (realtime passthrough / translate / organize)
 //
 // The three-mode contract for the COMPOSE path.
 //

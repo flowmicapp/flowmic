@@ -1,7 +1,7 @@
 // The READ-ONLY latency surface over the published relay nodes.
 //
 // SPEC-REF:
-//   docs/strategy/2026-09-01-lan-fable-work-package-2.md Card 1 (the two
+//   docs/archive/strategy/2026-09-01-lan-fable-work-package-2.md Card 1 (the two
 //     measurement rules this file exists to obey)
 //   apps/desktop/src-tauri/src/socket/node_select.rs (the selector's probe —
 //     reused as a TIMEOUT and as the ping SHAPE, never as the aggregator)

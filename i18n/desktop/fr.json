@@ -23,6 +23,8 @@
     "cap_stt_loading": "'Chargement du modèle…'",
     "cap_stt_ready": "'Prêt'",
     "cap_stt_reconnecting": "'Reconnexion…'",
+    "cap_stt_reconnecting_n": "'Reconnexion · essai {n}'",
+    "cap_stt_reconnecting_n_of": "'Reconnexion · {n}/{max}'",
     "cap_stt_unknown": "'Non vérifié'",
     "cap_target_dash": "'—'",
     "cap_target_none": "'Aucune cible verrouillée'",
@@ -713,6 +715,10 @@
     "win_close": "'Fermer'",
     "win_maximize": "'Agrandir'",
     "win_minimize": "'Réduire'",
-    "win_restore": "'Restaurer'"
+    "win_restore": "'Restaurer'",
+    "st_uncertain": "'Saisie incertaine'",
+    "injectFailReason.INJECT_WAYLAND_UNSUPPORTED": "'Saisie indisponible sous Wayland'",
+    "injectFailReason.INJECT_DISPLAY_UNAVAILABLE": "'Affichage indisponible pour la saisie'",
+    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'La saisie est peut-être partielle.'"
   }
 }

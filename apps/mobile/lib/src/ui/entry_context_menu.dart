@@ -15,6 +15,10 @@
 import 'package:flutter/material.dart';
 
 import '../settings/app_strings.dart';
+import '../mcp/mcp_copy.dart';
+import '../mcp/mcp_page.dart';
+import '../mcp/mcp_scope.dart';
+import '../timeline/entry_never_sent.dart';
 import '../timeline/timeline_entry.dart';
 import 'tokens.dart';
 
@@ -27,7 +31,19 @@ import 'tokens.dart';
 /// `ui/selection/entry_selection.dart`.
 /// WP3 C15 (owner 2026-08-17) added [copyOriginal] — copy the ORIGINAL words
 /// behind a translated/organized row; the gate is [_ContextSheet._canCopyOriginal].
-enum EntryAction { reInject, reprocess, edit, copy, copyOriginal, favorite, select, delete }
+/// Card NR-89 (2026-09-23) replaced the single mode-bound `reprocess` with two
+/// explicit operations, [retranslate] and [reorganize], in the same slot.
+enum EntryAction {
+  reInject,
+  retranslate,
+  reorganize,
+  edit,
+  copy,
+  copyOriginal,
+  favorite,
+  select,
+  delete,
+}
 
 /// [strings] is required, deliberately — the menu's copy is user-visible, and
 /// a zh default would render Chinese to an English user while looking fine
@@ -42,11 +58,20 @@ enum EntryAction { reInject, reprocess, edit, copy, copyOriginal, favorite, sele
 /// silently doing nothing — which is what every other `_can…` gate on this
 /// sheet already does, and what 「a control that changes nothing is worse than
 /// no control」 (0.2.27) requires.
+///
+/// 🔴 Card NR-89 added [translateTarget] — the phone's persisted translate
+/// target (the chat page passes `ChatController.aiTranslateTarget`). It is
+/// what the 「re-translate」 row's sub-line names, and its ABSENCE withholds that
+/// row. There is deliberately NO default: a default language here would render
+/// a destination the phone does not actually translate into (façade rule ②),
+/// and a host that forgets to pass it gets no re-translate row rather than a
+/// row that lies about where the words go.
 Future<EntryAction?> showEntryContextMenu(
   BuildContext context,
   TimelineEntry entry, {
   required AppStrings strings,
   bool sessionActions = true,
+  String? translateTarget,
 }) {
   return showModalBottomSheet<EntryAction>(
     context: context,
@@ -55,6 +80,7 @@ Future<EntryAction?> showEntryContextMenu(
       entry: entry,
       strings: strings,
       sessionActions: sessionActions,
+      translateTarget: translateTarget,
     ),
   );
 }
@@ -64,13 +90,19 @@ class _ContextSheet extends StatelessWidget {
     required this.entry,
     required this.strings,
     required this.sessionActions,
+    required this.translateTarget,
   });
   final TimelineEntry entry;
   final AppStrings strings;
 
+  /// Where a re-translation is aimed; null/empty withholds that row. See
+  /// [showEntryContextMenu].
+  final String? translateTarget;
+
   /// Whether the HOST can perform the four actions that need a live
   /// ChatController — deferred re-delivery / re-run / edit / favourite. See
-  /// [showEntryContextMenu].
+  /// [showEntryContextMenu]. (NR-89: 「re-run」 is now two rows, re-translate
+  /// and re-organize — five rows, still withheld for the one reason.)
   ///
   /// ⚠️ Deliberately one flag rather than four: they are withheld for ONE
   /// reason (this host has no controller), and four independent booleans would
@@ -143,10 +175,26 @@ class _ContextSheet extends StatelessWidget {
   /// just happens to have no content") and 「结构上不是一段话」("structurally
   /// it isn't a piece of speech") are two different reasons, and only the
   /// second one is guaranteed to keep holding.
+  ///
+  /// ⚠️ Correction (NR-89, 2026-09-23): the sentence 「Whether the CURRENT mode
+  /// has an LLM stage is the caller's guard — the mode lives on the controller,
+  /// not on the row — and realtime simply produces no action there」 is no longer
+  /// true. The action no longer depends on the session mode at all: the user
+  /// picks re-translate or re-organize, so a realtime row (which has
+  /// `sourceText` — `timeline_store.dart` `buildFromUtterance` writes
+  /// `sourceText: text`) offers both. This gate now answers only 「is there an
+  /// original to re-run」, and it is the whole gate for 「re-organize」;
+  /// 「re-translate」 additionally needs [_canRetranslate].
   bool get _canReprocess =>
       sessionActions &&
       entry.entryType == TimelineEntry.kTranscript &&
       (entry.sourceText ?? '').trim().isNotEmpty;
+
+  /// NR-89: re-translate needs a destination as well as an original. Without a
+  /// [translateTarget] the row is withheld rather than offered with a
+  /// sub-line that names no language.
+  bool get _canRetranslate =>
+      _canReprocess && (translateTarget ?? '').isNotEmpty;
 
   /// REQ-12-13 — copy (复制) / favorite (收藏) both act on the row's TEXT. A picture row has a
   /// descriptor (and its own preview-copy wording); a remote-key row has nothing at
@@ -193,6 +241,16 @@ class _ContextSheet extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              if (!entry.deleted && <String>{TimelineEntry.kTranscript, TimelineEntry.kImage}.contains(entry.entryType)) ...<Widget>[
+                _row(context, icon: Icons.outbound_outlined, label: strings.mcp(McpText.manual), onTap: () {
+                  final McpScope scope = McpScope.of(context);
+                  final NavigatorState navigator = Navigator.of(context);
+                  navigator.pop();
+                  navigator.push<void>(MaterialPageRoute<void>(builder: (_) =>
+                    McpPage(service: scope.service, settings: scope.settings, entryId: entry.id)));
+                }),
+                _divider(),
+              ],
               // §6.2-6 / R6 P0-R4: a cloud-instance record (origin:'cloud') has NO
               // PC focus target — deferred re-delivery (补投) is structurally
               // inert there (ChatController.reInject returns early), so we do
@@ -209,13 +267,36 @@ class _ContextSheet extends StatelessWidget {
                 ),
                 _divider(),
               ],
+              // NR-89: two explicit operations in the slot the single
+              // mode-bound 「re-translate / re-organize」 row used to hold.
+              if (_canRetranslate) ...<Widget>[
+                _row(
+                  context,
+                  icon: Icons.translate,
+                  label: strings.entryRetranslate,
+                  // Card RC-I — a row that is never sent must not promise a
+                  // PC: the re-run inherits the row's delivery, so the ROW
+                  // picks the sentence (see `EntryNeverSent.neverSent`).
+                  sub: entry.neverSent
+                      ? strings.entryRetranslateSubRecord(
+                          strings.translateTargetLabel(translateTarget!),
+                        )
+                      : strings.entryRetranslateSub(
+                          strings.translateTargetLabel(translateTarget!),
+                        ),
+                  action: EntryAction.retranslate,
+                ),
+                _divider(),
+              ],
               if (_canReprocess) ...<Widget>[
                 _row(
                   context,
-                  icon: Icons.refresh,
-                  label: strings.entryReprocess,
-                  sub: strings.entryReprocessSub,
-                  action: EntryAction.reprocess,
+                  icon: Icons.auto_fix_high_outlined,
+                  label: strings.entryReorganize,
+                  sub: entry.neverSent
+                      ? strings.entryReorganizeSubRecord
+                      : strings.entryReorganizeSub,
+                  action: EntryAction.reorganize,
                 ),
                 _divider(),
               ],
@@ -345,11 +426,13 @@ class _ContextSheet extends StatelessWidget {
     required String label,
     String? sub,
     Color? color,
-    required EntryAction action,
+    EntryAction? action,
+    VoidCallback? onTap,
   }) {
+    assert(action != null || onTap != null);
     final Color fg = color ?? FlowMicColors.t1;
     return InkWell(
-      onTap: () => Navigator.of(context).pop(action),
+      onTap: onTap ?? () => Navigator.of(context).pop(action),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
         child: Row(

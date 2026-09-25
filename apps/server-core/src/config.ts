@@ -2,10 +2,10 @@
 //   docs/rebuild/03-SYSTEM-ARCHITECTURE.md §1/§5.5 (standalone vs saas — mode is
 //     the single branch point; standalone binds all interfaces for LAN pairing,
 //     saas binds loopback behind an edge)
-//   docs/strategy/2026-07-23-mock-billing-design.md §1 (FLOWMIC_MOCK_BILLING /
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §1 (FLOWMIC_MOCK_BILLING /
 //     FLOWMIC_MOCK_UNLOCK_ALL env gates)
 //   docs/rebuild/05-DATA-MODEL.md §1 (FLOWMIC_DB_PATH; default in-memory)
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §4-3 (paddle block)
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §4-3 (paddle block)
 //   docs/strategy/2026-07-31-owner-nine-rulings-batch.md A1 (tier/price/quota configurable)
 //
 // Pure env → resolved config. Side effects, all deliberate and all documented:

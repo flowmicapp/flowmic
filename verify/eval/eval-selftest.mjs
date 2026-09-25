@@ -57,7 +57,7 @@ import { schemaProblems } from './eval-corpus.mjs';
  * would delete the property being guarded.
  *
  * 🔴 A CORRECTION TO THE LEDGER, MEASURED RATHER THAN QUOTED. Both
- * `docs/strategy/2026-08-06-w2-transcription-quality-ledger.md` §7 (W2-11, "7 of
+ * `docs/archive/strategy/2026-08-06-w2-transcription-quality-ledger.md` §7 (W2-11, "7 of
  * 11 judges have a sole-rejecter count of 0") and
  * `2026-08-06-w25-closing-the-two-red-lines-ledger.md` §8 (which re-counted and
  * corrected it to 8, adding `expect_punctuation`) report a large number of

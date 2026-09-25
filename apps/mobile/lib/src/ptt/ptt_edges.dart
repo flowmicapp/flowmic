@@ -35,7 +35,9 @@ extension PttSessionEdges on PttSession {
     Map<String, Object?>? prefs,
   }) async {
     if (fsm.connection != ConnectionState.connected) return false;
-    if (!sessionAcceptsPttDown(fsm.session)) return false;
+    // Follow-up (MAIN 2026-09-24): a recovery attempt on the wire is not a
+    // reason to refuse live speech — it yields below (ptt_backfill.dart).
+    if (!sessionAcceptsPttDown(fsm.session) && !recoveryHoldsWire) return false;
     // card U2 ① — the permission gate runs BEFORE capture, so the FIRST OS dialog
     // is never cold-fired in mid-gesture (the audit's finding): the request is
     // born on the rendered rationale surface, not under the user's thumb. A
@@ -43,6 +45,15 @@ extension PttSessionEdges on PttSession {
     // refusal is on screen — the FSM never left its resting state, so the next hold
     // starts clean (no stuck RECORDING, nothing to unwind).
     if (!await micPermission.gateForPtt()) return false;
+    // Follow-up — from here the wire is this press's until its terminal final
+    // lands: no recovery attempt may open (recovery_leg_wire.dart `_runOnWire`),
+    // and one that holds the wire now yields.
+    articles.attempts.liveStarted();
+    if (recoveryHoldsWire) yieldRecoveryForLive();
+    if (!sessionAcceptsPttDown(fsm.session)) {
+      articles.attempts.liveSettled();
+      return false;
+    }
     // 🔴 CR-7 — THE PREVIOUS RECORDING'S SCRIBE CLOSES HERE.
     //
     // Not in `endContinuous`: that runs on release, and a recording's last
@@ -92,6 +103,7 @@ extension PttSessionEdges on PttSession {
       // start」 when the permission is actually green. PTT still never entered
       // RECORDING.
       await micPermission.noteCaptureStartRefused();
+      articles.attempts.liveSettled(); // no press, nothing to wait for
       return false;
     }
     // 🔴 F1 (2026-09-02 audit) — RE-CHECK THE GATE THIS FUNCTION OPENED WITH.
@@ -114,9 +126,16 @@ extension PttSessionEdges on PttSession {
     // point of this check.
     if (fsm.connection != ConnectionState.connected) {
       await audio.stop();
+      articles.attempts.liveSettled();
       return false;
     }
+    // Card RC4 — before the FSM edge: its listeners run synchronously
+    // (ptt_backfill.dart `openSessionIsRecovery`).
+    _openSessionIsRecovery = false;
     fsm.onPttDown();
+    // Card RC-N — and the frames that follow are this press's, not a recovery
+    // attempt's (audio/recovery_attempt_ledger.dart).
+    articles.attempts.openedLive();
     // Card FX-2 — this press owns the wire now, and this is its delivery.
     _openSessionDelivery = delivery;
     // Card FX-3 — a live press has no fed range: its length is the engine's to
@@ -132,6 +151,11 @@ extension PttSessionEdges on PttSession {
     // which is the field the whole delivery red line hangs on. `liveStartFields`
     // does not emit one either: two locks, same as the recovery leg.
     final LiveAudioAttempt? live = audio.retainedAudio?.liveAttempt;
+    // Codex rc3 ④ — remembered with its recording, so its late final can find
+    // it after the next press has begun.
+    if (live != null) {
+      articles.attempts.noteLiveAttempt(live.attemptId, articles.liveArticleId);
+    }
     transport.emit(
       FlowMicEvents.audioStart,
       <String, Object?>{
@@ -148,6 +172,8 @@ extension PttSessionEdges on PttSession {
           sendPolicy: sendPolicy,
           delivery: delivery,
           prefs: prefs,
+          // Card RC-1 — a long recording says so; see the field's doc.
+          continuous: continuous.isActive,
         ).toJson(),
       },
     );
@@ -176,6 +202,7 @@ extension PttSessionEdges on PttSession {
     // `stopContinuousOffline()` runs `endContinuous()` on its own way out, so
     // every path still lets go exactly once (C8).
     if (stopContinuousOffline()) return;
+    final Duration? net = _longStopNet(); // RC4-S5 follow-up — reads `continuous.isActive`, so BEFORE the teardown
     // Every ordinary release, and every continuous one that still had a link.
     // All three verbs are no-ops on a plain push-to-talk press, so this needs no
     // 「was it continuous」 test — one would be a second author for a fact the
@@ -186,7 +213,7 @@ extension PttSessionEdges on PttSession {
     if (residual != null) _emitChunk(residual); // braces collapsed: line budget
     _stopHeartbeat();
     _safeEmit(FlowMicEvents.audioStop, const <String, Object?>{});
-    fsm.onPttUp();
+    fsm.onPttUp(netAtLeast: net);
     await audio.stop();
   }
 
@@ -199,6 +226,9 @@ extension PttSessionEdges on PttSession {
     // gesture (CR-D ③), so this should be unreachable for one — belt and
     // braces, because 「unreachable」 is a claim about call sites and those move.
     endContinuous();
+    // Follow-up — a discarded press owes no final; the wire is free again. Before
+    // the FSM edge, which is what the recovery sweep's resume listens to.
+    articles.attempts.liveSettled();
     // FIRST, before anything can come back: this latches
     // `fsm.utteranceCancelled`, and ptt_inbound.dart drops every transcript
     // frame this utterance still owes (whole argument there).

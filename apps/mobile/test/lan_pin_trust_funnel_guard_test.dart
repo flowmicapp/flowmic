@@ -1,4 +1,4 @@
-// Card W4A-2 (docs/strategy/2026-08-08-030-unified-plan-and-ledger.md §4).
+// Card W4A-2 (docs/archive/strategy/2026-08-08-030-unified-plan-and-ledger.md §4).
 //
 // `lib/src/signaling/lan_pinning.dart` is the ONE funnel every trust verdict in
 // this app flows through, and until this card nothing tested it directly: the

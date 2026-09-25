@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-o2-usage-route-contract.md (THE contract — change discipline:
+//   docs/archive/strategy/2026-08-02-o2-usage-route-contract.md (THE contract — change discipline:
 //     change that document first, then change this file and its tests)
 //   src/db/repos/usage.repo.ts (the three aggregate methods this exposes)
 //   src/http/ops-audit-trail.ts `adminGate` (O-1 gate + leaves a trace)

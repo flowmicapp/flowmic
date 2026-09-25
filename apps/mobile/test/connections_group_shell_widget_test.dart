@@ -1,7 +1,7 @@
 // REQ-12-10b (mobile half) — a computer with more than one connection is drawn
 // inside a SHELL that says so.
 //
-// Card: docs/strategy/2026-08-12-req1210b-same-machine-group-shell.md
+// Card: docs/archive/strategy/2026-08-12-req1210b-same-machine-group-shell.md
 // Desktop half of the same card: 0450b0a (`PairedList.vue`).
 //
 // WHAT OWNER SAW: `dev-pc-a` with a LAN row and a cloud-relay row, and

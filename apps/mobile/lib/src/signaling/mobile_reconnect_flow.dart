@@ -16,6 +16,7 @@ import '../../generated/flowmic_events.g.dart';
 import '../auth/token_storage.dart';
 import '../diag/diag_log.dart' show diag;
 import '../session/platform_device_info.dart';
+import '../settings/declared_client_capabilities.dart';
 import 'socket_core.dart';
 import 'wire_payloads.dart';
 
@@ -263,7 +264,8 @@ Future<bool> runMobileReconnect({
       // existed gets it BACKFILLED on the very next reconnect, with no
       // migration that has to guess which row belongs to which phone. Pure
       // backfill: the server finds the row by token, never by this.
-      MobileReconnectPayload(token, deviceUid: cachedDeviceUid()).toJson(),
+      // card HANGUP-3 — reconnect carries the declaration too: an installed phone never pairs again.
+      MobileReconnectPayload(token, deviceUid: cachedDeviceUid(), clientCaps: declaredClientCapabilities()).toJson(),
       timeout: timeout,
     );
     if (ack is Map) {

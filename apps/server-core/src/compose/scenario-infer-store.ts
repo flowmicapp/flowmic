@@ -1,10 +1,10 @@
 // SPEC-REF:
 //   docs/decisions/2026-07-30-a5-owner-rulings.md ② (owner's own words "V2-08:
 //     choose option a" — exe basename ONLY; `window_title` must not be collected)
-//   docs/strategy/2026-07-30-task-package-v1.md group F, F2 (consent storage +
+//   docs/archive/strategy/2026-07-30-task-package-v1.md group F, F2 (consent storage +
 //     per-process cache + owner can see and override + an unresolved answer is
 //     undefined, zero contribution, never guess)
-//   docs/strategy/R7-V2-TASK-CARDS.md V2-08 (Option C: LLM inference + per-process cache)
+//   docs/archive/strategy/R7-V2-TASK-CARDS.md V2-08 (Option C: LLM inference + per-process cache)
 //   ./scenario-inference.ts (the gate, the whitelist, the resolution order)
 //   ./scenario-infer-call.ts (the one LLM round trip)
 //   ./app-category.ts (the built-in closed map — the `builtin` leg)

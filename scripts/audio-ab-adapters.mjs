@@ -510,7 +510,7 @@ export function sonioxAdapter(config = {}) {
         // binary frame, Soniox never answered `finished:true`, `flush()` never
         // resolved, and every utterance fell through to a 3-second fallback —
         // "the number was real and the conclusion was wrong" for a whole window.
-        // Measured proof is in docs/strategy/shots-2026-08-02-l9-soniox-output/
+        // Measured proof is in docs/archive/strategy/shots-2026-08-02-l9-soniox-output/
         // soniox-eos-variants.txt: variant A (empty Buffer) never finishes,
         // variant B (empty string) answers in 2,005 ms.
         ws.send('');

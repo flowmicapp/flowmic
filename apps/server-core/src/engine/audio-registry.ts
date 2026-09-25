@@ -3,7 +3,7 @@
 //     resumeFromGrace; pc:mobile-left delayed until the grace window expires)
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.3 (audio:pause / audio:resume)
 //   packages/protocol/src/constants.ts AUDIO_DEFAULTS.mobile_drop_grace_ms
-//   docs/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-04
+//   docs/archive/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-04
 //   CLAUDE.md red line: no silent failures; a latch closed by a remote event
 //     must have a local watchdog
 //

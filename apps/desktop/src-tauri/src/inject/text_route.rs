@@ -1,7 +1,7 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-21-ime-safe-inject-routing-design.md §2 (the content
+//   docs/archive/strategy/2026-08-21-ime-safe-inject-routing-design.md §2 (the content
 //     route: CJK/fullwidth text → clipboard paste, pure-ASCII → typing)
-//   docs/strategy/2026-08-21-wechat-ime-punctuation-corruption-findings.md
+//   docs/archive/strategy/2026-08-21-wechat-ime-punctuation-corruption-findings.md
 //     (why: a CN-state IME in some TSF apps doubles every fullwidth punctuation
 //     mark typed as a VK_PACKET stream and swallows the character after it —
 //     measured byte-for-byte on WeChat 4.x with stock Microsoft Wubi; DingTalk
@@ -150,7 +150,7 @@ impl PasteReason {
             PasteReason::ImeUnsafeText => {
                 "ime-safe content route: text carries CJK/fullwidth chars, and a CN-state IME in \
                  some TSF apps doubles typed fullwidth punctuation and swallows the next char — \
-                 docs/strategy/2026-08-21-ime-safe-inject-routing-design.md"
+                 docs/archive/strategy/2026-08-21-ime-safe-inject-routing-design.md"
             }
             PasteReason::TypingHardRejected => {
                 "this app hard-rejected SendInput before (per-app learning), so typing here is \

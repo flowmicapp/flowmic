@@ -47,7 +47,7 @@ describe('inject verdict authorship — full-coverage guard', () => {
 });
 
 describe('inject verdict authorship — the three named sets (a change must be deliberate)', () => {
-  it('the injection-stage verdicts the PC answers itself are exactly these ten', () => {
+  it('the injection-stage verdicts the PC answers itself are exactly these thirteen', () => {
     // Every one of these is labelled with its Rust emit site in the source file.
     // Adding one in = claiming 「收到这个码就算投递成功」("receiving this code counts as
     // a successful delivery"), a conclusion that requires re-grepping the emit site,
@@ -68,6 +68,7 @@ describe('inject verdict authorship — the three named sets (a change must be d
     expect([...PC_INJECTION_VERDICT_CODES].sort()).toEqual([
       'INJECT_CLIPBOARD_FAIL',
       'INJECT_DEFERRED_NOT_AUTOINJECTED',
+      'INJECT_DISPLAY_UNAVAILABLE',
       'INJECT_FOCUS_LOST',
       'INJECT_IMAGE_UNSUPPORTED',
       'INJECT_NO_ACCESSIBILITY',
@@ -75,17 +76,23 @@ describe('inject verdict authorship — the three named sets (a change must be d
       'INJECT_SECURE_INPUT_ACTIVE',
       'INJECT_SELF_WINDOW_NO_INPUT',
       'INJECT_SENDINPUT_FAIL',
+      'INJECT_SUBMISSION_UNCERTAIN',
       'INJECT_TARGET_INVALID',
+      'INJECT_WAYLAND_UNSUPPORTED',
     ]);
   });
 
-  it('the PC has exactly one admission-layer refusal, and it deliberately does not count as delivered', () => {
-    expect([...PC_ADMISSION_REFUSAL_CODES]).toEqual(['INJECT_NOT_PRIMARY']);
+  it('the PC has exactly two admission-layer refusals, and neither counts as delivered', () => {
+    expect([...PC_ADMISSION_REFUSAL_CODES].sort()).toEqual([
+      'INJECT_NOT_PRIMARY',
+      'INJECT_TARGET_NOT_READY',
+    ]);
     // 🔴 A reverse assertion, pinning down owner 2026-08-02's 「被占用 ⇒ 待投递」
     // ("occupied ⇒ pending delivery"): it is spoken by the PC itself, but
     // **it speaks about the admission layer**, so it must never be read as 「投递段
     // 完结」("delivery segment finished").
     expect(isPcInjectionVerdictCode('INJECT_NOT_PRIMARY')).toBe(false);
+    expect(isPcInjectionVerdictCode('INJECT_TARGET_NOT_READY')).toBe(false);
   });
 
   it('the nine relay-authored codes must never be read as a successful delivery', () => {

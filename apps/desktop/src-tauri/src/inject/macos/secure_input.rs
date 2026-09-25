@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-06-mac-usable-work-breakdown.md §A MAC-05
+//   docs/archive/strategy/2026-08-06-mac-usable-work-breakdown.md §A MAC-05
 //   master-plan §4 / CLAUDE.md red line: no silent failures — both directions forbidden
 //   *** HUMAN-AUDIT SENSITIVE (injection path) ***
 //

@@ -1,7 +1,7 @@
 // E-B1 — blind-store (e2e:v1:) cryptographic parameters.
 //
 // SPEC-REF: docs/rebuild/05-DATA-MODEL.md §2 (dual-prefix encryption table, row `e2e:v1:`);
-//   docs/strategy/2026-08-08-design-e-blindstore-client.md §2 (key model),
+//   docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §2 (key model),
 //   §2.1 (multi-device / sentinel), §7-2 (the negative assertion this layer owes).
 //
 // 🔴🔴 THE DOUBLE-PREFIX RED LINE, IN ITS EXECUTABLE FORM.

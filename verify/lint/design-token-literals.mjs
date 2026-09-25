@@ -166,7 +166,8 @@ export const ALLOWLIST = [
   // absent by grep.
   'apps/mobile/lib/src/ui/settings_widgets.dart|Colors.white',
   'apps/mobile/lib/src/ui/settings_widgets.dart|Colors.white',
-  'apps/mobile/lib/src/ui/status_badge.dart|Color(0x4DFBBF24)',
+  // Linux L7: the unchanged widget literal moved with its VERBATIM part split.
+  'apps/mobile/lib/src/ui/status_badge_widgets.dart|Color(0x4DFBBF24)',
 ];
 
 function skipDir(basename) {

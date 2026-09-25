@@ -38,7 +38,7 @@
 //
 // SPEC-REF:
 //   scripts/package-ids.mjs (G1 — the SSOT this file reads)
-//   docs/strategy/2026-08-12-p0-app-flowmic-package-id-migration.md (G1–G4)
+//   docs/archive/strategy/2026-08-12-p0-app-flowmic-package-id-migration.md (G1–G4)
 //   docs/decisions/2026-08-11-owner-bundle-id-family-app-flowmic.md
 
 import path from 'node:path';
@@ -130,6 +130,11 @@ const SELF = new Set(['verify/lint/package-id-family.mjs', 'scripts/package-ids.
 function requiredSurfaces() {
   const kotlin = (f) => `${ANDROID_KOTLIN_DIR}/${f}`;
   return [
+    {
+      file: 'apps/desktop/src-tauri/tauri.linux.conf.json',
+      must: [`"identifier": "${PACKAGE_IDS.linux}"`],
+      why: 'the Linux overlay Tauri merges for Linux bundles',
+    },
     {
       file: 'apps/mobile/android/app/build.gradle.kts',
       must: [`namespace = "${PACKAGE_IDS.android}"`, `applicationId = "${PACKAGE_IDS.android}"`],

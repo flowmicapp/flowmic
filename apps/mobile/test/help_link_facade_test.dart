@@ -2,7 +2,7 @@
 // `pairing-modal.test.ts`「does NOT render a download link while PAIR_APP_URL
 // is empty」test exactly, for the same reason on the phone side.
 //
-// The repo-wide finding (docs/strategy/2026-08-04-0.3.0-task-book-cn.md §U7):
+// The repo-wide finding (docs/archive/strategy/2026-08-04-0.3.0-task-book-cn.md §U7):
 // zero help/FAQ/support/contact entry, zero external links, and copy that
 // promised "把截图发给维护者" (send a screenshot to the maintainer) with no
 // address to send it to. The mobile app currently has no such dangling

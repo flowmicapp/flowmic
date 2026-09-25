@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §2
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §2
 //     (「每 key 的硬上限（控制台可设，缺省＝档位全量）」)
 //   docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md §9-1
 //   ../billing/integrator-quota.ts (what a key IS, and why the Origin header is

@@ -55,16 +55,16 @@ String _truncateFailureReason(String reason) {
 /// terminal refusal
 /// (`AppStrings.deliveryRefusalNote` — `INJECT_FRAME_TOO_LARGE` /
 /// `INJECT_FRAME_INVALID` / `INJECT_PC_MISMATCH` / `INJECT_PC_UNSPECIFIED`).
-/// The three tables are mutually exclusive (each one's code set is disjoint,
+/// The four tables are mutually exclusive (each one's code set is disjoint,
 /// `deliveryRefusalNote`'s own docs already prove it 「does not overlap」 the
 /// cloud-image codes and the queue's local terminal states), so the order
 /// does not change the answer for any existing code —
-/// what is added is only the ones none of the three tables previously
+/// what is added is only the ones none of the earlier tables previously
 /// recognized, and which therefore fell back to the bare identifier.
 ///
-/// 🔴 Card G-16-a — the third table now also has `INJECT_PC_OFFLINE`, **the
+/// 🔴 Card G-16-a — the delivery-refusal table now also has `INJECT_PC_OFFLINE`, **the
 /// only NON-TERMINAL
-/// member of that table**, and mutual exclusivity is unaffected (the three
+/// member of that table**, and mutual exclusivity is unaffected (the four
 /// tables are still disjoint). Because it is non-terminal, it is **the only
 /// member of that table that ever reaches
 /// [DeliveryFace.undelivered]** (the other four are all judged terminal by
@@ -82,13 +82,14 @@ String _truncateFailureReason(String reason) {
 /// 63/64 it had already become eight — **nobody is going to touch a comment
 /// just to update a count**, so it
 /// lay here as a stale truth (the cheapest shape of anti-façade ④). To
-/// count, go read those three `switch`es.
-/// Human copy takes priority: cloud image → inject segment → delivery
-/// segment. When all three tables return `null` the caller falls back to
+/// count, go read those four `switch`es.
+/// Human copy takes priority: cloud image → inject segment → target admission
+/// → delivery segment. When all four tables return `null` the caller falls back to
 /// the bare code.
 String? _humanNoteFor(String code, AppStrings strings) =>
     strings.cloudImageRelayErrorNote(code) ??
     strings.injectVerdictNote(code) ??
+    strings.pcAdmissionRefusalNote(code) ??
     strings.deliveryRefusalNote(code);
 
 /// Whether this face says 「why」("为什么") at all — [_reasonLineFor] and
@@ -99,6 +100,7 @@ bool _faceSpeaksReason(DeliveryFace face, String? human) =>
     face == DeliveryFace.failed ||
     face == DeliveryFace.refused ||
     face == DeliveryFace.deliveredNotInjected ||
+    face == DeliveryFace.injectionUncertain ||
     // 🔴 Card B4-12 — undelivered stays silent for every code EXCEPT the
     // ones [human]
     // recognises. Left silent for them too, a quota/size refusal would show
@@ -200,7 +202,7 @@ String? _reasonLineFor(DeliveryFace face, String? code, AppStrings strings) {
 /// recognizes today (the original text listed
 /// 63/64, and card fix-015's closing round added
 /// `INJECT_FOCUS_LOST` ⇒ that list expired on the spot). This file just
-/// established the same rule above, for the three tables' **counts**:
+/// established the same rule above, for the copy tables' **counts**:
 /// **nobody is going to touch a comment just to update a list**. To know
 /// which ones, go read that `switch`.
 ///

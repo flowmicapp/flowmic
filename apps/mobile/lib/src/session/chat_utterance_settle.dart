@@ -109,13 +109,23 @@ Delivery _deliveryOfThisFinal(ChatController c, SttFinal f) {
 /// the 15 册 §2.0-c cardinality change was accepted on the basis that a segment
 /// row is the SAME KIND of row, and a copy of this fork would give 「what happens
 /// to a settled span」 two answers (this repo's #1 defect shape).
-void _settleSpan(
+///
+/// Card RC-N — [owner] is the session the frame belongs to
+/// (chat_utterance_owner.dart): its clock places the row. [foreignSpanMs] is
+/// set only for a frame of ANOTHER session than the one on the wire
+/// (`_settleForeignFinal`): the row is its own words over that span, and the
+/// open session's segment buffer, press ledger and delivery are not touched.
+/// Codex rc3 ① — returns the id of the row it minted.
+String _settleSpan(
   ChatController c,
   SttFinal f, {
   required int fromIdx,
   required String text,
   String? clientId,
+  _FinalOwner? owner,
+  int? foreignSpanMs,
 }) {
+  final bool foreign = foreignSpanMs != null;
   final SegmentBuffer segs = c.session.segments;
   // 🔴 REG-D1 — Σ over the spans THIS row covers, never `f.durationMs`. For the
   // whole-utterance settlement that sum IS the whole recording; for a segment
@@ -123,7 +133,11 @@ void _settleSpan(
   // this segment") on both exits since `24b75cc`, so copying it onto a
   // whole-utterance row reported the last segment only. 0 ⇒ nothing in range
   // reported one ⇒ NULL (absence, not 0 — entry_metrics.dart).
-  final int spanMs = _spanMsFor(c, f, fromIdx);
+  // Card RC-3b — net of an engine-outage stretch accounted inside this row's
+  // span (`ArticleScribe.accountHoleInsideNextLiveRow`); unchanged otherwise.
+  final int spanMs = foreignSpanMs ??
+      c.session.articles.liveRowSpan(_spanMsFor(c, f, fromIdx),
+          live: owner?.live);
   // 🔴 CR-7/CR-8 — claim this row's place in the recording, if one is running.
   //
   // Null for every ordinary utterance, which is almost all of them, and the
@@ -137,8 +151,17 @@ void _settleSpan(
   // the row are ONE write. Building first and stamping second would leave a
   // window in which a row exists inside an article at no position — and the
   // article reader orders by exactly that field.
-  final ({String articleId, int offsetMs})? place =
-      c.session.articles.claim(spanMs > 0 ? spanMs : null);
+  // Card RC-N — on the clock of the session this frame belongs to. A foreign
+  // frame of a session nobody here can name gets no place: its words are kept
+  // as an ordinary row rather than filed inside somebody's recording.
+  // Codex rc3 ④ — a previous recording's late final goes to ITS end.
+  final String? prior = owner?.priorArticleId;
+  final ({String articleId, int offsetMs})? place = prior != null
+      ? c.session.articles.claimInClosed(prior, spanMs > 0 ? spanMs : null)
+      : foreign && owner != null && !owner.live && owner.attemptId == null
+          ? null
+          : c.session.articles.claim(spanMs > 0 ? spanMs : null,
+              live: owner?.live ?? false, attemptId: owner?.attemptId);
   // 🔴 CARD FX-2 — THE DELIVERY OF THE SESSION THAT PRODUCED THIS FINAL, NOT
   // THE ONE THE LAST BUTTON PRESS CHOSE. `c._activeDelivery` is written in
   // `pttDown` and nowhere else; a recovery attempt opens its own `audio:start`
@@ -156,7 +179,11 @@ void _settleSpan(
   // a long-press re-delivery would happily send later. `_deliverDirect` already
   // returns on `Delivery.none`, so the send stops as a CONSEQUENCE of the row
   // being honest rather than as a second rule that could drift from it.
-  final Delivery wireDelivery = _deliveryOfThisFinal(c, f);
+  // Card RC-N — a foreign frame is never delivered: it is either a recovery's
+  // (FX-2: recovered words are never sent) or a live stop's that arrived while
+  // a recovery held the wire, which lock 1 below would call `none` too.
+  final Delivery wireDelivery =
+      foreign ? Delivery.none : _deliveryOfThisFinal(c, f);
   final TimelineEntry entry = c.store.buildFromUtterance(
     clientId: clientId ?? c._mintClientId(),
     mode: c._activeMode,
@@ -166,14 +193,22 @@ void _settleSpan(
     durationMs: spanMs > 0 ? spanMs : null,
     // How many engine spans stand behind THIS row — not how many the utterance
     // has had. They coincide exactly when the row is the whole utterance.
-    segmentsCount: f.segmentIdx - fromIdx + 1,
+    segmentsCount: foreign ? 1 : f.segmentIdx - fromIdx + 1,
     origin: c.destination.isFixed ? 'cloud' : 'paired',
     articleId: place?.articleId,
     articleOffsetMs: place?.offsetMs,
+    // 🔴 CR-12-D — the measured silence before this row's first word, and ONLY
+    // when this row IS exactly one engine segment. A row that covers several
+    // spans (a compose mode, or a segment final that carried nothing and so did
+    // not advance the watermark) would be stamped with the pause in front of the
+    // LAST of them — a real number answering a different question, which is this
+    // repo's #1 defect shape. Null instead: the reader already degrades on null.
+    pauseBeforeMs: fromIdx == f.segmentIdx ? f.pauseBeforeMs : null,
     // D7 ③ — the server-minted utterance id off this final, so a later
     // `stt:refined` can name this row. Null when the relay predates ids, in
     // which case no refine will ever match it, which is the safe direction.
     utteranceId: f.utteranceId,
+    mcpContentReady: _composeTaskFor(c._activeMode) == null,
   );
   // The head is minted LAZILY, on the first segment that settles, and never
   // before: a recording nobody said anything into leaves nothing behind,
@@ -193,7 +228,18 @@ void _settleSpan(
   // 🔴 J5 — the row exists, so the span is spoken for. Advance BEFORE any
   // `await`-carrying delivery so a replay landing inside that window is judged
   // against a watermark that already includes this row.
-  segs.markSettled(f.segmentIdx);
+  if (!foreign) segs.markSettled(f.segmentIdx);
+  // Card RC-B follow-up — remember this row as the live press's, so a press
+  // whose last span is silent can settle on the rows it produced. A recovery
+  // session (a fed range is open) mints rows that are not the press's.
+  final String? liveRec = c.session.audio.retainedAudio?.liveAttempt?.recordingId;
+  if (!foreign && liveRec != null && c.session.openSessionRange == null) {
+    if (c._pressRowsRecordingId != liveRec) {
+      c._pressRowsRecordingId = liveRec;
+      c._pressRowIds.clear();
+    }
+    c._pressRowIds.add(entry.id);
+  }
   // 🔴 CARD LS-1b — THE LIVE RECORDING'S AUDIO SETTLES HERE, AND ONLY ON THE
   // TERMINAL FINAL. Placed ABOVE the compose fork on purpose: that fork returns
   // for translate/organize, so a call after it would settle realtime recordings
@@ -212,6 +258,19 @@ void _settleSpan(
       finalText: f.text,
       rowId: entry.id,
     ));
+  }
+  // Card RC-N — a failed attempt's late result: its row exists, so the
+  // recovery leg may settle the journal on it now (ruling 2 option B).
+  if (!f.isSegment &&
+      owner != null &&
+      owner.route == AttemptRoute.lateFailed &&
+      owner.attemptId != null) {
+    c.session.articles.attempts
+        .lateResultLanded(owner.attemptId!, <String>[entry.id], f);
+  }
+  if (foreign) {
+    c.ucNotify();
+    return entry.id;
   }
   c._liveText = '';
   // Card D-2's `c._lastUtteranceEntryId = entry.id` stood here until
@@ -248,7 +307,7 @@ void _settleSpan(
     );
     if (failed != null) c.ucFailed(entry.id, AiComposeOutcome(reason: failed));
     c.ucNotify();
-    return;
+    return entry.id;
   }
   // 08 §5 send policy fork. The ROW is built either way (§4.0 A: the utterance
   // completed, so the record exists) — only the DELIVERY differs.
@@ -278,4 +337,5 @@ void _settleSpan(
     unawaited(_deliverDirect(c, entry));
   }
   c.ucNotify();
+  return entry.id;
 }

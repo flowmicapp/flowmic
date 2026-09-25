@@ -155,7 +155,8 @@ export class FunasrEngine extends EventEmitter implements SttEngine {
     //
     // F-1: an empty frame contributes no text. Emitting `final{text:''}` would
     // reach the orchestrator's handler (`offlineAccum = mergeOverlap(…);
-    // onlineDraft = ''`) and wipe a longer live draft BEFORE raceFlushFinal
+    // onlineDraft = ''` — RC-5b: `legFacts.foldFinal(…)`, which is `mergeOverlap`
+    // except at an un-replayed seam) and wipe a longer live draft BEFORE raceFlushFinal
     // late-binds getOfflineText(). Empty is a settle signal, not a result.
     if (text.length > 0) {
       const isOfflinePass = frame.mode === '2pass-offline'

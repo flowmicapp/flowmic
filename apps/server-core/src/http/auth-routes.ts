@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/05-DATA-MODEL.md §7 (Cloud KEY JWT minted by REST
 //     /api/login|register)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ② (REST, saas-only:
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ② (REST, saas-only:
 //     POST /api/register → 201 {token,user} | 409 EMAIL_EXISTS | 429
 //     REGISTER_RATE_LIMITED; POST /api/login → {token,user} | 401
 //     AUTH_LOGIN_FAILED; GET /api/me (Bearer) → {user}. user = {id,email,
@@ -53,7 +53,7 @@
 //     no longer an ungated one: it counts into, and is gated by, the global
 //     surge counter exactly like this route.
 // Precedent for the shape (a cheap greppable record beats an unauditable
-// mechanism): docs/strategy/2026-08-25-unregistered-trial-allowance-design.md §6.
+// mechanism): docs/archive/strategy/2026-08-25-unregistered-trial-allowance-design.md §6.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AuthService } from '../auth/auth-service';
@@ -339,7 +339,7 @@ export function tryHandleAuthRoutes(req: IncomingMessage, res: ServerResponse, d
         // owner's concern, verbatim (2026-08-27 ruling 3): 「会不会出现狂刷邮箱来
         // 套取免费额度的情况」. The per-IP caps below it are the floor; this line is
         // how anyone would ever FIND OUT that the floor is being walked around.
-        // Precedent: docs/strategy/2026-08-25-unregistered-trial-allowance-design.md
+        // Precedent: docs/archive/strategy/2026-08-25-unregistered-trial-allowance-design.md
         // §6 (the three gates), whose whole argument is that a cheap, greppable
         // record beats an expensive mechanism nobody can audit.
         //

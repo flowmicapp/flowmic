@@ -1,10 +1,10 @@
 // SPEC-REF:
-//   docs/strategy/spikes/sherpa-onnx-spike.md §6.2 (interim strategy: recommendation
+//   docs/archive/strategy/spikes/sherpa-onnx-spike.md §6.2 (interim strategy: recommendation
 //     A = batch final-only; the "optional enhancement" paragraph = VAD
 //     sub-segmentation, linear cost, "segmented quasi-streaming" — this file is
 //     that enhancement)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §3 (interim = offlineAccum + onlineDraft)
-//   docs/strategy/2026-08-12-owner-nine-requirements-backlog.md REQ-12-05
+//   docs/archive/strategy/2026-08-12-owner-nine-requirements-backlog.md REQ-12-05
 //
 // Incremental preview decoding for the built-in offline engine.
 //

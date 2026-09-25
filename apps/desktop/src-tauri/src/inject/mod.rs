@@ -53,6 +53,8 @@ pub mod pipeline;
 /// Split out of `pipeline.rs` at the 800-line cap; the cut is 「the verdict that
 /// can be settled before typing」 vs 「the act of typing itself」, argued in that file's header.
 pub mod preflight;
+#[cfg(target_os = "linux")]
+pub mod linux_preflight;
 /// READ-BACK (2026-08-22): did the text we delivered actually land in the
 /// focused element? The `WM_RENDERFORMAT` receipt was measured NOT to answer
 /// that — it arrives at the same 13ms whether or not the target is in any state
@@ -136,3 +138,9 @@ mod focus_evidence_tests;
 #[cfg(test)]
 #[path = "text_cap_mirror_tests.rs"]
 mod text_cap_mirror_tests;
+
+#[cfg(target_os = "linux")]
+pub mod linux;
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_contract_tests;

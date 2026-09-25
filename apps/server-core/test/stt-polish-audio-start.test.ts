@@ -590,7 +590,7 @@ describe('RT-1 — resolveLlmConfigWithSource is called once per session, from o
 //
 // 🔴 THE SECOND TEST IS THE ANTI-FACADE ONE. A dep nobody fills is this repo's
 // #1 historical bug class, and it is invisible to any test that constructs
-// PolishDeps by hand. Refs docs/strategy/2026-08-28-multilingual-chain-audit.md
+// PolishDeps by hand. Refs docs/archive/strategy/2026-08-28-multilingual-chain-audit.md
 // §2 hop 7.
 // ─────────────────────────────────────────────────────────────────────────────
 describe('polish diagnostics carry the session language', () => {

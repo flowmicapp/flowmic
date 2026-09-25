@@ -97,6 +97,12 @@ mixin HistoryStrings on AppStringsLeaves {
     return 'совпадений';
   }
 
+  /// Card CR-12-G — how many rows of ONE recording a search matched, under
+  /// that recording's card in the results. Not [articleCardMeta]'s count: that
+  /// one says how many parts the recording has, this one how many of them
+  /// hold the word.
+  String historyHitsInRecording(int n) => _lfHistoryHitsInRecording(n);
+
   String get historyLoadingMore => _lfHistoryLoadingMore;
 
   /// Reached the end. Says so instead of letting the list silently stop —
@@ -115,6 +121,14 @@ mixin HistoryStrings on AppStringsLeaves {
   /// copy ([reprocessBusy]) because 「这条重跑不了」 ("this one can't be
   /// reprocessed") and 「等上一次跑完」 ("wait for the previous run to finish")
   /// send the user to different actions.
+  ///
+  /// ⚠️ CORRECTION (NR-89 copy landing, 2026-09-24): the first line above
+  /// (「realtime mode … or a row with no original words」) is out of date. Since
+  /// NR-89 the user picks the operation, so realtime is no longer a refusal,
+  /// and the sentence now says only 「this row has no original words」. It is
+  /// shown for [AiComposeFailure.emptyBuffer] alone; a run that never left the
+  /// phone gets [aiComposeError] instead (`chat_flow_entry_actions.dart`
+  /// `reprocessRefusalCopy`).
   String get reprocessUnavailable => _lfReprocessUnavailable;
 
   /// Card F3 defect ①: the press was refused because a run is already in flight.

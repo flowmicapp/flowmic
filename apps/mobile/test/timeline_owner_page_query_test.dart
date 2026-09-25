@@ -101,7 +101,7 @@ void main() {
   );
 
   test('F2 contract: the predicate is owner ∈ SET, not owner ==', () async {
-    // F2 (docs/strategy/2026-08-04-f2-machine-merge-design.md §5 phase 3) widens the
+    // F2 (docs/archive/strategy/2026-08-04-f2-machine-merge-design.md §5 phase 3) widens the
     // owner of a chat view to every pairing id of the same physical machine.
     // This asserts the widening is an ARGUMENT change, available today.
     final DateTime base = DateTime.utc(2026, 8, 1);

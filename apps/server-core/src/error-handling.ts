@@ -56,7 +56,7 @@ export interface GuardLogger {
  *
  *  ⚠️ And nothing reads that trace today — no scheduled probe, no OnFailure=, no
  *  WatchdogSec anywhere in the unit. That gap IS card D10; the full audit is
- *  docs/strategy/2026-08-05-d10-monitoring-and-alerting-cn.md §2.2.
+ *  docs/archive/strategy/2026-08-05-d10-monitoring-and-alerting-cn.md §2.2.
  *
  *  ⚠️ Whether the LIVE unit still says `Restart=always` is UNVERIFIED — the
  *  deploy/ copy is a mirror and its own header warns 「THE BOX IS THE TRUTH, THE

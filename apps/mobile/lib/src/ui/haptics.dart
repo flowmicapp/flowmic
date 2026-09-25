@@ -46,8 +46,8 @@ abstract final class FlowMicHaptics {
   ///
   /// 🔴 IT MUST NOT FEEL LIKE injected. `injectSuccess` means 「the computer
   /// really accepted this text」,
-  /// and this end cannot claim that for a keypress: `control:key` has no receipt
-  /// frame, so all this confirms is 「it was sent」 (docs/rebuild/15 §2.0-e). Two
+  /// and this end cannot claim that at press time: before any receipt returns,
+  /// all this confirms is 「it was sent」 (docs/rebuild/15 §2.0-e). Two
   /// different claims must not share one sensation — that is 「one value
   /// answering two questions」 on
   /// the haptic channel, and the file header's own rule.

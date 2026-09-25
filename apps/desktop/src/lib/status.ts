@@ -28,6 +28,9 @@ const BADGES: Record<HistoryStatus, StatusBadge> = {
   failed: { glyph: '✗', get label() { return S.st_failed; }, cls: 'st-r', dot: 'r' },
   noted: { glyph: '📥', get label() { return S.st_noted; }, cls: 'st-n', dot: 'n' },
 };
+const UNCERTAIN: StatusBadge = {
+  glyph: '?', get label() { return S.st_uncertain; }, cls: 'st-y', dot: 'y',
+};
 
 /** 🔴 A-3's WEAK half of `injected` (owner 2026-08-07). A SEPARATE constant rather
  *  than `{ ...BADGES.injected, label: … }`: spreading an object whose `label` is a
@@ -51,7 +54,8 @@ const INJECTED_UNCONFIRMED: StatusBadge = {
  *  「已确认」("confirmed"), so `undefined` and `'unknown'` and `'not_editable'` all land on delivered.
  *  They are three DIFFERENT facts (see [[FocusEvidence]]) that happen to share one
  *  rendering, which is not the same as being collapsed into one value. */
-export function statusBadge(status: HistoryStatus, evidence?: FocusEvidence | null): StatusBadge {
+export function statusBadge(status: HistoryStatus, evidence?: FocusEvidence | null, code?: string | null): StatusBadge {
+  if (status === 'cached' && code === 'INJECT_SUBMISSION_UNCERTAIN') return UNCERTAIN;
   if (status === 'injected') {
     return evidence === 'editable' ? BADGES.injected : INJECTED_UNCONFIRMED;
   }
@@ -97,13 +101,15 @@ export function statusLine(
   targetLabel?: string | null,
   evidence?: FocusEvidence | null,
   namedReason?: string | null,
+  code?: string | null,
 ): string {
-  const b = statusBadge(status, evidence);
+  const b = statusBadge(status, evidence, code);
   // The reason slot is `failed`'s alone (§C-2): `cached` already carries 「· 已缓存」
   // inside its badge word and explains itself on the tooltip, and putting a second
   // ` · ` clause here would give one row two explanations — the exact charge the
   // 2026-08-19 correction found to be FALSE about the ✗ face and TRUE about 📥.
-  const reason = status === 'failed' && namedReason && namedReason.length > 0
+  const reason = (status === 'failed' || (status === 'cached' &&
+    (code === 'INJECT_SUBMISSION_UNCERTAIN' || code === 'INJECT_WAYLAND_UNSUPPORTED' || code === 'INJECT_DISPLAY_UNAVAILABLE'))) && namedReason && namedReason.length > 0
     ? ` · ${namedReason}`
     : '';
   const arrow = targetLabel && targetLabel.length > 0 ? ` ${S.to} ${targetLabel}` : '';

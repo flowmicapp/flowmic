@@ -1,6 +1,6 @@
 // 0.3.25 — END TO END over a REAL BOOTED SERVER, with the Paddle stand-in.
 //
-// SPEC-REF: docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md §5
+// SPEC-REF: docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md §5
 //
 // ── WHY THIS EXISTS ALONGSIDE THE ROUTE TESTS ───────────────────────────────
 // billing-routes.test.ts and billing-withdrawal.test.ts each mount ONE handler

@@ -5,7 +5,7 @@
 //     PTT end with source 'stt'; hold-then-send = explicit Send with source
 //     'manual'; QuickActions = four control keys, clear also wipes the local
 //     buffer; the punctuation row is LOCAL and emits nothing)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-3 ②
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-3 ②
 //   packages/protocol/src/protocol-schemas-inject.ts (InjectRequestSchema /
 //     ControlKeySchema — FROZEN, mirrored not modified)
 //
@@ -264,9 +264,17 @@ class ComposeGate {
   /// crosstalk (串号)
   /// invisible. Null is a real state (an older phone, a relay that strips the key),
   /// and the payload OMITS the field rather than sending an empty string.
-  bool emitControlKey(ControlKeyKind kind, {String? deviceLabel}) => _emit(
+  bool emitControlKey(
+    ControlKeyKind kind, {
+    String? deviceLabel,
+    String? requestId,
+  }) => _emit(
     FlowMicEvents.controlKey,
-    ControlKeyPayload(kind, deviceLabel: deviceLabel).toJson(),
+    ControlKeyPayload(
+      kind,
+      deviceLabel: deviceLabel,
+      requestId: requestId,
+    ).toJson(),
   );
 
   /// compose:start — the AI buffer operations (§3.4). Returns whether the frame

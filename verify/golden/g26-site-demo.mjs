@@ -15,7 +15,7 @@
 // SPEC-REF:
 //   docs/strategy/2026-09-09-web-client-stage4-site-demo-design.md §2.2 (the
 //     sequence), §2.3 (grant and TTL), §3.1 (the gates)
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §10-1 (the
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §10-1 (the
 //     ordered rule), §10-4 (the cap)
 //   docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md §10
 //     (owner 2026-09-11 — the two minutes are ONE-TIME per browser identity;

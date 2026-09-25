@@ -1,7 +1,7 @@
 // FlowMic post-uninstall cleanup (S6, 0.3.0).
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-04-0.3.0-task-book-cn.md S6
+//   docs/archive/strategy/2026-08-04-0.3.0-task-book-cn.md S6
 //   apps/desktop/src-tauri/src/socket/credentials.rs (LAN credential, DPAPI)
 //   apps/desktop/src-tauri/src/socket/channel.rs (cloud credential + config +
 //     typed-ledger, all DPAPI/state, all siblings of credentials.bin)

@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-09-06-audio-durability-device-drill.md B-1 (the scenario
+//   docs/archive/strategy/2026-09-06-audio-durability-device-drill.md B-1 (the scenario
 //     this hook exists to reproduce: the speech engine is dead while the socket
 //     stays alive)
 //   docs/strategy/2026-08-27-project-status-log.md §A2-2 E7 (the defect the drill

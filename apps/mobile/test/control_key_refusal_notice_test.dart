@@ -43,6 +43,9 @@ import 'package:flowmic/src/settings/app_settings.dart' show AppLocale;
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/settings/local_prefs.dart';
 import 'package:flowmic/src/signaling/socket_core.dart';
+import 'package:flowmic/src/signaling/wire_payloads.dart';
+import 'package:flowmic/src/timeline/timeline_entry.dart';
+import 'package:flowmic/src/timeline/timeline_persistence.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flowmic/src/ui/banner_slot.dart';
@@ -78,14 +81,18 @@ class _Rig {
   late final DestinationController destination;
   late final ChatController controller;
 
-  static _Rig create() {
+  static _Rig create({TimelinePersistence? persistence}) {
     final _Rig r = _Rig._();
     r.transport = FakeSocketTransport();
     r.session = newTestSession(
       transport: r.transport,
       audio: AudioCapture(recorder: FakeAudioRecorder()),
     );
-    r.store = newTestStore(owner: _FakeOwner('inst-mp14', '书房电脑'));
+    giveSessionAPairedIdentity(r.session);
+    r.store = newTestStore(
+      persistence: persistence,
+      owner: _FakeOwner(r.session.connectedInstanceId, '书房电脑'),
+    );
     r.destination = DestinationController();
     r.controller = ChatController(
       outboxStore: newTestOutboxStore(),
@@ -102,17 +109,24 @@ class _Rig {
 
   /// The far end's receipt, byte-shaped as `ControlKeyResultSchema` puts it on
   /// the wire (the desktop's `build_key_receipt`, or a web target's own emit).
-  void receipt(String kind, {required bool ok, String? reason, String? requestId}) =>
+  void receipt(
+    String kind, {
+    required bool ok,
+    String? reason,
+    String? errorCode,
+    String? requestId,
+  }) =>
       transport.pushIncoming(FlowMicEvents.controlKeyResult, <String, Object?>{
         'kind': kind,
         'ok': ok,
+        if (errorCode != null) 'error_code': errorCode,
         'reason': ?reason,
         'request_id': ?requestId,
       });
 }
 
-_Rig _rig() {
-  final _Rig r = _Rig.create();
+_Rig _rig({TimelinePersistence? persistence}) {
+  final _Rig r = _Rig.create(persistence: persistence);
   addTearDown(() async {
     await r.controller.dispose();
     r.destination.dispose();
@@ -139,23 +153,49 @@ void _releaseTimers(_Rig r) {
   r.session.debugStopIdlePresencePoll();
 }
 
-Finder _bannerCopy(String sentence) => find.descendant(
-  of: find.byType(BannerSlot),
-  matching: find.text(sentence),
-);
+Finder _bannerCopy(String sentence) =>
+    find.descendant(of: find.byType(BannerSlot), matching: find.text(sentence));
 
 void main() {
+  for (final code in [
+    'INJECT_WAYLAND_UNSUPPORTED',
+    'INJECT_DISPLAY_UNAVAILABLE',
+  ]) {
+    testWidgets('$code refusal reaches the rendered phone banner', (
+      tester,
+    ) async {
+      final r = _rig();
+      await tester.pumpWidget(
+        MaterialApp(home: ChatFlowPage(controller: r.controller)),
+      );
+      await tester.pump();
+      r.receipt(
+        'enter',
+        ok: false,
+        reason: 'failed',
+        errorCode: code,
+        requestId: 'display-key',
+      );
+      await _deliverAndPaint(tester);
+      expect(find.text(_zh.injectVerdictNote(code)!), findsOneWidget);
+      _releaseTimers(r);
+    });
+  }
   setUp(DiagLog.instance.clear);
 
   // ── ① the seam: a refusal reaches the REAL page ───────────────────────────
-  testWidgets('a refused key is named on the chat page, in the key\'s own words',
-      (WidgetTester tester) async {
+  testWidgets('a refused key is named on the chat page, in the key\'s own words', (
+    WidgetTester tester,
+  ) async {
     final _Rig r = _rig();
-    await tester.pumpWidget(MaterialApp(home: ChatFlowPage(controller: r.controller)));
+    await tester.pumpWidget(
+      MaterialApp(home: ChatFlowPage(controller: r.controller)),
+    );
     await tester.pump();
 
-    final String expected =
-        _zh.controlKeyRefusedUnsupported(controlKeyLabel(_zh, 'undo'));
+    final String expected = _zh.controlKeyRefusedUnsupported(
+      controlKeyLabel(_zh, 'undo'),
+    );
     // Positive control: the page is silent BEFORE the frame, so a hit after it
     // is the frame talking and not some other banner that was always there.
     expect(_bannerCopy(expected), findsNothing);
@@ -166,7 +206,8 @@ void main() {
     expect(
       _bannerCopy(expected),
       findsOneWidget,
-      reason: 'the page builds its queue through chatBannerSources — if the '
+      reason:
+          'the page builds its queue through chatBannerSources — if the '
           'receipt stops anywhere between the socket and that adapter, the key '
           'that did nothing goes on looking like a key that worked',
     );
@@ -179,10 +220,13 @@ void main() {
   // receipt is on the wire so that silence cannot mean two things to the
   // PROTOCOL; it must not become a sentence, or the product narrates every
   // keypress back at the person who just pressed it.
-  testWidgets('a receipt that says the key WORKED puts nothing on screen',
-      (WidgetTester tester) async {
+  testWidgets('a receipt that says the key WORKED puts nothing on screen', (
+    WidgetTester tester,
+  ) async {
     final _Rig r = _rig();
-    await tester.pumpWidget(MaterialApp(home: ChatFlowPage(controller: r.controller)));
+    await tester.pumpWidget(
+      MaterialApp(home: ChatFlowPage(controller: r.controller)),
+    );
     await tester.pump();
 
     r.receipt('enter', ok: true, requestId: 'k-2');
@@ -199,6 +243,152 @@ void main() {
     _releaseTimers(r);
   });
 
+  testWidgets(
+    'an uncertain receipt persists on the exact control row and never renders as failed',
+    (WidgetTester tester) async {
+      final _Rig r = _rig();
+      await tester.pumpWidget(
+        MaterialApp(home: ChatFlowPage(controller: r.controller)),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(r.controller.sendControlKey(ControlKeyKind.enter), isTrue);
+      await tester.pump();
+      final Map<dynamic, dynamic> press =
+          r.transport.emittedWhere(FlowMicEvents.controlKey).last.data
+              as Map<dynamic, dynamic>;
+      final String requestId = press['request_id'] as String;
+      expect(requestId, isNotEmpty);
+      expect(r.store.findByClientId(requestId)?.status, EntryStatus.noted);
+      expect(
+        r.session.scope.ownerIds,
+        contains(r.session.connectedInstanceId),
+      );
+
+      r.receipt('enter', ok: false, reason: 'uncertain', requestId: requestId);
+      await _deliverAndPaint(tester);
+
+      final TimelineEntry row = r.store.findByClientId(requestId)!;
+      expect(row.status, EntryStatus.cached);
+      expect(row.failureReason, 'submission_uncertain');
+      expect(r.controller.controlKeyRefusal, isNull);
+      expect(find.text(_zh.injectionUncertain), findsOneWidget);
+      expect(
+        find.text(_zh.injectVerdictNote('INJECT_SUBMISSION_UNCERTAIN')!),
+        findsOneWidget,
+      );
+      expect(find.text(_zh.statusFailed), findsNothing);
+      expect(find.text(_zh.statusDeliveredNotInjected), findsNothing);
+      _releaseTimers(r);
+    },
+  );
+
+  test('uncertain control receipts only use recency when the id is absent', () {
+    final TimelineStore store = newTestStore();
+    final TimelineEntry older = store.buildControlRow(
+      clientId: 'k-old',
+      kind: 'clear',
+    );
+    final TimelineEntry newer = store.buildControlRow(
+      clientId: 'k-new',
+      kind: 'clear',
+    );
+
+    expect(
+      store.applyControlSubmissionUncertain(
+        requestId: 'k-missing',
+        kind: 'clear',
+      ),
+      isFalse,
+    );
+    expect(store.findById(newer.id)!.status, EntryStatus.noted);
+    expect(store.applyControlSubmissionUncertain(kind: 'clear'), isTrue);
+    expect(store.findById(newer.id)!.status, EntryStatus.cached);
+    expect(store.findById(older.id)!.status, EntryStatus.noted);
+    store.dispose();
+  });
+
+  testWidgets(
+    'the real chat page renders a transcript uncertainty as its own label and reason',
+    (WidgetTester tester) async {
+      final _Rig r = _rig();
+      final TimelineEntry row = r.store.buildFromUtterance(
+        clientId: 'u-page-uncertain',
+        mode: FlowMode.realtime,
+        delivery: Delivery.inject,
+        text: 'possibly already inserted',
+      );
+      r.store.applyInjectResult(
+        correlationId: row.id,
+        ok: false,
+        pcName: 'Test PC',
+        failureReason: 'INJECT_SUBMISSION_UNCERTAIN',
+        wireMode: 'cached',
+      );
+      expect(
+        r.session.scope.ownerIds,
+        contains(r.session.connectedInstanceId),
+      );
+      expect(
+        r.store.entriesForOwners(r.session.scope.ownerIds),
+        contains(isA<TimelineEntry>().having((e) => e.id, 'id', row.id)),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: ChatFlowPage(controller: r.controller)),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('? ${_zh.injectionUncertain}'), findsOneWidget);
+      expect(
+        find.text(_zh.injectVerdictNote('INJECT_SUBMISSION_UNCERTAIN')!),
+        findsOneWidget,
+      );
+      expect(find.text(_zh.statusFailed), findsNothing);
+      expect(find.text(_zh.statusDeliveredNotInjected), findsNothing);
+
+      // Restart against the same durable table and mount the production page
+      // again. The independent state must survive the codec/readback boundary.
+      await tester.pumpWidget(const SizedBox.shrink());
+      final TimelinePersistence persistence = InMemoryTimelinePersistence();
+      final _Rig writer = _rig(persistence: persistence);
+      final TimelineEntry persisted = writer.store.buildFromUtterance(
+        clientId: 'u-reload-uncertain',
+        mode: FlowMode.realtime,
+        delivery: Delivery.inject,
+        text: 'persisted uncertainty',
+      );
+      writer.store.applyInjectResult(
+        correlationId: persisted.id,
+        ok: false,
+        pcName: 'Test PC',
+        failureReason: 'INJECT_SUBMISSION_UNCERTAIN',
+        wireMode: 'cached',
+      );
+      await tester.pump();
+      final _Rig reader = _rig(persistence: persistence);
+      await reader.store.load();
+      expect(reader.store.findById(persisted.id)!.status, EntryStatus.cached);
+      await tester.pumpWidget(
+        MaterialApp(home: ChatFlowPage(controller: reader.controller)),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('? ${_zh.injectionUncertain}'), findsOneWidget);
+      expect(
+        find.text(_zh.injectVerdictNote('INJECT_SUBMISSION_UNCERTAIN')!),
+        findsOneWidget,
+      );
+      _releaseTimers(writer);
+      _releaseTimers(reader);
+      _releaseTimers(r);
+    },
+  );
+
   // ── ③ the ROW keeps its own, narrower claim ───────────────────────────────
   //
   // 🔴 15 §2.0-e: each side mints its own row and states only the half it can
@@ -207,10 +397,13 @@ void main() {
   // different lifetime, and writing it onto the row would give one value two
   // questions to answer (this repo's #1 shape). What the card forbids is the
   // row CLAIMING the key was applied; it never did and must not start.
-  testWidgets('the refusal does not rewrite the keypress row',
-      (WidgetTester tester) async {
+  testWidgets('the refusal does not rewrite the keypress row', (
+    WidgetTester tester,
+  ) async {
     final _Rig r = _rig();
-    await tester.pumpWidget(MaterialApp(home: ChatFlowPage(controller: r.controller)));
+    await tester.pumpWidget(
+      MaterialApp(home: ChatFlowPage(controller: r.controller)),
+    );
     await tester.pump();
 
     final int before = r.store.entries.length;
@@ -226,10 +419,13 @@ void main() {
   });
 
   // ── ④ the sentence is READABLE, not merely present ────────────────────────
-  testWidgets('the sentence is laid out in full, not clipped to an ellipsis',
-      (WidgetTester tester) async {
+  testWidgets('the sentence is laid out in full, not clipped to an ellipsis', (
+    WidgetTester tester,
+  ) async {
     final _Rig r = _rig();
-    await tester.pumpWidget(MaterialApp(home: ChatFlowPage(controller: r.controller)));
+    await tester.pumpWidget(
+      MaterialApp(home: ChatFlowPage(controller: r.controller)),
+    );
     await tester.pump();
 
     r.receipt('backspace', ok: false, reason: 'failed', requestId: 'k-4');
@@ -246,7 +442,8 @@ void main() {
     expect(
       p.didExceedMaxLines,
       isFalse,
-      reason: 'the notice is one sentence in a banner that may wrap; if it is '
+      reason:
+          'the notice is one sentence in a banner that may wrap; if it is '
           'being clipped here (under Ahem, which is the pessimistic font) it is '
           'unreadable, and an unreadable notice is the 0.2.53 defect again',
     );
@@ -260,9 +457,26 @@ void main() {
         final AppStrings s = AppStrings.of(locale);
         final String key = controlKeyLabel(s, 'clear');
         final List<String> sentences = <String>[
-          controlKeyRefusalText(s, const ControlKeyRefusal(ticket: 1, kind: 'clear', reason: 'unsupported_here')),
-          controlKeyRefusalText(s, const ControlKeyRefusal(ticket: 2, kind: 'clear', reason: 'no_target')),
-          controlKeyRefusalText(s, const ControlKeyRefusal(ticket: 3, kind: 'clear', reason: 'failed')),
+          controlKeyRefusalText(
+            s,
+            const ControlKeyRefusal(
+              ticket: 1,
+              kind: 'clear',
+              reason: 'unsupported_here',
+            ),
+          ),
+          controlKeyRefusalText(
+            s,
+            const ControlKeyRefusal(
+              ticket: 2,
+              kind: 'clear',
+              reason: 'no_target',
+            ),
+          ),
+          controlKeyRefusalText(
+            s,
+            const ControlKeyRefusal(ticket: 3, kind: 'clear', reason: 'failed'),
+          ),
         ];
         // Three moves, three sentences. Collapsing any two would throw away the
         // only thing the wire enum was built to carry.

@@ -34,7 +34,7 @@ import {
 import type { PcRecord } from '../../db/repos/pc.repo';
 import { errorPayload } from '../../errors';
 import { logAuthRefusal } from '../../auth/refusal-log';
-import { safeAck, setAuth, setRoomUuid } from '../wire';
+import { safeAck, setAuth, setClientCaps, setRoomUuid } from '../wire';
 import { adoptAudioSession, peekAudioLastContiguousSeq } from '../../engine/audio-registry';
 import { budgetAckFields } from './budget-frames';
 import { meteringPrincipal, type MeteringPrincipalInput } from '../../auth/metering-principal';
@@ -46,6 +46,7 @@ import { type MobileHandlerDeps, refuseRestricted } from './mobile-handler-deps'
 /** The three per-connection closures `mobile:reconnect` shares with
  *  `mobile:pair` (see `registerMobileHandlers`) — SAME instances, not rebuilt. */
 export interface MobileReconnectHelpers {
+  refuseUnbillableRoom: (pc: PcRecord, where: string, ack: unknown) => boolean;
   pcOnline: (pc: PcRecord) => boolean;
   meteringInput: (
     pc: PcRecord,
@@ -154,6 +155,8 @@ export function makeMobileReconnectHandler(
         return safeAck(ack, { error: refusal });
       }
       const { mobile, pc } = result;
+      // W6b: same room/key admission as pair, before auth, join or audio adoption.
+      if (helpers.refuseUnbillableRoom(pc, 'mobile:reconnect', ack)) return;
       // A2-3 — the identity this socket is ABOUT to be given, computed ONCE and
       // read by both the gate below and `setAuth` further down. A gate that
       // judges a different value from the one it then admits is a gate on paper.
@@ -245,6 +248,7 @@ export function makeMobileReconnectHandler(
         speakerSignedIn: principal.speakerSignedIn,
       });
       setRoomUuid(socket, pc.room_uuid);
+      setClientCaps(socket, parsed.data.client_caps); // card HANGUP-3
       joinAndNotify(store, pc.room_uuid, mobile, socket, deps.armWebLiveness);
       // GA-04: re-bind an audio session still inside its mobile-drop grace, so a
       // sub-30s blip resumes on the SAME orchestrator (SeqTracker intact) and the

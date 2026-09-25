@@ -7,7 +7,7 @@
 //   · the cap is a hard upper bound — past it, soft posture ends;
 //   · sessionLost does not fire while the window is open.
 //
-// SPEC-REF: docs/strategy/2026-07-30-task-package-v1.md RV-60;
+// SPEC-REF: docs/archive/strategy/2026-07-30-task-package-v1.md RV-60;
 //   CLAUDE.md red line: no silent failure (both directions).
 
 import 'dart:async';

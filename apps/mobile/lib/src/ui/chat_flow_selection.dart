@@ -235,7 +235,7 @@ void _onBatchOrganizeRouted(
     // finished speaking would get wiped out.
     speechInFlight:
         s.controller.isRecording ||
-        s.controller.sessionState == SessionState.processing,
+        s.controller.pressSessionState == SessionState.processing,
     buffer: s.controller.buffer,
   );
   if (refusal != null) {

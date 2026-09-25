@@ -4,20 +4,32 @@
 //     2026-07-31-owner-window-a-four-rulings.md §3/§4)
 //   docs/strategy/2026-07-31-owner-nine-rulings-batch.md A1 (tiers/price/quota
 //     must not be hardcoded, must be configurable)
-//   docs/strategy/2026-07-23-mock-billing-design.md §1 (the fair line only rises,
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §1 (the fair line only rises,
 //     never falls), §8.4 (PLAN_LIMITS single source of truth, clients forbidden
 //     from copying it)
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §4-2
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §4-2
 //   docs/decisions/2026-08-02-pc-instance-limit-2-3-10.md (owner: PC instances 2/3/10;
 //     the ONE narrowing of the red line below — see 「THE ONE EXCEPTION」)
+//   docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md
+//     (NR-90: pro/max prices $12/$28, llm_tokens 10M/50M, pro stt_minutes 1000;
+//     supersedes the pro/max token cells of 2026-08-27 and the pro/max prices
+//     of 2026-08-01)
 //
 // The single source of truth for every quota number. Clients consume
 // getQuota()'s returned numbers; they MUST NOT copy these constants (§8.4).
 //
-// ── owner 2026-08-02 table (CURRENT) ────────────────────────────────────────
+// ── owner table (CURRENT, as of 2026-09-23) ─────────────────────────────────
 //   free  $0   20 min     1M   token    2 PC / 2 phone   30 days
-//   pro   $6   900 min    20M  token    3 PC / ∞ phone   365 days
-//   max   $20  3,000 min  100M token   10 PC / ∞ phone   365 days
+//   pro   $12  1,000 min  10M  token    3 PC / ∞ phone   365 days
+//   max   $28  3,000 min  50M  token   10 PC / ∞ phone   365 days
+//
+// ⚠️ CORRECTED 2026-09-23 (NR-90). Until then this table still read the
+// 2026-08-02 numbers ($6 / $20, 900 min, 20M / 100M tokens) under a CURRENT
+// label, although the 2026-08-27 re-cut had already moved the token cells to
+// 5M / 15M. owner 2026-09-23 then set pro $12 / max $28, pro 1,000 min and
+// 10M / 50M tokens (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-
+// and-token-caps.md §1). Prices are not enforced here — this file holds limits
+// only; the dollar column is for the reader.
 //
 // Re-cut UPWARD on 2026-08-02 in two owner rulings on the same day:
 //
@@ -43,6 +55,12 @@
 // a PRODUCT GATE than a pure safety valve — a heavy organize-mode account on
 // max could plausibly reach it through ordinary use, not only through a
 // looping client.
+//
+// 🔴 owner's 2026-09-23 re-cut (pro 5M→10M, max 15M→50M; free unchanged at
+// 1M; pro stt_minutes 900→1000 — docs/decisions/2026-09-23-owner-nr89-nr90-
+// unshelve-price-and-token-caps.md §1-3/§1-5) widened the headroom again, in
+// the always-permitted direction. The ratios in the paragraph above are the
+// 2026-08-27 arithmetic and are kept as history.
 // ⇒ If you see a real user hit llm_tokens on FREE, or a light-usage PRO
 // account hit it, that is still a BUG REPORT — find out what looped. On MAX
 // it may legitimately mean "used the product a lot"; do not assume either
@@ -265,10 +283,12 @@ export const PLAN_LIMITS: Readonly<Record<Plan, Readonly<PlanLimits>>> = {
     // §1 "key difference from the old line"). Protected by "only rises, never falls" from 2026-08-01 onward; the
     // 900→60 re-cut of 2026-08-01 was the one allowed CUT (zero paying users),
     // and 60→900 on 2026-08-02 restores it in the always-permitted direction.
-    stt_minutes: 900,
+    // owner 2026-09-23: 900 → 1000 (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md §1-5)
+    stt_minutes: 1000,
     // owner 2026-08-27: 20M → 5M (docs/decisions/2026-08-27-owner-quota-
     // gauge-and-token-caps.md). See the header for what this ratio now means.
-    llm_tokens: 5_000_000,
+    // owner 2026-09-23: 5M → 10M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md)
+    llm_tokens: 10_000_000,
     // owner 2026-08-02: 2/3/10. NOT identical to max — the ONE dimension where
     // paid tiers may differ beyond metered spend (header: 「THE ONE EXCEPTION」).
     pcs: 3,
@@ -276,14 +296,15 @@ export const PLAN_LIMITS: Readonly<Record<Plan, Readonly<PlanLimits>>> = {
     history_days: 365,
     // owner 2026-08-29. Identical to max on purpose: this dimension is a session
     // ceiling, not metered spend, so the pro/max difference lives in
-    // stt_minutes (900 vs 3000), not here.
+    // stt_minutes (1000 vs 3000), not here.
     continuous_minutes: 30,
   },
   max: {
     stt_minutes: 3_000,
     // owner 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-
     // gauge-and-token-caps.md). See the header for what this ratio now means.
-    llm_tokens: 15_000_000,
+    // owner 2026-09-23: 15M → 50M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md)
+    llm_tokens: 50_000_000,
     // owner 2026-08-02: "an individual generally won't need 10 machine instances;
     // if they do, it's basically certainly an enterprise use case" ⇒ past
     // this, the answer is MORE SUBSCRIPTIONS, not a bigger number here. That is

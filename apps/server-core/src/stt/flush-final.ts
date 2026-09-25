@@ -13,6 +13,8 @@
 import type { EventEmitter } from 'node:events';
 import type { FinalResult, SttEngine } from './engines/base';
 import { vadClosureSilenceBytes, PCM_BYTES_PER_MS } from './tuning-env';
+import { log } from '../log';
+import { AUDIO_DEFAULTS } from '@flowmic/protocol';
 
 export interface FlushFinalDeps {
   /** The engine being flushed, or null (→ resolve immediately with offline text). */
@@ -33,6 +35,16 @@ export interface FlushFinalDeps {
    * Production author: `SttEngineOrchestrator.flushSentHook` ← `stt-factory.ts`.
    */
   onFlushSent?: () => void;
+  /**
+   * Card RC-2 — when the hard cap fires and the engine produced no final of its
+   * own, WITHHOLD the accumulated text (`FlushOutcome.refused`) instead of
+   * delivering it as the transcript. The orchestrator sets it only for a
+   * TERMINAL flush of an engine that reports a processed position
+   * ({@link networkFlushCapMs} sized the cap from it): a cap that still fires
+   * there means the vendor had more to say and we stopped listening.
+   * Absent/false ⇒ unchanged behaviour.
+   */
+  withholdOnTimeout?: boolean;
 }
 
 /**
@@ -74,7 +86,7 @@ export const FUNASR_FLUSH_QUIESCENCE_MS = 2_000;
  * the runtime still open (server did not FIN within 15 s). Replaces the flat
  * 5s floor that fired before either offline.
  */
-export const FUNASR_FLUSH_HARD_CAP_MS = 15_000;
+export const FUNASR_FLUSH_HARD_CAP_MS: number = AUDIO_DEFAULTS.engine_flush_hard_cap_ms; // RC4-S5 follow-up: declared once in the protocol
 
 /** The engine whose flush is a LOCAL DECODE — a bounded computation whose cost
  *  is a function of the audio it holds, not a network round trip that may never
@@ -127,15 +139,71 @@ export function localFlushCapMs(legAudioMs: number): number {
   return Math.max(LOCAL_FLUSH_FLOOR_MS, Math.round(legAudioMs * LOCAL_FLUSH_RTF_CAP));
 }
 
+/**
+ * Card RC-2 — the flush cap for a NETWORK streaming engine that reports how far
+ * the vendor has processed the audio this leg was handed
+ * (`SttEngine.ackedAudioMs`), scaled by what is still unprocessed.
+ *
+ * WHY NOT THE FLAT 3 000 ms. A streaming vendor finishes a flush only after it
+ * has processed everything it was sent, and it processes at roughly real time
+ * whatever rate the audio arrived at. Measured against Soniox directly
+ * (root-cause doc §1.6, plus `.local/rc-backfill/soniox-ack-probe.log` in the
+ * lane-d slot: 30 s of speech sent in 2 s, then 10 s of silence in real time,
+ * then end-of-stream): `total_audio_proc_ms` rose at ~1.2x real time, reached
+ * the fed total 24 s after end-of-stream, in the same frame as `finished`.
+ * A 60 s burst took 52.6 s. On CR-12-E the recovery feed pushed 428 s in 4.3 s;
+ * the flat cap fired 3 s after `audio:stop`, the 8 characters accumulated by
+ * then were delivered as the whole transcript, and we closed the vendor socket
+ * while it was still working.
+ *
+ * So the cap is `max(floor, backlog / NETWORK_FLUSH_VENDOR_RTF + tail)`, the
+ * same shape as {@link localFlushCapMs}. `backlog` is fed minus acknowledged for
+ * THIS leg, both in the leg's own fed-audio clock. The divisor is 1.0 against a
+ * measured ~1.13-1.2x from one machine; root-cause doc §8 asks for it to be
+ * re-measured per node.
+ */
+export const NETWORK_FLUSH_VENDOR_RTF = 1.0;
+export const NETWORK_FLUSH_TAIL_MS = 3_000;
+
+export function networkFlushCapMs(floorMs: number, backlogMs: number): number {
+  return Math.max(floorMs, Math.round(Math.max(0, backlogMs) / NETWORK_FLUSH_VENDOR_RTF) + NETWORK_FLUSH_TAIL_MS);
+}
+
 /** Funasr/funspeech family default is the 15s hard cap (activity-extended
  *  quiescence lives in {@link raceFlushFinal}); the local engine's default is
- *  {@link localFlushCapMs} of the audio this leg was fed. An EXPLICITLY
- *  configured cap still wins the number; other engines are unchanged. */
-export function resolveFlushTimeoutMs(engineId: string, configuredMs: number, explicit: boolean, legAudioMs = 0): number {
+ *  {@link localFlushCapMs} of the audio this leg was fed; a network engine that
+ *  reports a processed position gets {@link networkFlushCapMs} of its unprocessed
+ *  backlog (card RC-2; `backlogMs` null = the engine reports nothing, and its cap
+ *  stays the configured one). An EXPLICITLY configured cap still wins the number;
+ *  other engines are unchanged. */
+export function resolveFlushTimeoutMs(engineId: string, configuredMs: number, explicit: boolean, legAudioMs = 0, backlogMs: number | null = null): number {
   if (explicit) return configuredMs;
   if (isFunasrFlushFamily(engineId)) return FUNASR_FLUSH_HARD_CAP_MS;
   if (isLocalDecodeEngine(engineId)) return localFlushCapMs(legAudioMs);
+  if (backlogMs !== null) return networkFlushCapMs(configuredMs, backlogMs);
   return configuredMs;
+}
+
+/**
+ * Card RC-2 — the frame a TERMINAL flush of a network engine emits INSTEAD of a
+ * final when {@link networkFlushCapMs} still fired (`withholdOnTimeout`). Same
+ * code and the same `retryable: false` as {@link localFlushRefusalError}, for the
+ * reason that function gives: the phone turns a terminal `stt:error` into an
+ * immediate stall that names the code, and a recovery attempt that gets it keeps
+ * its bytes and backs off instead of settling on a few words (root-cause doc
+ * §1.8). No new code; the wording is the existing `STT_ENGINE_TIMEOUT` sentence.
+ */
+export function networkFlushRefusalError(
+  legFedMs: number,
+  ackedMs: number | null,
+  capMs: number,
+): { code: string; message: string; retryable: false } {
+  const acked = ackedMs === null ? 'an unknown amount' : `${Math.round(ackedMs)} ms`;
+  return {
+    code: 'STT_ENGINE_TIMEOUT',
+    message: `the engine had processed ${acked} of the ${Math.round(legFedMs)} ms it was sent when its ${capMs} ms flush cap ran out; nothing was delivered (a partial transcript is not the transcript)`,
+    retryable: false,
+  };
 }
 
 /**
@@ -250,12 +318,20 @@ export interface FlushOutcome {
    * final with its `empty_reason`, unchanged.
    */
   readonly refused: boolean;
+  /**
+   * card RC-L — true ⇒ the engine emitted a final of its own during this flush. For an engine that
+   * reports a processed position (Soniox, whose `final` comes only with its end-of-stream answer) false
+   * means the flush ended WITHOUT the vendor having answered everything it was handed — the leg died
+   * (a close during a flush resolves it silently, `intentionalClose`) or the cap fired — so the audio
+   * past its answered point is owed to the next leg (`orchestrator-core.ts` `noteLegUnanswered`).
+   */
+  readonly engineFinal: boolean;
 }
 
 export function raceFlushFinal(d: FlushFinalDeps): Promise<FlushOutcome> {
   const empty: FinalResult = { kind: 'final', text: '', confidence: 0, language: d.language, duration_ms: 0 };
   const engine = d.engine;
-  if (!engine) return Promise.resolve({ result: { ...empty, text: d.getOfflineText() }, timedOut: false, refused: false });
+  if (!engine) return Promise.resolve({ result: { ...empty, text: d.getOfflineText() }, timedOut: false, refused: false, engineFinal: false });
   const activityExtended = isFunasrFlushFamily(engine.id);
   return new Promise<FlushOutcome>((resolve) => {
     let captured: FinalResult | null = null;
@@ -275,7 +351,7 @@ export function raceFlushFinal(d: FlushFinalDeps): Promise<FlushOutcome> {
           return;
         }
         timedOut = true;
-        console.warn(`[raceFlushFinal] engine.flush() timeout ${FUNASR_FLUSH_QUIESCENCE_MS}ms quiescence — using accumulated offline finals (${d.getOfflineText().length} chars)`);
+        log.warn('stt.flush quiescence settle — using accumulated offline finals', { engine: engine.id, quiescence_ms: FUNASR_FLUSH_QUIESCENCE_MS, chars: d.getOfflineText().length });
         finish(captured ?? empty);
       }, FUNASR_FLUSH_QUIESCENCE_MS);
     };
@@ -299,14 +375,22 @@ export function raceFlushFinal(d: FlushFinalDeps): Promise<FlushOutcome> {
       // streaming engines' cap fallback (their interims ARE the decoder's
       // hypothesis) is byte-for-byte what it was.
       if (engine.interimIsPreviewOnly === true && captured === null && (timedOut || errored)) {
-        resolve({ result: { ...r, text: '' }, timedOut, refused: true });
+        resolve({ result: { ...r, text: '' }, timedOut, refused: true, engineFinal: captured !== null });
+        return;
+      }
+      // Card RC-2 — a network engine's backlog-scaled cap still fired on a
+      // terminal flush: the vendor was still working, so what we accumulated is
+      // a prefix, not the transcript. Withheld the way NR-50 withholds a
+      // preview; the caller says STT_ENGINE_TIMEOUT.
+      if (d.withholdOnTimeout === true && captured === null && timedOut) {
+        resolve({ result: { ...r, text: '' }, timedOut, refused: true, engineFinal: captured !== null });
         return;
       }
       const offline = d.getOfflineText();
       if (timedOut && captured && captured.text.length > offline.length && captured.text.startsWith(offline)) {
-        resolve({ result: { ...r, text: captured.text }, timedOut, refused: false });
+        resolve({ result: { ...r, text: captured.text }, timedOut, refused: false, engineFinal: true });
       } else {
-        resolve({ result: { ...r, text: offline }, timedOut, refused: false });
+        resolve({ result: { ...r, text: offline }, timedOut, refused: false, engineFinal: captured !== null });
       }
     };
     const onError = (): void => { errored = true; finish(captured ?? empty); }; // settle, don't hang
@@ -317,11 +401,12 @@ export function raceFlushFinal(d: FlushFinalDeps): Promise<FlushOutcome> {
       timedOut = true;
       // NR-50: say which of the two things is about to happen — the line used
       // to claim "using accumulated" on a path that now withholds them.
-      if (engine.interimIsPreviewOnly === true && captured === null) {
-        console.warn(`[raceFlushFinal] engine.flush() timeout ${d.timeoutMs}ms — WITHHOLDING the accumulated preview (${d.getOfflineText().length} chars): a preview is not a transcript`);
-      } else {
-        console.warn(`[raceFlushFinal] engine.flush() timeout ${d.timeoutMs}ms — using accumulated offline finals (${d.getOfflineText().length} chars)`);
-      }
+      // Card RC-2 (the line RC-6 left here): through the logger, so it lands in
+      // server.log with fields rather than on a bare stderr.
+      const withheld = captured === null && (engine.interimIsPreviewOnly === true || d.withholdOnTimeout === true);
+      log.warn(withheld ? 'stt.flush timeout — WITHHOLDING the accumulated text: it is not the transcript' : 'stt.flush timeout — using accumulated offline finals', {
+        engine: engine.id, cap_ms: d.timeoutMs, chars: d.getOfflineText().length, withheld,
+      });
       finish(captured ?? empty);
     }, d.timeoutMs);
     // WP2-6a: stamp BEFORE the call, not in its `.then` — `.then` is "flush

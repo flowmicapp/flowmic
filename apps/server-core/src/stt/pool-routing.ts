@@ -1,9 +1,9 @@
 // SPEC-REF:
 //   apps/server-core/src/pool/select-route.ts (A6-3, the algorithm)
-//   docs/strategy/2026-08-02-m2-window-handoff-report.md §5 M2-2
+//   docs/archive/strategy/2026-08-02-m2-window-handoff-report.md §5 M2-2
 //     (🔴 O-5 route-selection algorithm [NOT WIRED] zero production consumer — THIS FILE is the consumer)
 //   docs/decisions/2026-08-02-owner-stt-pool-groups-and-ops-phase1-scope.md ③
-//   docs/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0e (two-layer parsing)
+//   docs/archive/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0e (two-layer parsing)
 //
 // 🔴 THE PRODUCTION CONSUMER OF `selectRoute`.
 //

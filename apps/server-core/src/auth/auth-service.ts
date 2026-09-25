@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/05-DATA-MODEL.md §1 (users table: email UNIQUE NOCASE,
 //     password_hash, plan default 'free'), §7 (Cloud KEY JWT, scrypt password)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ① (verifyCredentials +
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ① (verifyCredentials +
 //     register; email unique NOCASE, password>=8, hash ported from legacy;
 //     JWT sign/verify HS256 {sub, plan} TTL 7d)
 //   *** HUMAN-AUDIT SENSITIVE (auth/credentials) — reviewable in isolation ***

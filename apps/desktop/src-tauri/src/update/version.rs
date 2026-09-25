@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §1.3 (version comparison)
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §1.3 (version comparison)
 //   docs/decisions/2026-08-02-in-app-update-both-ends.md (「版本号只进不退，
 //     出坏版发下一版」— "version numbers only go forward, never back; a bad
 //     release gets fixed by shipping the next one")

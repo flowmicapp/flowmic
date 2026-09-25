@@ -70,6 +70,14 @@ enum RecoverySettleRefusal {
   /// `seq_gaps > 0` or `drops > 0`.
   gapsOrDrops,
 
+  /// Codex review ① (2026-09-24) — this phone stopped feeding before the end
+  /// of the range it named on `audio:start` (the pacing or the in-flight window
+  /// gave up, or the file ran short). The relay's `fed_frames` then honestly
+  /// equals what was SENT, and the receipt echoes the WHOLE range: without
+  /// this, the count matched and the unsent remainder — words nobody heard —
+  /// was deleted with the rest.
+  rangeNotFullyFed,
+
   /// `ended_normally == false`, or the local FSM never reached its terminal
   /// final (a stall, a watchdog, the 20 s latch expiring).
   notEndedNormally,
@@ -92,6 +100,12 @@ enum RecoverySettleRefusal {
 /// Everything the predicate is allowed to look at. A record rather than eight
 /// parameters so a caller cannot pass them in the wrong order, and so a test
 /// can flip exactly one.
+/// Card RC6 (F3) — `stt:final.empty_reason` when the relay's feed gate accepted
+/// none of the audio. One of the relay's closed set, `EMPTY_FINAL_REASONS` in
+/// server-core `stt/empty-final-cause.ts`; the copy table reads the same string
+/// (`recording_strings.dart`).
+const String kEmptyReasonNoVoice = 'no_voice';
+
 @immutable
 class RecoverySettleInputs {
   const RecoverySettleInputs({
@@ -102,7 +116,23 @@ class RecoverySettleInputs {
     required this.endedOnTerminalFinal,
     required this.rowPersistedAndReadBack,
     required this.serverMayDelete,
+    this.fedWholeRange = true,
+    this.resultIsSilence = false,
   });
+
+  /// Card RC6 (F3) — the relay stamped the empty terminal final
+  /// `empty_reason: 'no_voice'`: its feed gate accepted nothing of this audio
+  /// (server-core `stt/empty-final-cause.ts`). That is a statement about the
+  /// AUDIO, made by the relay's gate and not by an engine's output, so A5-4's
+  /// argument below (a broken engine answers every recording with nothing) does
+  /// not reach it: a dead engine yields `heard_no_words` or an error, never this.
+  /// An empty result that carries it is silence, and settles as such.
+  final bool resultIsSilence;
+
+  /// Codex review ① — did this attempt put the WHOLE range it named on the
+  /// wire? Only the recovery leg can stop short; a live press sends everything
+  /// it captured, so its caller leaves the default.
+  final bool fedWholeRange;
 
   /// The identifiers THIS attempt put on `audio:start`. The pin below compares
   /// the receipt's echo against these, so a leg that sent fewer of them (the
@@ -186,6 +216,33 @@ class RecoverySettleDecision {
           r == RecoverySettleRefusal.noReceipt ||
           r == RecoverySettleRefusal.serverTierKeepsBytes);
 
+  /// Card RC-3 — did the RECEIPT itself say this attempt did not cover what
+  /// was sent? True when any refusal is one the server's own counters or the
+  /// session's ending raised: a mismatched pin, a frame count that disagrees,
+  /// gaps or drops, or an attempt that did not end normally.
+  ///
+  /// 🔴 A FACT OFF THE RECEIPT, NOT A JUDGEMENT OF THE WORDS. This file's header
+  /// bans a text-length heuristic and this is not one: the eight words of
+  /// root-cause §1.6 arrived on a receipt that refused, and it is the refusal
+  /// that says the range was not covered. What it separates is the case
+  /// `settled_unverified` was written for — the words came back and only the
+  /// PROOF is missing ([RecoverySettleRefusal.noReceipt] /
+  /// [RecoverySettleRefusal.receiptVersionUnknown], or a tier that keeps bytes)
+  /// — from an attempt whose receipt says it fell short, which is owed again.
+  ///
+  /// Codex review ① — [RecoverySettleRefusal.rangeNotFullyFed] belongs here
+  /// too: it is a count fact (this phone's), the range was not covered, and the
+  /// user's retry is what can finish it. The name stays; the question is the
+  /// same 「did this attempt cover what it named」.
+  bool get receiptShowsShortfall => refusals.any(
+        (RecoverySettleRefusal r) =>
+            r == RecoverySettleRefusal.receiptMismatch ||
+            r == RecoverySettleRefusal.frameCountMismatch ||
+            r == RecoverySettleRefusal.gapsOrDrops ||
+            r == RecoverySettleRefusal.notEndedNormally ||
+            r == RecoverySettleRefusal.rangeNotFullyFed,
+      );
+
   /// Machine-readable, for the manifest attempt record and the diag line.
   String get reasonCode => refusals.isEmpty
       ? 'settled'
@@ -238,6 +295,8 @@ RecoverySettleDecision evaluateRecoverySettle(RecoverySettleInputs i) {
       out.add(RecoverySettleRefusal.gapsOrDrops);
     }
   }
+  // (i), the phone's half: a receipt can only prove the frames it was given.
+  if (!i.fedWholeRange) out.add(RecoverySettleRefusal.rangeNotFullyFed);
 
   // (ii) a normal terminal final, on BOTH sides. The receipt's own
   // `ended_normally` is the server's view and the FSM is ours; either one
@@ -264,7 +323,8 @@ RecoverySettleDecision evaluateRecoverySettle(RecoverySettleInputs i) {
   // statement the engine makes about its own output that needs no
   // interpretation.
   final bool empty = (i.resultText ?? '').trim().isEmpty;
-  if (empty) out.add(RecoverySettleRefusal.emptyResult);
+  // RC6 (F3) — unless the relay said the audio was silence ([resultIsSilence]).
+  if (empty && !i.resultIsSilence) out.add(RecoverySettleRefusal.emptyResult);
 
   // (iii) the row is on disk and was found again.
   //

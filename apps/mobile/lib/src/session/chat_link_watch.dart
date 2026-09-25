@@ -39,7 +39,7 @@
 //
 // SPEC-REF:
 //   docs/rebuild/08-MOBILE-SPEC.md §4 (the reconnect ladder itself)
-//   docs/strategy/2026-08-18-039-connection-stability-window-handoff-report.md §7-6
+//   docs/archive/strategy/2026-08-18-039-connection-stability-window-handoff-report.md §7-6
 //   apps/mobile/test/chat_link_retry_budget_test.dart (the budget's own tests)
 
 part of 'chat_controller.dart';

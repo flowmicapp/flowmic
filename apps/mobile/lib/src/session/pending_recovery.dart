@@ -87,7 +87,7 @@ enum PendingRecoveryState {
   /// MEASURED 2026-09-12 on TB335ZC: a six-second recording of silence had been
   /// sitting in 「recordings waiting to be transcribed」 since 2026-09-10, and
   /// three presses left it byte-for-byte identical
-  /// (docs/strategy/2026-09-12-phone-pending-transcription-retry-rca.md §1-2).
+  /// (docs/archive/strategy/2026-09-12-phone-pending-transcription-retry-rca.md §1-2).
   ///
   /// ⚠️ NOT A TTL AND NOT A DELETE. The bytes stay exactly where owner ruling
   /// O-2 requires them to stay; what ends is the PROMISE that something is
@@ -104,6 +104,13 @@ enum PendingRecoveryState {
   /// no retry to offer - a button here would be refused by
   /// `recovery_gate.dart` every time it was pressed.
   serverUnsupported,
+
+  /// Card RC-3 — an attempt came back with words on a receipt that says it fell
+  /// short of the range (`RecoveryQueueState.shortfall`). Words are still owed,
+  /// so — unlike [settledUnverified] — the user's retry is offered; and, owner
+  /// ruling 2026-09-06 §3, nothing retries it automatically. A retry that
+  /// comes back whole replaces the partial rows.
+  shortfall,
 
   /// Owner ruling O-9. The five automatic attempts are spent. The audio is
   /// still here and the user's own attempt is the route that remains - §A6 R-2
@@ -155,6 +162,7 @@ class PendingRecoveryItem {
     required this.legacy,
     this.recordedAtMs,
     this.partlySaved = false,
+    this.otherAccount = false,
   });
 
   /// The journal `recordingId`, or the legacy store's session key.
@@ -203,10 +211,27 @@ class PendingRecoveryItem {
   /// spent. It therefore never reaches [PendingRecoveryState.needsManual].
   final bool legacy;
 
+  /// Card RC-S (ruling 4, 2026-09-24) — this recording is owed a transcription
+  /// but was made under a different account than the one signed in now, so
+  /// recovery will not run it (`RecoveryJournalLeg._heldForAnotherAccount`;
+  /// both read `recordingOwnerOf`). Set by `PendingRecoveryStore` only for a
+  /// recording that is [awaitingTranscription] — for the others nothing was
+  /// going to run anyway.
+  ///
+  /// 🔴 IT REPLACES THE STATE SENTENCE ON THE CARD rather than adding a line
+  /// under it, unlike [partlySaved]: every owed state's sentence says what the
+  /// automatic route or the retry button will do next (「waiting for the next
+  /// automatic attempt」, 「press retry」), and under another account neither
+  /// will happen. And the retry button goes, for the same reason — a press is
+  /// refused by the leg.
+  final bool otherAccount;
+
   /// 🔴 THE ONE PLACE THAT DECIDES WHICH BUTTONS EXIST. A widget that decided
   /// this for itself would be a second author of the rule, and the two would
   /// drift the first time a state was added.
-  Set<PendingRecoveryAction> get actions => switch (state) {
+  Set<PendingRecoveryAction> get actions => otherAccount
+      ? const <PendingRecoveryAction>{PendingRecoveryAction.delete}
+      : switch (state) {
         // O-5 / A5-3: the words are either unwanted or already in hand. Delete
         // is the whole offer.
         // Card WB-6 joins them: `emptyConfirmed` is a recording the user has
@@ -237,6 +262,7 @@ class PendingRecoveryItem {
         // A5-4: nothing was transcribed, so the recording is still owed one and
         // the button has something real to drive. Same legacy caveat as below.
         PendingRecoveryState.emptyResult ||
+        PendingRecoveryState.shortfall ||
         PendingRecoveryState.needsManual ||
         PendingRecoveryState.waitingAuto =>
           legacy
@@ -262,6 +288,7 @@ class PendingRecoveryItem {
   bool get awaitingTranscription => switch (state) {
         PendingRecoveryState.waitingAuto ||
         PendingRecoveryState.needsManual ||
+        PendingRecoveryState.shortfall ||
         PendingRecoveryState.emptyResult =>
           true,
         // Nothing is scheduled and nothing can be pressed. Tier C is here too:

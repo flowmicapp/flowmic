@@ -17,7 +17,7 @@
 // by generated classes under l10n/ — this shard keeps only logic and
 // argumentative comments).
 //
-// SPEC-REF: docs/strategy/2026-08-12-req1209-plus-panel-design.md §3-3.
+// SPEC-REF: docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md §3-3.
 //
 // 🔴 WHY THESE ARE SEPARATE SENTENCES AND NOT ONE 「暂无轻记录」 ("no light
 // records for now").
@@ -75,6 +75,15 @@ mixin LightRecordStrings on AppStringsLeaves {
   /// that just said 「发送」 ("send") would have to be told apart by its
   /// position, and position can change.
   String get plusSelectionSend => _lfPlusSelectionSend;
+
+  /// CR-12-F — the chip beside [plusSelectionSend] that decides whether a
+  /// ticked recording goes out with each paragraph's `mm:ss–mm:ss` in front.
+  ///
+  /// Drawn only while the tick set holds a recording, off by default (owner
+  /// 2026-08-12 ruling 3 is still the default), remembered across openings.
+  /// The name says what gets added, not how: the timestamps themselves are
+  /// digits and need no translation (CR-12 design §10.6).
+  String get selectionSendWithTimes => _lfSelectionSendWithTimes;
 
   /// 🔴 owner 2026-08-12: 「Images must be sendable in new line, not merging to
   /// text line.」 — text merges into **one** message, while each picture

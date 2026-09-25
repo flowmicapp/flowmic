@@ -2,7 +2,7 @@
 // says 「this PC has no language model yet」 and JUMPS to the two configurations.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-25-owner-rulings-and-execution-plan.md §0 D2 / §2-②
+//   docs/archive/strategy/2026-08-25-owner-rulings-and-execution-plan.md §0 D2 / §2-②
 //   main-window/settings-model.ts `llmCapabilityUsable` (card POLISH-CFG) — the
 //     ONE fact this card reads; never inferred from an empty `llm.config` row.
 //   main-window/components/LocalModelNotice.vue — the sibling strip whose slot

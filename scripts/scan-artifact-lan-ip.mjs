@@ -12,7 +12,9 @@
 //   · a source file can be dirty in a COMMENT while the artifact is clean,
 //     because esbuild drops comments.
 //
-// 🔴 THE PRECEDENT THIS IS BUILT ON (CLAUDE.md, UP-7, 2026-08-08): the 0.2.59 APK
+// 🔴 THE PRECEDENT THIS IS BUILT ON (CLAUDE.md, UP-7, 2026-08-08 — the rule is
+// still in CLAUDE.md's 版本号纪律; the 0.2.59 byte evidence moved to
+// docs/archive/CLAUDE-HISTORY.md §1404-1407): the 0.2.59 APK
 // shipped with self-update silently tree-shaken out. Every gate was green, the
 // build exited 0, and the only thing that would have caught it was reading the
 // bytes of the thing that was about to be published — which is what

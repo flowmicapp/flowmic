@@ -2,7 +2,7 @@
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §6 (the four-dimensional probe {ok,
 //     latency_ms, sample_output≤80, model_echoed}), §3 (per-engine transport),
 //     §4 (BYOK judgement: user-supplied non-empty key, 'EMPTY' = platform endpoint)
-//   docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-12
+//   docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-12
 //   docs/rebuild/13-LESSONS-LEARNED.md §3 D1/D3 (no silent failure; a probe
 //     result is a ONE-SHOT reading, never a resident status light)
 //   CLAUDE.md red line: no silent failures; anti-façade

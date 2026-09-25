@@ -3,7 +3,7 @@
 //     run() yields deltas OR fails loud; NEVER silently reinjects raw STT text)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §6 (LLM failure surfaces a code, never a
 //     raw-text fallback), §5 (≤800 ms budget for the scenario correction pass)
-//   docs/strategy/2026-07-23-mock-billing-design.md §5 (recordLlmUsage counts;
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §5 (recordLlmUsage counts;
 //     BYOK is NOOP — carried via usage().isByok)
 //   CLAUDE.md red line: LLM failure/timeout → explicit compose:error + status
 //     records the truth, never silently fall back to injecting the raw STT text

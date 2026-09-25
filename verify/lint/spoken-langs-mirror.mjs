@@ -7,12 +7,13 @@
 // `audio:start.source_lang` is a required NonEmpty field and its legal values
 // are `kSpokenLangs` in `apps/mobile/lib/src/settings/app_settings.dart`. The
 // browser client offers the same picker and cannot import Dart, so it re-types
-// both halves in `apps/mic/src/session/spokenLangs.ts`:
+// both halves in `apps/mic/src/session/spokenLangs.ts` (older checkouts), or
+// `packages/core/src/account/spokenLangs.ts` reached by that mic module's
+// @flowmic/web-core re-export through core's index and island/index barrels:
 //   · `SPOKEN_LANG_TAGS`     mirrors `kSpokenLangs`;
 //   · `SPOKEN_LANG_ENDONYMS` mirrors the `endonym` field of the `AppLocale`
 //     members those tags name.
-// That file's own header states the gap out loud and says nothing fails when
-// the phone's list changes. This is the thing that fails.
+// This lint compares the literals and verifies that re-export chain when used.
 //
 // The failure it catches has two shapes and they are not equally loud:
 //   · A TAG drifts — the browser offers a language the routing table has no
@@ -50,6 +51,7 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { ROOT, readText, lineOf } from './_util.mjs';
 
 import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
@@ -57,6 +59,7 @@ import { refuseDirectRun } from '../../scripts/module-entrypoint-guard.mjs';
 refuseDirectRun(import.meta.url, 'pnpm verify:lint');
 
 export const name = 'spoken-langs-mirror';
+const ts = createRequire(path.join(ROOT, 'packages/protocol/package.json'))('typescript');
 
 // 🔴 `flowmic-web` IS THE BROWSER CLIENT, AND IT IS NOT THE MARKETING SITE.
 // Those are two different sibling repositories whose directory names differ by
@@ -71,6 +74,45 @@ export const name = 'spoken-langs-mirror';
 const DART_FILE = 'apps/mobile/lib/src/settings/app_settings.dart';
 const WEB_REPO = 'flowmic-web';
 const WEB_FILE = 'apps/mic/src/session/spokenLangs.ts';
+const CORE_FILE = 'packages/core/src/account/spokenLangs.ts';
+
+// Parse actual exports, so commented-out barrels and type-only exports do not
+// make a disconnected literal table look reachable from the mic module.
+function forwards(text, moduleName, names, star = false) {
+  const source = ts.createSourceFile('mirror.ts', text, ts.ScriptTarget.Latest, true);
+  const found = new Set();
+  for (const statement of source.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.isTypeOnly ||
+        !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier) ||
+        statement.moduleSpecifier.text !== moduleName) continue;
+    if (star && !statement.exportClause) return true;
+    if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+      for (const item of statement.exportClause.elements) {
+        if (!item.isTypeOnly && (!item.propertyName || item.propertyName.text === item.name.text)) found.add(item.name.text);
+      }
+    }
+  }
+  return names.every((name) => found.has(name));
+}
+
+export async function resolveWebLiterals(repo, micText) {
+  if (WEB_TAGS_RE.test(micText) && WEB_ENDONYMS_RE.test(micText)) return { text: micText, file: WEB_FILE };
+  const names = ['SPOKEN_LANG_TAGS', 'SPOKEN_LANG_ENDONYMS'];
+  if (!forwards(micText, '@flowmic/web-core', names)) {
+    throw new Error(`${WEB_FILE}: neither literal tables nor both value re-exports from @flowmic/web-core`);
+  }
+  const root = await readText(path.join(repo, 'packages/core/src/index.ts'));
+  if (!root || !forwards(root, './island/index.js', names, true)) {
+    throw new Error('packages/core/src/index.ts: missing value exports through ./island/index.js');
+  }
+  const island = await readText(path.join(repo, 'packages/core/src/island/index.ts'));
+  if (!island || !forwards(island, '../account/spokenLangs.js', names)) {
+    throw new Error('packages/core/src/island/index.ts: missing spoken-language value re-exports');
+  }
+  const text = await readText(path.join(repo, CORE_FILE));
+  if (text === null) throw new Error(`${CORE_FILE}: reachable literal source missing`);
+  return { text, file: CORE_FILE };
+}
 
 /** `const List<String> kSpokenLangs = <String>['en', 'zh', …];` */
 const DART_TAGS_RE =
@@ -200,13 +242,21 @@ export default async function run() {
     };
   }
   const shown = webWhere.viaEnv ? `${webWhere.dir} (FLOWMIC_WEB_CLIENT_REPO)` : webWhere.dir;
+  let webFile;
+  try {
+    const resolved = await resolveWebLiterals(webWhere.dir, webText);
+    webText = resolved.text;
+    webFile = resolved.file;
+  } catch (error) {
+    return { status: 'FAIL', detail: `${shown}: ${error.message}` };
+  }
 
   const webTagsHit = WEB_TAGS_RE.exec(webText);
   if (!webTagsHit) {
     return {
       status: 'FAIL',
       detail:
-        `SPOKEN_LANG_TAGS is no longer declared as a plain array literal in ${shown}/${WEB_FILE}. ` +
+        `SPOKEN_LANG_TAGS is no longer declared as a plain array literal in ${shown}/${webFile}. ` +
         'Renamed, moved, or derived — this lint would now cover zero. ' +
         'Update verify/lint/spoken-langs-mirror.mjs.',
     };
@@ -218,7 +268,7 @@ export default async function run() {
     return {
       status: 'FAIL',
       detail:
-        `SPOKEN_LANG_ENDONYMS is no longer declared as a plain object literal in ${shown}/${WEB_FILE}. ` +
+        `SPOKEN_LANG_ENDONYMS is no longer declared as a plain object literal in ${shown}/${webFile}. ` +
         'Renamed, moved, or derived — endonyms would now be compared against nothing. ' +
         'Update verify/lint/spoken-langs-mirror.mjs.',
     };
@@ -236,7 +286,7 @@ export default async function run() {
     const webLine = lineOf(webText, webTagsHit.index);
     problems.push(
       `tags disagree: ${DART_FILE}:${dartLine} kSpokenLangs=[${dartTags.join(', ')}] but ` +
-        `${shown}/${WEB_FILE}:${webLine} SPOKEN_LANG_TAGS=[${webTags.join(', ')}]`,
+        `${shown}/${webFile}:${webLine} SPOKEN_LANG_TAGS=[${webTags.join(', ')}]`,
     );
   }
 
@@ -248,7 +298,7 @@ export default async function run() {
     } else if (theirs !== mine) {
       problems.push(
         `endonym for '${tag}' disagrees: ${DART_FILE} AppLocale.${tag}='${mine}' but ` +
-          `${shown}/${WEB_FILE} SPOKEN_LANG_ENDONYMS.${tag}='${theirs}'`,
+          `${shown}/${webFile} SPOKEN_LANG_ENDONYMS.${tag}='${theirs}'`,
       );
     }
   }
@@ -265,7 +315,7 @@ export default async function run() {
         problems.join(' | ') +
         ` — the phone and the web client disagree about the spoken-language picker. ` +
         `Decide which side the ruling was made on: a change to kSpokenLangs or AppLocale.endonym in ` +
-        `${DART_FILE} must be hand-copied into ${WEB_FILE} in the ${WEB_REPO} repo (and its own ` +
+        `${DART_FILE} must be hand-copied into ${webFile} in the ${WEB_REPO} repo (and its own ` +
         `pin test updated); a change invented in ${WEB_REPO} must be reverted there, because the ` +
         `phone's list is what audio:start.source_lang is validated against.`,
     };
@@ -275,7 +325,7 @@ export default async function run() {
     status: 'PASS',
     detail:
       `${dartTags.length} spoken language(s) agree between ${DART_FILE} (kSpokenLangs + AppLocale.endonym) ` +
-      `and ${shown}/${WEB_FILE} (SPOKEN_LANG_TAGS + SPOKEN_LANG_ENDONYMS): ` +
+      `and ${shown}/${webFile} (SPOKEN_LANG_TAGS + SPOKEN_LANG_ENDONYMS; mic export path verified): ` +
       dartTags.map((t) => `${t}=${dartEndonyms.get(t)}`).join(', '),
   };
 }

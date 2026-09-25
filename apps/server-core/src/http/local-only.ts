@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-07-30-task-package-v1.md group D D10 (RV-32: the
+//   docs/archive/strategy/2026-07-30-task-package-v1.md group D D10 (RV-32: the
 //     standalone HTTP surface's full unauthenticated table — root shape:
 //     "standalone-only ≠ authenticated")
 //   docs/rebuild/03-SYSTEM-ARCHITECTURE.md §1/§5.5 (standalone binds ALL

@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-02-in-app-update-both-ends.md
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §2.2 ② (hash gate, second line) / §3 (failure-direction table)
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §2.2 ② (hash gate, second line) / §3 (failure-direction table)
 //   apps/server-core/src/http/update-routes.ts
 //
 // Shape contract and failure directions for GET /api/updates/latest.

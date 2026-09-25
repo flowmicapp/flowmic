@@ -4,7 +4,7 @@
 // token, does the server route the room's frames to the NEW session (leaving the
 // incumbent orphaned in the slot) or keep them on the OLD one?
 //
-// WHY IT IS BEING ASKED AT ALL. docs/strategy/2026-08-07-w9-legacy-fixes-and-oss-ledger.md
+// WHY IT IS BEING ASKED AT ALL. docs/archive/strategy/2026-08-07-w9-legacy-fixes-and-oss-ledger.md
 // section 4.1-bis: F-3's mechanism half is settled from vendored rust_socketio
 // source, but the room-ownership half is 【未验】. The previous investigation
 // inferred the answer from 500 ms beat PHASE — a correlation standing in for

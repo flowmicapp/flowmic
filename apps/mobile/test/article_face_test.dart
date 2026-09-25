@@ -95,32 +95,38 @@ void main() {
       expect(formatArticleRange(noLength), '00:30');
     });
 
-    testWidgets('the page renders each row at its own timestamp, in order',
-        (WidgetTester tester) async {
+    // The per-row version of this case pinned cell E-2 (one block per row),
+    // which the owner replaced with E-2′ (paragraphs) on 2026-09-22.
+    testWidgets('the page renders each paragraph at its rows\' own '
+        'timestamps, in order', (WidgetTester tester) async {
+      // Each row is 45 s and ends on 「。」, so each is its own paragraph
+      // (floor 40 s met, edge qualified) — design §3.2's 45 s row line.
       final List<TimelineEntry> rows = <TimelineEntry>[
-        _member(id: 'r1', text: '第一段', offsetMs: 0, durationMs: 30_000),
-        _member(id: 'r2', text: '断网时说的', offsetMs: 30_000, durationMs: 45_000),
-        _member(id: 'r3', text: '最后一段', offsetMs: 75_000, durationMs: 12_000),
+        _member(id: 'r1', text: '第一段。', offsetMs: 0, durationMs: 45_000),
+        _member(id: 'r2', text: '断网时说的。', offsetMs: 45_000, durationMs: 45_000),
+        _member(id: 'r3', text: '最后一段', offsetMs: 90_000, durationMs: 12_000),
       ];
       await tester.pumpWidget(MaterialApp(
         home: ArticlePage(
-          head: _head(durationMs: 87_000),
+          head: _head(durationMs: 102_000),
           rows: rows,
           strings: AppStrings(AppLocale.zh),
         ),
       ));
       await tester.pumpAndSettle();
 
-      // Keyed per row, so this asserts THIS row's range rather than 「a range is
-      // on screen somewhere」.
-      expect(_textOf(tester, 'article.range.r1'), '00:00–00:30');
-      expect(_textOf(tester, 'article.range.r2'), '00:30–01:15');
-      expect(_textOf(tester, 'article.range.r3'), '01:15–01:27');
-      // The seam: r2's end and r3's start are the same instant. That is C5 as
-      // the user reads it — durations before the outage, bytes across it,
-      // durations after, meeting with no gap and no overlap.
-      expect(_textOf(tester, 'article.range.r3').startsWith('01:15'), isTrue);
-      expect(find.text('第一段'), findsOneWidget);
+      // Keyed per paragraph, so this asserts THIS paragraph's range rather
+      // than 「a range is on screen somewhere」.
+      expect(_textOf(tester, 'article.paragraph.0'), '00:00–00:45');
+      expect(_textOf(tester, 'article.paragraph.1'), '00:45–01:30');
+      expect(_textOf(tester, 'article.paragraph.2'), '01:30–01:42');
+      // The seam: one paragraph's end and the next one's start are the same
+      // instant. That is C5 as the user reads it — durations before the
+      // outage, bytes across it, durations after, meeting with no gap and no
+      // overlap.
+      expect(_textOf(tester, 'article.paragraph.1').startsWith('00:45'), isTrue);
+      expect(_textOf(tester, 'article.paragraph.2').startsWith('01:30'), isTrue);
+      expect(find.text('第一段。'), findsOneWidget);
       expect(find.byKey(const Key('article.backfill')), findsNothing,
           reason: 'nothing is owed, so nothing claims to be catching up');
     });

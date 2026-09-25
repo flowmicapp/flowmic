@@ -1,6 +1,6 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.2 / §3.3
-//   docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.1
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.2 / §3.3
+//   docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.1
 //   apps/server-core/src/db/repos/billing.repo.ts (the reader of every column here)
 //   *** HUMAN-AUDIT SENSITIVE (billing + schema) ***
 //

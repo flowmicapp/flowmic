@@ -227,15 +227,22 @@ class HoldOutRetry {
   /// ⚠️ Deliberately does NOT reset the streak: this method is the streak. The
   /// counter is cleared only by [cancel], i.e. by an answer, a successful room
   /// join, or the user leaving the screen.
-  void noteLostAck({required Future<void> Function() retry}) {
+  ///
+  /// 🔴 NR-96-E1 — returns whether a re-ask was scheduled. `false` means the
+  /// bound is spent and NOTHING will ask again on its own; the doc above calls
+  /// that 「exactly today's behaviour」, and today's behaviour was to stop in
+  /// silence (R2). The caller (`ptt_reconnect_ack.dart`) turns `false` into a
+  /// notice the user can act on; this class still knows nothing about screens.
+  bool noteLostAck({required Future<void> Function() retry}) {
     final int attempt = _lostAcks;
     // Stop the pending timer WITHOUT forgetting the count — `cancel()` would
     // reset it, and re-using it here would make the bound unreachable, which is
     // the same as having no bound.
     _stop();
-    if (attempt >= lostAckWaits.length) return;
+    if (attempt >= lostAckWaits.length) return false;
     _lostAcks = attempt + 1;
     _arm(lostAckWaits[attempt], retry);
+    return true;
   }
 
   /// Record an `AUTH_TOKEN_INVALID` whose DELETION was suppressed because this

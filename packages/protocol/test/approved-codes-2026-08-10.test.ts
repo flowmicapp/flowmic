@@ -148,14 +148,18 @@ describe('fix-019 · zero producers today, and the pin that says so', () => {
     }
   });
 
-  it('this round added nothing to the three inject-verdict families', () => {
+  it('this round added nothing to the three inject-verdict families; current counts stay pinned', () => {
     // The mirror direction of the test above, and the reason it is separate: the
     // per-code assertion would still pass if somebody added one of the four to a
     // family AND removed another. These three counts are what the phone's mirror
     // (`outbox_inject_authorship.dart`) and the Rust/Dart cross-language guards
     // are keyed to, so a change in any of them has to be a deliberate edit here.
-    expect(PC_INJECTION_VERDICT_CODES).toHaveLength(10);
-    expect(PC_ADMISSION_REFUSAL_CODES).toHaveLength(1);
+    // Linux implementation additions; lead decision: docs/decisions/2026-09-22-linux-inject-verdict-codes-and-no-new-history-status.md.
+    // Acceptance R-2 adds the distinct unknown-display verdict (contract 15).
+    expect(PC_INJECTION_VERDICT_CODES).toHaveLength(13);
+    // 1 → 2: INJECT_TARGET_NOT_READY (web target admission refusal); lead ruling:
+    // docs/decisions/2026-09-22-inject-target-not-ready-lead-ruling-and-cached-mode-pin.md.
+    expect(PC_ADMISSION_REFUSAL_CODES).toHaveLength(2);
     expect(RELAY_AUTHORED_INJECT_RESULT_CODES).toHaveLength(9);
   });
 });

@@ -1,7 +1,7 @@
 // REQ-12-09 09-B/09-C — the 「+」 panel's light-records tab: the three states and the
 // search box.
 //
-// SPEC-REF: docs/strategy/2026-08-12-req1209-plus-panel-design.md
+// SPEC-REF: docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md
 //   §3-3 (the three states kept separate, one state one sentence), §5-1
 //   (typing queries storage directly, not an in-memory filter), §4-1 (read-only projection).
 //
@@ -45,12 +45,15 @@ import 'package:flutter/material.dart';
 
 import '../session/backfill_runner.dart';
 import '../timeline/entry_metrics.dart';
+import 'article_copy.dart' show articleCopyText;
 import 'article_page.dart';
 
 import '../settings/app_strings.dart';
 import '../timeline/cloud/light_record_query.dart';
+import '../timeline/search_hits.dart';
 import '../timeline/timeline_entry.dart';
 import 'plus_panel_selection.dart';
+import 'search_article_hit_card.dart';
 import 'tokens.dart';
 
 /// 09-C — how long the box waits after the last keystroke before asking the
@@ -132,8 +135,9 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
   /// The current search's hits, or null when no search is running (the box is
   /// empty). 🔴 Null and empty are different answers — empty means 「searched,
   /// found nothing」
-  /// and gets its own sentence.
-  List<TimelineEntry>? _hits;
+  /// and gets its own sentence. CR-12-G: grouped — a recording is one result.
+  SearchResults? _hits;
+  String _hitQuery = '';
 
   bool _loading = true;
   Timer? _debounce;
@@ -149,6 +153,10 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
 
   /// articleId → its words, filled by [_readArticleWords].
   final Map<String, String> _articleText = <String, String>{};
+
+  /// articleId → the same words with each paragraph's time range in front
+  /// (`articleCopyText`), for the send bar's 「with times」 chip (CR-12-F).
+  final Map<String, String> _articleTimed = <String, String>{};
 
   /// Guards a slow query resolving after a newer one. Without it, deleting the
   /// last character can leave the previous word's hits on screen — a list that
@@ -198,8 +206,13 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
       if (!e.isArticle) continue;
       if (_articleText.containsKey(e.clientId)) continue;
       final String words = await widget.query.transcriptOf(e.clientId);
+      // The copy path's renderer, not a second one: a forwarded recording and
+      // a pasted one must carry the same labels (CR-12 design §10.6).
+      final String timed =
+          articleCopyText(await widget.query.membersOf(e.clientId));
       if (!mounted || mine != _seq) return;
       _articleText[e.clientId] = words;
+      _articleTimed[e.clientId] = timed;
     }
     if (mounted && mine == _seq) setState(() {});
   }
@@ -246,15 +259,17 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
   /// scrolling first」.
   Future<void> _runSearch(String q) async {
     final int mine = ++_seq;
-    final List<TimelineEntry> hits =
-        await widget.query.search(q, liveArticleId: widget.liveArticleId);
+    final SearchResults hits = await widget.query.search(q);
     if (!mounted || mine != _seq) return;
-    setState(() => _hits = hits);
+    setState(() {
+      _hits = hits;
+      _hitQuery = q.trim();
+    });
     // Hits are a subset of [all] today, so this normally probes nothing. It is
     // here because that containment is a property of LightRecordQuery, not of
     // this widget — and a row rendered without a probe would draw the third
     // state (see [_row]) rather than silently guess.
-    await _probeImages(hits);
+    await _probeImages(hits.rows);
   }
 
   Future<void> _signIn() async {
@@ -393,8 +408,8 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
   );
 
   Widget _list(AppStrings s) {
-    final List<TimelineEntry>? hits = _hits;
-    final List<TimelineEntry> rows = hits ?? _notes;
+    final SearchResults? hits = _hits;
+    final List<TimelineEntry> rows = hits?.rows ?? _notes;
     if (rows.isEmpty) {
       // Which emptiness this is matters: 「you have no light records」 and 「this word found nothing」 lead
       // to different next moves, so they are different sentences.
@@ -410,7 +425,46 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
       key: const ValueKey<String>('plus.notes.list'),
       shrinkWrap: true,
       itemCount: rows.length,
-      itemBuilder: (BuildContext context, int i) => _row(rows[i]),
+      itemBuilder: (BuildContext context, int i) {
+        final ArticleSearchHit? hit = hits?.articleOf(rows[i]);
+        return hit == null ? _row(rows[i]) : _articleHitRow(hit);
+      },
+    );
+  }
+
+  /// Card CR-12-G — a recording in the search results: the shared result card,
+  /// with [_articleRow]'s tick rule (FB-7: while picking, a tap ticks).
+  Widget _articleHitRow(ArticleSearchHit hit) {
+    final TimelineEntry head = hit.head;
+    final PlusPanelSelection? sel = widget.selection;
+    final String? words = _articleText[head.clientId];
+    final bool tickable = sel != null && words != null && words.isNotEmpty;
+    final bool ticked = tickable && sel.contains(PlusPick.keyForNote(head));
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: <Widget>[
+          if (tickable) ...<Widget>[
+            Icon(
+              ticked ? Icons.check_box_outlined : Icons.check_box_outline_blank,
+              size: 17,
+              color: ticked ? FlowMicColors.brand : FlowMicColors.t3,
+            ),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: SearchArticleHitCard(
+              hit: hit,
+              query: _hitQuery,
+              strings: widget.strings,
+              onOpen: tickable
+                  ? (_) => setState(() => sel.toggle(PlusPick.article(head, words)))
+                  : (ArticleSearchHit h) => unawaited(_openArticle(head,
+                      focusRowId: h.focus?.rowId, highlight: _hitQuery)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -568,7 +622,15 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
       // chat list follows (card FB-7): one gesture, decided in one place, so a
       // user who is picking things cannot fall into a different screen.
       onTap: tickable
-          ? () => setState(() => sel.toggle(PlusPick.article(head, words)))
+          ? () => setState(
+                () => sel.toggle(
+                  PlusPick.article(
+                    head,
+                    words,
+                    timedText: _articleTimed[head.clientId],
+                  ),
+                ),
+              )
           : () => _openArticle(head),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 11),
@@ -620,10 +682,18 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
   );
   }
 
-  Future<void> _openArticle(TimelineEntry head) async {
+  Future<void> _openArticle(
+    TimelineEntry head, {
+    String? focusRowId,
+    String? highlight,
+  }) async {
     final List<TimelineEntry> rows =
         await widget.query.membersOf(head.clientId);
     if (!mounted) return;
+    // Card RC-G — this piece's debt, not the phone's (BackfillProgress.forArticle).
+    final ArticleBackfill owed =
+        widget.backfill?.value.forArticle(head.articleId ?? head.clientId) ??
+            ArticleBackfill.none;
     // The ROOT navigator: this tab lives inside a modal sheet, and pushing
     // onto the sheet's own navigator would open a transcript inside a
     // half-height panel.
@@ -633,9 +703,10 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
           head: head,
           rows: rows,
           strings: widget.strings,
-          pendingBackfillMs: widget.backfill?.value.pendingMs ?? 0,
-          pendingBackfillFromOutage:
-              widget.backfill?.value.pendingFromOutage ?? false,
+          pendingBackfillMs: owed.pendingMs,
+          pendingBackfillFromOutage: owed.fromOutage,
+          focusRowId: focusRowId,
+          highlight: highlight,
         ),
       ),
     );

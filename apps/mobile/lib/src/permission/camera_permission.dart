@@ -1,8 +1,8 @@
 // The CAMERA permission decision layer — card SCAN-PERM (2026-08-25).
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-25-owner-four-issues-analysis.md §1 (the defect)
-//   docs/strategy/2026-08-25-owner-rulings-and-execution-plan.md §2-①
+//   docs/archive/strategy/2026-08-25-owner-four-issues-analysis.md §1 (the defect)
+//   docs/archive/strategy/2026-08-25-owner-rulings-and-execution-plan.md §2-①
 //   ptt/mic_permission.dart — card U2, the shape this file reuses
 //   permission/os_permission.dart — the ONE vocabulary both flows speak
 //   CLAUDE.md red line: no silent failure (没有静默失败)

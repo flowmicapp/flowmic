@@ -53,7 +53,7 @@ impl KeyChord {
 // them is readable rather than remembered.
 
 /// Win32 virtual-key codes (WinUser.h).
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod keys {
     pub const KEY_BACKSPACE: u16 = 0x08; // VK_BACK
     pub const KEY_TAB: u16 = 0x09; // VK_TAB
@@ -90,6 +90,19 @@ mod keys {
     pub const KEY_DELETE: u16 = event_post::KVK_FORWARD_DELETE; // ⌦
     pub const KEY_A: u16 = event_post::KVK_ANSI_A;
     pub const KEY_Z: u16 = event_post::KVK_ANSI_Z;
+}
+
+/// X11 keysyms, resolved to server keycodes at the moment of submission.
+#[cfg(target_os = "linux")]
+mod keys {
+    pub const KEY_BACKSPACE: u16 = 0xFF08;
+    pub const KEY_TAB: u16 = 0xFF09;
+    pub const KEY_RETURN: u16 = 0xFF0D;
+    pub const MOD_PRIMARY: u16 = 0xFFE3;
+    pub const KEY_SPACE: u16 = 0x0020;
+    pub const KEY_DELETE: u16 = 0xFFFF;
+    pub const KEY_A: u16 = 0x0061;
+    pub const KEY_Z: u16 = 0x007A;
 }
 
 use keys::{
@@ -154,12 +167,23 @@ pub enum FlowKeyError {
     Rejected,
     #[error("Win32 error: {0}")]
     Win32(u32),
+    #[error("native key operation failed before submission: {0}")]
+    Native(String),
+    #[error("verified target changed before keys: {0}")]
+    TargetChanged(String),
+    #[error("key submission uncertain: {0}")]
+    SubmissionUncertain(String),
+}
+
+#[cfg(target_os = "linux")]
+pub fn send_chords(chords: &[KeyChord], expected_target: u64) -> Result<(), FlowKeyError> {
+    crate::inject::linux::send_chords(chords, expected_target)
 }
 
 /// Emit `chords` to the OS as real keystrokes. Windows-only; non-windows
 /// returns `Win32(0)` so cross-target `cargo check` still compiles.
 #[cfg(target_os = "windows")]
-pub fn send_chords(chords: &[KeyChord]) -> Result<(), FlowKeyError> {
+pub fn send_chords(chords: &[KeyChord], _expected_target: u64) -> Result<(), FlowKeyError> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
         VIRTUAL_KEY,
@@ -259,7 +283,7 @@ pub fn send_chords(chords: &[KeyChord]) -> Result<(), FlowKeyError> {
 /// `ChordExit::OsWillNotDeliver` in `inject_ops.rs`. This sentence no longer has
 /// to stand as its own evidence.
 #[cfg(target_os = "macos")]
-pub fn send_chords(chords: &[KeyChord]) -> Result<(), FlowKeyError> {
+pub fn send_chords(chords: &[KeyChord], _expected_target: u64) -> Result<(), FlowKeyError> {
     use crate::inject::macos::event_post;
     use objc2_core_graphics::CGEventFlags;
     for chord in chords {
@@ -277,8 +301,8 @@ pub fn send_chords(chords: &[KeyChord]) -> Result<(), FlowKeyError> {
 }
 
 /// Every other host: no synthetic input at all.
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-pub fn send_chords(_chords: &[KeyChord]) -> Result<(), FlowKeyError> {
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub fn send_chords(_chords: &[KeyChord], _expected_target: u64) -> Result<(), FlowKeyError> {
     Err(FlowKeyError::Win32(0))
 }
 
@@ -326,7 +350,7 @@ mod tests {
     /// platform — the same discipline `clipboard_snapshot`'s
     /// `handle_typed_formats_never_reach_the_hglobal_api` applies to the Winuser.h
     /// format ids, and for the same reason: restating them IS the point.
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     #[test]
     fn the_windows_key_numbers_are_the_winuser_h_ones() {
         assert_eq!(KEY_BACKSPACE, 0x08, "VK_BACK");

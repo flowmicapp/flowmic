@@ -226,10 +226,19 @@
 //    request_id strings (mint shape is `'{prefix}{seq}-{micros}'`, see
 //    `manual_delivery.dart`'s `mintRequestId` — no PII) and a 2-value mode
 //    tag. DPAPI would protect nothing here that plaintext doesn't already.
+//
+// L-7 correction (lead ruling 2026-09-22): ok:false no longer always means no input.
+// INJECT_SUBMISSION_UNCERTAIN may have posted partial keys. Persist that fact
+// independently of success, outside its 256-entry cache bound, and answer a
+// restart retry without executing again or inventing a target/timestamp. The
+// ordinary no-input failures described above still get a fresh restart attempt.
 
 use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+#[path = "dedup_uncertain.rs"]
+mod uncertainty;
+use uncertainty::UncertainRecord;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -309,6 +318,8 @@ pub enum InjectDecision {
     /// MUST NOT invent a target_window/injected_at — this process never
     /// observed them (see the RV-83 block above `InjectDeduper`).
     AlreadyTypedOnDisk { mode_wire: String },
+    /// A recorded submission has no established result. Never auto-retry.
+    SubmissionUncertainRemembered { mode_wire: String },
     /// An INJ-1 byte-window duplicate — discard: no typing, no result frame.
     Suppress,
 }
@@ -355,6 +366,8 @@ pub struct InjectDeduper {
     order: VecDeque<String>,
     /// request_id → the cached entry to answer a hit with (see [`CachedEntry`]).
     results: HashMap<String, CachedEntry>,
+    /// Independently aged/capped partial submissions; successful LRU churn does not evict them.
+    uncertain: BTreeMap<String, UncertainRecord>,
     /// INJ-1: (text hash, last-seen monotonic ms) of the most recent AUTO inject.
     last_auto: Option<(u64, u64)>,
     inj1_window_ms: u64,
@@ -376,6 +389,7 @@ impl InjectDeduper {
             cap,
             order: VecDeque::new(),
             results: HashMap::new(),
+            uncertain: BTreeMap::new(),
             last_auto: None,
             inj1_window_ms,
             ledger_path: None,
@@ -453,9 +467,16 @@ impl InjectDeduper {
         // also collapses an id present in BOTH merged files, which is exactly
         // the id G-13 is about (typed on one channel, retried on the other).
         for entry in entries.into_iter().rev() {
-            base.seed_typed_from_disk(entry.request_id, entry.mode);
+            if entry.submission_uncertain {
+                let recorded = entry.recorded_at_ms.unwrap_or_else(uncertainty::wall_now_ms);
+                base.remember_uncertain(entry.request_id, entry.mode, recorded);
+            } else {
+                base.seed_typed_from_disk(entry.request_id, entry.mode);
+            }
         }
         base.ledger_path = Some(path);
+        let pruned = base.prune_uncertain(uncertainty::wall_now_ms());
+        if pruned || !base.uncertain.is_empty() { base.save_ledger_best_effort(); }
         if !retired.is_empty() {
             base.finish_migration(&retired);
         }
@@ -518,12 +539,16 @@ impl InjectDeduper {
         text: &str,
         now_ms: u64,
     ) -> InjectDecision {
+        if self.prune_uncertain(now_ms) { self.save_ledger_best_effort(); }
         // INJ-3 FIRST, and for every source. A request_id names ONE delivery;
         // who asked for that delivery (`source`) does not change whether this
         // frame is a re-emission of it. Ordering matters and is the whole of
         // RV-29: this lookup used to sit BEHIND a bypass early-return, so
         // manual/image handed over an id that was never read.
         if let Some(rid) = request_id {
+            if let Some(record) = self.uncertain.get(rid) {
+                return InjectDecision::SubmissionUncertainRemembered { mode_wire: record.mode.clone() };
+            }
             if let Some(entry) = self.results.get(rid).cloned() {
                 self.touch(rid);
                 return match entry {
@@ -569,6 +594,10 @@ impl InjectDeduper {
         // Cache under the id for EVERY source (RV-29): the id is what a retry
         // will arrive under.
         if let Some(rid) = request_id {
+            if result.get("error").and_then(Value::as_str) == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
+                self.remember_uncertain(rid.to_string(), result.get("mode").and_then(Value::as_str).unwrap_or("clipboard").into(), now_ms);
+            }
+            self.prune_uncertain(now_ms);
             self.insert(rid.to_string(), result.clone());
             // RV-83: keep the on-disk ledger in sync with whatever `insert`
             // just did to `order`/`results` (including any eviction it
@@ -590,6 +619,11 @@ impl InjectDeduper {
     }
 
     fn insert(&mut self, rid: String, result: Value) {
+        if result.get("error").and_then(Value::as_str) == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
+            self.order.retain(|id| id != &rid);
+            self.results.remove(&rid);
+            return;
+        }
         self.insert_entry(rid, CachedEntry::Full(result));
     }
 
@@ -642,6 +676,7 @@ impl InjectDeduper {
     fn save_ledger_best_effort(&self) {
         let Some(path) = &self.ledger_path else { return };
         if let Err(e) = self.derive_ledger_file().save(path) {
+            crate::forensic::record("dedup", &format!("ledger save failed {path:?}: {e}; future restart protection degraded"));
             eprintln!(
                 "[flowmic] RV-83 typed-ledger save FAILED ({path:?}): {e} — this process's own \
                  dedup is unaffected; only a FUTURE restart's duplicate-guard is degraded for \
@@ -655,6 +690,8 @@ impl InjectDeduper {
     /// [`Self::save_ledger_best_effort`] by G-13 so the one-time migration can
     /// write the same derived shape and, unlike a `record`, actually *check*
     /// whether the write landed before it deletes anything.
+    /// L-7 also appends the independent unresolved-submission set; it is never
+    /// pruned by successful-delivery recency or mistaken for an ok:true fact.
     fn derive_ledger_file(&self) -> TypedLedgerFile {
         let entries: VecDeque<TypedLedgerEntry> = self
             .order
@@ -663,6 +700,7 @@ impl InjectDeduper {
                 Some(CachedEntry::TypedOnly(mode)) => Some(TypedLedgerEntry {
                     request_id: rid.clone(),
                     mode: mode.clone(),
+                    submission_uncertain: false, recorded_at_ms: None,
                 }),
                 // Only an ok:true Full entry is a "this was actually typed"
                 // fact worth surviving a restart — see the RV-83 block above
@@ -687,11 +725,14 @@ impl InjectDeduper {
                         .map(|m| TypedLedgerEntry {
                             request_id: rid.clone(),
                             mode: m.to_string(),
+                            submission_uncertain: false, recorded_at_ms: None,
                         })
                 }
                 _ => None,
             })
-            .collect();
+            .chain(self.uncertain.iter().map(|(rid, record)| TypedLedgerEntry {
+                request_id: rid.clone(), mode: record.mode.clone(), submission_uncertain: true, recorded_at_ms: Some(record.recorded_at_ms),
+            })).collect();
         TypedLedgerFile { entries }
     }
 
@@ -748,3 +789,7 @@ use crate::socket::typed_ledger::{TypedLedgerEntry, TypedLedgerFile};
 #[cfg(test)]
 #[path = "dedup_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "dedup_uncertain_tests.rs"]
+mod uncertain_tests;

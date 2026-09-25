@@ -78,7 +78,7 @@ export type CloudSummaryWire = z.infer<typeof CloudSummarySchema>;
  *  the ONE thing a standalone instance can answer about itself today is the
  *  per-session continuous-recording ceiling. See the route's own header for
  *  the pre-ruling default this field carries until owner rules on A8
- *  (`docs/strategy/2026-09-01-week-consolidation-and-lan-fable-handoff.md`
+ *  (`docs/archive/strategy/2026-09-01-week-consolidation-and-lan-fable-handoff.md`
  *  §5-A A8). Kept as its own schema, not `CloudSummarySchema.pick(...)`,
  *  because standalone's body has no `plan`/`quota`/`devices` at all — picking
  *  from the saas schema would imply a subset relationship that does not hold. */

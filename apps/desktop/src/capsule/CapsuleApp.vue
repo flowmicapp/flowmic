@@ -27,6 +27,7 @@ import { CHANNEL_VISUAL } from '../lib/channel';
 import type { KvStore } from '../lib/types';
 import { dismiss, initCapsule, setFirstSurfaceAnchor, state, toggleDiag, type RecentLine } from './controller';
 import { canCopyLine, copyPayload, rowHasPicture } from './capsule-copy';
+import { reconnectingLabel } from './engine-retry';
 import { copyRowImage } from '../lib/bridge-clipboard';
 import { canReinjectLine } from './capsule-reinject';
 import { useRowReinject } from './use-row-reinject';
@@ -474,7 +475,7 @@ watch(
 // in progress, no verdict yet", and inventing a fifth colour for a state that
 // lasts 1.9 s‥8 s would be a legend nobody learns.
 const engineDot = computed(() =>
-  !state.engineKnown
+  !state.engineKnown || state.engineSilent // NR-96: unknown truth = no verdict colour
     ? 'o'
     : state.engineStatus === 'ready'
       ? 'g'
@@ -496,10 +497,11 @@ const engineDot = computed(() =>
 const engineLabel = computed(() =>
   !state.engineKnown
     ? S.cap_stt_unknown
+    : state.engineSilent ? '' // NR-96: an unbacked reconnect claim is not shown; the flex row keeps its size
     : state.engineStatus === 'ready'
       ? S.cap_stt_ready
       : state.engineStatus === 'reconnecting'
-        ? S.cap_stt_reconnecting
+        ? reconnectingLabel(state.engineRetry) // NR-96-C: "attempt n[ of N]"
         : state.engineStatus === 'loading'
           ? S.cap_stt_loading
           : S.cap_stt_failed,
@@ -569,14 +571,14 @@ watch(
          ⚠️ This comment originally read "same four faces as the phone / not delivered" —
          that was the defect itself, kept here as a correction record: the frame had
          already reached this PC; it is injection that failed, not delivery. -->
-    <div v-else-if="state.form === 'inject_failed'" class="caps-fail" :class="{ cached: state.injectFailed?.cached }">
+    <div v-else-if="state.form === 'inject_failed'" class="caps-fail" :class="{ cached: state.injectFailed?.cached || state.injectFailed?.uncertain }">
       <div class="crow">
         <!-- inbox = 📥 not injected · cached; x = ✗ not injected. The GLYPHS still match the
              phone's; the WORDS deliberately no longer do (卡 L7 — the phone
              speaks segment ①, this window speaks segment ②). -->
-        <span class="failic"><Icon :name="state.injectFailed?.cached ? 'inbox' : 'x'" /></span>
+        <span class="failic"><template v-if="state.injectFailed?.uncertain">?</template><Icon v-else :name="state.injectFailed?.cached ? 'inbox' : 'x'" /></span>
         <span class="failtxt">
-          {{ state.injectFailed?.cached ? S.cap_cached : S.cap_inject_failed }}
+          {{ state.injectFailed?.uncertain ? S.st_uncertain : state.injectFailed?.cached ? S.cap_cached : S.cap_inject_failed }}
           <template v-if="state.injectFailed?.target"> {{ S.to }} {{ state.injectFailed.target }}</template>
         </span>
         <!-- ✗ has always had a reason line. 🔴 📥 now has one too, but only under
@@ -689,6 +691,7 @@ watch(
             <span v-if="l.time" class="rtime">{{ l.time }}</span>
             <span v-if="deviceName(l)" class="rdev" :title="S.tl_sender_tip">{{ deviceName(l) }}</span>
             <span class="rtext" :title="l.text">{{ l.text }}</span>
+            <span v-if="l.status === 'cached' && l.cachedCause === 'INJECT_SUBMISSION_UNCERTAIN'" class="rtime">{{ S.st_uncertain }}</span>
             <button v-if="canShowSource(l)" type="button" class="rsrc" @click="toggleSource(l.id)">
               {{ expandedSrc.has(l.id) ? S.tl_hide_source : S.tl_show_source }}
             </button>

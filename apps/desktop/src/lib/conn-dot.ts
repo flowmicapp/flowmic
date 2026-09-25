@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R2-R3-TASK-CARDS.md T-5b (四态连接点 — 真实信号推导)
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md T-5b (四态连接点 — 真实信号推导)
 //   apps/desktop/src/lib/channel.ts (Dot 调色板 / cloudLoudReason)
 //
 // Pure decision core for the sidebar / devices / capsule connection status dot.

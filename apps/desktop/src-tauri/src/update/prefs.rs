@@ -1,7 +1,7 @@
 // UP-3b — the two persisted facts about updating.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §5.0 / §5.2 / §3 row 8
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §5.0 / §5.2 / §3 row 8
 //
 // ── 🔴 WHY `last_success_check` IS IN HERE AND NOT A UI DETAIL ──────────────
 //

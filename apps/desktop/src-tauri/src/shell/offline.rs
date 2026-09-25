@@ -6,7 +6,7 @@
 // cut interference; a switch in the tray menu and at the top right of the
 // devices page").
 //
-// Design (docs/strategy/2026-08-15-031-fix-batch-design.md §9):
+// Design (docs/archive/strategy/2026-08-15-031-fix-batch-design.md §9):
 //   · Going offline = drop BOTH channel sessions and refuse every redial while
 //     the flag is up. Phones keep their own sockets to the relay/sidecar and
 //     see this PC exactly as they see a powered-off one (existing presence

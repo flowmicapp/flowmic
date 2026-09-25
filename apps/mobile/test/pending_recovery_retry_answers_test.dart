@@ -2,7 +2,7 @@
 // THE SCREEN.
 //
 // SPEC-REF:
-//   docs/strategy/2026-09-12-phone-pending-transcription-retry-rca.md
+//   docs/archive/strategy/2026-09-12-phone-pending-transcription-retry-rca.md
 //     (§0 the report, §1-2 the three presses, §1-3 the wrong sentence,
 //      §2-3 the thirteen early exits, seven of them silent)
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-b, R11

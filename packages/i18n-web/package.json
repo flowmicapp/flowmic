@@ -1,6 +1,6 @@
 {
   "name": "@flowmic/i18n-web",
-  "version": "0.3.92",
+  "version": "0.3.95",
   "description": "FlowMic browser clients' nine-locale message subset — generated from the monorepo i18n source, never hand-written.",
   "license": "AGPL-3.0-only",
   "type": "module",

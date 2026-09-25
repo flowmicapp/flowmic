@@ -12,7 +12,7 @@
 //     result never causes a connection refusal —— so a dead Cloud Key never
 //     fails the handshake, it surfaces on the pc:register ack as
 //     AUTH_TOKEN_EXPIRED/INVALID)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md T-2 (dual channels: local LAN / cloud relay)
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md T-2 (dual channels: local LAN / cloud relay)
 //   *** HUMAN-AUDIT SENSITIVE (pairing/auth) ***
 //
 // The two-channel model and the cloud channel's at-rest state.

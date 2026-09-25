@@ -12,7 +12,7 @@ the result in the round's ledger with the machine name on it.
 
 **What it catches:** the 2026-08-22 P0 — FlowMic pasting the user's OWN previous
 clipboard into the target while reporting `injected`. Full findings:
-`docs/strategy/2026-08-22-clipboard-restore-race-findings.md`.
+`docs/archive/strategy/2026-08-22-clipboard-restore-race-findings.md`.
 
 **Why it cannot be a unit test:** the whole clipboard suite drives `Box<dyn Fn>`
 fakes, so "the target read our bytes rather than the restored ones" is not a
@@ -125,7 +125,7 @@ transient confirmation banner.
 
 **Why `ping` cannot answer it:** `stt-rt.soniox.com` lives in a Cloudflare
 anycast range. From Tokyo, ICMP to it is **1.7 ms**
-(`docs/strategy/2026-08-17-cloudflare-and-production-origin-plan.md` §1-3) —
+(`docs/archive/strategy/2026-08-17-cloudflare-and-production-origin-plan.md` §1-3) —
 that is the distance to the local CF edge, not to Soniox. Every region will look
 excellent on ping, TCP connect and TLS handshake. The probe therefore reports
 two layers side by side and only the second one decides anything:

@@ -1,7 +1,7 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §4b-7 (capsule
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §4b-7 (capsule
 //     per-row copy button)
-//   docs/strategy/2026-08-11-ios-mac-real-device-findings.md §3-1 (B3: on
+//   docs/archive/strategy/2026-08-11-ios-mac-real-device-findings.md §3-1 (B3: on
 //     macOS the copy action failed — forensic said the clipboard write is
 //     not implemented on that platform)
 //   CLAUDE.md red line: no silent failures / ambient surfacing never steals focus by activating
@@ -135,7 +135,7 @@ fn copy_text_native(text: &str) -> Result<(), InjectError> {
 /// Every other host: FAIL, LOUDLY. A friendly `Ok(())` here would be the
 /// doc 13 §7 F1 ② shape — the button animates, the clipboard never changes,
 /// and nobody can ever explain why.
-#[cfg(all(not(windows), not(target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn copy_text_native(_text: &str) -> Result<(), InjectError> {
     crate::forensic::record(
         "shell",
@@ -192,4 +192,9 @@ mod tests {
         // agreement with itself.
         assert_eq!(CF_UNICODETEXT, 13);
     }
+}
+
+#[cfg(target_os = "linux")]
+fn copy_text_native(text: &str) -> Result<(), InjectError> {
+    crate::inject::linux::write_text(text)
 }

@@ -54,6 +54,11 @@ export const COVERAGE_RECEIPT_VERSION = 1;
  * attempt and decides for itself whether to wait. The field is carried so those
  * decisions can be made and audited, and so the three cases stay
  * distinguishable if the server ever does need to tell them apart.
+ * ⚠️ 更正（RC-R，2026-09-24，MAIN ruling 3 / owner ruling O-4）：「it mints a fresh `operation_id` per attempt」
+ * above no longer holds for `'auto_retry'`: the phone derives that id from the job and the kind (plus a
+ * generation that moves only after an AUDIO_OP_BINDING_CONFLICT refusal), so every automatic attempt of one job
+ * re-sends one operation and the account is metered once. A `'user_retranscribe'` press is still a fresh id per
+ * press and is billed per press. The server still branches on nothing here.
  *
  * 🔴 THE THREE VALUES STILL MAY NOT BE COLLAPSED, and that does not depend on
  * anything branching on them today: `'user_retranscribe'` is a person asking

@@ -29,6 +29,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../audio/article_replay.dart';
+import '../audio/recording_account.dart';
 import '../audio/retained_audio_journal.dart';
 import '../audio/retained_audio_spill.dart';
 import '../diag/diag_log.dart';
@@ -40,6 +42,7 @@ import '../stt/stt_stream.dart';
 import '../timeline/article.dart' show pcmBytesToMs;
 import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart';
+import 'article_replay_target.dart';
 import 'recovery_backoff.dart';
 import 'recovery_gate.dart';
 import 'recovery_identity.dart';
@@ -177,6 +180,9 @@ class RecoveryJournalLeg {
         // record of what happened — the state is the thing card RC-1b routes
         // its sentence on.
         if (RecoveryQueueState.isTerminalSettle(c.status.state)) continue;
+        // RC-3 — the same reason: stamping over a shortfall would lose it, and
+        // the re-judge below would then turn it into an automatic retry.
+        if (c.status.state == RecoveryQueueState.shortfall) continue;
         await _persistState(c, RecoveryQueueState.awaitingServerCapability);
       }
       return _tally(verdict.tier, candidates, stopEarly: false);
@@ -193,9 +199,16 @@ class RecoveryJournalLeg {
       }
     }
     bool stop = false;
+    int heldForAccount = 0;
     for (final _Candidate c in candidates) {
+      // Card RC-S — BEFORE the budget, so a held recording spends nothing.
+      if (_heldForAnotherAccount(c)) {
+        heldForAccount += 1;
+        continue;
+      }
       if (!c.status.mayAutoAttemptAt(_clock())) continue;
-      final _StepOutcome step = await _attempt(c, verdict, fallbackSourceLang);
+      final _StepOutcome step =
+          await _attemptRanges(c, verdict, fallbackSourceLang);
       // A recording the user deleted mid-sweep is not a reason to stop: the
       // debt it represented is gone, and the next candidate is still owed one.
       if (step == _StepOutcome.recordingGone) continue;
@@ -204,8 +217,49 @@ class RecoveryJournalLeg {
         break;
       }
     }
+    if (heldForAccount > 0) {
+      diag('audio.recovery.held_other_account', <String, Object?>{
+        'recordings': heldForAccount,
+      });
+    }
     return _tally(verdict.tier, await _scanCandidates(), stopEarly: stop);
   }
+
+  /// Card RC-R — how many earlier attempts at [jobId] of [kind] the relay
+  /// refused as `AUDIO_OP_BINDING_CONFLICT`, read from the manifest's own
+  /// attempt history (`failureCode` is written by the settle's failure branch).
+  /// Zero on every healthy recording; see [deriveOperationId] for why a
+  /// refused operation must not be sent again.
+  static int _bindingConflictsOf(
+      _Candidate c, String jobId, RecoveryAttemptKind kind) {
+    int n = 0;
+    for (final JournalAttempt a in c.manifest.attempts) {
+      if (a.jobId == jobId &&
+          a.kind == kind.wire &&
+          a.failureCode == kAudioOpBindingConflictCode) {
+        n += 1;
+      }
+    }
+    return n;
+  }
+
+  /// Card RC-S (ruling 4, 2026-09-24) — 🔴 A RECORDING MADE UNDER ANOTHER
+  /// ACCOUNT IS NOT FED BACK UNDER THIS ONE.
+  ///
+  /// The relay bills a recovery session to the socket's account and
+  /// transcribes it for that account; neither side could see whose audio it
+  /// was (root-cause §2.3, measured: h's recording ran and was billed under g).
+  /// Held means: no `audio:start`, no attempt recorded, no failure counted and
+  /// no backoff written — the recording keeps its queue state, stays in every
+  /// tally, and it runs on the first pass after its own account signs in
+  /// again. A manifest with no account ([RecordingOwner.unknown]) runs as
+  /// before. The pending-recovery list asks the same function
+  /// (`PendingRecoveryStore`), so the line it shows and this refusal cannot
+  /// disagree.
+  bool _heldForAnotherAccount(_Candidate c) =>
+      recordingOwnerOf(c.manifest.configSnapshot,
+          _spill.recordingAccount.currentDigest()) ==
+      RecordingOwner.other;
 
   /// Card RC-1b (audit A6 R-2, owner ruling O-9) - ONE recording, because the
   /// user asked for it.
@@ -260,7 +314,16 @@ class RecoveryJournalLeg {
     // widen it. Owner ruling O-5 in particular - a cancelled recording is
     // never fed back, by anybody.
     if (found == null) return PendingRetryOutcome.unavailable;
-    final _StepOutcome step = await _attempt(
+    // Card RC-S — a user's press does not widen it either. The list withholds
+    // the button for such a recording (`PendingRecoveryItem.actions`), so this
+    // is the race arm: the account changed between the draw and the press.
+    if (_heldForAnotherAccount(found)) {
+      diag('audio.recovery.user_retry_other_account', <String, Object?>{
+        'recording_id': recordingId,
+      });
+      return PendingRetryOutcome.unavailable;
+    }
+    final _StepOutcome step = await _attemptRanges(
       found,
       verdict,
       fallbackSourceLang,
@@ -290,21 +353,52 @@ class RecoveryJournalLeg {
     int outage = 0;
     int manual = 0;
     int unverified = 0;
+    final Map<String, SessionDebtBytes> bySession = <String, SessionDebtBytes>{};
     for (final _Candidate c in candidates) {
       switch (c.status.state) {
         case RecoveryQueueState.needsManual:
+        case RecoveryQueueState.shortfall: // RC-3 — user action only
           manual += 1;
         case RecoveryQueueState.settledUnverified:
           unverified += 1;
       }
       if (c.status.state != RecoveryQueueState.settled) {
-        bytes += c.range.length;
+        final int held = _heldBytesOf(c);
+        bytes += held;
         // Card LK-3 — 🔴 THE INTERRUPT REASON IS THE ONLY THING THAT KNOWS
         // WHETHER THE LINK WAS DOWN. The banner used to infer an outage from
         // 「something is owed」, which is true of a paused recording and of a
         // press whose receipt never came.
-        if (c.manifest.interruptReason == JournalInterrupt.linkLoss) {
-          outage += c.range.length;
+        // Card RC-3 — an owed tail IS an outage (the link or the engine was
+        // down when the recording ended); without this its page line read
+        // 「not confirmed yet」, a sentence about a receipt.
+        final bool fromOutage =
+            c.manifest.interruptReason == JournalInterrupt.linkLoss ||
+                c.manifest.transcribedPrefixBytes != null;
+        if (fromOutage) {
+          outage += held;
+        }
+        // Card RC-G — the same two numbers per piece, so a page can print its
+        // own debt rather than the phone's (see the field's doc).
+        //
+        // 🔴 RC-G follow-up (MAIN, 2026-09-24) — ONLY AUDIO WHOSE WORDS ARE
+        // MISSING. The article page says 「… still being transcribed」; a
+        // terminal settle (`settled_unverified`: the text covers the range and
+        // only the receipt is missing; `transcribed_unverified`: the server
+        // cannot issue one) owes no words, and counting it put 「尚有 <whole
+        // length> 的录音等待转写确认」 on a piece whose every word is on the page
+        // (measured: a clean 10 s recording against a tier-C relay). Those
+        // bytes still count in [bytes] above — the pending-recovery screen
+        // lists them and that is where they are handled.
+        if (!RecoveryQueueState.isTerminalSettle(c.status.state)) {
+          final String key =
+              RetainedAudioSpill.sessionKeyOf(c.scan.recordingId);
+          final SessionDebtBytes was = bySession[key] ??
+              const SessionDebtBytes(pendingBytes: 0, outageBytes: 0);
+          bySession[key] = SessionDebtBytes(
+            pendingBytes: was.pendingBytes + held,
+            outageBytes: was.outageBytes + (fromOutage ? held : 0),
+          );
         }
       }
     }
@@ -312,11 +406,27 @@ class RecoveryJournalLeg {
       tier: tier,
       pendingBytes: bytes,
       outagePendingBytes: outage,
+      bySession: bySession,
       needsManual: manual,
       settledUnverified: unverified,
       stopEarly: stopEarly,
     );
   }
+
+  /// Bytes one candidate still holds for recovery, summed over its ranges.
+  ///
+  /// ⚠️ 更正（RC-K merge, 2026-09-24）: originally 「the manifest on this base
+  /// carries ONE owed range per recording (`_Candidate.range`). When RC-K turns
+  /// it into a list, sum that list here」. RC-K has landed: the manifest's
+  /// `owedRanges` is a list, and the sum over every stretch still owed (each
+  /// measured against the bytes on disk) already has one author,
+  /// `_Owed.of` in `retained_audio_journal_scan.dart`, exposed as
+  /// [RecordingScan.recoverableBytes]. This reads that sum instead of adding
+  /// a second one; `_Candidate.range` is only the NEXT stretch to feed and
+  /// would under-count a recording that owes two. Every total in [_tally],
+  /// including RC-G's per-piece split, still reads through this one function
+  /// (pinned by `article_backfill_per_article_test.dart`, 「RC-K merge」 case).
+  static int _heldBytesOf(_Candidate c) => c.scan.recoverableBytes;
 
   /// Everything on disk this leg is allowed to touch.
   ///
@@ -379,6 +489,40 @@ class RecoveryJournalLeg {
     return out;
   }
 
+  /// Card RC-K — one recording, one attempt PER OWED STRETCH, oldest first.
+  ///
+  /// An attempt feeds one stretch ([_Candidate.range] is the first still owed).
+  /// When `_finish` concluded a stretch that was not the last one it marks it
+  /// done and leaves the recording `pending`, so the rescan below offers the
+  /// next stretch and it is fed at once, at its own place. Anything else — a
+  /// failure, a shortfall, the last stretch — ends here exactly as before.
+  Future<_StepOutcome> _attemptRanges(
+    _Candidate first,
+    RecoveryGateVerdict verdict,
+    String fallbackSourceLang, {
+    RecoveryAttemptKind kind = RecoveryAttemptKind.autoRetry,
+  }) async {
+    _Candidate c = first;
+    while (true) {
+      final _StepOutcome step =
+          await _attempt(c, verdict, fallbackSourceLang, kind: kind);
+      if (step != _StepOutcome.completed || c.scan.owedStretches <= 1) {
+        return step;
+      }
+      _Candidate? next;
+      for (final _Candidate n in await _scanCandidates()) {
+        if (n.scan.recordingId == c.scan.recordingId) next = n;
+      }
+      // Moved on ⇔ the stretch just fed is no longer the one owed next.
+      if (next == null ||
+          next.range.start == c.range.start ||
+          next.status.state != RecoveryQueueState.pending) {
+        return step;
+      }
+      c = next;
+    }
+  }
+
   /// One recording, one attempt. Returns false when the caller should stop the
   /// whole sweep (no link, or a press holds the session).
   Future<_StepOutcome> _attempt(
@@ -387,6 +531,8 @@ class RecoveryJournalLeg {
     String fallbackSourceLang, {
     RecoveryAttemptKind kind = RecoveryAttemptKind.autoRetry,
   }) async {
+    // Card RC5 — read before the first await; see `_runOnWire`.
+    final int accountChanges = _session.articles.attempts.accountChanges;
     final AudioJournalFormat fmt = c.manifest.format;
     final RecoverySampleRange range;
     try {
@@ -411,18 +557,50 @@ class RecoveryJournalLeg {
       sourceLang: fallbackSourceLang,
       prefsDigest: digestPrefs(_phonePrefs?.call()),
     );
+    final String jobId = deriveJobId(
+        recordingId: c.scan.recordingId, range: range, variant: variant);
     final RecoveryIdentity identity = RecoveryIdentity.forAttempt(
       recordingId: c.scan.recordingId,
       range: range,
       variant: variant,
       attemptId: 'a-${_newId()}',
-      // A6-1 (4): one operation per attempt. A RE-SEND of this attempt would
-      // reuse it; this card never re-sends, so every attempt mints one and the
-      // field is honest about what it is rather than reserved for later.
-      operationId: 'o-${_newId()}',
+      // ⚠️ 更正（RC-R，2026-09-24）：originally 「A6-1 (4): one operation per
+      // attempt … every attempt mints one」 with `'o-${_newId()}'`. Card RC-R
+      // (MAIN ruling 3) derives it instead, so every attempt at this job
+      // carries the same operation and the relay charges the job once —
+      // see [deriveOperationId] for the exact derivation and its two
+      // charge-less consequences.
+      // ⚠️ 更正（RC-R follow-up, MAIN 2026-09-24）：originally every kind was
+      // derived. Owner ruling O-4 wins over ruling 3 for a USER press: an
+      // explicit re-transcription is metered as a new attempt, so it mints a
+      // fresh operation each time; only `auto_retry` attempts share one.
+      operationId: kind == RecoveryAttemptKind.userRetranscribe
+          ? 'o-${_newId()}'
+          : deriveOperationId(
+              jobId: jobId,
+              attemptKind: kind,
+              generation: _bindingConflictsOf(c, jobId, kind),
+            ),
       attemptKind: kind,
       audioFormatVersion: c.manifest.formatVersion,
     );
+    // Card RC-P follow-up (integ merge 3, 2026-09-24) — a tail still waiting
+    // for its live terminal final is refused HERE, before `addAttempt`:
+    // `_runOnWire` refuses it too, but only after the attempt below has been
+    // committed, which left a manifest attempt with no outcome. Same refusal,
+    // same re-run (`noteHeldSweep`), no record. The cursor is closed as the
+    // wire refusal's path closes it. `_runOnWire` keeps its own check for the
+    // live hold and for a tail that becomes pending while this handle opens.
+    if (_session.articles.owedTailPendingFor(
+        RetainedAudioSpill.sessionKeyOf(c.scan.recordingId))) {
+      _session.articles.attempts.noteHeldSweep();
+      _session.articles.endReplay();
+      diag('audio.recovery.held_for_live_final', <String, Object?>{
+        'recording_id': c.scan.recordingId,
+        'before_attempt': true,
+      });
+      return _StepOutcome.refusedByGate;
+    }
     diag('audio.recovery.attempt', <String, Object?>{
       'recording_id': identity.recordingId,
       'job_id': identity.jobId,
@@ -463,8 +641,45 @@ class RecoveryJournalLeg {
       // P1-2: tell the reconnect ring replay that these bytes have a sender.
       // A CLAIM IS NOT DELIVERY - see audio/replay_ownership.dart.
       _spill.replayOwnership.claim(identity.recordingId);
+      // 🔴 CARD RC-3 — OPEN THE REPLAY CURSOR, OR THE ROWS GO ON THE LIVE CLOCK.
+      // This leg never did: `ArticleScribe.claim` found no cursor, fell through
+      // to the live clock (still open after a long recording — only the next
+      // press or recording closes it), and filed the recovered row AFTER the
+      // recording's end with the whole range's length (root-cause §1.7: a
+      // 6:38 recording read 8:36). Same derivation the legacy leg uses, from
+      // one function (session/article_replay_target.dart).
+      //
+      // ⚠️ A candidate that is NOT an article closes any cursor a previous
+      // candidate in this sweep left open: its rows are ordinary rows, and a
+      // stale cursor would file them inside somebody else's recording.
+      final ArticleReplayTarget? target = articleReplayTargetFor(
+        articles: _session.articles,
+        timeline: _timeline,
+        sessionKey: RetainedAudioSpill.sessionKeyOf(identity.recordingId),
+        // The recorded answer, as persisted: the prefix was written from the
+        // same clock value the stretch start was (ptt_capture_pump.dart
+        // `_accountOwedTail`), and unlike the in-memory stretch start it
+        // survives a relaunch — the row derivation would otherwise land a
+        // retry of a shortfall AFTER its own partial rows.
+        persistedStartMs: c.manifest.transcribedPrefixBytes == null
+            ? null
+            : pcmBytesToMs(c.range.start),
+        // RC-K — this stretch's own placement, when it was recorded with one.
+        pinnedStartMs: c.scan.owedRange?.atMs,
+      );
+      if (target != null) {
+        _session.articles.beginReplay(target);
+      } else {
+        _session.articles.endReplay();
+      }
       final _AttemptResult r =
-          await _runOnWire(c, identity, variant.sourceLang);
+          await _runOnWire(c, identity, variant.sourceLang, accountChanges);
+      // Closed ONLY when no session carried words: see
+      // `ArticleScribe.endReplay` for why a cursor closed after a live session
+      // files the rows it was opened for on the wrong clock.
+      if (r.refusedByGate || r.framesEmitted == 0) {
+        _session.articles.endReplay();
+      }
       if (r.refusedByGate) {
         return r.refusedNoLink
             ? _StepOutcome.refusedNoLink

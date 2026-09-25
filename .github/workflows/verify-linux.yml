@@ -1,16 +1,13 @@
-# The node-side gate on Linux — the relay's own platform.
+# The node-side and desktop gates on Linux.
 #
 # WHY THIS EXISTS: production serves server-core's dist on a Linux VPS, yet
 # every server/protocol/golden suite in this repo has only ever run on
 # Windows (verify.yml) or a dev machine. This job runs the node-side stages
 # on the platform the relay actually ships to.
 #
-# WHAT IS DELIBERATELY ABSENT: the Rust family (sidecar bundle, clippy,
-# rust-tests, doctests). There is no Linux desktop build — tauri.conf ships
-# Windows bundles, the Rust tree has no Linux injection backend, and
-# pretending to verify one would be a green about nothing. The day a Linux
-# desktop build exists, those stages get added here the same way everything
-# else was: observed green first.
+# The desktop job compiles both Rust feature sets and builds the actual Tauri
+# application. Its result proves those stages, not cross-application injection:
+# the X11 and Wayland screen acceptance remains a separate local measurement.
 #
 # Promoted to `push` / `pull_request` on 2026-08-15 under the same contract
 # flutter.yml satisfied: observed green (run 31851656414, the third
@@ -68,13 +65,10 @@ jobs:
       - name: Types
         run: pnpm verify:types
 
-      # Script tests are DELIBERATELY absent, measured not assumed (first
-      # dispatch, 2026-08-15): build1-sidecar-preflight asserts the staged
-      # sidecar tree (server.js / node_modules — build artifacts this job
-      # never builds), and it27-publish-node-pin demands a linux-x64 entry in
-      # scripts/vendor/bundled-node.mjs — there is no Linux desktop, so no
-      # Linux node pin exists BY DESIGN. Those suites run on the Windows and
-      # macOS gates, where the thing they measure exists.
+      # Linux now has a bundled-Node pin. The server suite therefore requires
+      # the real sidecar artifact, even in this job; another job's disk is not shared.
+      - name: Build sidecar for shipped-artifact assertions
+        run: pnpm --filter @flowmic/desktop build:sidecar
 
       - name: Golden
         run: pnpm golden
@@ -90,3 +84,52 @@ jobs:
 
       - name: Desktop typecheck
         run: pnpm verify:types:desktop
+
+      - name: Install rendering test browser
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          sudo apt-get install -y fonts-noto-cjk
+
+      - name: Render Linux reasons in all UI locales
+        run: pnpm verify:linux-copy-render
+
+      - name: Retain rendered Linux reasons
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-copy-render
+          path: .local/linux-copy-render/*.png
+
+  desktop:
+    name: Linux desktop build and Rust gates
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Install desktop system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libx11-dev libxtst-dev libarchive-tools
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build protocol
+        run: pnpm --filter @flowmic/protocol build
+      - name: Check the Linux verification runner
+        run: node scripts/linux-verify.test.mjs
+      - name: Linux desktop verification
+        run: bash scripts/linux-verify.sh
+      - name: Retain stage logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-desktop-verification
+          path: .local/linux-verify/*.log

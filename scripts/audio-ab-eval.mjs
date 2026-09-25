@@ -5,7 +5,7 @@
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // WHAT IT IS FOR — the shape is dictated by the three RT-6 cards, not by a
-// generic benchmark. (docs/strategy/2026-08-07-rt6-soniox-tradeoff-cards.md)
+// generic benchmark. (docs/archive/strategy/2026-08-07-rt6-soniox-tradeoff-cards.md)
 // ─────────────────────────────────────────────────────────────────────────────
 // Each card names an acceptance criterion the existing `verify/eval/` harness
 // structurally cannot answer, because its cases are already-transcribed TEXT and

@@ -9,7 +9,7 @@
 //     next reader will find it and has to be told it was superseded, not missed)
 //   docs/decisions/2026-07-31-owner-two-channels-transit-not-storage.md ③
 //     (「pictures also go through the queue, and are saved locally by default」)
-//   docs/strategy/2026-07-30-image-transit-rca-v3-round-report.md (RV-60 real root cause)
+//   docs/archive/strategy/2026-07-30-image-transit-rca-v3-round-report.md (RV-60 real root cause)
 //
 // Where a picture row's COMPRESSED bytes live.
 //

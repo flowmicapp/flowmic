@@ -4,7 +4,7 @@
 //     collapses into ONE slot, priority-ordered blocking-error > degraded-warning > info, at most
 //     one on screen + 「N more」expandable; §6.2 ② (home page single banner
 //     slot), §6.3 (recording state)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 1 T-5
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 1 T-5
 //   CLAUDE.md red line 「no silent failure」: the queue NEVER drops an error — it only stops
 //     errors from STACKING. Everything below the top stays reachable through
 //     [BannerQueue.all] / the overflow count, and a live blocking condition is
@@ -268,6 +268,10 @@ BannerQueue buildChatBanners({
   bool ladderReconnecting = false,
   SttStall? sttStalled,
   AiComposeOutcome? utteranceFailure,
+  /// Card RC-I — [utteranceFailure]'s utterance is never sent (a light record
+  /// or a record-only row); the sentence then promises no sending. Production
+  /// passes `ChatController.utteranceFailureNeverSent` (chat_banner_sources.dart).
+  bool utteranceFailureNeverSent = false,
   ComposeSendFailure? sendFailure,
   /// Card MP-14 — the far end answered a control key with `ok:false`. Null when
   /// nothing has been refused, or once the notice has been dismissed (by the ✕
@@ -311,6 +315,14 @@ BannerQueue buildChatBanners({
   void Function()? onRetrySendFailure,
   /// B4 — see [_linkBanner]. Null when the ladder is not running.
   void Function()? onReconnectNow,
+  /// Card NR-96-E2 — the rung the phone's reconnect ladder is on, and its
+  /// budget (0 = unbounded). 0 attempts ⇒ the plain sentence, byte for byte.
+  int ladderAttempt = 0,
+  int ladderMaxAttempts = 0,
+  /// Card NR-96-E1 — `mobile:reconnect` went unanswered past its bound.
+  bool reconnectAckLost = false,
+  void Function()? onReconnectAckLostRetry,
+  void Function()? onDismissReconnectAckLost,
   /// Card CR-3 — a continuous recording is still capturing, with its audio
   /// being retained on this phone, while the link is down. Source:
   /// `PttSession.continuousCapturingOffline`, whose doc explains why every
@@ -318,6 +330,12 @@ BannerQueue buildChatBanners({
   ///
   /// Default false ⇒ ordinary push-to-talk renders exactly what it did before.
   bool continuousOffline = false,
+  /// Card RC-3 — a continuous recording is capturing while the relay has lost
+  /// its speech-engine leg ([continuousEngineDown]), and whether this phone is
+  /// keeping the audio ([continuousEngineKept], the SEG-2 kept/plain split).
+  /// Source: `PttSession.continuousOffline`.
+  bool continuousEngineDown = false,
+  bool continuousEngineKept = false,
   /// Card CR-9 — the ceiling is one minute away. Source:
   /// `ContinuousCapTimer.warningTicket`, a ticket rather than a flag so a fresh
   /// raise restarts the auto-hide window.
@@ -347,8 +365,41 @@ BannerQueue buildChatBanners({
     strings: strings,
     onReconnectNow: onReconnectNow,
     continuousOffline: continuousOffline,
+    ladderAttempt: ladderAttempt,
+    ladderMaxAttempts: ladderMaxAttempts,
   );
   if (link != null) queue.push(link);
+  // Card RC-3 — degraded for the reason CR-3's row gives: the recording is
+  // proceeding. The kept sentence only when the journal is really catching it.
+  if (continuousEngineDown) {
+    queue.push(
+      BannerItem(
+        id: BannerIds.continuousEngineDown,
+        severity: BannerSeverity.degraded,
+        message: continuousEngineKept
+            ? strings.bannerContinuousEngineDownKept
+            : strings.bannerContinuousEngineDown,
+      ),
+    );
+  }
+  // Card NR-96-E1 — BLOCKING because nothing is delivered while the phone is
+  // out of the room and nothing will ask again on its own; EVENT-type and
+  // dismissible because the asking is over (auto-hidden by the reconciler).
+  // Pushed after the link row, which keeps the slot on an equal severity.
+  if (reconnectAckLost) {
+    final bool canRetry = onReconnectAckLostRetry != null;
+    queue.push(
+      BannerItem(
+        id: BannerIds.reconnectAckLost,
+        severity: BannerSeverity.blocking,
+        message: strings.reconnectAckLostNotice,
+        actionLabel: canRetry ? strings.reconnectNowAction : null,
+        onAction: canRetry ? onReconnectAckLostRetry : onDismissReconnectAckLost,
+        onDismiss: canRetry ? onDismissReconnectAckLost : null,
+        dismissible: true,
+      ),
+    );
+  }
   if (autoStopped) {
     queue.push(
       BannerItem(
@@ -431,7 +482,10 @@ BannerQueue buildChatBanners({
       BannerItem(
         id: BannerIds.utteranceCompose,
         severity: BannerSeverity.blocking,
-        message: strings.utteranceComposeError(utteranceFailure),
+        message: strings.utteranceComposeError(
+          utteranceFailure,
+          neverSent: utteranceFailureNeverSent,
+        ),
         dismissible: true,
         onAction: onDismissUtteranceFailure,
       ),
@@ -606,6 +660,8 @@ BannerItem? _linkBanner({
   /// button that guesses.
   void Function()? onReconnectNow,
   bool continuousOffline = false,
+  int ladderAttempt = 0,
+  int ladderMaxAttempts = 0,
 }) {
   if (connection == ConnectionState.connected) return null;
   // ── Card CR-3 — a continuous recording that is still capturing ─────────────
@@ -661,7 +717,14 @@ BannerItem? _linkBanner({
     return BannerItem(
       id: BannerIds.link,
       severity: BannerSeverity.degraded,
-      message: strings.bannerReconnecting,
+      // Card NR-96-E2 — 「attempt n」, and 「of N」 only when the ladder has a
+      // budget (design §3.2: an invented total is a lie). No attempt known ⇒
+      // the sentence this row always had.
+      message: ladderAttempt <= 0
+          ? strings.bannerReconnecting
+          : ladderMaxAttempts > 0
+          ? strings.bannerReconnectingNOf(ladderAttempt, ladderMaxAttempts)
+          : strings.bannerReconnectingN(ladderAttempt),
       // 🔴 THIS is the state the button exists for. 「正在重连」 ("reconnecting")
       // is true and useless while the ladder sits on its 30 s rung; the measured
       // worst case before it dials on its own is that plus socket.io's own 30 s

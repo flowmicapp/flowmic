@@ -46,6 +46,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { isPlaceholder, isTranslated } from './translation-coverage.mjs';
 
 import { readUiLocales, baseCode, REPO_ROOT, REGISTRY_REL } from './locale-registry.mjs';
 
@@ -188,8 +189,9 @@ export function loadCatalogue() {
   const all = rows.map((spec) => {
     const p = join(DATA_DIR, `${spec.code}.json`);
     const strings = existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')).strings : null;
-    const provided = strings === null ? 0 : leaves.filter((l) => strings[l.key] !== undefined).length;
-    return { spec, strings, provided, present: strings !== null };
+    const provided = strings === null ? 0 : leaves.filter((l) => isTranslated(strings[l.key])).length;
+    const placeholders = strings === null ? 0 : Object.values(strings).filter((value) => isPlaceholder(value)).length;
+    return { spec, strings, provided, placeholders, present: strings !== null };
   });
 
   const baseEntry = all.find((l) => l.spec.code === base);
@@ -226,7 +228,8 @@ export function coverageReport(leaves, all) {
       code: l.spec.code,
       endonym: l.spec.endonym,
       translated: l.provided,
-      inheritsBase: leaves.length - l.provided,
+      placeholders: l.placeholders,
+      inheritsBase: leaves.length - l.provided - l.placeholders,
       percent: Math.round((l.provided / leaves.length) * 1000) / 10,
       // A language with no data file at all is not "0% translated and shipping"
       // — it is not in the app. Two different facts; the report says which.

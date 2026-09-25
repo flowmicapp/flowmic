@@ -2,8 +2,8 @@
 //   apps/server-core/src/billing/paddle/envelope.ts (where these types lived
 //     until 2026-08-29, and which re-exports them so no import had to move)
 //   apps/server-core/src/billing/paddle/signature.ts (SigVerdict's first author)
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.2 / §5.2 / §5.3
-//   docs/strategy/2026-08-29-creem-stage0-findings.md (why a second provider)
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.2 / §5.2 / §5.3
+//   docs/archive/strategy/2026-08-29-creem-stage0-findings.md (why a second provider)
 //   *** HUMAN-AUDIT SENSITIVE (billing) — reviewable in isolation ***
 //
 // The vocabulary two payment providers share. Types only — no logic, no io.

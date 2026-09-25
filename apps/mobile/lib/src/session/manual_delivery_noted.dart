@@ -1,5 +1,5 @@
 // P4 (0.3.1) — the noPcTarget half of the explicit text commit.
-// SPEC-REF: docs/strategy/2026-08-15-031-fix-batch-design.md §6 (P4);
+// SPEC-REF: docs/archive/strategy/2026-08-15-031-fix-batch-design.md §6 (P4);
 //   docs/rebuild/15 §2.0 (a button must not say 「投递」/"deliver" when no
 //   delivery mechanism stands behind it — the label swap lives in
 //   chat_flow_edit_sheet.dart, this file is the mechanism it points at).
@@ -79,6 +79,7 @@ ComposeSendFailure? commitNotedLocal(
     mode: d._host.mode,
     delivery: Delivery.none,
     text: text,
+    mcpContentReady: true,
     origin: 'cloud',
   );
   diag('deliver.noted_local', <String, Object?>{

@@ -47,6 +47,15 @@ const String kFavoritesKey = 'flowmic.compose.favorites';
 const String kTranslateTargetKey = 'flowmic.pref.translate_target';
 const String kTranslateTargetDefault = 'en';
 
+/// CR-12-F: whether the 「+」 panel's send bar last had 「with times」 on.
+/// DEVICE-LOCAL for the same reason as the two keys above — a habit of this
+/// phone, read and written only by the panel's chip, which always draws the
+/// current value beside the send button, so remembering it is never a hidden
+/// setting. Off when never chosen: owner 2026-08-12 ruling 3 (one newline, no
+/// decoration) stays the default (CR-12 design §10.3/§10.4).
+const String kSelectionSendWithTimesKey =
+    'flowmic.pref.selection_send_with_times';
+
 // T-1 (0.2.63): `kPunctGroupExpandedKey` / `punctGroupExpanded` /
 // `setPunctGroupExpanded` are DELETED, not left as an unread habit. They
 // remembered whether the ComposeBand's punctuation group was open, and owner
@@ -87,6 +96,10 @@ abstract class LocalPrefs {
   /// [kTranslateTargetDefault] when never chosen.
   Future<String> translateTarget();
   Future<void> setTranslateTarget(String lang);
+
+  /// CR-12-F: the send bar's 「with times」 chip. False when never chosen.
+  Future<bool> sendWithTimes();
+  Future<void> setSendWithTimes(bool on);
 }
 
 /// Parse a stored wire name back to the enum. Anything unrecognised (or absent)
@@ -99,12 +112,15 @@ class InMemoryLocalPrefs implements LocalPrefs {
     SendPolicy sendPolicy = SendPolicy.direct,
     List<String> favorites = const <String>[],
     String translateTarget = kTranslateTargetDefault,
+    bool sendWithTimes = false,
   }) : _sendPolicy = sendPolicy,
        _favorites = List<String>.of(favorites),
-       _translateTarget = translateTarget;
+       _translateTarget = translateTarget,
+       _sendWithTimes = sendWithTimes;
   SendPolicy _sendPolicy;
   List<String> _favorites;
   String _translateTarget;
+  bool _sendWithTimes;
 
   @override
   Future<SendPolicy> sendPolicy() async => _sendPolicy;
@@ -125,6 +141,12 @@ class InMemoryLocalPrefs implements LocalPrefs {
   @override
   Future<void> setTranslateTarget(String lang) async =>
       _translateTarget = lang;
+
+  @override
+  Future<bool> sendWithTimes() async => _sendWithTimes;
+
+  @override
+  Future<void> setSendWithTimes(bool on) async => _sendWithTimes = on;
 }
 
 class SharedPrefsLocalPrefs implements LocalPrefs {
@@ -166,5 +188,14 @@ class SharedPrefsLocalPrefs implements LocalPrefs {
   @override
   Future<void> setTranslateTarget(String lang) async {
     await _prefs.setString(kTranslateTargetKey, lang);
+  }
+
+  @override
+  Future<bool> sendWithTimes() async =>
+      _prefs.getBool(kSelectionSendWithTimesKey) ?? false;
+
+  @override
+  Future<void> setSendWithTimes(bool on) async {
+    await _prefs.setBool(kSelectionSendWithTimesKey, on);
   }
 }

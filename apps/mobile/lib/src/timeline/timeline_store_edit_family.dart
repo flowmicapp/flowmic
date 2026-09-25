@@ -39,6 +39,31 @@ TimelineEntry? _applyEdit(TimelineStore store, String id, String newText) {
   return updated;
 }
 
+/// Card RC-3b — put a row back where it was in its recording, with the length
+/// it had. ONE caller: `RecoveryJournalLeg._giveBackLentSpan`
+/// (session/recovery_leg_settle.dart) — an owed stretch in the middle of a long
+/// recording took its length off the live row that spanned the outage
+/// (`ArticleScribe.liveRowSpan`), and its recovery came back empty, so the row
+/// gets that time back. Neither `edited` nor the words move; the head is
+/// recomputed from the members.
+TimelineEntry? _applyArticleSpan(
+  TimelineStore store,
+  String id, {
+  required int offsetMs,
+  required int durationMs,
+}) {
+  final TimelineEntry? entry = store.findById(id);
+  if (entry == null || entry.articleId == null) return null;
+  final TimelineEntry updated = entry.copyWith(
+    articleOffsetMs: offsetMs,
+    durationMs: durationMs,
+    updatedAt: DateTime.now().toUtc(),
+  );
+  store._replace(entry, updated);
+  refreshArticleHeadOf(store, entry.articleId!);
+  return updated;
+}
+
 /// GA-01: write the compose product onto a translate/organize row. The STT
 /// text stays in `source_text` (immutable, §4.0 A) and the LLM output becomes
 /// the DISPLAY/delivered face — which is exactly what `processed_text ?? …`
@@ -83,7 +108,7 @@ TimelineEntry? _applyProcessed(
     processMode: mode.name,
     updatedAt: DateTime.now().toUtc(),
   );
-  store._replace(entry, updated);
+  store._replace(entry, updated, source: LocalRecordSource.contentReady);
   return updated;
 }
 
@@ -222,5 +247,5 @@ TimelineEntry? _markNoted(TimelineStore store, String id) {
 //
 // The C5 design (LWW + 「输家必须被告知」("the loser must be told")) is
 // preserved as design, not as
-// unreachable code: docs/strategy/2026-07-30-c5-conflict-criteria-design.md,
+// unreachable code: docs/archive/strategy/2026-07-30-c5-conflict-criteria-design.md,
 // which names the light-note-multi-device case that will reuse it.

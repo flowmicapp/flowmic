@@ -4,7 +4,7 @@
 //   docs/decisions/2026-08-02-in-app-update-both-ends.md — the PC reminder is
 //   the settings line PLUS 「主窗口一个不抢焦点的角标」 (a non-focus-stealing
 //   main-window badge);
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §5.2 — the badge is a
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §5.2 — the badge is a
 //   dot, not a word.
 //
 // ── WHY THIS MODULE EXISTS ───────────────────────────────────────────────────

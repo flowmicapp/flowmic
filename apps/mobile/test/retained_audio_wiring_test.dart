@@ -17,7 +17,7 @@
 // the test below MEASURES that against a REAL `SocketCore` rather than
 // asserting it from the doc comment.
 //
-// SPEC-REF: docs/strategy/2026-08-08-design-n1-long-recording.md §2.2 / J3;
+// SPEC-REF: docs/archive/strategy/2026-08-08-design-n1-long-recording.md §2.2 / J3;
 //           docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-b.
 
 import 'dart:io';

@@ -1,6 +1,6 @@
 // E-CL — the composition of the blind-store leg, as one object.
 //
-// SPEC-REF: docs/strategy/2026-08-08-design-e-blindstore-client.md §4.1
+// SPEC-REF: docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §4.1
 //   (drains on "the next authenticated cloud connection").
 //
 // main.dart builds this and calls [attach]. Everything the leg needs to decide

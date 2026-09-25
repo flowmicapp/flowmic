@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l3-account-card-design.md §2 (information architecture + four states)
+//   docs/archive/strategy/2026-08-02-l3-account-card-design.md §2 (information architecture + four states)
 //
 // The ONE rendering of the cloud account block. Both the Settings page account card
 // and the Devices page cloud card embed this — before L3 each page drew its own copy

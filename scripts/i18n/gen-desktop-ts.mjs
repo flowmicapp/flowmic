@@ -47,6 +47,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { isPlaceholder, isTranslated } from './translation-coverage.mjs';
 
 import { readUiLocales, baseCode, defaultCode, REPO_ROOT, REGISTRY_REL } from './locale-registry.mjs';
 // The extraction script is the one-time migration tool; these two helpers are
@@ -151,8 +152,9 @@ function loadCatalogue() {
     const p = join(DATA_DIR, `${spec.code}.json`);
     const strings = existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')).strings : null;
     const translatable = leaves.filter((l) => !l.sameAs);
-    const provided = strings === null ? 0 : translatable.filter((l) => strings[l.key] !== undefined).length;
-    return { spec, strings, provided, present: strings !== null };
+    const provided = strings === null ? 0 : translatable.filter((l) => isTranslated(strings[l.key])).length;
+    const placeholders = strings === null ? 0 : Object.values(strings).filter((value) => isPlaceholder(value)).length;
+    return { spec, strings, provided, placeholders, present: strings !== null };
   });
 
   const baseEntry = all.find((l) => l.spec.code === base);
@@ -406,7 +408,8 @@ function coverageReport(leaves, every) {
       code: l.spec.code,
       endonym: l.spec.endonym,
       translated: l.provided,
-      inheritsBase: total - l.provided,
+      placeholders: l.placeholders,
+      inheritsBase: total - l.provided - l.placeholders,
       percent: Math.round((l.provided / total) * 1000) / 10,
       inApp: l.present,
     })),

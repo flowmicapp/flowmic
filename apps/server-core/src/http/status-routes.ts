@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-13-0263-design-task-book.md §9 (REQ-13-03 service-availability
+//   docs/archive/strategy/2026-08-13-0263-design-task-book.md §9 (REQ-13-03 service-availability
 //     status page), §9-2.1 (the page only reads the latest result + a timestamp), §9-2.2 (anti-cache ⇒ unknown),
 //     §9-2.3 (v1 only does current state, three tiles), §9-2.5 (no SLA, no percentages anywhere on the page),
 //     §9-2.6 (W-5a: HTTP route, zero protocol events, precedent = /api/network's own inline comment)

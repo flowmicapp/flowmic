@@ -2,7 +2,7 @@
 //   apps/server-core/src/http/update-routes.ts — UpdateManifest / UpdatePlatform /
 //     UpdateArtifact and `validateUpdateManifest`. THAT file is the contract; this
 //     one mirrors it. When they disagree, that file wins.
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §1.2 (payload) / §1.3 (version comparison)
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §1.2 (payload) / §1.3 (version comparison)
 //   docs/decisions/2026-08-02-in-app-update-both-ends.md (owner 2026-08-02)
 //   CLAUDE.md red line: no silent failure / unknown ≠ latest / one value answers only one question
 //

@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.2 / §5.3 (the event
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.2 / §5.3 (the event
 //     table below is verbatim from there)
 //   apps/server-core/src/billing/webhook-types.ts (BillingProviderAdapter)
 //   apps/server-core/src/billing/paddle/webhook-handler.ts (the two event sets

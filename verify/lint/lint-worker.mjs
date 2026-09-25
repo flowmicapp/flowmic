@@ -2,7 +2,7 @@
 // One lint check, executed on a `worker_threads` worker owned by run-all.mjs.
 //
 // WHY THIS FILE EXISTS (measured, 2026-09-12,
-// docs/strategy/2026-09-12-verify-delivery-speedup-plan.md §3.1)
+// docs/archive/strategy/2026-09-12-verify-delivery-speedup-plan.md §3.1)
 // ---------------------------------------------------------------------------
 // run-all.mjs used to fire all 40 checks with `Promise.all` on ONE thread and
 // call that "concurrent". It is not: these checks are synchronous regex sweeps

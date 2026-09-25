@@ -1,9 +1,9 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-28-console-device-management-redesign.md (the survey
+//   docs/archive/strategy/2026-08-28-console-device-management-redesign.md (the survey
 //     this surface was cut from — §1 measures what the console could do before)
 //   docs/decisions/2026-08-28-owner-web-rulings-console-device-management.md
 //     (owner's 9 + 4 rulings; §5-1 presence, §5-2 immediate revoke, §5-3 PCID)
-//   docs/strategy/2026-08-05-it03-delete-this-pc-design.md (the original design;
+//   docs/archive/strategy/2026-08-05-it03-delete-this-pc-design.md (the original design;
 //     its four drifts are listed in the survey above and are corrected here)
 //   docs/decisions/2026-08-02-pc-instance-limit-2-3-10.md (the ceiling this
 //     surface is the escape hatch from)

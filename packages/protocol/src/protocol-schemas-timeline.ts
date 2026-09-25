@@ -61,7 +61,7 @@ export const timelinePullResultSchema  = z.object({
 });
 export const timelineTombstoneSchema   = z.object({ ids: z.array(NonEmpty) });
 
-// GRANT-1 (2026-08-11, docs/strategy/2026-08-11-design-e-grant-web-preview.md
+// GRANT-1 (2026-08-11, docs/archive/strategy/2026-08-11-design-e-grant-web-preview.md
 // §3.1) — the SERVER half of the web-preview grant handshake now exists:
 // server-core registers handlers for both names (grant.handler.ts, symbol
 // `registerGrantHandlers`) and the server itself emits `timeline:grant` to the

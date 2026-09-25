@@ -3,7 +3,7 @@
 //
 // SPEC-REF: Directive 2011/83/EU art. 9 (14 days), art. 14(3)/(4)(a) (what may
 //           be retained, and when nothing may be)
-//           docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md §2.1
+//           docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md §2.1
 //
 // 🔴 WHY THIS FILE EXISTS SEPARATELY FROM billing-withdrawal.test.ts. That one
 // drives the route and proves the two halves happen. This one pins the ARITHMETIC

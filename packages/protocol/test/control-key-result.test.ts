@@ -19,7 +19,7 @@ import { ERROR_CODES } from '../src/error-codes';
 //      the NUMBER; this proves it is THIS name);
 //   ② `request_id` on the PRESS is additive-optional, so an old phone's press
 //      is still legal — the receipt then matches by kind + recency;
-//   ③ the refusal vocabulary is a closed three-valued enum and NOT an error
+//   ③ the refusal vocabulary is a closed enum and NOT an error
 //      code — the registry must be able to change size without this event's
 //      meaning moving, and vice versa;
 //   ④ `ok:true` is representable. A receipt that could only carry a failure
@@ -73,7 +73,18 @@ describe('control:key-result — round trip', () => {
     expect(ControlKeyResultSchema.safeParse({ kind: 'undo', ok: false, reason: 'no_target' }).success).toBe(true);
   });
 
-  it('refuses a reason outside the three', () => {
+  it('carries an uncertain outcome without collapsing it into failed', () => {
+    const frame = { request_id: 'k-uncertain', kind: 'enter', ok: false, reason: 'uncertain' };
+    const parsed = ControlKeyResultSchema.safeParse(frame);
+    expect(parsed.success && parsed.data.reason).toBe('uncertain');
+  });
+
+  it('preserves a named capability refusal alongside the legacy failed reason', () => {
+    const frame = { kind: 'enter', ok: false, reason: 'failed', error_code: 'INJECT_WAYLAND_UNSUPPORTED' };
+    expect(ControlKeyResultSchema.parse(frame)).toEqual(frame);
+  });
+
+  it('refuses a reason outside the closed set', () => {
     expect(ControlKeyResultSchema.safeParse({ kind: 'undo', ok: false, reason: 'busy' }).success).toBe(false);
     // ...and refuses an empty correlation id rather than carrying one that
     // matches nothing (the `NonEmpty` posture every other id on this wire has).
@@ -109,10 +120,12 @@ describe('control:key-result — the reason enum is not the error registry', () 
     }
   });
 
-  it('has exactly three values, each leading to a different move', () => {
+  it('has exactly four values, each leading to a different move', () => {
     // unsupported_here -> try another destination; no_target -> click into a
-    // box; failed -> try again / read the far end's log. A fourth value would
-    // have to name a fourth move.
-    expect([...CONTROL_KEY_RESULT_REASONS]).toEqual(['unsupported_here', 'no_target', 'failed']);
+    // box; failed -> try again / read the far end's log; uncertain -> inspect
+    // the target before deciding whether to repeat.
+    expect([...CONTROL_KEY_RESULT_REASONS]).toEqual([
+      'unsupported_here', 'no_target', 'failed', 'uncertain',
+    ]);
   });
 });

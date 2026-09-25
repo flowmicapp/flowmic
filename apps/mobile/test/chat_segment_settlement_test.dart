@@ -4,7 +4,7 @@
 // Contract: docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-c
 //   (one segment (segment_idx) ＝ one row; trigger edge ＝ every final; one
 //   failure loses only that segment)
-// Design: docs/strategy/2026-08-08-design-n1-long-recording.md §2.1 / §3 J4·J5·J7
+// Design: docs/archive/strategy/2026-08-08-design-n1-long-recording.md §2.1 / §3 J4·J5·J7
 //
 // ── 🔴 Why this file walks the real chain the whole way (FakeSocketTransport →
 //     PttSession → ptt_inbound → SegmentBuffer → ChatController) instead of

@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-08-030-unified-plan-and-ledger.md card RT-2
+//   docs/archive/strategy/2026-08-08-030-unified-plan-and-ledger.md card RT-2
 //     (connection lifecycle follows the human voice: silence ≥3s hangs up /
 //     speaking again redials)
 //   docs/strategy/2026-07-23-relaunch-master-plan.md §2.3 (VAD gating: silence does not occupy a billed streaming session)
@@ -33,6 +33,9 @@ export interface IdleHangupHooks {
   /** Open a fresh leg (capped spawn) and replay what no engine has heard.
    *  Resolves `false` when the dial failed and the ladder has taken over. */
   dialLeg(): Promise<boolean>;
+  /** card HANGUP-1 — is there voice no leg has heard (and the recording not yet
+   *  torn down)? Read once, right after a hang-up: see {@link hangUp}. */
+  voiceOwed(): boolean;
 }
 
 export class EngineIdleHangup {
@@ -146,6 +149,13 @@ export class EngineIdleHangup {
     this.clear();
     await this.hooks.flushAndCloseLeg();
     this.hungUp = true;
+    // 🔴 card HANGUP-1 — the user started talking while this flush was out, so
+    // those chunks went into the leg being closed and were rewound (see
+    // `rewindToFlushBoundary`). Waiting for the NEXT accepted chunk to dial is
+    // the RT-2 rule, and here it is wrong: that chunk may never come — a short
+    // phrase and then quiet, or a release. The debt already exists, so dial now.
+    // Still driven by audio (point 3 above): by audio that already arrived.
+    if (this.hooks.voiceOwed()) this.noteVoice();
   }
 
   private async dial(): Promise<void> {

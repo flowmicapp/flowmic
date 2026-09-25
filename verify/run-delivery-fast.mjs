@@ -24,7 +24,7 @@
 //
 // WHAT IT BUYS, MEASURED ON dev-pc-a (Ryzen 9 7945HX, 16C/32T):
 // seventeen sequential stages = 961 s
-// (docs/strategy/2026-09-12-verify-delivery-speedup-plan.md §1.2, read off the
+// (docs/archive/strategy/2026-09-12-verify-delivery-speedup-plan.md §1.2, read off the
 // one clean EXIT=0 log `.local/build-0382/verify3.log`, START 22:13:21 ->
 // DONE 22:29:22). The lane wall clock is whatever the slowest lane is, and the
 // slowest lane is MOBILE (~267 s) — which nothing here makes faster. So the
@@ -214,7 +214,16 @@ export const LANES = [
     // verify:lint rides this lane rather than getting a seventh of its own:
     // since the worker-thread change it is ~6 s, and a lane for it would add
     // process churn for a stage that finishes before the shortest real lane.
-    steps: [pnpm('verify:lint'), pnpm('verify:types'), pnpm('verify:types:desktop')],
+    // verify:web-target-cached-mode and verify:i18n-dev-placeholders ride here
+    // too: static reads, milliseconds each, and deliberately NOT inside
+    // verify:lint (the headers of both files under verify/delivery-checks/).
+    steps: [
+      pnpm('verify:lint'),
+      pnpm('verify:web-target-cached-mode'),
+      pnpm('verify:i18n-dev-placeholders'),
+      pnpm('verify:types'),
+      pnpm('verify:types:desktop'),
+    ],
   },
   {
     name: 'VITEST',
@@ -224,6 +233,7 @@ export const LANES = [
       pnpm('verify:i18n-web-tests'),
       pnpm('verify:server-tests'),
       pnpm('verify:desktop-tests'),
+      pnpm('verify:linux-copy-render'),
     ],
   },
   {

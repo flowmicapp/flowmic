@@ -24,6 +24,7 @@ import { EMPTY_CLOUD_STATUS, type CloudStatus } from '../lib/channel';
 import { S } from '../lib/strings';
 import type { ChannelTag } from '../lib/types';
 import type { RecentLine } from './recent-line';
+import type { EngineRetry } from './engine-retry';
 
 export const morph = new CapsuleMorph();
 export const vis = new CapsuleVisibility();
@@ -132,6 +133,8 @@ export const state = reactive({
   injectFailed: null as {
     target: string;
     cached: boolean;
+    /** Native submission uncertainty (lead decision 2026-09-22), never not-injected. */
+    uncertain?: boolean;
     reason: string;
     /** 🔴 book 15 §2.5e-4 — WHICH of `cached`'s three causes, in words; `null` when the
      *  cause adds nothing the badge does not say. A SEPARATE field from `reason`, not
@@ -152,6 +155,14 @@ export const state = reactive({
   engineProvider: '',
   engineStatus: '' as '' | EngineStatus,
   engineKnown: false,
+  /** NR-96-C — the attempt number while `engineStatus` is `reconnecting`, null
+   *  otherwise. Written and cleared only by controller.ts (edges and watchdog in
+   *  engine-retry.ts's header); read by CapsuleApp.vue's `engineLabel`. */
+  engineRetry: null as EngineRetry | null,
+  /** NR-96 follow-up — the last `reconnecting` is no longer backed by anything
+   *  (watchdog expiry, or the utterance started/stopped under it): the engine
+   *  cell says NOTHING. Cleared by the next status frame or an interim. */
+  engineSilent: false,
   /** Last non-null loud reason observed (diag "most recent fault" (最近一次故障); omit until first).
    *  Latched on purpose — the row outlives recovery so the card can explain what
    *  happened, which is why the label says "most recent" (最近一次) and not "fault reason" (故障原因). */

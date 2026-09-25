@@ -3,7 +3,7 @@
 //     image_mime — F-2350 additive field-add, NO new event)
 //   packages/protocol/src/protocol-schemas-inject.ts (InjectImageBase64Schema:
 //     max 5_500_000 + canonical base64; InjectImageMimeSchema)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md Wave 2 T-4 ① (pick image → send image)
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md Wave 2 T-4 ① (pick image → send image)
 //   CLAUDE.md red line: no silent failure — an image that cannot be sent says WHY and how
 //     big it was; it is never silently truncated and never silently dropped.
 //

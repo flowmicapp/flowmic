@@ -1,6 +1,6 @@
 // REQ-12-10 — connection-list **identity** face (notes vs PC), separate from
 // channel (lan/relay) and liveness (online/offline). Design:
-// docs/strategy/2026-08-12-req1210-connection-list-identity-design.md
+// docs/archive/strategy/2026-08-12-req1210-connection-list-identity-design.md
 //
 // Pure helpers live here so unit tests can pin the machine-uid → lane mapping
 // without pumping the whole ConnectionsPage. Widget keys below are the only

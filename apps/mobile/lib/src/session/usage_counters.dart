@@ -1,6 +1,6 @@
 // SPEC-REF:
-//   docs/strategy/2026-07-28-v0.2-ui-ux-review.md §8 (R-UX-09 ruling)
-//   docs/strategy/R7-V2-TASK-CARDS.md V2-05
+//   docs/archive/strategy/2026-07-28-v0.2-ui-ux-review.md §8 (R-UX-09 ruling)
+//   docs/archive/strategy/R7-V2-TASK-CARDS.md V2-05
 //   docs/decisions/2026-07-27-owner-0.2.0-request-batch.md requirement ⑤ Why.5
 //
 // Local-only usage counters — the measuring half of requirement ⑤ "the whole

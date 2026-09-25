@@ -1,6 +1,6 @@
 // Card SALT-1 — GET/PUT /api/timeline/keymeta (per-account blind-store key
 // metadata: Argon2id KDF salt + passphrase-verification sentinel), design
-// docs/strategy/2026-08-11-design-e-multidevice-salt.md §3.1.
+// docs/archive/strategy/2026-08-11-design-e-multidevice-salt.md §3.1.
 //
 // Most cases run against a REAL in-process saas server (startServer, bootstrap
 // wiring included), because the mounting decision and the Bearer seam live in

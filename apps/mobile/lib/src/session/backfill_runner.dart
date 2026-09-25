@@ -57,12 +57,30 @@ import '../settings/phone_prefs_payload.dart';
 import '../signaling/state_machine.dart';
 import '../signaling/wire_payloads.dart' show FlowMode;
 import '../timeline/article.dart';
-import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart';
+import 'article_replay_target.dart';
 import 'instance_probe.dart' show ServerChannel;
 import 'pending_recovery.dart' show PendingRetryOutcome;
 import 'recovery_gate.dart';
 import 'recovery_journal_leg.dart';
+import 'recovery_retry_timer.dart';
+
+/// Card RC-G — one piece's share of [BackfillProgress].
+@immutable
+class ArticleBackfill {
+  const ArticleBackfill({required this.pendingMs, required this.fromOutage});
+
+  static const ArticleBackfill none =
+      ArticleBackfill(pendingMs: 0, fromOutage: false);
+
+  /// Milliseconds of THIS piece's audio still waiting to become words.
+  final int pendingMs;
+
+  /// Was any of [pendingMs] recorded while the link (or the engine) was down?
+  /// Chooses the article page's sentence exactly as
+  /// [BackfillProgress.pendingFromOutage] used to, but for this piece only.
+  final bool fromOutage;
+}
 
 /// How much recovery is still owed, for the face ruling ⑮ requires.
 @immutable
@@ -74,6 +92,7 @@ class BackfillProgress {
     this.needsManual = 0,
     this.settledUnverified = 0,
     this.pendingFromOutage = false,
+    this.byArticle = const <String, ArticleBackfill>{},
   });
 
   static const BackfillProgress idle =
@@ -121,6 +140,21 @@ class BackfillProgress {
   /// today).
   final bool pendingFromOutage;
 
+  /// Card RC-G — [pendingMs] and [pendingFromOutage] again, per session key
+  /// (`RetainedAudioSpill.sessionKeyOf`; a continuous recording's key is its
+  /// ARTICLE id). Read through [forArticle].
+  final Map<String, ArticleBackfill> byArticle;
+
+  /// Card RC-G — what [articleId] alone still owes.
+  ///
+  /// 🔴 THE ARTICLE PAGE READS THIS, NEVER [pendingMs]. [pendingMs] is the
+  /// whole phone's debt; printed on one piece's page it read 「断网时录下的
+  /// 10:51 还在转写」 on a piece that owed 1:35, the other 9:16 being other
+  /// recordings — one of which never lost the network at all (CR-12-E re-run,
+  /// root-cause §5.5). Pinned by `test/article_backfill_per_article_test.dart`.
+  ArticleBackfill forArticle(String articleId) =>
+      byArticle[articleId] ?? ArticleBackfill.none;
+
   /// Whether a stretch is being fed back right now.
   final bool running;
 
@@ -167,7 +201,10 @@ class BackfillRunner {
     String Function()? newId,
     bool Function()? metered,
     Future<void> Function(Duration)? sleep,
-  })  : _session = session,
+    // Card RC-O — how the due-time retry is scheduled (a test fires it by hand).
+    Timer Function(Duration, void Function())? retryTimer,
+  })  : _retryTimerFactory = retryTimer,
+        _session = session,
         _timeline = store,
         _storeOf = storeOf ?? (() => session.audio.retainedAudio?.store),
         _phonePrefs = phonePrefs,
@@ -195,6 +232,46 @@ class BackfillRunner {
   final String Function()? _newId;
   final bool Function()? _metered;
   final Future<void> Function(Duration)? _sleep;
+  final Timer Function(Duration, void Function())? _retryTimerFactory;
+
+  /// Card RC-O — wakes the queue when the earliest backoff runs out
+  /// (recovery_retry_timer.dart says why an edge is not enough).
+  late final RecoveryRetryTimer _retry = RecoveryRetryTimer(
+    onDue: _onRetryDue,
+    clock: _clock,
+    timer: _retryTimerFactory,
+  );
+  String? _retrySourceLang;
+
+  /// Card RC-O — only into an idle session on a live link; otherwise the link
+  /// and recording-end edges sweep anyway.
+  void _onRetryDue() {
+    final String? lang = _retrySourceLang;
+    final bool go = !_disposed &&
+        lang != null &&
+        linkConnected &&
+        sessionAcceptsPttDown(_session.fsm.session);
+    diag('audio.recovery.retry_due', <String, Object?>{'sweep': go});
+    if (go) unawaited(sweep(sourceLang: lang));
+  }
+
+  /// Card RC-O — arm for the earliest due retry. Called at the end of a pass,
+  /// inside the latch: the scan may republish a manifest (it writes).
+  ///
+  /// ⚠️ 更正（Codex rc3 ⑦，2026-09-24）：原为 due times after the clock read HERE.
+  /// A deadline that passed while the pass was scanning was then excluded: the
+  /// pass had skipped the recording as not yet due, and no timer was armed for
+  /// it. [passStartedMs] is read before the pass checks anything, so every
+  /// deadline the pass could not have honoured is still armed (at once, when
+  /// it has already passed); one it did see as due was the pass's to try.
+  Future<void> _armRetry(String sourceLang, {required int passStartedMs}) async {
+    final RetainedAudioSpill? spill = _session.audio.retainedAudio;
+    if (_disposed || spill == null || !spill.retainFromFirstFrame) return;
+    _retrySourceLang = sourceLang;
+    _retry.arm(await RecoveryRetryTimer.earliestDueMs(spill, passStartedMs));
+  }
+
+  int _nowMs() => (_clock ?? () => DateTime.now().millisecondsSinceEpoch)();
 
   /// Card RC-1a - THE JOURNAL LEG, built once and only when the spill is
   /// actually running the journal face.
@@ -213,6 +290,9 @@ class BackfillRunner {
   RecoveryJournalLeg? get journalLeg {
     final RetainedAudioSpill? spill = _session.audio.retainedAudio;
     if (spill == null || !spill.retainFromFirstFrame) return null;
+    // Card RC-N — a failed attempt's late settle writes the manifest too, so it
+    // queues behind whatever this runner is doing (one writer at a time).
+    _session.articles.attempts.serialize = _runExclusive;
     return _journalLeg ??= RecoveryJournalLeg(
       session: _session,
       timeline: _timeline,
@@ -400,6 +480,24 @@ class BackfillRunner {
     });
   }
 
+  /// Card RC-N — any other journal writer, queued through the same latch, then
+  /// one ordinary pass so the counts on the face (and the RC-O timer) are
+  /// re-read after it: a late settle that left the page saying 「still being
+  /// transcribed」 would be the stale-face shape `_retranscribe` guards against.
+  Future<void> _runExclusive(Future<void> Function() work) {
+    final Future<void> queued =
+        (_inFlight ?? Future<void>.value()).then((_) async {
+      if (_disposed) return;
+      await work();
+      final String? lang = _retrySourceLang;
+      if (lang != null) await _run(lang);
+    });
+    _inFlight = queued;
+    return queued.whenComplete(() {
+      if (identical(_inFlight, queued)) _inFlight = null;
+    });
+  }
+
   Future<void> _run(String sourceLang) async {
     if (_disposed) return;
     final RetainedAudioStore? store = _storeOf();
@@ -413,7 +511,9 @@ class BackfillRunner {
     // a user would choose.
     final RecoveryJournalLeg? leg = journalLeg;
     if (leg != null) {
+      final int passStartedMs = _nowMs(); // Codex rc3 ⑦ — see `_armRetry`
       _lastLegOutcome = await leg.run(fallbackSourceLang: sourceLang);
+      await _armRetry(sourceLang, passStartedMs: passStartedMs); // RC-O
       if (_lastLegOutcome.stopEarly) {
         await _publish(store, running: false);
         return;
@@ -556,6 +656,9 @@ class BackfillRunner {
     final Timer timer = Timer(_settleTimeout, () {
       if (!done.isCompleted) {
         diag('audio.backfill.settle_timeout', const <String, Object?>{});
+        // Card RC-M — a recovery session has no GA-03 net any more
+        // (`endBackfill`), so this clock is the one that ends its wait.
+        _session.abortBackfill();
         done.complete(false);
       }
     });
@@ -582,52 +685,14 @@ class BackfillRunner {
     }
   }
 
-  /// Where one retained session's rows belong, or null when nothing can say.
-  ///
-  /// 🔴 TWO SOURCES, AND NEITHER IS A DEFAULT OF ZERO.
-  ///   · the recording is still running ⇒ the live clock already accounted for
-  ///     the outage when the link returned, and knows where it started;
-  ///   · the app was killed and this is an orphan ⇒ derive it from the rows
-  ///     already filed under that article: the stretch begins where the last
-  ///     row before it ended.
-  /// When the key is not an article at all (an ordinary press's retained tail),
-  /// there is no article and the recovered rows are ordinary rows — which is
-  /// correct, and the reason this returns null rather than inventing one.
-  ArticleReplayTarget? _targetFor(String sessionKey) {
-    // 🔴 THE RECORDED ANSWER FIRST. The clock measured this gap at the one
-    // instant it was measurable; the derivation below is a fallback for the
-    // case where no clock was there to measure it, and using it when a
-    // recorded answer exists puts the recovered sentences after the live
-    // ones that followed them.
-    final int? recorded = _session.articles.peekStretchStart(sessionKey);
-    if (recorded != null) {
-      return ArticleReplayTarget(
-        articleId: sessionKey,
-        stretchStartMs: recorded,
+  /// Where one retained session's rows belong — card RC-3 moved the body,
+  /// unchanged, to session/article_replay_target.dart so the journal leg asks
+  /// the same question the same way (see that file's header).
+  ArticleReplayTarget? _targetFor(String sessionKey) => articleReplayTargetFor(
+        articles: _session.articles,
+        timeline: _timeline,
+        sessionKey: sessionKey,
       );
-    }
-    final List<TimelineEntry> members =
-        articleMembersOf(_timeline, sessionKey);
-    if (members.isEmpty) {
-      // No rows under this id: either it is not an article, or the outage
-      // swallowed the whole recording. The second case starts at zero and IS
-      // measurable — the article has no audio before this stretch.
-      final int? accounted = _session.articles.articleId == sessionKey
-          ? _session.articles.accountedMs
-          : null;
-      if (accounted == null) return null;
-      return ArticleReplayTarget(
-        articleId: sessionKey,
-        stretchStartMs: accounted,
-      );
-    }
-    int end = 0;
-    for (final TimelineEntry m in members) {
-      final int e = (m.articleOffsetMs ?? 0) + (m.durationMs ?? 0);
-      if (e > end) end = e;
-    }
-    return ArticleReplayTarget(articleId: sessionKey, stretchStartMs: end);
-  }
 
   Future<void> _publish(RetainedAudioStore store, {required bool running}) async {
     // 🔴 A SWEEP OUTLIVES THE CONTROLLER THAT STARTED IT. Every call site is
@@ -654,12 +719,32 @@ class BackfillRunner {
     // immediately before the write is the one that makes the claim.
     if (_disposed) return;
     int bytes = 0;
+    // Card RC-G — per session key: legacy bytes (all outage, see below) and
+    // the journal leg's own split.
+    final Map<String, (int, int)> perKey = <String, (int, int)>{};
     for (final String key in await store.pendingSessions()) {
       if (key == store.sessionKey) continue;
-      bytes += await store.bytesForSession(key);
+      final int b = await store.bytesForSession(key);
+      bytes += b;
+      final (int, int) was = perKey[key] ?? (0, 0);
+      perKey[key] = (was.$1 + b, was.$2 + b);
+    }
+    for (final MapEntry<String, SessionDebtBytes> e
+        in _lastLegOutcome.bySession.entries) {
+      final (int, int) was = perKey[e.key] ?? (0, 0);
+      perKey[e.key] =
+          (was.$1 + e.value.pendingBytes, was.$2 + e.value.outageBytes);
     }
     if (_disposed) return;
     progress.value = BackfillProgress(
+      byArticle: <String, ArticleBackfill>{
+        for (final MapEntry<String, (int, int)> e in perKey.entries)
+          if (e.value.$1 > 0)
+            e.key: ArticleBackfill(
+              pendingMs: pcmBytesToMs(e.value.$1),
+              fromOutage: e.value.$2 > 0,
+            ),
+      },
       pendingMs: pcmBytesToMs(bytes + _lastLegOutcome.pendingBytes),
       // Card LK-3 — legacy bytes count as an outage because that face only
       // fills during one; the journal face reports its own.
@@ -685,6 +770,7 @@ class BackfillRunner {
     // somebody's teardown.
     if (_disposed) return;
     _disposed = true;
+    _retry.cancel(); // RC-O
     progress.dispose();
   }
 

@@ -6,7 +6,7 @@
 //   docs/decisions/2026-08-11-owner-bundle-id-family-app-flowmic.md   (the family)
 //   docs/decisions/2026-08-12-owner-p0-app-flowmic-package-id-before-0262.md (P0)
 //   docs/decisions/2026-08-12-owner-p0-pkg-deep-fix-and-anti-revert.md (anti-revert)
-//   docs/strategy/2026-08-12-p0-app-flowmic-package-id-migration.md   (G1–G4)
+//   docs/archive/strategy/2026-08-12-p0-app-flowmic-package-id-migration.md   (G1–G4)
 //   verify/lint/package-id-family.mjs  (G2 — the gate that reads THIS file and
 //                                       walks every surface listed below)
 //
@@ -57,6 +57,7 @@ export const PACKAGE_IDS = Object.freeze({
   android: 'app.flowmic.android',
   macos: 'app.flowmic.mac',
   windows: 'app.flowmic.windows',
+  linux: 'app.flowmic.linux',
 });
 
 /**
@@ -148,5 +149,5 @@ export const LEGACY_METHOD_CHANNEL_NAMESPACE = 'cloud.flowmic';
  */
 export const LEGACY_DESKTOP_WEBVIEW_DIR = 'cloud.flowmic.desktop';
 
-/** All four target ids as a flat array (gate + scripts convenience). */
+/** All target ids as a flat array (gate + scripts convenience). */
 export const ALL_PACKAGE_IDS = Object.freeze(Object.values(PACKAGE_IDS));

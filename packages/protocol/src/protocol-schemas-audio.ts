@@ -54,6 +54,15 @@ export const AudioStartSchema       = z.object({
   // with the owner's own text) — delivery is per-utterance fixed, but the
   // timeline entry is always injectable after the fact.
   delivery: z.enum(['inject', 'none']).optional(),
+  // Card RC-1 (2026-09-24, primary-owner ruling (A)): `true` = this is a LONG
+  // RECORDING (continuous light-record transcription), not a held button.
+  // Additive + optional. The relay honours it ONLY when it is exactly `true`
+  // (`audio.handler.ts` → `SttStartArgs.continuous` → `engine-factory.ts`
+  // `reconnectUnbounded`): the engine reconnect ladder then never gives up on
+  // count (book 06 §2.3, 2026-08-29 addendum). Absent / false = push-to-talk,
+  // i.e. an old phone keeps today's 3-rung ladder, which is the safe direction.
+  // Deploy order: relay before APK (D-27); an old relay strips it silently.
+  continuous: z.boolean().optional(),
   source_lang: NonEmpty,
   target_lang: NonEmpty.optional(),
   // 2026-09-03 (owner ruling, phone-owned preferences): the phone's card /
@@ -163,6 +172,19 @@ export const SttInterimSchema       = z.object({
   confidence: z.number().min(0).max(1),
   language: NonEmpty,
   segment_idx: z.number().int().nonnegative(),
+  // Card RC-2 (2026-09-24) — how far the relay has taken the sender's audio off
+  // its hands, in the SENDER's clock (the same clock as this recording's
+  // `audio:chunk.ts_ms`): the end of the latest audio received, minus what the
+  // current engine leg was handed and the vendor has not yet reported processed.
+  // The sender subtracts it from its own sent end to get the audio still in
+  // transit or queued at the vendor, which is what a paced recovery feed bounds
+  // (apps/mobile/lib/src/session/recovery_leg_wire.dart `_streamRange`).
+  // ADDITIVE and OPTIONAL: absent whenever the engine reports no processed
+  // position (every engine but Soniox today) and on every relay older than the
+  // card, and the sender then falls back to a fixed block rate. Not a claim
+  // about individual chunks: VAD-withheld silence counts as settled.
+  // Producer: apps/server-core/src/stt/engine-backlog.ts.
+  acked_audio_ms: z.number().int().nonnegative().optional(),
 });
 export const SttFinalSchema         = z.object({
   text: z.string(),
@@ -211,6 +233,27 @@ export const SttFinalSchema         = z.object({
   // phone renders an unrecognised value as its generic sentence plus the bare
   // token rather than inventing a sentence for it (0.2.53 rule).
   empty_reason: z.string().optional(),
+  // ── Card CR-12-D (04 SPEC §3.3-a (d)) — the silence before this segment ────
+  //
+  // ADDITIVE and OPTIONAL: no new event, no new error code, the whitelist and
+  // both count guards untouched. Semantics: ms between the last word of the
+  // PREVIOUS segment and the first word of this one.
+  //
+  // 🔴 ABSENCE IS A THIRD ANSWER, NOT 0. It is absent on segment 0 (nothing came
+  // before), on every engine that reports no word timestamps (today everything
+  // but Soniox), on a segment that crossed an engine reconnect, and on any
+  // server predating the card. A consumer that reads absence as 「no pause」 has
+  // turned 「我不知道」 into a claim; the phone degrades to its punctuation rule
+  // instead (`apps/mobile/lib/src/timeline/…`, card CR-12-A).
+  //
+  // 🔴 IT IS THE WALL-CLOCK PAUSE (primary-owner ruling 2026-09-23, replacing
+  // this comment's first version, which said "measured in the audio the engine
+  // was given" — that was the defect). Two disjoint parts: the silence the
+  // engine heard between the two words, plus the silence the VAD gate withheld
+  // from it. Each chunk is classified once, so no chunk is in both. The
+  // arithmetic, and the two corners it still cannot measure, are on the server
+  // at `apps/server-core/src/stt/segment-pause.ts`.
+  pause_before_ms: z.number().int().nonnegative().optional(),
   // ── Card CV-1 (04 SPEC 3.3-a (b)) — the versioned coverage receipt ──────────
   //
   // Additive + optional, spread from recovery-protocol.ts, and populated ONLY on
@@ -246,6 +289,13 @@ export const SttErrorSchema         = z.object({
   message: NonEmpty,
   retryable: z.boolean(),
   judged_account: z.enum(['self', 'pc_owner']).optional(),
+  // Card RC4-S5 (2026-09-25, book 04 `stt:error` row) — ADDITIVE and OPTIONAL, sent only with
+  // STT_SEGMENT_NOT_TRANSCRIBED: where the stretch no engine leg heard BEGINS, on the sender's audio
+  // clock (`audio:chunk.ts_ms`, the clock `stt:interim.acked_audio_ms` answers in). A start, never a
+  // length. Producer: apps/server-core/src/stt/owed-voice-verdict.ts; the one reader: the phone's long
+  // recording (apps/mobile/lib/src/ptt/ptt_unheard_tail.dart), which owes the recording's tail from there.
+  // Absent ⇔ an older relay, or the relay's ring no longer holds that chunk.
+  unheard_from_ms: z.number().int().nonnegative().optional(),
 });
 // NR-38 — `loading` is the FOURTH value (2026-09-14), and the only one that is
 // emitted BEFORE the engine exists. A local model engine (`sherpa-local`) spends
@@ -269,10 +319,42 @@ export const SttErrorSchema         = z.object({
 // silent during the cold seconds. Nothing can refuse the frame ⇒ no deployment
 // order. No event name is added, so the 57-name whitelist and its count guard
 // do not move (asserted in `test/engine-status-loading.test.ts`).
+//
+// NR-96 (2026-09-24) — three ADDITIVE optional fields, the retry budget of the
+// relay's engine reconnect ladder, so a client can say "attempt n of N" and run
+// a local watchdog computed from facts on the frame (book 15 §2.7 law 3; book
+// 04 §3 row). One value, one question each:
+//   · `retry_max`          — how many attempts this outage gets IN TOTAL;
+//                            ABSENT = unbounded (never "unknown old relay":
+//                            the client's action is the same either way).
+//   · `retry_in_ms`        — the wait after this frame before the next attempt
+//                            STARTS.
+//   · `attempt_timeout_ms` — how long that attempt may take before it counts as
+//                            failed (true only because the rung's spawn is now
+//                            raced against the spawn cap, engine-session.ts).
+// Only the producer's `reconnecting` frames carry them (pinned by
+// apps/server-core/test/engine-reconnect-progress.test.ts, not by this schema).
+// No absolute deadline on purpose: two clocks never compare (book 06 §2.3 M3-4b).
+// Failure direction is the one argued above: z.object strips unknown keys and
+// every consumer ignores keys it does not read, so an old relay drops the three
+// fields (client shows n only, no watchdog) and an old client ignores them.
+// Card RC-3b (2026-09-24) — one more additive field, on a DIFFERENT frame:
+//   · `replayed_ms` — on the `ready` that ENDS a reconnect only: the audio
+//                     milliseconds the relay re-fed from its retention ring to
+//                     the new leg (`engine-session.ts attemptReconnect`, read
+//                     from what `replayBufferTail` actually handed over). The
+//                     phone subtracts it from what it captured during the
+//                     outage; the rest no engine heard. Absent (old relay, cold
+//                     open, any other `ready`) ⇒ the phone accounts nothing.
+//                     Pinned by apps/server-core/test/engine-ready-replayed-ms.test.ts.
 export const SttEngineStatusSchema  = z.object({
   provider: NonEmpty,
   status: z.enum(['loading', 'ready', 'reconnecting', 'failed']),
   retry_count: z.number().int().nonnegative().optional(),
+  retry_max: z.number().int().min(1).optional(),
+  retry_in_ms: z.number().int().nonnegative().optional(),
+  attempt_timeout_ms: z.number().int().min(1).optional(),
+  replayed_ms: z.number().int().nonnegative().optional(),
 });
 // stt:level is RETAINED (WP-R0-1): the mobile amplitude meter still consumes
 // it. The PC capsule dropped waveform rendering (A-30) but the event lives on.

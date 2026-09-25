@@ -56,7 +56,7 @@
 // SPEC-REF:
 //   apps/mobile/lib/src/update/self_update_flag.dart (gate ①, and this debt)
 //   docs/strategy/2026-08-19-store-review-approval-playbook.md §2-1
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §6
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §6
 
 import 'package:package_info_plus/package_info_plus.dart';
 

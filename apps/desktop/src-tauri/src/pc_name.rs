@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.7 (reserved key device.pc_name, F-3101)
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-10 / F-ruling-6
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-10 / F-ruling-6
 //
 // THIS PC'S NAME — and why the default had to change.
 //

@@ -1,7 +1,7 @@
 // E-B1 — 🔴🔴 the double-prefix red line, as an executable assertion.
 //
 // SPEC-REF: docs/rebuild/05-DATA-MODEL.md §2 (「两前缀永不互换」);
-//   docs/strategy/2026-08-08-design-e-blindstore-client.md §2 and §7-2
+//   docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §2 and §7-2
 //   (「B1 的验收必须有一条负向断言：盲存密文服务端解不开」);
 //   CLAUDE.md 「不可破的产品红线」: 双前缀加密：`enc:v1:`（服务端可解）与
 //   `e2e:v1:`（盲存）永不互换.

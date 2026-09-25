@@ -221,6 +221,14 @@ for (const [p, want] of [
 // ---------------------------------------------------------------------------
 section('6 the docs row is the two unconditional stages only, and unknown paths are not');
 
+for (const input of ['packages/protocol/src/error-codes.ts',
+  'apps/desktop/src/main-window/TimelinePage.vue',
+  'apps/desktop/src-tauri/tauri.conf.json', 'i18n/desktop/en.json',
+  'scripts/i18n/gen-desktop-ts.mjs', 'scripts/linux-copy-render.mjs']) {
+  check(selectStages([input]).stages.includes('verify:linux-copy-render'),
+    `${input} must execute the rendered Linux reason gate`);
+}
+
 const docsOnly = selectStages(['docs/strategy/2026-09-13-gate-tiering-design.md', 'CHANGELOG.md']);
 check(
   JSON.stringify(docsOnly.stages) === JSON.stringify(['verify:lint', 'verify:scripts']),

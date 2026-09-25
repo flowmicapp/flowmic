@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §3 D5 + §8 Q3
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §3 D5 + §8 Q3
 //     (「PC 屏幕不许把「别人在扣」画成自己的表」; the adopted answer is 「说、但不透
 //      对方余量」)
 //   apps/desktop/src/lib/billing-payer.ts (where the `payer` word off

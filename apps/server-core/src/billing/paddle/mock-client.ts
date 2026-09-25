@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   apps/server-core/src/billing/paddle/client.ts (the interface it stands in for)
-//   docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.2
-//   docs/strategy/2026-07-23-mock-billing-design.md (the precedent: a mock that
+//   docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.2
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md (the precedent: a mock that
 //     is honest about being a mock, and refuses to serve where it must not)
 //   *** HUMAN-AUDIT SENSITIVE (billing) — reviewable in isolation ***
 //

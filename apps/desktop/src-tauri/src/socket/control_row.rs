@@ -2,7 +2,7 @@
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-e
 //     (the fifth segment 「按键」/"keypress" — the ⌨ segment's contract, and every ruling this file rests on)
 //   docs/decisions/2026-08-12-owner-p0-control-key-history-and-haptics.md (owner P0)
-//   docs/strategy/2026-08-12-req1213-control-key-timeline-and-haptics.md (execution card)
+//   docs/archive/strategy/2026-08-12-req1213-control-key-timeline-and-haptics.md (execution card)
 //   docs/rebuild/04-PROTOCOL-SPEC.md F-3115 (`control:key.device_label`)
 //
 // ONE REMOTE KEY PRESS ⇔ ONE PC TIMELINE ROW — minted WITH its outcome.
@@ -89,6 +89,8 @@ pub(in crate::socket) enum ControlOutcome {
     OsRefused,
     /// The OS accepted the target but refused the sequence itself.
     SendFailed,
+    /// Input may have been partially submitted. The user must inspect the target.
+    SubmissionUncertain,
     /// This channel is not the capsule owner — another phone holds this machine.
     /// The keys were never attempted.
     ///
@@ -112,6 +114,7 @@ impl ControlOutcome {
             ControlOutcome::ForegroundRefused => "foreground_refused",
             ControlOutcome::OsRefused => "os_refused",
             ControlOutcome::SendFailed => "send_failed",
+            ControlOutcome::SubmissionUncertain => "submission_uncertain",
             ControlOutcome::NotPrimary => "not_primary",
         }
     }
@@ -128,6 +131,7 @@ impl ControlOutcome {
     fn status(self) -> &'static str {
         match self {
             ControlOutcome::Sent => "injected",
+            ControlOutcome::SubmissionUncertain => "cached",
             // Everything else: we KNOW the keys did not reach the window. `cached`
             // would be a lie of a different kind — nothing was held for a later
             // re-attempt, because a keypress has nothing to hold.
@@ -232,6 +236,8 @@ pub(in crate::socket) enum KeyReceipt {
     Ok,
     /// Carries the wire `reason`, one of the three in `CONTROL_KEY_RESULT_REASONS`.
     Refused(&'static str),
+    /// Existing failure reason plus an additive, named capability verdict.
+    NamedRefusal(&'static str),
 }
 
 /// `reason` when this end does not have the key at all (a kind outside the six-key
@@ -241,6 +247,7 @@ pub(in crate::socket) const REASON_UNSUPPORTED_HERE: &str = "unsupported_here";
 pub(in crate::socket) const REASON_NO_TARGET: &str = "no_target";
 /// `reason` when this end tried and the attempt did not go through.
 pub(in crate::socket) const REASON_FAILED: &str = "failed";
+pub(in crate::socket) const REASON_UNCERTAIN: &str = "uncertain";
 
 impl KeyReceipt {
     /// The wire's view of a local outcome.
@@ -256,6 +263,7 @@ impl KeyReceipt {
         match outcome {
             ControlOutcome::Sent => KeyReceipt::Ok,
             ControlOutcome::NoTarget => KeyReceipt::Refused(REASON_NO_TARGET),
+            ControlOutcome::SubmissionUncertain => KeyReceipt::Refused(REASON_UNCERTAIN),
             ControlOutcome::ForegroundRefused
             | ControlOutcome::OsRefused
             | ControlOutcome::SendFailed
@@ -282,6 +290,10 @@ pub(in crate::socket) fn build_key_receipt(
     let mut frame = json!({ "kind": kind, "ok": matches!(receipt, KeyReceipt::Ok) });
     if let KeyReceipt::Refused(reason) = receipt {
         frame["reason"] = json!(reason);
+    }
+    if let KeyReceipt::NamedRefusal(code) = receipt {
+        frame["reason"] = json!(REASON_FAILED);
+        frame["error_code"] = json!(code);
     }
     if let Some(id) = request_id.filter(|id| !id.is_empty()) {
         frame["request_id"] = json!(id);
@@ -358,3 +370,23 @@ pub(in crate::socket) fn mint_control_row(
 #[cfg(test)]
 #[path = "control_row_tests.rs"]
 mod control_row_tests;
+
+#[cfg(test)]
+mod uncertainty_tests {
+    use super::*;
+    use crate::socket::chord_exit::ChordExit;
+    #[test]
+    fn linux_control_uncertainty_stays_distinct_in_log_row_and_receipt() {
+        let exit = ChordExit::SubmissionUncertain("XSync unavailable after keys".into());
+        let line = exit.line("enter", Some(42), 1);
+        assert!(line.contains("UNCERTAIN"));
+        assert!(!line.contains("NOT sent"));
+        let outcome = exit.outcome();
+        let row = build_row("id", "enter", outcome, None, "2026-09-21T00:00:00Z");
+        assert_eq!(row["status"], "cached");
+        assert_eq!(row["control_outcome"], "submission_uncertain");
+        let receipt = build_key_receipt("enter", Some("request"), KeyReceipt::from_outcome(outcome));
+        assert_eq!(receipt["ok"], false);
+        assert_eq!(receipt["reason"], "uncertain");
+    }
+}

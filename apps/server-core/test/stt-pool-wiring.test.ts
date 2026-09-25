@@ -1,9 +1,9 @@
 // A6-3 / O-5 — the POOL SELECTION ALGORITHM'S PRODUCTION WIRING.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-m2-window-handoff-report.md §5 M2-2
+//   docs/archive/strategy/2026-08-02-m2-window-handoff-report.md §5 M2-2
 //     (🔴 O-5 route-selection algorithm [unwired] — zero production consumers)
-//   docs/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md
+//   docs/archive/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md
 //     §-0b (with ONE provider the candidate set is a singleton, so「smart routing」can
 //           be built, pass, and report success while never having chosen
 //           anything — the most painful delivery shape in this repo),

@@ -81,6 +81,29 @@ void main() {
         reason: 'the call must be INSIDE that guard, not merely after it');
   });
 
+  test('card RC-B: the silent-tail entry is reached only from the terminal '
+      'final\'s empty-text branch', () {
+    final List<String> callers = <String>[];
+    for (final File f in _allSources()) {
+      if (f.readAsStringSync().contains('settleSilentTail(')) {
+        callers.add(f.path.replaceAll(r'\', '/').split('/').last);
+      }
+    }
+    expect(callers.toSet(), <String>{'live_settle.dart', 'chat_utterance.dart'},
+        reason: 'one caller: a second one is a second way to license a delete');
+    final String u = _read('session/chat_utterance.dart');
+    // Inside the empty-text arm, after the whole-utterance stall has returned.
+    final int empty = u.indexOf('if (text.trim().isEmpty) {');
+    final int stall = u.indexOf('SttStallReason.emptyTranscript', empty);
+    final int call = u.indexOf('settleSilentTail(');
+    expect(empty, greaterThan(-1),
+        reason: 'the empty-text guard must still be spelled this way');
+    expect(call, greaterThan(stall),
+        reason: 'after the fromIdx == 0 stall, i.e. only when rows settled');
+    expect(call - empty, lessThan(2600),
+        reason: 'inside that arm, not somewhere after it');
+  });
+
   test('no delete is triggered by justDone alone', () {
     // E21/E48: the FSM comes to rest on a stall and on a watchdog teardown too.
     // `justDone` may be read as ONE INPUT to the predicate (condition (ii)'s

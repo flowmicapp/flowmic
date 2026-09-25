@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3, §4-1
+//   docs/archive/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3, §4-1
 //   apps/server-core/src/identity.ts (the mint-once-and-persist precedent this
 //     follows: symbol `resolveStandaloneSecret`)
 //

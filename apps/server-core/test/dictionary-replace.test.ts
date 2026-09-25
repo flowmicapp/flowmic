@@ -97,7 +97,7 @@ describe('buildDictionaryReplacer — safety + precedence', () => {
 // routed by the split AND bounded by the boundary class, so either regression
 // alone brings it back. A comment about which test guards which change is itself
 // an assertion about behaviour; this one was wrong until it was measured.
-// Full account: docs/strategy/2026-08-28-multilingual-chain-audit.md §3 F2.
+// Full account: docs/archive/strategy/2026-08-28-multilingual-chain-audit.md §3 F2.
 // ─────────────────────────────────────────────────────────────────────────────
 describe('buildDictionaryReplacer — the split is by script, not by ASCII-ness', () => {
   it('an ASCII term does not bite into a word whose neighbour is an accented letter', () => {

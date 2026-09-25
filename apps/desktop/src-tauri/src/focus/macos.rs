@@ -2,7 +2,7 @@
 //   docs/rebuild/07-DESKTOP-SPEC.md §3 (event-driven focus tracker: an OS event
 //     source feeds ForegroundChanged; Stage-1 forces the OS foreground onto the
 //     inject target before any keystroke)
-//   docs/strategy/2026-08-06-mac-usable-work-breakdown.md §A MAC-04
+//   docs/archive/strategy/2026-08-06-mac-usable-work-breakdown.md §A MAC-04
 //   packages/protocol/src/protocol-schemas-focus.ts (process_name carries the
 //     executable basename VERBATIM)
 //

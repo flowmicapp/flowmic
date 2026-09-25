@@ -35,8 +35,10 @@
 //   · the screen note is drawn ONLY when the platform actually granted the hold
 //     (`ScreenWakeHold.isHeld`), whose own doc asks for exactly this check.
 
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter/widgets.dart';
 
+import '../session/engine_reconnect_state.dart' show EngineReconnectFace;
 import '../settings/app_strings.dart';
 import 'recording_panel.dart' show RecordingAmplitudeBars, RecordingPanel;
 import 'tokens.dart';
@@ -49,9 +51,17 @@ class ContinuousLiveKeys {
       ValueKey<String>('continuous.live.segments');
   static const ValueKey<String> screenOn =
       ValueKey<String>('continuous.live.screenOn');
+
+  /// Card NR-96-B — the relay is re-dialling the speech engine.
+  static const ValueKey<String> engine =
+      ValueKey<String>('continuous.live.engineReconnecting');
   static const ValueKey<String> stop = ValueKey<String>('continuous.live.stop');
   static const ValueKey<String> caption =
       ValueKey<String>('continuous.live.caption');
+
+  /// Card CR-12-C — the status box, tappable when [ContinuousLiveBar.onOpen]
+  /// is set.
+  static const ValueKey<String> open = ValueKey<String>('continuous.live.open');
 }
 
 class ContinuousLiveBar extends StatelessWidget {
@@ -61,8 +71,10 @@ class ContinuousLiveBar extends StatelessWidget {
     required this.amplitudeWindow,
     required this.segmentCount,
     required this.screenHeld,
+    required this.engineReconnect,
     required this.strings,
     required this.onStop,
+    this.onOpen,
   });
 
   /// How much of this sitting is left. Clamped at zero for display; the stop
@@ -79,12 +91,25 @@ class ContinuousLiveBar extends StatelessWidget {
   /// refused — in which case the note is not drawn, because it would be false.
   final bool screenHeld;
 
+  /// 🔴 Card NR-96-B — `PttSession.engineReconnect`'s current face, or null.
+  /// REQUIRED with no default (13 册 §7 F1 ②): a forgotten argument must not
+  /// compile into a bar that never says the engine is being re-dialled. The
+  /// in-progress article page draws the same fact from the same source, so
+  /// the two cannot disagree (design §3.4).
+  final EngineReconnectFace? engineReconnect;
+
   final AppStrings strings;
 
   /// Ends the recording. There is deliberately no cancel counterpart (CR-D ③,
   /// owner-approved): every finished segment is already saved, so a cancel
   /// button could not undo what it appeared to offer.
   final VoidCallback onStop;
+
+  /// Card CR-12-C (design §4.3) — reopens the in-progress article page. Set
+  /// on the light-record dock, null on that page itself; null draws no
+  /// chevron and takes no tap. The stop button stays its own target either
+  /// way.
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +119,7 @@ class ContinuousLiveBar extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Container(
+        _openable(Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
           decoration: BoxDecoration(
             color: FlowMicDockColors.rec.withValues(alpha: 0.05),
@@ -156,6 +181,12 @@ class ContinuousLiveBar extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (onOpen != null)
+                    Icon(
+                      Icons.chevron_right,
+                      size: 16,
+                      color: FlowMicDockColors.rec,
+                    ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -176,9 +207,24 @@ class ContinuousLiveBar extends StatelessWidget {
                   ],
                 ],
               ),
+              // NR-96-B — its own line, and allowed to wrap: this is the one
+              // chip here that is a sentence, and a sentence cut by an
+              // ellipsis is not one the user can read (D-15). 「attempt n」
+              // only — design §3.3 gives the long recording no total.
+              if (engineReconnect case final EngineReconnectFace f) ...<Widget>[
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _Chip(
+                    key: ContinuousLiveKeys.engine,
+                    label: strings.articleLiveEngineReconnecting(f.attempt),
+                    wrap: true,
+                  ),
+                ),
+              ],
             ],
           ),
-        ),
+        )),
         const SizedBox(height: 9),
         // `.ptt.stop`, flat rather than the mock's gradient — WP8 VF-2 deleted
         // every gradient in this dock, and §5-9 has an additional reason to keep
@@ -222,12 +268,33 @@ class ContinuousLiveBar extends StatelessWidget {
       ],
     );
   }
+
+  /// The status box as the way back into the article page (design §4.3), or
+  /// unchanged when there is nowhere to go. The accessible name reuses
+  /// `articleBadge` (design §4.6: zero new strings).
+  Widget _openable(Widget box) {
+    final VoidCallback? open = onOpen;
+    if (open == null) return box;
+    return Semantics(
+      button: true,
+      label: strings.articleBadge,
+      child: GestureDetector(
+        key: ContinuousLiveKeys.open,
+        behavior: HitTestBehavior.opaque,
+        onTap: open,
+        child: box,
+      ),
+    );
+  }
 }
 
 /// `.segchip` — a small pill for one standing fact.
 class _Chip extends StatelessWidget {
-  const _Chip({super.key, required this.label});
+  const _Chip({super.key, required this.label, this.wrap = false});
   final String label;
+
+  /// NR-96-B — a chip that carries a sentence wraps instead of ellipsizing.
+  final bool wrap;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -238,8 +305,8 @@ class _Chip extends StatelessWidget {
     ),
     child: Text(
       label,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
+      maxLines: wrap ? null : 1,
+      overflow: wrap ? null : TextOverflow.ellipsis,
       style: TextStyle(
         fontSize: 9.5,
         fontWeight: FontWeight.w600,

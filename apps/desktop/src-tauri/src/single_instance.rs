@@ -152,12 +152,14 @@ impl Drop for InstanceLock {
 /// and moving THAT would strand every existing install's data to fix a problem
 /// that lives in a different question. The chain is cut here instead: the
 /// instance identity stopped riding on the data directory.
+/// L-1: Linux now selects XDG runtime (state fallback); Windows/macOS retain
+/// their old file location and Windows production still uses the named mutex.
 pub fn default_lock_path(tag: Option<&str>) -> PathBuf {
     let name = match tag {
         None => "instance.lock".to_string(),
         Some(t) => format!("instance-{t}.lock"),
     };
-    crate::sidecar::io::default_home().join(name)
+    crate::app_dirs::instance_home().join(name)
 }
 
 /// Try to become THE running instance.

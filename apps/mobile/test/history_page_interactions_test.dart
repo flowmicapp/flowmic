@@ -135,7 +135,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(_zh.entryReInject), findsNothing);
-      expect(find.text(_zh.entryReprocess), findsNothing);
+      // NR-89: 「重新处理」 is two rows now; this page withholds both. (The
+      // page passes no translate target either — the sessionActions half is
+      // pinned with a target present in rerun_copy_render_test.dart (e).)
+      expect(find.text(_zh.entryRetranslate), findsNothing);
+      expect(find.text(_zh.entryReorganize), findsNothing);
       expect(find.text(_zh.entryEdit), findsNothing);
       expect(find.text(_zh.favoriteAdd), findsNothing);
     });

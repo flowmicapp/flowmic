@@ -113,8 +113,8 @@ void _syncSheetOnControllerRouted(_ChatFlowPageState s) {
   // 「是不是有一句话正在进行中」 — ONE author, both consumers below. SEG-2 needed
   // the predicate PA-5 already spelled out inline; two copies become two answers.
   final bool utteranceInFlight =
-      s.controller.sessionState == SessionState.recording ||
-      s.controller.sessionState == SessionState.processing;
+      s.controller.pressSessionState == SessionState.recording ||
+      s.controller.pressSessionState == SessionState.processing;
   // PA-5: the append face ends when the utterance does — the fold (release)
   // or the discard (swipe-up cancel) has settled once the FSM is out of
   // recording/processing. A LISTENER edge, not a callback from the gesture:

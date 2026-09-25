@@ -288,6 +288,25 @@ void outboxResendEntry(ChatController c, TimelineEntry entry) =>
 /// queued item's payload in place is neither, and nobody has ruled on it.
 void outboxResendText(ChatController c, TimelineEntry entry) {
   if (entry.isImage) return;
+  // L7: the PC has already answered this delivery, but the row write-back is
+  // synchronous while outbox settlement is intentionally unawaited. During
+  // that narrow interval `owedEntryIds` can still contain the old item even
+  // though the user is looking at the terminal uncertain face. Reusing its id
+  // can only replay the uncertainty tombstone; an explicit press asks for a
+  // genuinely new act and therefore must take `reInject`'s fresh-id path.
+  //
+  // This branch is deliberately status-narrow. An ordinary cached/pending row
+  // still reuses the owed item below, preserving F7's one-delivery rule.
+  if ((entry.status == EntryStatus.cached && entry.cachedByVerdict &&
+          (entry.failureReason == 'INJECT_SUBMISSION_UNCERTAIN' ||
+           entry.failureReason == 'submission_uncertain'))) {
+    diag('text.resend_uncertain_new_delivery', <String, Object?>{
+      'entry_id': entry.id,
+      'old_item_still_owed': c.outbox.owedEntryIds.contains(entry.id),
+    });
+    c.reInject(entry);
+    return;
+  }
   if (!c.outbox.owedEntryIds.contains(entry.id)) {
     c.reInject(entry);
     return;
@@ -500,6 +519,30 @@ void onFsmChangeRouted(ChatController c, FlowmicStateSnapshot s) {
       s.session != SessionState.recording) {
     unawaited(c.backfill.sweep(sourceLang: c._recoverySourceLang));
   }
+  // Card RC-3 — the session came to rest: an owed tail whose journal already
+  // closed can be fed now (the other half is `_onOwedTailReady`).
+  if (prevSess == SessionState.processing &&
+      s.session != SessionState.processing) {
+    maybeSweepOwedTailRouted(c);
+  }
+  // Follow-up (MAIN 2026-09-24) — a LIVE session came to rest. Its final may
+  // still be on the way (a stall does not mean no final, and the relay sends
+  // STT_SEGMENT_NOT_TRANSCRIBED ahead of it): the wire stays the press's for
+  // the grace, then a held recovery runs. A press that let go of the wire
+  // itself (a cancel, a dead capture) resumes it at once.
+  final bool wasBusy = prevSess == SessionState.processing ||
+      prevSess == SessionState.recording;
+  if (wasBusy && sessionAcceptsPttDown(s.session) ||
+      wasBusy && s.session == SessionState.disconnected) {
+    final attempts = c.session.articles.attempts;
+    if (attempts.liveHold && attempts.wireIsLive == true) {
+      // Only when something is waiting for the wire: a press that owes nothing
+      // leaves no timer (a held pass arms it later, `_onSweepHeldForLive`).
+      if (attempts.hasHeldSweep) _armLiveGrace(c);
+    } else {
+      _resumeHeldRecovery(c);
+    }
+  }
   _watchSessionLoss(c, s.connection);
   if (s.connection != ConnectionState.connected) {
     c.destination.clearFocus();
@@ -526,4 +569,43 @@ void onFsmChangeRouted(ChatController c, FlowmicStateSnapshot s) {
     c.utteranceCompose.abort(AiComposeFailure.notConnected);
   }
   c.notifyUi();
+}
+
+/// Card RC-3 — ONE sweep for a long recording that ended owing its tail.
+///
+/// 🔴 WHY THIS EXISTS: THE EDGE-2 SWEEP ABOVE CANNOT SERVE IT. That sweep fires
+/// on RECORDING → PROCESSING, i.e. before the terminal final: the recovery's
+/// `beginBackfill` is refused while a press holds the session, and the journal
+/// may not be closed yet (retained_audio_live_settle.dart LK-4: the terminal
+/// final regularly lands INSIDE `AudioCapture.stop()`). A recording stopped
+/// while the engine was down then waited for the next link-up edge — which,
+/// with the phone's own link healthy all along, may never come (root-cause
+/// §7-1: the words must come back within five minutes).
+///
+/// ⇒ two conditions, two edges, one consumer: the journal closed
+/// (`RetainedAudioSpill.owedTailReady`) AND the session at rest (FSM left
+/// PROCESSING). Whichever edge comes second finds both true and takes the
+/// ticket; the ticket makes it once per recording.
+///
+/// Card RC-P — a THIRD condition: the tail's placement is not waiting for the
+/// live terminal final (`ArticleScribe.holdOwedTail`). A recovery that ran first
+/// would place the tail before the dead leg's draft row that belongs ahead of
+/// it. `_afterLiveTerminal` (chat_utterance_owner.dart) calls back here when
+/// the final lands; if it never does, [kOwedTailFinalGrace] after the session
+/// came to rest the tail is placed without it.
+void maybeSweepOwedTailRouted(ChatController c) {
+  final RetainedAudioSpill? spill = c.session.audio.retainedAudio;
+  if (spill == null || spill.owedTailReady.value == null) return;
+  if (!sessionAcceptsPttDown(c.session.fsm.session)) return;
+  if (c.session.articles.hasPendingOwedTail) {
+    _armLiveGrace(c);
+    return;
+  }
+  if (!c.session.articles.attempts.liveHold) {
+    c._owedTailGrace?.cancel();
+    c._owedTailGrace = null;
+  }
+  if (!spill.takeOwedTailSweep()) return;
+  diag('audio.recovery.owed_tail_sweep', const <String, Object?>{});
+  unawaited(c.backfill.sweep(sourceLang: c._recoverySourceLang));
 }

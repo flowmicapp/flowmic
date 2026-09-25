@@ -745,9 +745,10 @@ describe('⑥ 🔴 yearly — the cycle Paddle sent, and the expiry it must not 
     const twoMonthsIn = resolver(w.db, NOW_MS + 60 * DAY_MS);
     expect(twoMonthsIn.getPlan('u1')).toMatchObject({ plan: 'pro', state: 'active', cycle: 'yearly' });
     // The LABEL and the GATE, separately (Window D1 §4 rule 2: a test that only asserts the label is green on 「the label moved, the gate did not」).
-    expect(twoMonthsIn.getQuota('u1').stt.limit_min).toBe(900);
+    expect(twoMonthsIn.getQuota('u1').stt.limit_min).toBe(1000);
     // 2026-08-27: 20M → 5M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-    expect(twoMonthsIn.effectiveLimits('u1').llm_tokens).toBe(5_000_000);
+    // 2026-09-23: 5M → 10M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md).
+    expect(twoMonthsIn.effectiveLimits('u1').llm_tokens).toBe(10_000_000);
   });
 
   it('positive control: a MONTHLY subscriber at that same clock IS expired', () => {
@@ -775,6 +776,7 @@ describe('⑥ 🔴 yearly — the cycle Paddle sent, and the expiry it must not 
     expect(billing.getPlan('u1')).toMatchObject({ plan: 'max', cycle: 'yearly', source: 'paddle' });
     expect(billing.getQuota('u1').stt.limit_min).toBe(3_000);
     // 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-    expect(billing.effectiveLimits('u1').llm_tokens).toBe(15_000_000);
+    // 2026-09-23: 15M → 50M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md).
+    expect(billing.effectiveLimits('u1').llm_tokens).toBe(50_000_000);
   });
 });

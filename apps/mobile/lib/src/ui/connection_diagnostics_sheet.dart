@@ -279,7 +279,7 @@ class _UploadDiagnosticsButtonState extends State<_UploadDiagnosticsButton> {
 /// not on `/api/health` either), filling them in needs a new authenticated
 /// HTTP route. The design doc, the route
 /// contract, and the itemized debt are recorded in
-/// `docs/strategy/2026-08-07-p8-local-engine-status-design-and-handoff.md`.
+/// `docs/archive/strategy/2026-08-07-p8-local-engine-status-design-and-handoff.md`.
 /// **The 「probe now」 button is likewise not drawn** — a button that does
 /// nothing when pressed is worse than no button.
 class DiagnosticsEngineSection extends StatelessWidget {

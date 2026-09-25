@@ -15,6 +15,17 @@
 /// Stage-1 focus could not be acquired (no locked/live target, or
 /// SetForegroundWindow refused) → the utterance is cached, not injected.
 pub const INJECT_FOCUS_LOST: &str = "INJECT_FOCUS_LOST";
+/// Linux implementation: native Wayland refused before any input.
+/// Lead decision: docs/decisions/2026-09-22-linux-inject-verdict-codes-and-no-new-history-status.md.
+pub const INJECT_WAYLAND_UNSUPPORTED: &str = "INJECT_WAYLAND_UNSUPPORTED";
+/// No supported display backend could be identified; refuse before any input.
+/// First responsible person's decision (owner may overturn):
+/// docs/decisions/2026-09-22-linux-display-unavailable-code-and-three-stage-deploy-order.md.
+pub const INJECT_DISPLAY_UNAVAILABLE: &str = "INJECT_DISPLAY_UNAVAILABLE";
+/// Linux implementation: submission may have partially reached the target.
+/// Lead decision: docs/decisions/2026-09-22-linux-inject-verdict-codes-and-no-new-history-status.md.
+/// Retain the record and stop automatic fallback; never report not-injected.
+pub const INJECT_SUBMISSION_UNCERTAIN: &str = "INJECT_SUBMISSION_UNCERTAIN";
 /// The `SendInput` CALL itself failed — it returned 0 (the target dropped the
 /// events) or a hard Win32 error. Also ridden by a successful clipboard delivery
 /// to say 「typing was not the path used」.
@@ -192,6 +203,9 @@ pub const INJECT_NO_ACCESSIBILITY: &str = "INJECT_NO_ACCESSIBILITY";
 /// the wording states the SCOPE it actually guards so the next code added outside
 /// that scope does not silently falsify it a second time.
 pub const DESKTOP_ERROR_CODES: &[&str] = &[
+    INJECT_WAYLAND_UNSUPPORTED,
+    INJECT_DISPLAY_UNAVAILABLE,
+    INJECT_SUBMISSION_UNCERTAIN,
     INJECT_FOCUS_LOST,
     INJECT_SENDINPUT_FAIL,
     // 2026-07-30: INJECT_NO_RECEIPT removed. It named the read-back's 「could not
@@ -215,36 +229,43 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn error_codes_ts_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    fn error_codes_ts_paths() -> [PathBuf; 3] {
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("..")
             .join("..")
             .join("packages")
             .join("protocol")
-            .join("src")
-            .join("error-codes.ts")
+            .join("src");
+        [
+            src.join("error-codes.ts"),
+            src.join("error-codes-auth-and-pairing.ts"),
+            src.join("error-codes-inject.ts"),
+        ]
     }
 
     #[test]
     fn desktop_error_codes_are_a_subset_of_the_protocol_ssot() {
-        let path = error_codes_ts_path();
-        let ts = match std::fs::read_to_string(&path) {
-            Ok(s) => s,
-            Err(_) => {
-                for code in DESKTOP_ERROR_CODES {
-                    assert!(!code.is_empty(), "empty error code constant");
+        let paths = error_codes_ts_paths();
+        let mut ts = String::new();
+        for path in &paths {
+            match std::fs::read_to_string(path) {
+                Ok(source) => ts.push_str(&source),
+                Err(_) => {
+                    for code in DESKTOP_ERROR_CODES {
+                        assert!(!code.is_empty(), "empty error code constant");
+                    }
+                    return;
                 }
-                return;
             }
-        };
+        }
         for code in DESKTOP_ERROR_CODES {
             // error-codes.ts declares keys as `CODE_NAME:` — match the key form.
             assert!(
                 ts.contains(&format!("{code}:")),
                 "error code {code:?} is NOT declared in packages/protocol/src/error-codes.ts \
-                 (drift from the SSOT — {})",
-                path.display(),
+                 (drift from the SSOT shards — {})",
+                paths[0].display(),
             );
         }
     }

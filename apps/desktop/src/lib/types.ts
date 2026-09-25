@@ -13,7 +13,7 @@ import type { HistoryStatus, Mode } from '@flowmic/protocol';
 export type ChannelTag = 'lan' | 'cloud';
 
 /** 🔴 ③evidence — WHAT STAGE 1b READ, and nothing else (owner 2026-08-07 甲-3;
- *  docs/strategy/2026-08-07-inject-status-truth-and-evidence-design.md §4-1).
+ *  docs/archive/strategy/2026-08-07-inject-status-truth-and-evidence-design.md §4-1).
  *
  *  `editable`     — the focus was observed to accept input;
  *  `not_editable` — it was observed NOT to;

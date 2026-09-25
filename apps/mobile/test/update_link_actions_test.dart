@@ -4,7 +4,7 @@
 //   apps/mobile/lib/src/ui/settings_update_card.dart (the in-place correction
 //     at the top of that file: why this took ten days longer than it had to)
 //   apps/mobile/lib/src/update/install_source.dart (storeListingUrls)
-//   docs/strategy/2026-08-23-0328-feature-design.md §4 card C
+//   docs/archive/strategy/2026-08-23-0328-feature-design.md §4 card C
 //
 // ── WHY THIS FILE EXISTS SEPARATELY FROM update_card_widget_test.dart ───────
 //

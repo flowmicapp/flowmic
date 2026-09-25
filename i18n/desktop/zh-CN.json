@@ -23,6 +23,8 @@
     "cap_stt_loading": "'正在加载模型…'",
     "cap_stt_ready": "'就绪'",
     "cap_stt_reconnecting": "'重连中…'",
+    "cap_stt_reconnecting_n": "'重连第 {n} 次'",
+    "cap_stt_reconnecting_n_of": "'重连第 {n}/{max} 次'",
     "cap_stt_unknown": "'未检测'",
     "cap_target_dash": "'—'",
     "cap_target_none": "'未定位到输入框'",
@@ -704,6 +706,10 @@
     "win_close": "'关闭'",
     "win_maximize": "'最大化'",
     "win_minimize": "'最小化'",
-    "win_restore": "'还原'"
+    "win_restore": "'还原'",
+    "st_uncertain": "'输入结果未知'",
+    "injectFailReason.INJECT_WAYLAND_UNSUPPORTED": "'Wayland 环境下无法向其他窗口输入'",
+    "injectFailReason.INJECT_DISPLAY_UNAVAILABLE": "'当前显示环境下无法输入'",
+    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'部分文本可能已输入。'"
   }
 }

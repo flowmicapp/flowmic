@@ -420,7 +420,7 @@ export function makeSttOrchestratorFactory(
    *  card). `stt.routings` deliberately stays on `deps.settings`: the engine
    *  routing is the PC's / the account's configuration, not the phone's. Absent
    *  ⇒ the database repo for everything (old callers, tests, old phones). */
-  overrides?: { settings?: SettingsRepo },
+  overrides?: { settings?: SettingsRepo; /** card RC-1 — `audio:start.continuous === true` (book 04). */ continuous?: boolean },
 ) => BuiltOrchestrator {
   const engineFactory = deps.engineFactory ?? defaultEngineFactory;
   // 🔴 A6-3 WIRING (2026-08-02, L2). The managed default is now resolved BY THE
@@ -505,6 +505,9 @@ export function makeSttOrchestratorFactory(
         spawnTimeoutForEngine(selected.routing.engine_id))),
       ...(deps.orchestratorOptions ?? {}),
       ...(gated ? { shouldFeedEngine: (): boolean => vad!.open, idleHangupMs: DEFAULT_ENGINE_IDLE_HANGUP_MS } : {}),
+      // card RC-1 — the long-recording ladder; the ONE production writer of this option. Strictly `true`:
+      // anything else is push-to-talk, which is what an old phone (no field) must get.
+      ...(overrides?.continuous === true ? { reconnectUnbounded: true, continuous: true } : {}), // RC-E: `continuous` too
     };
     const orchestrator = new SttEngineOrchestrator(
       session,

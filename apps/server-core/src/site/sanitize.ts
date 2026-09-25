@@ -7,13 +7,110 @@
 
 import type { SiteCountDim, SiteCountKind } from '../db/repos/site-counts.repo';
 
+// 🔴 THE PAGES OF THE SITE, AND IT IS NOT THIS REPO THAT DECIDES WHAT THEY ARE.
+// The website's page registry does (the `@flowmic/web` repo, src/lib/site-routes.ts
+// `PUBLIC_PAGES`), together with the two public pages that are not registry
+// pages (`/signin`, `/reset-password`). The browser derives what it reports
+// from that registry and therefore cannot go stale; THIS list can, because it
+// is in another repository and cannot import it. What keeps it honest is
+// `verify/lint/site-path-allowlist-mirror.mjs`, which reads that registry and
+// fails naming the exact strings to add. A missing entry is not a broken page:
+// the beacon still arrives, and `sanitizePath` files the visit under `(other)`.
+//
+// 🔴 WIDENED 2026-09-21, CARD SITE-COUNT-2, FROM SIX ENTRIES. Measured on
+// production that day — 37 days of `site_daily_counts`, 2026-08-16 → 2026-09-21,
+// 640 pageviews on the `path` dimension — the entire site had resolved to six
+// values: `/` 418, `/signin` 122, `(other)` 76, `/faq` 10, `/privacy` 8,
+// `/terms` 6. The registry held 50 pages and the build prerendered 426 files, so
+// `/pricing`, every `/download*`, every `/use-cases*`, every `/vs*`, `/refunds`
+// and 25 of the 26 guide chapters had never been counted once, in any language,
+// since the day they shipped — silently, because a whitelist that has stopped
+// describing the site keeps working perfectly on the pages it still names.
+//
+// 🔴 PER PAGE, NOT PER FAMILY, AND THAT IS THE DECISION. Collapsing the slug
+// pages into `/guide/(chapter)`, `/use-cases/(case)` and so on would have made
+// this list immune to new pages — and would have answered a question nobody
+// asked. The guide chapters, the use-case pages and the comparison pages EXIST
+// to be landed on from search one at a time; "how much traffic does the guide
+// get" is not a substitute for "which chapter". The cost of per-page is that
+// the 51st page needs an edit here plus a deploy, and the lint above is what
+// makes that cost visible instead of silent.
+//
+// ⚠️ ACCEPTING A PATTERN (`/guide/<slug>`) INSTEAD OF NAMES WAS ALSO REJECTED.
+// It would count a new chapter with no edit at all, but it is the client that
+// says what path this was, and a client is anybody with an HTTP library: a
+// pattern lets an unbounded number of invented slugs become rows in a table
+// whose whole defence against that is this list. §2 says whitelist, and a
+// regular expression is not one.
+//
+// ⚠️ WHAT DID NOT CHANGE: `/` and `/signin` mean exactly what they have meant
+// since 2026-08-16, so their 37-day history stays comparable. `(other)` shrinks
+// — it is "everything not on this list" and always was, so its CONTENTS move
+// whenever the list moves; that is this card's deliverable, not a drift, and it
+// is the one bucket whose history is not comparable across this change.
 export const SITE_PATH_ALLOWLIST = Object.freeze([
   '/',
   '/faq',
+  '/pricing',
+  '/try',
+  // Legal, English-only, unprefixed (owner 2026-08-27).
   '/privacy',
   '/terms',
+  '/refunds',
+  // Not registry pages: they are public but not indexable content. `/reset` is
+  // an alias handled BEFORE this list is consulted — see sanitizePath — so it
+  // deliberately does not appear here.
   '/signin',
   '/reset-password',
+  // The guide: `/guide` is the introduction chapter and the rest are children.
+  // Chapter order is the registry's (GUIDE_DOC_IDS), not alphabetical, so a
+  // diff against it reads straight down.
+  '/guide',
+  '/guide/how',
+  '/guide/install',
+  '/guide/install-win',
+  '/guide/install-mac',
+  '/guide/install-and',
+  '/guide/install-ios',
+  '/guide/install-linux',
+  '/guide/upgrade',
+  '/guide/lan-models',
+  '/guide/lan-pc',
+  '/guide/lan-scan',
+  '/guide/lan-list',
+  '/guide/cloud-how',
+  '/guide/cloud-register',
+  '/guide/cloud-verify',
+  '/guide/cloud-key',
+  '/guide/cloud-login',
+  '/guide/cloud-pair',
+  '/guide/cloud-after',
+  '/guide/use',
+  '/guide/use-screen',
+  '/guide/use-demo',
+  '/guide/use-type',
+  '/guide/model',
+  '/guide/faq',
+  // Downloads: `/download` is the overview, the rest are one platform each.
+  '/download',
+  '/download/windows',
+  '/download/macos',
+  '/download/android',
+  '/download/ios',
+  // Use cases: `/use-cases` is the overview, the rest are one situation each.
+  '/use-cases',
+  '/use-cases/ai-coding',
+  '/use-cases/private-work',
+  '/use-cases/cross-language',
+  '/use-cases/typing-hurts',
+  '/use-cases/talk-it-through',
+  '/use-cases/many-computers',
+  // Comparisons: `/vs` is the overview, the rest are one comparison each.
+  '/vs',
+  '/vs/phone-as-mic',
+  '/vs/pc-dictation',
+  '/vs/remote-typing',
+  '/vs/hardware-mic',
 ] as const);
 
 export type SitePathAllowed = (typeof SITE_PATH_ALLOWLIST)[number];

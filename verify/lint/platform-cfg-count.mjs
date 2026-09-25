@@ -28,7 +28,7 @@
 //
 // ⚠️ Do not describe this gate as "macOS is covered". Say what it does: it
 // counts. The only honest judge of a non-Windows branch is a run on the Mac —
-// `./scripts/mac-verify.sh` on that machine (see docs/FLEET.md §3).
+// `./scripts/mac-verify.sh` on that machine (see docs/archive/FLEET.md §3).
 //
 // ── WHAT IT CANNOT SEE (and why the stricter design was rejected) ────────────
 // Changing the BODY of an existing branch does not move the count, so this gate
@@ -128,6 +128,11 @@ const SRC = path.join(ROOT, 'apps', 'desktop', 'src-tauri', 'src');
 // above — both files were on that machine for it, and the 688-test figure
 // includes them.
 const EXPECTED = {
+  // L-1 Linux directory roles: both sides of the new platform split are counted.
+  // These are a tripwire only; the implementation needs a real Linux test run.
+  'cfg(target_os = "linux")': 33,
+  'cfg(not(target_os = "linux"))': 14,
+  'cfg linux compound': 32,
   // Non-Windows: not compiled on the lead box. These are the ones that matter.
   //
   // 23 → 24 (2026-09-02, B2-X): `portable::commands::main_window_hwnd` gained
@@ -155,7 +160,7 @@ const EXPECTED = {
   // counted from different starting points, and a naive 24+2 or 23+1+2 would
   // both have been one off from what is actually in this file. 🔴 Same
   // caveat as above: WINDOWS-ONLY proof so far for both bumps.
-  'cfg(not(windows))': 26,
+  'cfg(not(windows))': 24,
   // 11 → 12 (2026-08-22, the clipboard restore-race fix): ONE new non-Windows
   // arm — `readback::watch`'s inert stub for hosts with no UIA.
   //
@@ -295,7 +300,8 @@ const EXPECTED = {
   // so it owes no Mac run on its own — but it moved in the same commit as a
   // non-Windows row that does, so the Mac run this file's tests demand covers
   // both.
-  'cfg(windows)': 75,
+  // L-1 adds a Windows-only subprocess regression test module for APPDATA.
+  'cfg(windows)': 76,
   // 26 → 31 (2026-08-22): five new Windows-only sites in `inject/readback.rs` —
   // the UIA `watch`, its bounded read, the read itself, `POLL_INTERVAL` and the
   // `Duration` import. Windows-SIDE row, so it owes no Mac run; it is here as the
@@ -363,11 +369,17 @@ const EXPECTED = {
 // mac clippy dead-code errors, commit 7d9a775c) — the fix does not make it
 // MORE invisible, it gives it a name.
 
+// L4 Linux native clippy excludes the legacy outcome mapper and its imports
+// with any(not(target_os = "linux"), test), including one module inner cfg.
+// These compound forms remain visible to Windows tests and native Linux tests.
+
 // Attribute form `#[cfg(...)]` and macro form `cfg!(...)` are counted
 // separately because they are different things: the attribute removes code from
 // the build, the macro is a runtime-visible boolean in code that always
 // compiles. Only the former can hide a compile error.
 const PATTERNS = [
+  ['cfg(target_os = "linux")', /#\[cfg\(target_os\s*=\s*"linux"\)\]/g],
+  ['cfg(not(target_os = "linux"))', /#\[cfg\(not\(target_os\s*=\s*"linux"\)\)\]/g],
   ['cfg(not(windows))', /#\[cfg\(not\(windows\)\)\]/g],
   ['cfg(not(target_os = "windows"))', /#\[cfg\(not\(target_os\s*=\s*"windows"\)\)\]/g],
   ['cfg(unix)', /#\[cfg\(unix\)\]/g],
@@ -395,11 +407,21 @@ export default async function run() {
   }
 
   const counts = Object.fromEntries(PATTERNS.map(([k]) => [k, 0]));
+  counts['cfg linux compound'] = 0;
   for (const file of files) {
     const src = await readText(file);
     if (src == null) continue;
     for (const [key, re] of PATTERNS) {
       counts[key] += (src.match(re) ?? []).length;
+    }
+    // Includes inner attributes, cfg_attr, nested all/any/not, and line breaks.
+    // Keep simple forms in their historical rows; count every remaining Linux
+    // attribute, including production-only not(test) wiring, in this row.
+    for (const [attribute] of src.matchAll(/#!?\s*\[\s*cfg(?:_attr)?\s*\([\s\S]*?\)\s*\]/g)) {
+      if (/target_os\s*=\s*"linux"/.test(attribute) &&
+          !PATTERNS.slice(0, 2).some(([, re]) => new RegExp(re.source).test(attribute))) {
+        counts['cfg linux compound']++;
+      }
     }
   }
 
@@ -429,7 +451,7 @@ export default async function run() {
     const nonWindowsMoved = driftKeys.some((k) => !WINDOWS_SIDE.has(k));
     const hint = nonWindowsMoved
       ? `A non-Windows branch count moved. That code does NOT compile on this machine, so ` +
-        `nothing here can tell you whether it works: run ./scripts/mac-verify.sh on the Mac ` +
+        `nothing here can tell you whether it works: run ./scripts/linux-verify.sh for Linux or ./scripts/mac-verify.sh for macOS ` +
         `and quote its output, then update EXPECTED in ${rel(path.join(ROOT, 'verify', 'lint', 'platform-cfg-count.mjs'))} in the same commit`
       : `Only Windows-side counts moved; update EXPECTED. (If ALL counts moved, suspect the scanner, not the code.)`;
     return { status: 'FAIL', detail: `${drift.join(' | ')} — ${hint}` };
@@ -439,7 +461,7 @@ export default async function run() {
     counts['cfg(not(windows))'] +
     counts['cfg(not(target_os = "windows"))'] +
     counts['cfg(unix)'] +
-    counts['cfg(target_os = "macos")'];
+    counts['cfg(target_os = "macos")'] + counts['cfg(target_os = "linux")'] + counts['cfg linux compound'];
   return {
     status: 'PASS',
     detail:

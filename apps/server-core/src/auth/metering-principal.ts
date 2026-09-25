@@ -10,7 +10,7 @@
 // their ACCOUNT from that moment on".
 
 // 🔴🔴 REWRITTEN 2026-09-11 (card MP-0, owner ruling §9 / §9-1 — design
-// docs/strategy/2026-09-11-metering-principal-matrix-design.md). READ
+// docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md). READ
 // `resolvePayer` BELOW FIRST: it is now the single ordered rule, and both of the
 // two functions this file used to lead with are shapes of it.
 //
@@ -211,7 +211,7 @@ export interface MeteringPrincipal {
 
 /**
  * The four far ends the payer matrix has a column for
- * (docs/strategy/2026-09-11-metering-principal-matrix-design.md §1).
+ * (docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §1).
  *
  * 🔴 IT IS NOT ONE STORED STRING, AND THE SPLIT IS DELIBERATE. Three of the four
  * are `pc_devices.room_kind` — a SERVER-MINTED column no client frame can reach

@@ -3,7 +3,7 @@
 //
 // SPEC-REF: docs/strategy/2026-08-30-mobile-connection-state-determinism-design.md §4;
 //   docs/strategy/2026-08-29-multi-node-relay-design-srvny-srvjp.md §2-2;
-//   docs/strategy/2026-09-01-lan-fable-work-package-2.md Card 1 (hot round trip).
+//   docs/archive/strategy/2026-09-01-lan-fable-work-package-2.md Card 1 (hot round trip).
 //
 // ── WHAT THE TWO NUMBERS ARE ───────────────────────────────────────────────
 //

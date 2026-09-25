@@ -4,7 +4,7 @@
 // cloud-admitted phone grants, the server stores the AUTHORIZATION row and
 // blindly forwards the wrap, and every gate (allowlist / rate limit / pending
 // TTL / grant expiry / revocation / IDOR) is exercised through the wire.
-// Design: docs/strategy/2026-08-11-design-e-grant-web-preview.md §2/§3.
+// Design: docs/archive/strategy/2026-08-11-design-e-grant-web-preview.md §2/§3.
 //
 // The server runs on an injected fake clock (overrides.now) so the 90 s
 // pending TTL, the rolling-minute rate budget and the grant expiry are all

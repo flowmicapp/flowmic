@@ -20,7 +20,7 @@ import androidx.core.content.FileProvider
  * ⚠️ The message above is written with TODAY's authorities. The real one was
  * captured on 0.2.59/0.2.60, when this app's id was still the pre-migration
  * one (P0-PKG, 2026-08-12); the verbatim capture is kept where
- * records are kept — docs/strategy/2026-08-10-up2b-selfupdate-fileprovider-blocker.md
+ * records are kept — docs/archive/strategy/2026-08-10-up2b-selfupdate-fileprovider-blocker.md
  * — rather than pinning a dead identifier into a shipping source file.
  *
  * i.e. our own provider refuses our own URI. The system installer then reports

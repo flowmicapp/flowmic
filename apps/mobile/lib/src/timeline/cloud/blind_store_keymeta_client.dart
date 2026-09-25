@@ -1,7 +1,7 @@
 // SALT-2 — the keymeta HTTP leg: GET/PUT /api/timeline/keymeta.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-11-design-e-multidevice-salt.md §3.1 (HTTP surface,
+//   docs/archive/strategy/2026-08-11-design-e-multidevice-salt.md §3.1 (HTTP surface,
 //     Bearer account JWT, first-writer-wins PUT), §3.2 (the phone flow);
 //   apps/server-core/src/http/timeline-keymeta-routes.ts — THE CONTRACT this
 //     file speaks: 200 row / 404 no-row on GET; 201 created / 200 identical /

@@ -1,8 +1,8 @@
 // SPEC-REF:
 //   CLAUDE.md red line: ambient surfacing never steals focus by activating / no silent failures
-//   docs/strategy/2026-08-12-device-line-r8-session-close.md §2-1
+//   docs/archive/strategy/2026-08-12-device-line-r8-session-close.md §2-1
 //     (the exstyle-monitor design this file REDIRECTS — see below)
-//   docs/strategy/2026-08-13-0263-requirements-backlog.md §REQ-13-16
+//   docs/archive/strategy/2026-08-13-0263-requirements-backlog.md §REQ-13-16
 //   docs/rebuild/07-DESKTOP-SPEC.md §4 (the capsule surface is NON-ACTIVATING)
 //
 // ── WHAT THIS WATCHES, AND WHY IT IS NOT WHAT THE DESIGN ASKED FOR ───────────

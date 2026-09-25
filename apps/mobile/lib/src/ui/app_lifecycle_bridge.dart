@@ -2,7 +2,7 @@
 //   docs/rebuild/08-MOBILE-SPEC.md §3 (background/lock screen → audio:pause
 //     {background} + stop the heartbeat; foreground return only resumes while
 //     still the active role) / §B-3 (never a silent stop)
-//   docs/strategy/R6-UI-AUDIT-REMEDIATION.md P0-R5
+//   docs/archive/strategy/R6-UI-AUDIT-REMEDIATION.md P0-R5
 //
 // Bridges Flutter's app-lifecycle transitions to the app-root background /
 // foreground work (session pause/resume plus foreground reachability refresh).

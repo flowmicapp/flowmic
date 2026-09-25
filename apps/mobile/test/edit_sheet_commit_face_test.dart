@@ -1,5 +1,5 @@
 // P4 (0.3.1) acceptance — the edit sheet's COMMIT button tells the truth per
-// mode (docs/strategy/2026-08-15-031-fix-batch-design.md §6):
+// mode (docs/archive/strategy/2026-08-15-031-fix-batch-design.md §6):
 //   · PC target ⇒ 「投递 ➤」 and an inject:request on tap (unchanged control);
 //   · fixed destination (light-record / cloud) ⇒ 「保存」, a LOCAL noted row,
 //     zero frames — the word 「投递」 may not stand on a button with no

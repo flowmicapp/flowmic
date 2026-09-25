@@ -1,9 +1,9 @@
 // D2 Stage 0 — a read-only inventory capability must be "really called", not merely defined.
 //
 // SPEC-REF: src/db/enc-inventory.ts (the module this file drives)
-//           docs/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md §4
+//           docs/archive/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md §4
 //             Stage 0 ("add a read-only inventory capability: how many enc: fields are in the DB, and what prefixes they have")
-//           docs/strategy/2026-08-05-d2-stage0-delivery-cn.md (this card's
+//           docs/archive/strategy/2026-08-05-d2-stage0-delivery-cn.md (this card's
 //             delivery doc — §3 quotes real captured output from this file)
 //           CLAUDE.md anti-façade ①: "a capability was defined and nobody calls it" is this repo's #1 defect shape
 //

@@ -2,7 +2,7 @@
 //   CLAUDE.md red line: 「ambient 浮现永不激活抢焦点」 (ambient surfacing never steals
 //     focus by activating)
 //   docs/rebuild/07-DESKTOP-SPEC.md §4 (the capsule surface is NON-ACTIVATING)
-//   docs/strategy/2026-08-12-device-line-r8-session-close.md §2-1 (the investigation
+//   docs/archive/strategy/2026-08-12-device-line-r8-session-close.md §2-1 (the investigation
 //     this file closes; the instrument that closed it is `capsule_watch.rs`)
 //
 // THE CAPSULE'S NON-ACTIVATING EX-STYLE — split out of `shell/mod.rs` (which was at
@@ -63,6 +63,9 @@
 // fix at one place.
 
 use tauri::AppHandle;
+
+#[cfg(target_os = "linux")]
+static LINUX_AMBIENT_POLICY: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
 
 // 🔴 EVERY import here belongs to the Windows function below, and gating them is
 // not tidiness — it is the difference between this crate building on macOS and
@@ -156,8 +159,121 @@ pub fn configure_capsule_window(app: &AppHandle) {
     );
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub fn configure_capsule_window(app: &AppHandle) {
+    use gtk::prelude::*;
+    use tauri::Manager;
+    let Some(window) = app.get_webview_window(super::CAPSULE) else {
+        crate::forensic::record("capsule", "Linux configure refused: capsule window missing");
+        return;
+    };
+    // This function runs during Tauri setup on GTK's main thread. These are
+    // compositor hints, not proof that an arbitrary compositor honors them.
+    // Live acceptance must observe both the external target and this window.
+    if let Err(error) = window.set_focusable(false) {
+        crate::forensic::record("capsule", &format!("Linux set_focusable failed: {error}"));
+    }
+    match window.gtk_window() {
+        Ok(native) => {
+            native.set_accept_focus(false);
+            native.set_focus_on_map(false);
+            // WSLg maps a normal toplevel as an activating host window even
+            // with both focus hints false. A status bubble needs its own role.
+            native.set_type_hint(gtk::gdk::WindowTypeHint::Notification);
+            native.set_skip_taskbar_hint(true);
+            native.set_skip_pager_hint(true);
+            let backend = crate::focus::linux_session::current_backend();
+            let display = native.display().name();
+            let wslg = matches!(display.as_str(), ":0" | ":0.0")
+                && std::path::Path::new("/mnt/wslg/versions.txt").is_file();
+            let policy = if backend != crate::focus::linux_session::DisplayBackend::X11 {
+                Err(format!("backend={backend:?} has no verified non-activating surface"))
+            } else if wslg {
+                Err("WSLg X11 first-map activates the host window despite GTK focus hints".into())
+            } else {
+                Ok(())
+            };
+            let _ = LINUX_AMBIENT_POLICY.set(policy);
+            crate::forensic::record("capsule", &format!(
+                "Linux configure backend={:?} accept_focus={} focus_on_map={} active={}",
+                crate::focus::linux_session::current_backend(), native.accepts_focus(),
+                native.gets_focus_on_map(), native.is_active(),
+            ));
+        }
+        Err(error) => crate::forensic::record("capsule", &format!("Linux GTK window lookup failed: {error}")),
+    }
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
 pub fn configure_capsule_window(_app: &AppHandle) {}
+
+#[cfg(target_os = "linux")]
+pub(super) fn click_through_linux(window: &tauri::WebviewWindow, ignore: bool) {
+    use gtk::prelude::*;
+    let capsule = window.clone();
+    if let Err(error) = window.run_on_main_thread(move || {
+        match capsule.gtk_window() {
+            // Tao 0.35.3 unwraps the GdkWindow in CursorIgnoreEvents. A capsule
+            // suppressed before its first map has no such window yet. Hidden
+            // but realized windows still need the restore of their input region.
+            Ok(native) if native.window().is_some() => {
+                if let Err(error) = capsule.set_ignore_cursor_events(ignore) {
+                    crate::forensic::record("capsule", &format!("Linux click-through failed: {error}"));
+                }
+            }
+            Ok(_) => {}
+            Err(error) => crate::forensic::record("capsule", &format!("Linux click-through GTK lookup failed: {error}")),
+        }
+    }) {
+        crate::forensic::record("capsule", &format!("Linux click-through dispatch failed: {error}"));
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn surface_linux(window: &tauri::WebviewWindow, user_gesture: bool) {
+    use gtk::prelude::*;
+    use tauri::Manager;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static REPORTED: AtomicBool = AtomicBool::new(false);
+    let suppression = match LINUX_AMBIENT_POLICY.get() {
+        Some(Ok(())) => None,
+        Some(Err(reason)) => Some(reason.as_str()),
+        None => Some("native capsule configuration unavailable"),
+    };
+    if let Some(reason) = suppression {
+        if !REPORTED.swap(true, Ordering::Relaxed) {
+            crate::forensic::record("capsule", &format!("Linux ambient capsule suppressed: {reason}; main window remains available"));
+        }
+        if user_gesture {
+            let app = window.app_handle().clone();
+            let dispatch = app.clone();
+            if let Err(error) = dispatch.run_on_main_thread(move || {
+                super::show_main_window(&app);
+                let parent = app.get_webview_window(super::MAIN)
+                    .and_then(|window| window.gtk_window().ok());
+                let message = crate::ui_i18n::text(crate::ui_i18n::current(),
+                    crate::ui_i18n::Msg::LinuxCapsuleUnavailable);
+                let dialog = gtk::MessageDialog::new(parent.as_ref(), gtk::DialogFlags::DESTROY_WITH_PARENT,
+                    gtk::MessageType::Info, gtk::ButtonsType::Close, message);
+                dialog.connect_response(|dialog, _| dialog.close());
+                dialog.show();
+            }) {
+                crate::forensic::record("capsule", &format!("Linux fallback dispatch failed: {error}"));
+            }
+        }
+        return;
+    }
+    // Ambient UI is permitted only while an external X11 target is verified.
+    // An explicit tray gesture may show even with no external target.
+    if !user_gesture && crate::focus::current_foreground_target().is_none() {
+        return;
+    }
+    // GTK keeps the configured accept-focus/focus-on-map hints while mapping.
+    // The capsule remains nonfocusable even when summoned from the tray.
+    if let Err(error) = window.show() {
+        crate::forensic::record("capsule", &format!("Linux surface failed user_gesture={user_gesture}: {error}"));
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -181,6 +297,12 @@ mod tests {
     /// match prose and cannot match itself.
     const SRC: &str = include_str!("capsule_style.rs");
 
+    fn windows_configuration() -> &'static str {
+        // The Linux window.set_focusable call ends with the same substring.
+        // Restrict this Win32 regression check to its actual function body.
+        SRC.split("pub fn configure_capsule_window(app: &AppHandle)").nth(1).expect("Windows configure body")
+    }
+
     fn call_site() -> String {
         format!("w.set_{}(false)", "focusable")
     }
@@ -188,7 +310,7 @@ mod tests {
     #[test]
     fn tao_is_handed_the_non_activating_bit_rather_than_us_repainting_it() {
         assert_eq!(
-            SRC.matches(&call_site()).count(),
+            windows_configuration().matches(&call_site()).count(),
             1,
             "exactly one CALL (not a mention): without it, tao regenerates an ex-style with no \
              WS_EX_NOACTIVATE on every window-flag change and the capsule steals foreground on click",
@@ -200,8 +322,8 @@ mod tests {
         // `set_focusable` is ITSELF a flag change, so it rewrites the ex-style.
         // After the manual OR it would wipe what the OR just wrote; before it, the
         // OR runs last and the read-back reports the truth.
-        let hand_over = SRC.find(&call_site()).expect("guarded by the test above");
-        let manual_or = SRC
+        let hand_over = windows_configuration().find(&call_site()).expect("guarded by the test above");
+        let manual_or = windows_configuration()
             .find("SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want)")
             .expect("control: the manual OR must still be here, or this ordering test is vacuous");
         assert!(

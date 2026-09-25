@@ -4,7 +4,8 @@
 //
 // Split out of `pipeline.rs` VERBATIM on 2026-08-26 because that file stood at
 // exactly 800/800 and CLAUDE.md's rule is that the next card to touch a file at
-// the cap splits it first. The seam is a real one, not a line-count trick:
+// the cap splits it first (that rule is CLAUDE.md D-14; the two blocks it was
+// distilled from are docs/archive/CLAUDE-HISTORY.md §343-346 and §570-581). The seam is a real one, not a line-count trick:
 // `pipeline.rs` owns the three STAGES (focus → probe → deliver) and this file
 // owns only the last one's choice of road.
 //
@@ -14,12 +15,20 @@
 // are where the honesty lives: every path that ends up somewhere other than
 // where the route pointed says so in its note.
 
+#[cfg(any(not(target_os = "linux"), test))]
 use crate::inject::app_learning::AppLearningStore;
-use crate::inject::clipboard_outcome::{map_clipboard_outcome, map_routed_paste_outcome};
+#[cfg(not(target_os = "linux"))]
+use crate::inject::clipboard_outcome::map_clipboard_outcome;
+use crate::inject::clipboard_outcome::map_routed_paste_outcome;
 use crate::inject::clipboard_paste::ClipboardFallbackClient;
-use crate::inject::pipeline::{InjectMode, InjectOutcome};
+#[cfg(any(not(target_os = "linux"), test))]
+use crate::inject::pipeline::InjectMode;
+use crate::inject::pipeline::InjectOutcome;
+#[cfg(not(target_os = "linux"))]
 use crate::inject::sendinput::SendInputClient;
-use crate::inject::text_route::{self, PasteReason, TextRoute, TypeReason};
+use crate::inject::text_route::PasteReason;
+#[cfg(any(not(target_os = "linux"), test))]
+use crate::inject::text_route::{self, TextRoute, TypeReason};
 
 /// Stage 2/3: run the route, and fall back to the other road if it fails.
 ///
@@ -49,7 +58,8 @@ use crate::inject::text_route::{self, PasteReason, TextRoute, TypeReason};
 /// ⚠️ The 0.2.1 crash note is kept deliberately: it is the strongest single
 /// argument against this change, and deleting it once the change landed would
 /// be how the next person re-flips this without knowing what it costs.
-pub(crate) fn type_or_paste(text: &str, app_id: Option<&str>) -> InjectOutcome {
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn type_or_paste(text: &str, app_id: Option<&str>, _expected_target: u64) -> InjectOutcome {
     type_or_paste_with(
         text,
         app_id,
@@ -60,10 +70,23 @@ pub(crate) fn type_or_paste(text: &str, app_id: Option<&str>) -> InjectOutcome {
     )
 }
 
+/// Linux has one text mechanism. The Stage-1 target is carried explicitly to
+/// the XTEST commit point; an absent or changed focus is never guessed anew.
+#[cfg(target_os = "linux")]
+pub(crate) fn type_or_paste(text: &str, _app_id: Option<&str>, expected_target: u64) -> InjectOutcome {
+    map_routed_paste_outcome(
+        ClipboardFallbackClient::for_linux_target(expected_target).paste_text(text),
+        PasteReason::DefaultPath,
+    )
+}
+
 /// The three runner seams of [`type_or_paste_with`], named so the signature
 /// reads as a contract (and for clippy's type-complexity rule).
+#[cfg(any(not(target_os = "linux"), test))]
 type SendInputRun<'a> = &'a dyn Fn(&str, Option<&str>, &AppLearningStore) -> InjectOutcome;
+#[cfg(any(not(target_os = "linux"), test))]
 type ClipboardRun<'a> = &'a dyn Fn(&str, Option<&str>, &AppLearningStore) -> InjectOutcome;
+#[cfg(any(not(target_os = "linux"), test))]
 type PasteRun<'a> = &'a dyn Fn(&str, PasteReason) -> InjectOutcome;
 
 /// [`type_or_paste`] with the three runners injected — the seam the routing
@@ -78,6 +101,7 @@ type PasteRun<'a> = &'a dyn Fn(&str, PasteReason) -> InjectOutcome;
 ///   · a failed TYPE falls back to the clipboard, which also writes per-app
 ///     learning (`map_sendinput_outcome` recorded the hard rejection on the way
 ///     through), so the next sentence into that app skips the broken road.
+#[cfg(any(not(target_os = "linux"), test))]
 pub(crate) fn type_or_paste_with(
     text: &str,
     app_id: Option<&str>,
@@ -95,7 +119,7 @@ pub(crate) fn type_or_paste_with(
     match text_route::route_text(text, app_id, typing_hard_rejected) {
         TextRoute::Paste(reason) => {
             let out = paste_run(text, reason);
-            if out.ok {
+            if out.ok || out.error_code == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
                 return out;
             }
             sendinput_run(text, app_id, store).with_note(format!(
@@ -107,7 +131,7 @@ pub(crate) fn type_or_paste_with(
         }
         TextRoute::Type(TypeReason::ConsoleTarget) => {
             let out = sendinput_run(text, app_id, store);
-            if out.ok {
+            if out.ok || out.error_code == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
                 return out;
             }
             // 2026-07-30: the 「don't paste on top of a possible landing」 guard
@@ -118,6 +142,9 @@ pub(crate) fn type_or_paste_with(
             // cannot duplicate anything. Keeping the branch would have been an
             // unreachable guard implying a state that no longer exists.
             let fallback = clipboard_run(text, app_id, store);
+            if fallback.error_code == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
+                return fallback.with_note("the SendInput call failed; clipboard fallback submission is uncertain".into());
+            }
             if fallback.ok {
                 return fallback.with_note(format!(
                     "the SendInput call failed ({}), delivered by clipboard paste instead",
@@ -145,6 +172,7 @@ pub(crate) fn type_or_paste_with(
 /// choice, not ours — so it went blind precisely in the app owner uses most
 /// (Chromium) and produced two P0s in two days. See the note at the top of
 /// `sendinput_outcome.rs`.
+#[cfg(not(target_os = "linux"))]
 fn run_sendinput(text: &str, app_id: Option<&str>, store: &AppLearningStore) -> InjectOutcome {
     let sent = SendInputClient::new().type_text(text);
     crate::inject::sendinput_outcome::map_sendinput_outcome(sent, app_id, store)
@@ -152,6 +180,7 @@ fn run_sendinput(text: &str, app_id: Option<&str>, store: &AppLearningStore) -> 
 
 /// Stage-3 clipboard paste, reached only after a typed attempt FAILED (the
 /// console exception is the only route that types, so this is the only entry).
+#[cfg(not(target_os = "linux"))]
 fn run_clipboard(text: &str, app_id: Option<&str>, store: &AppLearningStore) -> InjectOutcome {
     let result = ClipboardFallbackClient::new().paste_text(text);
     map_clipboard_outcome(result, app_id, store)
@@ -160,6 +189,7 @@ fn run_clipboard(text: &str, app_id: Option<&str>, store: &AppLearningStore) -> 
 /// The routed paste — the default road. Same client as [`run_clipboard`],
 /// different mapper: no per-app learning (a paste says nothing about whether
 /// typing works), and the forensic line carries WHICH rule sent it here.
+#[cfg(not(target_os = "linux"))]
 fn run_paste(text: &str, reason: PasteReason) -> InjectOutcome {
     map_routed_paste_outcome(ClipboardFallbackClient::new().paste_text(text), reason)
 }
@@ -167,6 +197,7 @@ fn run_paste(text: &str, reason: PasteReason) -> InjectOutcome {
 impl InjectOutcome {
     /// Prefix an existing message with `note` (used to thread the SendInput
     /// error onto a fallback outcome without losing the fallback's own note).
+    #[cfg(any(not(target_os = "linux"), test))]
     pub(crate) fn with_note(mut self, note: String) -> Self {
         self.error_message = Some(match self.error_message {
             Some(existing) => format!("{note}; {existing}"),

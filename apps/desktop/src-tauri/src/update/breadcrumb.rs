@@ -1,7 +1,7 @@
 // UP-3b — `update-pending.json`.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §4.3 ④a / ⑦, §4.4, §5.0
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §4.3 ④a / ⑦, §4.4, §5.0
 //
 // ── WHAT THIS IS FOR, IN ONE SENTENCE ───────────────────────────────────────
 //

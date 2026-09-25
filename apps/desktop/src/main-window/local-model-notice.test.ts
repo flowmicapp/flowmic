@@ -1,6 +1,6 @@
 // Component-level: the main-window notice about the built-in speech model
 // (docs/strategy/2026-08-19-local-model-onboarding-design.md §5-B; LM-CAT —
-// docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md — keyed it
+// docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md — keyed it
 // on `anyModelReady`: ANY ready pack quiets it, because a machine with only
 // the French pack downloaded has a working built-in engine and nagging it
 // about "the model" would be a true sentence about the wrong subject).

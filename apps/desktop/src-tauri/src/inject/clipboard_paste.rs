@@ -91,7 +91,13 @@ fn paste_guard() -> MutexGuard<'static, ()> {
 /// `pub(crate)` for one reason (RV-44): the forensic line has to name the window
 /// it measured over, and retyping the number there would be the same question
 /// answered in two places.
+#[cfg(not(target_os = "linux"))]
 pub(crate) const PASTE_HOLD: Duration = Duration::from_millis(1500);
+// L-4 real GTK target: its event loop blocked 1600ms still read the new text
+// within this 2500ms offer. This bounded compatibility delay is not a receipt
+// and cannot guarantee arbitrarily stalled targets. Never shorten on requests.
+#[cfg(target_os = "linux")]
+pub(crate) const PASTE_HOLD: Duration = Duration::from_millis(2500);
 
 /// Outcome of a clipboard fallback attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -130,6 +136,16 @@ impl ClipboardFallbackClient {
             restore: Box::new(restore_clipboard),
             paste_confirm: Box::new(|text| paste_with_confirmation(text, PASTE_HOLD)),
             paste_formats: Box::new(|f| paste_formats_with_confirmation(f, PASTE_HOLD)),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn for_linux_target(expected_target: u64) -> Self {
+        Self {
+            paste_confirm: Box::new(move |text| {
+                crate::inject::linux::paste_with_target(text, PASTE_HOLD, expected_target)
+            }),
+            ..Self::new()
         }
     }
 
@@ -179,6 +195,14 @@ impl ClipboardFallbackClient {
         // ALWAYS restore, even on paste failure.
         let restore_result = (self.restore)(prev);
         match (confirm_result, restore_result) {
+            (Err(error @ InjectError::SubmissionUncertain(_)), restore) => {
+                if let Err(restore_error) = restore {
+                    crate::forensic::record("inject", &format!(
+                        "submission remains uncertain; clipboard restore also failed: {restore_error}"
+                    ));
+                }
+                Err(error)
+            }
             // ── THE ARM THE TEXT PATH WAS MISSING (2026-08-22) ───────────────
             // `paste_image` has had this rule since 0.2.14; the text path never
             // got it, and the gap is a DUPLICATED INJECTION. A target that has
@@ -254,6 +278,14 @@ impl ClipboardFallbackClient {
         // ALWAYS restore, even on paste failure.
         let restore_result = (self.restore)(prev);
         match (confirm_result, restore_result) {
+            (Err(error @ InjectError::SubmissionUncertain(_)), restore) => {
+                if let Err(restore_error) = restore {
+                    crate::forensic::record("inject", &format!(
+                        "image submission remains uncertain; clipboard restore also failed: {restore_error}"
+                    ));
+                }
+                Err(error)
+            }
             // A CONFIRMED consumption outranks a restore failure. The target
             // took the picture — we have its own WM_RENDERFORMAT receipt — so
             // reporting 「not injected」 because we could not put the user's old

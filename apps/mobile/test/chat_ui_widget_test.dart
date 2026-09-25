@@ -46,14 +46,26 @@ TimelineEntry _entry({
 }
 
 /// Taps its child to open the long-press context menu for [entry].
-Widget _menuOpener(TimelineEntry entry) => Builder(
+///
+/// NR-89: passes a translate target the way the chat page does
+/// (`ChatController.aiTranslateTarget`), so the sheet carries its FULL row set
+/// — both re-run rows included — and the overflow/reachability cases below
+/// measure the tallest sheet the product actually shows.
+Widget _menuOpener(
+  TimelineEntry entry, {
+  void Function(EntryAction?)? onChosen,
+}) => Builder(
   builder: (BuildContext context) => Center(
     child: GestureDetector(
-      onTap: () => showEntryContextMenu(
-        context,
-        entry,
-        strings: AppStrings(AppLocale.zh),
-      ),
+      onTap: () async {
+        final EntryAction? chosen = await showEntryContextMenu(
+          context,
+          entry,
+          strings: AppStrings(AppLocale.zh),
+          translateTarget: 'en',
+        );
+        onChosen?.call(chosen);
+      },
       child: const Text('open'),
     ),
   ),
@@ -533,6 +545,42 @@ void main() {
     expect(find.text('编辑'), findsOneWidget);
     expect(find.text('复制'), findsOneWidget);
     expect(find.text('删除'), findsOneWidget);
+  });
+
+  testWidgets('NR-89 / FB-7: with both re-run rows on the sheet, the LAST item '
+      '(删除) is still reachable and really returns delete', (
+    WidgetTester tester,
+  ) async {
+    // FB-7's lesson: the clipped item in an overflowing menu is the last one,
+    // Delete. NR-89 adds a row, so this is re-measured on the default test
+    // viewport (800×600, sheet capped at half) — not by finding the text (a
+    // SingleChildScrollView builds every child, so `findsOneWidget` holds for
+    // an unreachable row too) but by scrolling to it and tapping it.
+    final AppStrings zh = AppStrings(AppLocale.zh);
+    EntryAction? chosen;
+    await tester.pumpWidget(
+      _wrap(
+        _menuOpener(
+          _entry(
+            status: EntryStatus.injected,
+            delivery: Delivery.inject,
+            processMode: 'translate',
+            source: '正文',
+            output: 'text',
+          ),
+          onChosen: (EntryAction? a) => chosen = a,
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text(zh.entryRetranslate), findsOneWidget, reason: 'setup: full row set');
+    expect(find.text(zh.entryReorganize), findsOneWidget, reason: 'setup: full row set');
+    await tester.ensureVisible(find.text(zh.confirmDelete));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(zh.confirmDelete));
+    await tester.pumpAndSettle();
+    expect(chosen, EntryAction.delete);
   });
 
   testWidgets('R6 P0-R4: a cloud-instance entry HIDES 注入到电脑 (no PC target) '

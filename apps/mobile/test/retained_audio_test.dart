@@ -1,7 +1,7 @@
 // Card N1-B3 — the persistent audio layer (design draft §2.2 / 15 册 §2.0-b segment ⊖).
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-n1-long-recording.md §2.2, §3 (J3 / J6 / J8)
+//   docs/archive/strategy/2026-08-08-design-n1-long-recording.md §2.2, §3 (J3 / J6 / J8)
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-b
 //
 // ⚠️ These tests drive a REAL filesystem (a fresh systemTemp directory per

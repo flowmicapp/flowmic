@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-13-0263-design-task-book.md §9-2.1 (the probe runs on a
+//   docs/archive/strategy/2026-08-13-0263-design-task-book.md §9-2.1 (the probe runs on a
 //     server-side timer, the page only reads the latest result + its timestamp; a public-page
 //     visitor directly triggering a liveness probe = handing the probe to arbitrary
 //     traffic to amplify — not done), §9-2.2 (🔴 the green-dot anti-cache rule), §9-2.3 (v1 only does current state,

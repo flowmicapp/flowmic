@@ -72,7 +72,7 @@ const bool kRetainFromFirstFrameDefault = true;
 ///      apps/mobile/lib/src/audio/retained_audio_legacy_face.dart:66 `_appendOne`;
 ///   ② cancel semantics (owner ruling O-5, card LS-4) — a swiped-away
 ///      recording gets a tombstone on both faces and loses no byte:
-///      apps/mobile/lib/src/audio/retained_audio_spill.dart:489
+///      apps/mobile/lib/src/audio/retained_audio_spill.dart:568
 ///      `tombstoneCurrentRecording`;
 ///   ③ space policy (owner ruling O-2, card LS-3) — the cap refuses new bytes
 ///      and says so instead of evicting unrecovered audio:
@@ -81,11 +81,11 @@ const bool kRetainFromFirstFrameDefault = true;
 ///      that simply worked now has an exit:
 ///      apps/mobile/lib/src/session/live_settle.dart:59 `settleLiveRecording`,
 ///      called from `_settleSpan` in
-///      apps/mobile/lib/src/session/chat_utterance_settle.dart:208;
+///      apps/mobile/lib/src/session/chat_utterance_settle.dart:254;
 ///   ⑤ the coverage / cleanup policy (A7-1, card CV-1; owner ruling
 ///      2026-09-06) — one predicate decides what proof licenses a delete, and
 ///      both the live path and the recovery leg ask it:
-///      apps/mobile/lib/src/session/recovery_settle.dart:209
+///      apps/mobile/lib/src/session/recovery_settle.dart:266
 ///      `evaluateRecoverySettle`.
 ///
 /// ⚠️ The warning the OFF-by-default note carried is now a live obligation

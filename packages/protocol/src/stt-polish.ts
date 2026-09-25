@@ -2,7 +2,7 @@
 //   docs/strategy/2026-07-23-relaunch-master-plan.md §4.1 / docs/rebuild/
 //     06-STT-ENGINE-LAYER.md §5 (final pipeline last stage: an OPT-IN, meaning-
 //     preserving LLM polish — default OFF)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 ① (settings key `stt.polish`,
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 ① (settings key `stt.polish`,
 //     value `{enabled: boolean}`, present-but-malformed → fail loud at audio:start)
 //   docs/rebuild/05-DATA-MODEL.md §5 (user_settings KV: `stt.polish` value)
 //

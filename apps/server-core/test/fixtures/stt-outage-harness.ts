@@ -27,6 +27,19 @@
 //     DURING the flush round-trip. `orchestrator-core.ts` F-2152 ASSERTS it does
 //     not; W2.5-H (segment_buffer.dart) records that as an unverified assumption.
 //     Both branches are driven here; neither is a claim about a real vendor.
+//     🔴 MEASURED FOR SONIOX (card HANGUP-2, 2026-09-23, live service, machine
+//     dev-pc-a): 'vendor-excludes-late-audio' is the
+//     real behaviour. zh-6s.wav, then 3 s with nothing sent, then flush(), then
+//     the wav's first 2–3 chunks (「大家(好)」) pushed AFTER the end-of-stream
+//     frame but BEFORE `{finished:true}` (sent at +15..230 ms, finished at
+//     +261..335 ms): the late words were in the final 0 of 10 runs. CONTROL, the
+//     same chunks pushed just BEFORE the end-of-stream frame: in the final 10 of
+//     10. (A single 200 ms chunk is not recognisable even before the frame —
+//     0 of 5 — so one-chunk runs prove nothing either way and are not counted.)
+//     ⇒ the one-character duplicate that 'vendor-includes-late-audio' produces
+//     at a rewound hang-up seam (a 1-char overlap is under text-merge.ts
+//     `OVERLAP_MIN_CHARS`) does not occur against Soniox. Other vendors: still
+//     unmeasured — this line is about Soniox only.
 
 import { EventEmitter } from 'node:events';
 import type { SttEngineId } from '@flowmic/protocol';
@@ -146,7 +159,9 @@ export interface EngineScript {
    *  `1000 + T₁ + 2000 + T₂ + 4000` — unbounded, because `attemptReconnect`
    *  calls `spawnEngine()` WITHOUT `raceSpawnTimeout` (only the cold open in
    *  `start()` has it). A slow connect therefore pushes recovery past the replay
-   *  window on the FIRST rung, not the third. */
+   *  window on the FIRST rung, not the third.
+   *  ⚠️ 更正（NR-96，2026-09-24）：each T is now capped by `engineSpawnTimeoutMs`
+   *  (the rung races it); a delay past the cap is a failed rung, not a slow one. */
   openDelayMs?: number;
   /** Emit an engine `final` every N pushes (FunASR 2pass shape). 0 = never
    *  before flush (Soniox shape: one cumulative hypothesis, finalised at flush). */

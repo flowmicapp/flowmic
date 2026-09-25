@@ -42,7 +42,7 @@ export type SessionState =
  * want OPPOSITE handling:
  *  · `engine_session` — AUDIO_DEFAULTS.hard_limit_ms, an ENGINEERING fact (one
  *    vendor session may not run forever). The user did nothing wrong; design
- *    §2.3 (`docs/strategy/2026-08-08-design-n1-long-recording.md`) makes this a
+ *    §2.3 (`docs/archive/strategy/2026-08-08-design-n1-long-recording.md`) makes this a
  *    rollover to a new engine session in card N1-B4, with the user unaware.
  *  · `quota_budget` — `quota.remainingSttMs` at audio:start (stt-factory). The
  *    user is out of minutes; this one MUST still stop the recording.
@@ -657,7 +657,7 @@ export class AudioSession extends EventEmitter {
    * 🔴 Card N1-B4 — the ceiling fired. WHICH ceiling decides whether the user's
    * recording ends.
    *
-   * Design §2.3 (`docs/strategy/2026-08-08-design-n1-long-recording.md`):
+   * Design §2.3 (`docs/archive/strategy/2026-08-08-design-n1-long-recording.md`):
    * "Keep one ceiling, but make it act on the **engine session** rather than on
    * **the user's current utterance**: when it fires, roll over to a new engine
    * session (close the old, open the new, segment numbers stay contiguous), the

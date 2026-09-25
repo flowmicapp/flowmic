@@ -13,7 +13,7 @@
 //     (卡 P row-transit field-add: six additive optional fields so ONE delivery
 //      frame carries everything a PC row is made of — no new socket event)
 //   docs/decisions/2026-07-31-owner-b3-image-resend-and-protocol-round.md +
-//     docs/strategy/2026-07-31-b3-protocol-round-plan.md (窗口B3, 0.2.33:
+//     docs/archive/strategy/2026-07-31-b3-protocol-round-plan.md (窗口B3, 0.2.33:
 //     RV-68 `entry_caption` — the SEVENTH row field, an image row's words; and
 //     `target_pc_id` goes from a known compatibility gap to a named refusal. Still no new
 //     socket event: the whitelist stays at 54.)
@@ -494,7 +494,7 @@ export const InjectResultSchema     = z.object({
    *  the pipeline, an admission refusal, a Stage-1 focus loss). Collapsing the two
    *  would ship a measurement nobody made — the same discipline `gui_ok=false`
    *  follows in target_probe.rs and the MSAA spike restated for `d=0 CLIENT`
-   *  (docs/strategy/2026-08-07-ij03-msaa-focus-editability-spike.md §2.2-3).
+   *  (docs/archive/strategy/2026-08-07-ij03-msaa-focus-editability-spike.md §2.2-3).
    *
    *  🔴 IT IS NEVER A JUDGEMENT, on either end. The desktop does not read it to
    *  decide anything (`refusal_for` is untouched — 「判不出就拒绝」 is the 0.2.19 P0),
@@ -723,13 +723,16 @@ export const ControlKeySchema       = z.object({
 //     detail belongs in the far end's own forensic line, written on the same
 //     press — the same split `ChordExit::line` vs `ChordExit::outcome` already
 //     draws on the desktop.
+//   · `uncertain` — the far end submitted the key but cannot prove whether the
+//     target consumed it. Clients persist a terminal uncertain row and never
+//     turn this into an automatic repeat that could duplicate input.
 //
 // ⚠️ `ok:true` IS ON THE WIRE AND DRAWS NOTHING. Not decoration: a receipt that
 // only ever appears on failure cannot be told apart from a relay that dropped
 // it, and "no news" would again be two different facts wearing one face. The
 // clients are required to render nothing for it.
 export const CONTROL_KEY_RESULT_REASONS = [
-  'unsupported_here', 'no_target', 'failed',
+  'unsupported_here', 'no_target', 'failed', 'uncertain',
 ] as const;
 
 export type ControlKeyResultReason = (typeof CONTROL_KEY_RESULT_REASONS)[number];
@@ -748,9 +751,11 @@ export const ControlKeyResultSchema = z.object({
   /** Present only when `ok` is false. "Required on failure" is not expressible
    *  in zod without a refinement that would also refuse senders older than it,
    *  so it is optional here and the clients read its absence on a failure as
-   *  `failed` — the coarsest of the three, which is the only safe direction: it
+   *  `failed` — the coarsest failure, which is the only safe direction: it
    *  never invents a specific cause and it never claims success. */
   reason: z.enum(CONTROL_KEY_RESULT_REASONS).optional(),
+  // Additive detail: old relays strip it but retain the existing failed reason.
+  error_code: NonEmpty.max(28).optional(),
 });
 
 // Sub-map spread into protocol-schemas.ts's EVENT_SCHEMAS registry so that

@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.2 (mobile_token is the phone's standing
 //     credential — the same one mobile:reconnect presents)
-//   docs/strategy/2026-07-30-task-package-v1.md group D, D10 (RV-32) / D3 (RV-13)
+//   docs/archive/strategy/2026-07-30-task-package-v1.md group D, D10 (RV-32) / D3 (RV-13)
 //   CLAUDE.md human-audit for the four sensitive path classes: pairing/auth
 //   *** HUMAN-AUDIT SENSITIVE (auth) — reviewable in isolation ***
 //

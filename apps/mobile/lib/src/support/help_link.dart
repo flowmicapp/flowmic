@@ -18,7 +18,7 @@
 // in code (`apps/server-core/src/config.ts`,
 // `DEFAULT_CORS_ORIGIN = 'https://flowmic.app'`) and confirmed reachable by
 // a real device tester on THREE paths: `/console`, `/console/changelog`,
-// `/console/billing` (docs/strategy/2026-08-02-a2-real-device-sheet.md:344-
+// `/console/billing` (docs/archive/strategy/2026-08-02-a2-real-device-sheet.md:344-
 // 351,508 — [measured]). All three are the SaaS account/billing console — none of
 // them is a help/FAQ/support page, and no such page has EVER been opened and
 // confirmed to exist. `/help` would be a guess dressed as a fact — exactly the

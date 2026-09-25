@@ -29,8 +29,11 @@ import type { WebLivenessArmer } from '../web-liveness-watchdog';
 import type { BudgetHandlerDeps } from './budget-frames';
 import { safeAck, type ActingIdentity } from '../wire';
 import { logAuthRefusal } from '../../auth/refusal-log';
+import type { IntegratorOriginGuard } from '../integrator-origin';
 
 export interface MobileHandlerDeps extends BudgetHandlerDeps {
+  /** Missing on an integrator admission throws; ordinary rooms need no key. */
+  integratorOrigin?: IntegratorOriginGuard;
   io: Server;
   /** NR-69 - the 7-second web liveness watch, handed to `joinAndNotify`.
    *  Omitted in production: `joinAndNotify` falls back to the REAL armer
@@ -124,6 +127,9 @@ export interface MobileHandlerDeps extends BudgetHandlerDeps {
    * is wired with this or not at all (bootstrap passes them together).
    */
   integratorKeyIdForRoom?: (pcDeviceId: string) => string | null;
+  // W6b correction: bootstrap now verifies the edge's key exists and belongs
+  // to the room owner. Missing edge/reader refuses integrator pair/reconnect
+  // as PC_HANDSHAKE_PENDING; it no longer drops the second ceiling silently.
   /**
    * Z4 (2026-09-01) — the SAME handshake read-through, on the one other seam
    * that resolves a pairing token against this node's local database.

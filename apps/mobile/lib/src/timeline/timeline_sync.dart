@@ -31,7 +31,7 @@
 //   · `pushEdit` + its two ack readers — the C5 verdict arbitrated TWO writers of
 //     ONE server row. `HistoryUpdateSchema.base_output_text` and the whole ack
 //     shape left the protocol in this same window; the design knowledge is kept
-//     in docs/strategy/2026-07-30-c5-conflict-criteria-design.md.
+//     in docs/archive/strategy/2026-07-30-c5-conflict-criteria-design.md.
 //     ⚠️ This is also where stopping the server writes would have hurt most:
 //     the server answers `SETTINGS_SYNC_FAIL/'no such entry'` for a row it does
 //     not hold, and `_readUpdateAck` read that code as "the other side deleted

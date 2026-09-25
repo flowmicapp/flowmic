@@ -2,8 +2,8 @@
 //
 // SPEC-REF:
 //   docs/decisions/2026-08-04-owner-ten-rulings-0.3.0.md ruling ④
-//   docs/strategy/2026-08-04-f2-machine-merge-design.md §2.2 §2.5
-//   docs/strategy/2026-08-05-f2-machine-merge-delivery-cn.md §4 (verbatim red output)
+//   docs/archive/strategy/2026-08-04-f2-machine-merge-design.md §2.2 §2.5
+//   docs/archive/strategy/2026-08-05-f2-machine-merge-delivery-cn.md §4 (verbatim red output)
 //
 // 🔴 The two primary-control tests below were written BEFORE the change and were seen RED
 // against the pre-F2 read surfaces (`TimelineStore.entriesForInstance` /

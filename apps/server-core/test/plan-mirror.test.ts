@@ -18,7 +18,7 @@
 //     `users.plan` alone would prove the mirror moved without proving the token
 //     it exists for moved with it.
 //
-// SPEC-REF: docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (the one source of truth),
+// SPEC-REF: docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (the one source of truth),
 //           §6.1-bis (permanent_free is an exemption, not a tier), §5.3 (webhook pipeline)
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

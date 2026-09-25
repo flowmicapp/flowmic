@@ -24,5 +24,6 @@
   "AutostartEnabledButOff": "La entrada de inicio se escribió, pero el sistema la indica como desactivada (puede estar desactivada en la pestaña Inicio del Administrador de tareas)",
   "AutostartStillEnabled": "Tras quitarla, el sistema sigue indicando el inicio automático como activado: la eliminación no surtió efecto",
   "AutostartRegOpenFailed": "No se pudo abrir la clave del registro de inicio: {detail}",
-  "AutostartRewriteFailed": "No se pudo reescribir la entrada de inicio con la ruta entre comillas: {detail}"
+  "AutostartRewriteFailed": "No se pudo reescribir la entrada de inicio con la ruta entre comillas: {detail}",
+  "LinuxCapsuleUnavailable": "La cápsula no está disponible en esta sesión de escritorio. Se abrió la ventana principal."
 }

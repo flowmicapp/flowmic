@@ -57,6 +57,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../session/engine_reconnect_state.dart' show EngineReconnectFace;
 import '../settings/app_strings.dart';
 import 'tokens.dart';
 
@@ -82,6 +83,7 @@ class RecordingPanel extends StatelessWidget {
     required this.segmentCount,
     required this.link,
     required this.strings,
+    this.engineReconnect,
   });
 
   /// Time since audio:start (local clock).
@@ -97,6 +99,21 @@ class RecordingPanel extends StatelessWidget {
 
   final RecordingLink link;
   final AppStrings strings;
+
+  /// 🔴 NR-96-B — the relay is re-dialling the speech engine, read off
+  /// `PttSession.engineReconnect` by the ONE constructor of this strip
+  /// (`_recordingStripRouted`). Null ⇒ no engine chip. A second object from
+  /// [link], with its own chip: the link is phone ↔ server, this is server ↔
+  /// engine, and the two can be broken at the same time (design §3.3).
+  ///
+  /// ⚠️ Optional rather than `required` only because this widget is also
+  /// built by hand in the strip's own layout tests; the production wiring is
+  /// pinned by `engine_reconnect_face_test.dart`, which mounts the chat page.
+  final EngineReconnectFace? engineReconnect;
+
+  /// The engine chip's text, for tests that must find it on the real page.
+  static const ValueKey<String> engineChipKey =
+      ValueKey<String>('rec.engineReconnecting');
 
   /// Plan A′ §5-1 geometry: 12 bars, 3px wide, 2px radius, 3px gap, 24px lane,
   /// 4dp floor.
@@ -141,6 +158,7 @@ class RecordingPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool nearLimit = elapsed >= kNearLimit;
+    final EngineReconnectFace? engine = engineReconnect;
     final bool showMeta = link != RecordingLink.ok || segmentCount >= 2;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
@@ -274,6 +292,20 @@ class RecordingPanel extends StatelessWidget {
               ],
             ),
           ],
+          // NR-96-B — the engine chip takes a line of its own under the
+          // link/segment row rather than a place inside it. Measured while
+          // writing engine_reconnect_face_test.dart: at 296 dp the link and
+          // segment chips can already fill that row, and a chip squeezed in
+          // beside them had no width left to say anything in. Here it gets
+          // the whole lane and WRAPS (D-15: an ellipsis would cut the words
+          // the user needs); still the same honesty area, still end-aligned.
+          if (engine != null) ...<Widget>[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: <Widget>[Flexible(child: _engineFace(engine))],
+            ),
+          ],
         ],
       ),
     );
@@ -326,6 +358,38 @@ class RecordingPanel extends StatelessWidget {
           Text(
             label,
             style: TextStyle(color: FlowMicDockColors.sub, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── engine — NR-96-B, present only while the relay re-dials it ────────
+  // 「attempt n of N」 only when the relay named N (§3.2: an invented total is
+  // a lie); the amber dot is the link face's own 「still working, degraded」.
+  Widget _engineFace(EngineReconnectFace f) {
+    final int? max = f.max;
+    return _honestyChip(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: FlowMicColors.amber,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              max == null
+                  ? strings.recEngineReconnecting(f.attempt)
+                  : strings.recEngineReconnectingOf(f.attempt, max),
+              key: engineChipKey,
+              style: TextStyle(color: FlowMicDockColors.sub, fontSize: 11),
+            ),
           ),
         ],
       ),

@@ -11,7 +11,7 @@
 //           src/db/repos/settings.repo.ts toRow/walkDecrypt (still has NO
 //             try/catch — unchanged by this card; console-routes.ts's NEW catch
 //             is what stops that throw from reaching the HTTP response raw)
-//           docs/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md §1.2
+//           docs/archive/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md §1.2
 //             (this exact crash chain, including the router.ts hop) §1.3
 //           test/account-lifecycle.test.ts (the EXISTING happy-path export tests
 //             this file does not repeat — this file is only the decrypt-failure

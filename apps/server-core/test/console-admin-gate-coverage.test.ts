@@ -232,7 +232,7 @@ const REGISTRY: Readonly<Record<string, Gate>> = {
   // reason as its siblings: it reads every admin's granted/denied rows, not
   // just the caller's own.
   'GET /api/ops/audit/recent': 'admin',
-  // 0.2.48 — O-2 platform usage aggregation (docs/strategy/2026-08-02-o2-usage-route-contract.md).
+  // 0.2.48 — O-2 platform usage aggregation (docs/archive/strategy/2026-08-02-o2-usage-route-contract.md).
   'GET /api/ops/usage/months': 'admin',
   'GET /api/ops/usage/summary': 'admin',
   'GET /api/ops/usage/users': 'admin',

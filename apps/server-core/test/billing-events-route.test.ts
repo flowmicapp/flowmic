@@ -1,7 +1,7 @@
 // D1 §6.2 — GET /api/cloud/billing/events, the reconciliation ledger read, and
 // the widened GET /api/cloud/subscription payload.
 //
-// SPEC-REF: docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (PlanView),
+// SPEC-REF: docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (PlanView),
 //           §6.2 (both routes; saas-only, Bearer, only the caller's own rows)
 //
 // WHY THIS FILE DRIVES `tryHandleConsoleRoutes` DIRECTLY instead of booting a

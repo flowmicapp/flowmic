@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (pc:release-mobile / mobile:reconnect)
-//   docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08 (semantic split in two)
+//   docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08 (semantic split in two)
 //   *** HUMAN-AUDIT SENSITIVE (auth/pairing) — reviewable in isolation ***
 //
 // GA-08 "Disconnect" is only a real action if the phone STAYS gone for a moment.

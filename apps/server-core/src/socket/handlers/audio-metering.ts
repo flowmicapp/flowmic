@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   apps/server-core/src/auth/metering-principal.ts (the payer rule itself —
 //     `resolvePayer`, `roomKindOf`, and the two questions below)
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §2 (the ordered
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §2 (the ordered
 //     rule) · §8 Q1 (A's allowance stays a second gate) · D5
 //   docs/decisions/... owner 2026-08-15 QTA-2 (「两边有一方不满足都不能继续」)
 //   *** HUMAN-AUDIT SENSITIVE (billing) — reviewable in isolation ***

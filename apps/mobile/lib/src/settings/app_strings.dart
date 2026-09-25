@@ -121,6 +121,7 @@ part 'strings/favorites_strings.dart';
 // panel; member names are all distinct, and the position carries no override
 // semantics (same as InjectNoteStrings).
 part 'strings/light_record_strings.dart';
+part 'strings/record_submit_strings.dart';
 part 'strings/image_strings.dart';
 part 'strings/history_strings.dart';
 // Statistics + clear (window C2, docs/rebuild/16 §6.1 / §6.2).
@@ -146,6 +147,7 @@ part 'strings/selection_strings.dart'; // FB-7 multi-select/batch-copy/hand off 
 // aggregation point, written once.
 part 'strings/update_strings.dart';
 part 'strings/pending_recovery_strings.dart'; // RC-1b the pending-recovery screen
+part 'strings/reconnect_progress_strings.dart'; // NR-96 automatic reconnects, said out loud
 
 // ── 0.2.67 the generated locale layer (architecture doc §4.1) ────────────────
 // Two parts, and it stays two parts however many languages there are: the leaf
@@ -179,11 +181,13 @@ abstract class AppStrings extends AppStringsLeaves
         ChatStrings,
         // Split out of ChatStrings (file-size cap). Placed immediately after it
         // so the `with` order still reads as one family; the members it carries
-        // (`injectVerdictNote` / `deliveryRefusalNote`) are unique to it, so the
+        // (`injectVerdictNote` / `pcAdmissionRefusalNote` /
+        // `deliveryRefusalNote`) are unique to it, so the
         // position carries no override semantics either way.
         InjectNoteStrings,
         FavoritesStrings,
         LightRecordStrings,
+        RecordSubmitStrings,
         ArticleStrings,
         ImageStrings,
         HistoryStrings,
@@ -194,7 +198,8 @@ abstract class AppStrings extends AppStringsLeaves
         EngineStatusStrings,
         SelectionStrings,
         UpdateStrings,
-        PendingRecoveryStrings {
+        PendingRecoveryStrings,
+        ReconnectProgressStrings {
   const AppStrings.forLocale(this.locale);
 
   /// Kept so the existing `AppStrings(locale)` call sites read exactly as they

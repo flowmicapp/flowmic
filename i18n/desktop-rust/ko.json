@@ -24,5 +24,6 @@
   "AutostartEnabledButOff": "시작 프로그램 항목은 기록되었지만 시스템에서는 비활성으로 보고됩니다(작업 관리자의 시작 프로그램 탭에서 꺼져 있을 수 있습니다)",
   "AutostartStillEnabled": "제거 후에도 시스템이 자동 시작이 활성 상태라고 보고합니다 — 제거가 적용되지 않았습니다",
   "AutostartRegOpenFailed": "시작 프로그램 레지스트리 키 열기 실패: {detail}",
-  "AutostartRewriteFailed": "시작 프로그램 항목을 따옴표 있는 경로로 다시 쓰기 실패: {detail}"
+  "AutostartRewriteFailed": "시작 프로그램 항목을 따옴표 있는 경로로 다시 쓰기 실패: {detail}",
+  "LinuxCapsuleUnavailable": "이 데스크톱 세션에서는 캡슐을 사용할 수 없어 메인 창을 열었습니다."
 }

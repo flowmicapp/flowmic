@@ -86,8 +86,16 @@ extension ChatNoticeScope on ChatController {
   /// screen stamp are decided in the same statement and can never drift apart
   /// (the `ManualDelivery._raise` precedent). The four raise sites live in
   /// chat_utterance.dart; grep them if this claim ever needs re-checking.
-  void _raiseUtteranceFailure(AiComposeOutcome outcome) {
+  ///
+  /// Card RC-I — [neverSent] travels with the outcome for the same reason the
+  /// screen stamp does: the banner's sentence depends on it, and a second
+  /// writer could leave a record-only failure framed as a PC one.
+  void _raiseUtteranceFailure(
+    AiComposeOutcome outcome, {
+    required bool neverSent,
+  }) {
     _utteranceFailure = outcome;
+    _utteranceFailureNeverSent = neverSent;
     _utteranceFailureInstanceId = session.connectedInstanceId;
   }
 }

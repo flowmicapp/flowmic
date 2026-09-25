@@ -129,6 +129,11 @@
       "params": []
     },
     {
+      "key": "aiErrorCodeRecord__2",
+      "leaf": "_lfAiErrorCodeRecord__2",
+      "params": []
+    },
+    {
       "key": "aiErrorCode__3",
       "leaf": "_lfAiErrorCode__3",
       "params": []
@@ -307,6 +312,20 @@
       ]
     },
     {
+      "key": "articleLiveEngineReconnecting",
+      "leaf": "_lfArticleLiveEngineReconnecting",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "articleLiveEngineReconnectingKept",
+      "leaf": "_lfArticleLiveEngineReconnectingKept",
+      "params": [
+        "n"
+      ]
+    },
+    {
       "key": "backToBottom",
       "leaf": "_lfBackToBottom",
       "params": []
@@ -327,6 +346,16 @@
       "params": []
     },
     {
+      "key": "bannerContinuousEngineDown",
+      "leaf": "_lfBannerContinuousEngineDown",
+      "params": []
+    },
+    {
+      "key": "bannerContinuousEngineDownKept",
+      "leaf": "_lfBannerContinuousEngineDownKept",
+      "params": []
+    },
+    {
       "key": "bannerLinkDown",
       "leaf": "_lfBannerLinkDown",
       "params": []
@@ -342,6 +371,21 @@
       "key": "bannerReconnecting",
       "leaf": "_lfBannerReconnecting",
       "params": []
+    },
+    {
+      "key": "bannerReconnectingN",
+      "leaf": "_lfBannerReconnectingN",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "bannerReconnectingNOf",
+      "leaf": "_lfBannerReconnectingNOf",
+      "params": [
+        "n",
+        "max"
+      ]
     },
     {
       "key": "browserLoginBrowserRefused",
@@ -983,6 +1027,11 @@
       "params": []
     },
     {
+      "key": "injectionUncertain",
+      "leaf": "_lfInjectionUncertain",
+      "params": []
+    },
+    {
       "key": "diagChannel",
       "leaf": "_lfDiagChannel",
       "params": []
@@ -1368,14 +1417,38 @@
       "params": []
     },
     {
-      "key": "entryReprocess",
-      "leaf": "_lfEntryReprocess",
+      "key": "entryReorganize",
+      "leaf": "_lfEntryReorganize",
       "params": []
     },
     {
-      "key": "entryReprocessSub",
-      "leaf": "_lfEntryReprocessSub",
+      "key": "entryReorganizeSub",
+      "leaf": "_lfEntryReorganizeSub",
       "params": []
+    },
+    {
+      "key": "entryReorganizeSubRecord",
+      "leaf": "_lfEntryReorganizeSubRecord",
+      "params": []
+    },
+    {
+      "key": "entryRetranslate",
+      "leaf": "_lfEntryRetranslate",
+      "params": []
+    },
+    {
+      "key": "entryRetranslateSub",
+      "leaf": "_lfEntryRetranslateSub",
+      "params": [
+        "target"
+      ]
+    },
+    {
+      "key": "entryRetranslateSubRecord",
+      "leaf": "_lfEntryRetranslateSubRecord",
+      "params": [
+        "target"
+      ]
     },
     {
       "key": "entryWordCountLabel",
@@ -1818,6 +1891,13 @@
       "params": []
     },
     {
+      "key": "historyHitsInRecording",
+      "leaf": "_lfHistoryHitsInRecording",
+      "params": [
+        "n"
+      ]
+    },
+    {
       "key": "historyLoadingMore",
       "leaf": "_lfHistoryLoadingMore",
       "params": []
@@ -2215,8 +2295,23 @@
       "params": []
     },
     {
+      "key": "injectVerdictNote_INJECT_SUBMISSION_UNCERTAIN",
+      "leaf": "_lfInjectVerdictNote_INJECT_SUBMISSION_UNCERTAIN",
+      "params": []
+    },
+    {
       "key": "injectVerdictNote_INJECT_TARGET_INVALID",
       "leaf": "_lfInjectVerdictNote_INJECT_TARGET_INVALID",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_WAYLAND_UNSUPPORTED",
+      "leaf": "_lfInjectVerdictNote_INJECT_WAYLAND_UNSUPPORTED",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_DISPLAY_UNAVAILABLE",
+      "leaf": "_lfInjectVerdictNote_INJECT_DISPLAY_UNAVAILABLE",
       "params": []
     },
     {
@@ -2989,6 +3084,11 @@
       "params": []
     },
     {
+      "key": "pcAdmissionRefusalNote_INJECT_TARGET_NOT_READY",
+      "leaf": "_lfPcAdmissionRefusalNote_INJECT_TARGET_NOT_READY",
+      "params": []
+    },
+    {
       "key": "pcAddressHint",
       "leaf": "_lfPcAddressHint",
       "params": []
@@ -3325,6 +3425,21 @@
       ]
     },
     {
+      "key": "recEngineReconnecting",
+      "leaf": "_lfRecEngineReconnecting",
+      "params": [
+        "n"
+      ]
+    },
+    {
+      "key": "recEngineReconnectingOf",
+      "leaf": "_lfRecEngineReconnectingOf",
+      "params": [
+        "n",
+        "max"
+      ]
+    },
+    {
       "key": "recLinkDegraded",
       "leaf": "_lfRecLinkDegraded",
       "params": []
@@ -3359,6 +3474,11 @@
     {
       "key": "reconnectNowAction",
       "leaf": "_lfReconnectNowAction",
+      "params": []
+    },
+    {
+      "key": "reconnectAckLostNotice",
+      "leaf": "_lfReconnectAckLostNotice",
       "params": []
     },
     {
@@ -3762,6 +3882,11 @@
       "params": []
     },
     {
+      "key": "selectionSendWithTimes",
+      "leaf": "_lfSelectionSendWithTimes",
+      "params": []
+    },
+    {
       "key": "sendPolicyDirect",
       "leaf": "_lfSendPolicyDirect",
       "params": []
@@ -4043,6 +4168,11 @@
     {
       "key": "sttStallEngineTimeout",
       "leaf": "_lfSttStallEngineTimeout",
+      "params": []
+    },
+    {
+      "key": "sttStallSegmentNotTranscribed",
+      "leaf": "_lfSttStallSegmentNotTranscribed",
       "params": []
     },
     {
@@ -4453,6 +4583,13 @@
       ]
     },
     {
+      "key": "utteranceComposeErrorRecord__7",
+      "leaf": "_lfUtteranceComposeErrorRecord__7",
+      "params": [
+        "why"
+      ]
+    },
+    {
       "key": "secRecognition",
       "leaf": "_lfSecRecognition",
       "params": []
@@ -4654,6 +4791,11 @@
       "params": []
     },
     {
+      "key": "pendingRecoveryStateShortfall",
+      "leaf": "_lfPendingRecoveryStateShortfall",
+      "params": []
+    },
+    {
       "key": "pendingRecoveryStateUnverified",
       "leaf": "_lfPendingRecoveryStateUnverified",
       "params": []
@@ -4691,6 +4833,11 @@
     {
       "key": "pendingRecoveryPartlySaved",
       "leaf": "_lfPendingRecoveryPartlySaved",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryOtherAccount",
+      "leaf": "_lfPendingRecoveryOtherAccount",
       "params": []
     },
     {
@@ -5217,6 +5364,403 @@
     {
       "key": "goWeChatOpenInBrowserStepAndroid",
       "leaf": "_lfGoWeChatOpenInBrowserStepAndroid",
+      "params": []
+    },
+    {
+      "key": "recordSubmitTitle",
+      "leaf": "_lfRecordSubmitTitle",
+      "params": []
+    },
+    {
+      "key": "recordSubmitScope",
+      "leaf": "_lfRecordSubmitScope",
+      "params": []
+    },
+    {
+      "key": "recordSubmitEnableDisclosure",
+      "leaf": "_lfRecordSubmitEnableDisclosure",
+      "params": [
+        "tool",
+        "host"
+      ]
+    },
+    {
+      "key": "recordSubmitNoRemoteDelete",
+      "leaf": "_lfRecordSubmitNoRemoteDelete",
+      "params": []
+    },
+    {
+      "key": "recordSubmitEndpoint",
+      "leaf": "_lfRecordSubmitEndpoint",
+      "params": []
+    },
+    {
+      "key": "recordSubmitCredential",
+      "leaf": "_lfRecordSubmitCredential",
+      "params": []
+    },
+    {
+      "key": "recordSubmitAuthNone",
+      "leaf": "_lfRecordSubmitAuthNone",
+      "params": []
+    },
+    {
+      "key": "recordSubmitAuthBearer",
+      "leaf": "_lfRecordSubmitAuthBearer",
+      "params": []
+    },
+    {
+      "key": "recordSubmitOAuthUnsupported",
+      "leaf": "_lfRecordSubmitOAuthUnsupported",
+      "params": []
+    },
+    {
+      "key": "recordSubmitHttpsRequired",
+      "leaf": "_lfRecordSubmitHttpsRequired",
+      "params": []
+    },
+    {
+      "key": "recordSubmitProtocolUnsupported",
+      "leaf": "_lfRecordSubmitProtocolUnsupported",
+      "params": []
+    },
+    {
+      "key": "recordSubmitNoTools",
+      "leaf": "_lfRecordSubmitNoTools",
+      "params": []
+    },
+    {
+      "key": "recordSubmitChooseTool",
+      "leaf": "_lfRecordSubmitChooseTool",
+      "params": []
+    },
+    {
+      "key": "recordSubmitChooseToolHint",
+      "leaf": "_lfRecordSubmitChooseToolHint",
+      "params": []
+    },
+    {
+      "key": "recordSubmitMapping",
+      "leaf": "_lfRecordSubmitMapping",
+      "params": []
+    },
+    {
+      "key": "recordSubmitMappingInvalid",
+      "leaf": "_lfRecordSubmitMappingInvalid",
+      "params": [
+        "field"
+      ]
+    },
+    {
+      "key": "recordSubmitSecretValue",
+      "leaf": "_lfRecordSubmitSecretValue",
+      "params": []
+    },
+    {
+      "key": "recordSubmitTest",
+      "leaf": "_lfRecordSubmitTest",
+      "params": []
+    },
+    {
+      "key": "recordSubmitTestPassed",
+      "leaf": "_lfRecordSubmitTestPassed",
+      "params": []
+    },
+    {
+      "key": "recordSubmitTestFailed",
+      "leaf": "_lfRecordSubmitTestFailed",
+      "params": []
+    },
+    {
+      "key": "recordSubmitLastCallSuccess",
+      "leaf": "_lfRecordSubmitLastCallSuccess",
+      "params": []
+    },
+    {
+      "key": "recordSubmitUnconfigured",
+      "leaf": "_lfRecordSubmitUnconfigured",
+      "params": []
+    },
+    {
+      "key": "recordSubmitSaved",
+      "leaf": "_lfRecordSubmitSaved",
+      "params": []
+    },
+    {
+      "key": "recordSubmitEnabled",
+      "leaf": "_lfRecordSubmitEnabled",
+      "params": []
+    },
+    {
+      "key": "recordSubmitPaused",
+      "leaf": "_lfRecordSubmitPaused",
+      "params": []
+    },
+    {
+      "key": "recordSubmitReauthorize",
+      "leaf": "_lfRecordSubmitReauthorize",
+      "params": []
+    },
+    {
+      "key": "recordSubmitToolMissing",
+      "leaf": "_lfRecordSubmitToolMissing",
+      "params": []
+    },
+    {
+      "key": "recordSubmitSchemaUnsupported",
+      "leaf": "_lfRecordSubmitSchemaUnsupported",
+      "params": []
+    },
+    {
+      "key": "recordSubmitStorageUnavailable",
+      "leaf": "_lfRecordSubmitStorageUnavailable",
+      "params": []
+    },
+    {
+      "key": "recordSubmitPending",
+      "leaf": "_lfRecordSubmitPending",
+      "params": []
+    },
+    {
+      "key": "recordSubmitSending",
+      "leaf": "_lfRecordSubmitSending",
+      "params": []
+    },
+    {
+      "key": "recordSubmitToolResult",
+      "leaf": "_lfRecordSubmitToolResult",
+      "params": []
+    },
+    {
+      "key": "recordSubmitRejected",
+      "leaf": "_lfRecordSubmitRejected",
+      "params": []
+    },
+    {
+      "key": "recordSubmitUnknown",
+      "leaf": "_lfRecordSubmitUnknown",
+      "params": []
+    },
+    {
+      "key": "recordSubmitRetrying",
+      "leaf": "_lfRecordSubmitRetrying",
+      "params": []
+    },
+    {
+      "key": "recordSubmitRemoteRejected",
+      "leaf": "_lfRecordSubmitRemoteRejected",
+      "params": []
+    },
+    {
+      "key": "recordSubmitRetryExhausted",
+      "leaf": "_lfRecordSubmitRetryExhausted",
+      "params": []
+    },
+    {
+      "key": "recordSubmitExpired",
+      "leaf": "_lfRecordSubmitExpired",
+      "params": [
+        "count"
+      ]
+    },
+    {
+      "key": "recordSubmitContentNotReady",
+      "leaf": "_lfRecordSubmitContentNotReady",
+      "params": []
+    },
+    {
+      "key": "recordSubmitLocalChanged",
+      "leaf": "_lfRecordSubmitLocalChanged",
+      "params": []
+    },
+    {
+      "key": "recordSubmitManualDisclosure",
+      "leaf": "_lfRecordSubmitManualDisclosure",
+      "params": []
+    },
+    {
+      "key": "recordSubmitUnknownRetryWarning",
+      "leaf": "_lfRecordSubmitUnknownRetryWarning",
+      "params": []
+    },
+    {
+      "key": "recordSubmitRestoreNeedsCredential",
+      "leaf": "_lfRecordSubmitRestoreNeedsCredential",
+      "params": []
+    },
+    {
+      "key": "recordSubmitEnable",
+      "leaf": "_lfRecordSubmitEnable",
+      "params": []
+    },
+    {
+      "key": "recordSubmitPause",
+      "leaf": "_lfRecordSubmitPause",
+      "params": []
+    },
+    {
+      "key": "recordSubmitRetry",
+      "leaf": "_lfRecordSubmitRetry",
+      "params": []
+    },
+    {
+      "key": "recordSubmitManual",
+      "leaf": "_lfRecordSubmitManual",
+      "params": []
+    },
+    {
+      "key": "recordSubmitSourceFixed",
+      "leaf": "_lfRecordSubmitSourceFixed",
+      "params": []
+    },
+    {
+      "key": "recordSubmitSourceText",
+      "leaf": "_lfRecordSubmitSourceText",
+      "params": []
+    },
+    {
+      "key": "recordSubmitOutputText",
+      "leaf": "_lfRecordSubmitOutputText",
+      "params": []
+    },
+    {
+      "key": "recordSubmitProcessedText",
+      "leaf": "_lfRecordSubmitProcessedText",
+      "params": []
+    },
+    {
+      "key": "recordSubmitSourceLang",
+      "leaf": "_lfRecordSubmitSourceLang",
+      "params": []
+    },
+    {
+      "key": "recordSubmitOutputLang",
+      "leaf": "_lfRecordSubmitOutputLang",
+      "params": []
+    },
+    {
+      "key": "recordSubmitProcessMode",
+      "leaf": "_lfRecordSubmitProcessMode",
+      "params": []
+    },
+    {
+      "key": "recordSubmitEntryType",
+      "leaf": "_lfRecordSubmitEntryType",
+      "params": []
+    },
+    {
+      "key": "recordSubmitArticleId",
+      "leaf": "_lfRecordSubmitArticleId",
+      "params": []
+    },
+    {
+      "key": "recordSubmitEntryId",
+      "leaf": "_lfRecordSubmitEntryId",
+      "params": []
+    },
+    {
+      "key": "recordSubmitCreatedIso",
+      "leaf": "_lfRecordSubmitCreatedIso",
+      "params": []
+    },
+    {
+      "key": "recordSubmitCreatedMs",
+      "leaf": "_lfRecordSubmitCreatedMs",
+      "params": []
+    },
+    {
+      "key": "recordSubmitCreatedSeconds",
+      "leaf": "_lfRecordSubmitCreatedSeconds",
+      "params": []
+    },
+    {
+      "key": "recordSubmitRecordJson",
+      "leaf": "_lfRecordSubmitRecordJson",
+      "params": []
+    },
+    {
+      "key": "recordSubmitDeleteDisclosure",
+      "leaf": "_lfRecordSubmitDeleteDisclosure",
+      "params": []
+    },
+    {
+      "key": "recordSubmitPreviousConfiguration",
+      "leaf": "_lfRecordSubmitPreviousConfiguration",
+      "params": []
+    },
+    {
+      "key": "recordSubmitDiscardInvalid",
+      "leaf": "_lfRecordSubmitDiscardInvalid",
+      "params": []
+    },
+    {
+      "key": "webMicChoiceTitle",
+      "leaf": "_lfWebMicChoiceTitle",
+      "params": []
+    },
+    {
+      "key": "webMicUsePhone",
+      "leaf": "_lfWebMicUsePhone",
+      "params": []
+    },
+    {
+      "key": "webMicUseThisDevice",
+      "leaf": "_lfWebMicUseThisDevice",
+      "params": []
+    },
+    {
+      "key": "webMicUsePhoneHint",
+      "leaf": "_lfWebMicUsePhoneHint",
+      "params": []
+    },
+    {
+      "key": "webMicUseThisDeviceHint",
+      "leaf": "_lfWebMicUseThisDeviceHint",
+      "params": []
+    },
+    {
+      "key": "webMicSwitchToPhone",
+      "leaf": "_lfWebMicSwitchToPhone",
+      "params": []
+    },
+    {
+      "key": "webMicFinishingForPhone",
+      "leaf": "_lfWebMicFinishingForPhone",
+      "params": []
+    },
+    {
+      "key": "webMicWaitingForLeave",
+      "leaf": "_lfWebMicWaitingForLeave",
+      "params": []
+    },
+    {
+      "key": "webMicReadyForPhone",
+      "leaf": "_lfWebMicReadyForPhone",
+      "params": []
+    },
+    {
+      "key": "webMicPhoneLeft",
+      "leaf": "_lfWebMicPhoneLeft",
+      "params": []
+    },
+    {
+      "key": "webMicLocalConnectionExpired",
+      "leaf": "_lfWebMicLocalConnectionExpired",
+      "params": []
+    },
+    {
+      "key": "webMicBusyWithoutRoster",
+      "leaf": "_lfWebMicBusyWithoutRoster",
+      "params": []
+    },
+    {
+      "key": "webMicDeliveryStateUncertain",
+      "leaf": "_lfWebMicDeliveryStateUncertain",
+      "params": []
+    },
+    {
+      "key": "webMicConfigurationFailed",
+      "leaf": "_lfWebMicConfigurationFailed",
       "params": []
     }
   ]

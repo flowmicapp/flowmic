@@ -6,7 +6,7 @@
 //      STT-stage word here blames the wrong stage and points the user at
 //      the wrong fix — "speak louder/closer" for what is actually LLM
 //      reorder latency)
-//   docs/strategy/2026-08-13-0263-design-task-book.md §2-6 card T-0
+//   docs/archive/strategy/2026-08-13-0263-design-task-book.md §2-6 card T-0
 //
 // ── WHY A GUARD TEST AND NOT A COMMENT ───────────────────────────────────────
 // Same shape as link_loss_copy_guard_test.dart: the ban's natural failure

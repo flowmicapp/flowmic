@@ -23,6 +23,7 @@
 import 'package:flutter/material.dart';
 
 import '../audio/continuous_offer.dart';
+import '../auth/cloud_summary_controller.dart' show CloudSummaryController;
 import '../settings/app_strings.dart';
 import 'tokens.dart';
 
@@ -57,19 +58,41 @@ class ContinuousSheetKeys {
 /// would have to invent one of the two. Callers should not be able to reach this
 /// (`ContinuousOffer.enabled` is false without a ceiling) — this is the
 /// assertion that keeps 「should not」 from quietly becoming 「did」.
+///
+/// 🔴 Card RC-H — [account] is PULLED as the sheet opens, and the sheet redraws
+/// from [reread] whenever it answers. The balance line is the number the user
+/// decides on, and before this card it was whatever the last push had left:
+/// 「20 minutes left」 with 12 left (root-cause 2026-09-24 §5.2). A re-read
+/// that no longer describes a startable recording (no ceiling, not enabled)
+/// keeps the figures the sheet opened with; the caller re-reads the offer
+/// again after the sheet closes and refuses there, which is the decision that
+/// counts.
 Future<bool> askToStartContinuous(
   BuildContext context, {
   required ContinuousOffer offer,
   required AppStrings strings,
+  CloudSummaryController? account,
+  ContinuousOffer? Function()? reread,
 }) async {
   final int? cap = offer.capMinutes;
   if (cap == null) return false;
+  account?.refresh();
   final bool? ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (BuildContext ctx) =>
-        _Sheet(offer: offer, strings: strings, cap: cap),
+    builder: (BuildContext ctx) => account == null || reread == null
+        ? _Sheet(offer: offer, strings: strings, cap: cap)
+        : ListenableBuilder(
+            listenable: account,
+            builder: (BuildContext _, Widget? _) {
+              final ContinuousOffer? now = reread();
+              final int? nowCap = now?.capMinutes;
+              return now != null && now.enabled && nowCap != null
+                  ? _Sheet(offer: now, strings: strings, cap: nowCap)
+                  : _Sheet(offer: offer, strings: strings, cap: cap);
+            },
+          ),
   );
   return ok ?? false;
 }

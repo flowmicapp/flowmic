@@ -42,6 +42,9 @@ export interface IntegratorKeyRepo {
   findByPublishableKey(key: string): IntegratorKeyRow | null;
   findById(id: string): IntegratorKeyRow | null;
   listByUser(user_id: string): IntegratorKeyRow[];
+  /** Origin values on non-revoked rows; transport admission still needs the
+   *  specific room's key. No key strings or owner identities leave this read. */
+  listActiveOrigins(): readonly string[];
   /** Stamps `revoked_at`. Returns false when the row does not exist or does not
    *  belong to `user_id` — ownership is checked HERE, in the same statement that
    *  writes, so a route cannot read one row and write another. Re-revoking is a
@@ -64,10 +67,10 @@ export interface IntegratorKeyRepo {
   keyIdForRoom(pc_device_id: string): string | null;
 }
 
-function toRow(r: Record<string, unknown>): IntegratorKeyRow {
+function readOrigins(value: unknown): readonly string[] {
   let origins: readonly string[] = [];
   try {
-    const parsed: unknown = JSON.parse(String(r.origins ?? '[]'));
+    const parsed: unknown = JSON.parse(String(value ?? '[]'));
     // 🔴 EVERY ELEMENT CHECKED, not just 「is it an array」. A JSON array of
     // objects would otherwise reach the origin comparison as `[object Object]`
     // and could never match — a key that silently allows nothing, which is the
@@ -77,11 +80,15 @@ function toRow(r: Record<string, unknown>): IntegratorKeyRow {
   } catch {
     origins = [];
   }
+  return origins;
+}
+
+function toRow(r: Record<string, unknown>): IntegratorKeyRow {
   return {
     id: String(r.id),
     user_id: String(r.user_id),
     publishable_key: String(r.publishable_key),
-    origins,
+    origins: readOrigins(r.origins),
     quota_minutes: r.quota_minutes === null || r.quota_minutes === undefined ? null : Number(r.quota_minutes),
     used_ms: Number(r.used_ms ?? 0),
     used_period: (r.used_period as string | null) ?? null,
@@ -100,6 +107,7 @@ export function makeIntegratorKeyRepo(db: DatabaseSync): IntegratorKeyRepo {
   const byKey = db.prepare('SELECT * FROM integrator_keys WHERE publishable_key=?');
   const byId = db.prepare('SELECT * FROM integrator_keys WHERE id=?');
   const byUser = db.prepare('SELECT * FROM integrator_keys WHERE user_id=? ORDER BY id ASC');
+  const activeOrigins = db.prepare('SELECT DISTINCT origins FROM integrator_keys WHERE revoked_at IS NULL');
   const rev = db.prepare('UPDATE integrator_keys SET revoked_at=COALESCE(revoked_at, ?) WHERE id=? AND user_id=?');
   // The rollover and the add in one statement — see `addUsage`'s contract.
   const addUse = db.prepare(
@@ -134,6 +142,9 @@ export function makeIntegratorKeyRepo(db: DatabaseSync): IntegratorKeyRepo {
     },
     listByUser(user_id): IntegratorKeyRow[] {
       return (byUser.all(user_id) as Record<string, unknown>[]).map(toRow);
+    },
+    listActiveOrigins(): readonly string[] {
+      return activeOrigins.all().flatMap((row) => [...readOrigins(row.origins)]);
     },
     revoke(user_id, id, at): boolean {
       const res = rev.run(at, id, user_id);

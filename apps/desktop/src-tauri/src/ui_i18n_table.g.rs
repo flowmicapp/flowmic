@@ -1,7 +1,7 @@
 // GENERATED — DO NOT EDIT BY HAND.
 // Source: packages/protocol/src/locales.ts (UI_LOCALES) + i18n/desktop-rust/<code>.json
 // Regenerate: node scripts/i18n/gen-desktop-rust.mjs
-// Count: 9 locale(s) x 26 message(s) = 234 cell(s).
+// Count: 9 locale(s) x 27 message(s) = 243 cell(s).
 // Every registry row has a data file on this surface.
 //
 // `include!`d by src/ui_i18n.rs, so this shares that module's namespace: `Msg`
@@ -163,6 +163,7 @@ impl Msg {
         Msg::AutostartStillEnabled,
         Msg::AutostartRegOpenFailed,
         Msg::AutostartRewriteFailed,
+        Msg::LinuxCapsuleUnavailable,
     ];
 }
 
@@ -455,6 +456,17 @@ fn table(locale: UiLocale, msg: Msg) -> &'static str {
             UiLocale::Ja => "自動起動エントリを引用符付きパスに書き換えられません：{detail}",
             UiLocale::Ko => "시작 프로그램 항목을 따옴표 있는 경로로 다시 쓰기 실패: {detail}",
             UiLocale::Ru => "Не удалось перезаписать запись автозапуска с путём в кавычках: {detail}",
+        },
+        Msg::LinuxCapsuleUnavailable => match locale {
+            UiLocale::En => "The capsule isn't available in this desktop session, so the main window was opened.",
+            UiLocale::ZhCn => "当前桌面会话无法显示胶囊，已打开主窗口。",
+            UiLocale::ZhTw => "此桌面工作階段無法使用膠囊，已開啟主視窗。",
+            UiLocale::Fr => "La capsule n'est pas disponible dans cette session de bureau. La fenêtre principale est ouverte.",
+            UiLocale::Es => "La cápsula no está disponible en esta sesión de escritorio. Se abrió la ventana principal.",
+            UiLocale::De => "Die Kapsel ist in dieser Desktopsitzung nicht verfügbar. Das Hauptfenster wurde geöffnet.",
+            UiLocale::Ja => "このデスクトップセッションではカプセルを表示できません。メインウィンドウを開きました。",
+            UiLocale::Ko => "이 데스크톱 세션에서는 캡슐을 사용할 수 없어 메인 창을 열었습니다.",
+            UiLocale::Ru => "Капсула недоступна в этом сеансе рабочего стола. Открыто главное окно.",
         },
     }
 }

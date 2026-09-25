@@ -50,13 +50,13 @@ describe('mock billing golden path (unlockAll=false)', () => {
     expect(billing.getQuota(USER).stt.limit_min).toBe(20);
   });
 
-  it('checkout → pending (still free), confirm → active pro with 900-min line', () => {
+  it('checkout → pending (still free), confirm → active pro with 1000-min line', () => {
     const { sessionId, state } = billing.mockCheckout(USER, 'yearly');
     expect(state).toBe('pending');
     expect(billing.getPlan(USER).plan).toBe('free'); // not active until confirmed
     const view = billing.mockConfirm(USER, sessionId);
     expect(view).toMatchObject({ plan: 'pro', cycle: 'yearly', state: 'active' });
-    expect(billing.getQuota(USER).stt.limit_min).toBe(900);
+    expect(billing.getQuota(USER).stt.limit_min).toBe(1000);
     expect(db.users.findById(USER)?.plan).toBe('pro');
   });
 
@@ -92,7 +92,7 @@ describe('unlockAll=true bypasses at getPlan only', () => {
     // 🔴 D1 §6.1 — and it says WHY it is pro. A console that shows 「you are Pro」 and
     // cannot name the source is this window's headline failure.
     expect(billing.getPlan(USER)).toMatchObject({ plan: 'pro', state: 'active', source: 'mock' });
-    expect(billing.getQuota(USER).stt.limit_min).toBe(900);
+    expect(billing.getQuota(USER).stt.limit_min).toBe(1000);
     // Stored subscription untouched (no account.subscription row written).
     expect(db.settings.read(USER, 'account.subscription')).toBeNull();
   });

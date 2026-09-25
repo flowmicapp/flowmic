@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/strategy/2026-07-30-platform-ops-console-and-engine-pool.md A6 §3-3
 //     (🔴 a degrade must be [SPOKEN ALOUD], never a silent switch to a weaker engine)
-//   docs/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0f tail
+//   docs/archive/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0f tail
 //     (production strategy = priority + health-based failover; health is the one value the runtime actually reads at run time),
 //     §-0b (🔴 failover only counts as delivered once it has been [ACTIVELY DRILLED] — "not drilled = not done")
 //

@@ -9,7 +9,7 @@
 //
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (pc:release-mobile);
 //           docs/rebuild/05-DATA-MODEL.md §7 (deleting the row IS the revocation);
-//           docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08
+//           docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08
 
 import { describe, it, expect } from 'vitest';
 import { EVENT_NAME_SET } from '../src/events';

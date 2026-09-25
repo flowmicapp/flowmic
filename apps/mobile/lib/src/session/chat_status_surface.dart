@@ -84,6 +84,11 @@ extension ChatStatusSurface on ChatController {
   AiComposeOutcome? get utteranceFailure =>
       _noticeOnScreen(_utteranceFailureInstanceId) ? _utteranceFailure : null;
 
+  /// Card RC-I — whether [utteranceFailure]'s utterance is never sent (a light
+  /// record or a record-only row). Read with [utteranceFailure] by
+  /// `chat_banner_sources.dart`; meaningless while that is null.
+  bool get utteranceFailureNeverSent => _utteranceFailureNeverSent;
+
   void dismissUtteranceFailure() => dismissUtteranceFailureRouted(this);
 
   /// Card MP-14 — non-null while the 「the computer could not use that key」

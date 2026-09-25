@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §3 (SPEAKING-lock watchdog), §6 (heartbeat),
 //     §3.5 F-3113 (focus:state mirror GATED on a mobile being present)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-2 (CONNECTION bridge → frontend
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-2 (CONNECTION bridge → frontend
 //     reconnect re-flush + history refresh triggers, 07 §9)
 //
 // The background pump thread, split out of client.rs to keep the audited core
@@ -582,7 +582,7 @@ pub(super) fn spawn(
                 // capsule's re-surface, DevicesPage's paired-list read (and with
                 // it the QR modal's success face), and the phone-name directory —
                 // and all three went blind together, silently.
-                // Trace: docs/strategy/2026-08-26-0333-device-findings-three-defects.md.
+                // Trace: docs/archive/strategy/2026-08-26-0333-device-findings-three-defects.md.
                 let epoch = reconciler.presence_epoch();
                 let joins = reconciler.join_epoch();
                 // `joins` is deliberately NOT in the memo: every join moves

@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §4.2 (the three
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §4.2 (the three
 //     run-time shapes)
 //
 // Which shape is this running copy — installed by the MSI, a portable/loose

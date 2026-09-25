@@ -34,7 +34,7 @@
 //
 // The KNOWLEDGE removed with the code is not lost: the C5 conflict criterion
 // (LWW + "the loser must be notified") lives on as design in
-// docs/strategy/2026-07-30-c5-conflict-criteria-design.md, whose header names the
+// docs/archive/strategy/2026-07-30-c5-conflict-criteria-design.md, whose header names the
 // light-record multi-device (轻记录多设备) case that will reuse it.
 //
 // NOT retired, and not to be confused with this link: `timeline:*` (the e2e:v1:

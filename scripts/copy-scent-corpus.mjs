@@ -509,9 +509,14 @@ async function collectWebClient({ clientRoot, locales, files = WEB_CLIENT_COPY_F
  * sentence that no longer exists. It also keeps this module free of a build
  * step, which is what lets the drill run on every machine.
  */
-export const PROTOCOL_ERRORS_FILE = 'packages/protocol/src/error-codes.ts';
+export const PROTOCOL_ERRORS_FILES = [
+  'packages/protocol/src/error-codes.ts',
+  'packages/protocol/src/error-codes-auth-and-pairing.ts',
+  'packages/protocol/src/error-codes-inject.ts',
+];
+export const PROTOCOL_ERRORS_FILE = PROTOCOL_ERRORS_FILES[0];
 
-const ERROR_CODES_OPEN = 'export const ERROR_CODES = {';
+const ERROR_CODES_OPEN = /export const [A-Z_]*ERROR_CODES = \{/;
 const ERROR_CODES_CLOSE = '} as const satisfies';
 
 /**
@@ -541,18 +546,20 @@ const ERROR_MESSAGE_LOCALES = [
  * independent count of `zh_CN:` occurrences in the same slice, and a
  * disagreement throws with both numbers in it.
  */
-export function sweepErrorCodes(source) {
+export function sweepErrorCodes(source, sourceFile = PROTOCOL_ERRORS_FILE) {
   const masked = maskTsComments(source);
-  const from = masked.indexOf(ERROR_CODES_OPEN);
-  const to = from < 0 ? -1 : masked.indexOf(ERROR_CODES_CLOSE, from);
+  const open = ERROR_CODES_OPEN.exec(masked);
+  const from = open?.index ?? -1;
+  const bodyFrom = open ? from + open[0].length : -1;
+  const to = from < 0 ? -1 : masked.indexOf(ERROR_CODES_CLOSE, bodyFrom);
   if (from < 0 || to <= from) {
     throw new Error(
-      `copy-scent: cannot find the error-code table in ${PROTOCOL_ERRORS_FILE} -- anchors ` +
-        `${JSON.stringify(ERROR_CODES_OPEN)} / ${JSON.stringify(ERROR_CODES_CLOSE)} not found in order. ` +
+      `copy-scent: cannot find the error-code table in ${sourceFile} -- anchors ` +
+        `${ERROR_CODES_OPEN} / ${JSON.stringify(ERROR_CODES_CLOSE)} not found in order. ` +
         'The table moved or was renamed; fix this slice rather than letting the surface report zero units.',
     );
   }
-  const body = masked.slice(from + ERROR_CODES_OPEN.length, to);
+  const body = masked.slice(bodyFrom, to);
   const row = new RegExp(
     String.raw`([A-Z][A-Z0-9_]*)\s*:\s*\{\s*zh_CN\s*:\s*(${TS_STRING})\s*,\s*en\s*:\s*(${TS_STRING})\s*,?\s*\}`,
     'g',
@@ -563,7 +570,7 @@ export function sweepErrorCodes(source) {
   const declared = (body.match(/\bzh_CN\s*:/g) ?? []).length;
   if (out.length !== declared) {
     throw new Error(
-      `copy-scent: parsed ${out.length} of ${declared} error-code entries in ${PROTOCOL_ERRORS_FILE}. ` +
+      `copy-scent: parsed ${out.length} of ${declared} error-code entries in ${sourceFile}. ` +
         'An entry whose shape this sweep does not recognise would be dropped silently, one sentence at a ' +
         'time -- teach the sweep that shape rather than accepting the shorter number.',
     );
@@ -576,23 +583,25 @@ const PROTOCOL_ERRORS_SKIP = (abs) =>
   'a green here says nothing about the sentences the error codes carry.';
 
 async function collectProtocolErrors({ root, locales }) {
-  const abs = path.join(root, ...PROTOCOL_ERRORS_FILE.split('/'));
-  let source;
-  try {
-    source = await readFile(abs, 'utf8');
-  } catch {
-    return { units: [], notes: [PROTOCOL_ERRORS_SKIP(abs)] };
-  }
   const units = [];
-  for (const { code, raw } of sweepErrorCodes(source)) {
-    for (const [field, locale] of ERROR_MESSAGE_LOCALES) {
-      if (locales && !locales.includes(locale)) continue;
-      const text = decodeLiteral(raw[field]);
-      if (text === null || !isAuditableText(text)) continue;
-      // `file` is the repo-relative path git itself reports, so `--changed`
-      // selects these units on the commit that edits them. The site units had
-      // to learn that lesson the hard way (see changedFiles in the auditor).
-      units.push({ id: `protocol-errors/${locale}#${code}`, surface: 'protocol-errors', locale, file: PROTOCOL_ERRORS_FILE, key: code, text });
+  for (const sourceFile of PROTOCOL_ERRORS_FILES) {
+    const abs = path.join(root, ...sourceFile.split('/'));
+    let source;
+    try {
+      source = await readFile(abs, 'utf8');
+    } catch {
+      return { units: [], notes: [PROTOCOL_ERRORS_SKIP(abs)] };
+    }
+    for (const { code, raw } of sweepErrorCodes(source, sourceFile)) {
+      for (const [field, locale] of ERROR_MESSAGE_LOCALES) {
+        if (locales && !locales.includes(locale)) continue;
+        const text = decodeLiteral(raw[field]);
+        if (text === null || !isAuditableText(text)) continue;
+        // `file` is the repo-relative path git itself reports, so `--changed`
+        // selects these units on the commit that edits them. The site units had
+        // to learn that lesson the hard way (see changedFiles in the auditor).
+        units.push({ id: `protocol-errors/${locale}#${code}`, surface: 'protocol-errors', locale, file: sourceFile, key: code, text });
+      }
     }
   }
   return { units, notes: [] };

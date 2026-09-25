@@ -3,7 +3,7 @@
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md G-21 (a single-row delete
 //     must not delete bytes), G-17 / RV-96 (storage grows monotonically; this module is
 //     where that gets closed off)
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §5-4/-5/-6
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §5-4/-5/-6
 //
 // 🔴 THE ONE DELETER. Every row that leaves this PC leaves through [purge].
 //

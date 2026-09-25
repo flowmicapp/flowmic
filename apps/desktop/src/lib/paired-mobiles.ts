@@ -2,7 +2,7 @@
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (pc:list-mobiles → ack
 //     `{ mobiles: [{pairing_id, mobile_name, paired_at, last_seen_at, online}] }`)
 //   docs/rebuild/07-DESKTOP-SPEC.md §5 (device page)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md T-8 (已配对手机表, "paired mobiles table")
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md T-8 (已配对手机表, "paired mobiles table")
 //
 // Pure, Tauri-free, DOM-free helpers for the device page's 「已配对手机」("paired
 // mobiles") table so the three-state read (loading / loud failure / real rows)

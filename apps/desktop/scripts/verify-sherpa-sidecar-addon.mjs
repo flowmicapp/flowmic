@@ -2,8 +2,8 @@
 // stock seed points at.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-11-eng-local-stt-cards.md §ENG-1
-//   docs/strategy/2026-08-10-device-line-brief-p0-lan-empty-transcript.md
+//   docs/archive/strategy/2026-08-11-eng-local-stt-cards.md §ENG-1
+//   docs/archive/strategy/2026-08-10-device-line-brief-p0-lan-empty-transcript.md
 //   apps/server-core/src/settings/defaults.ts (DEFAULT_STT_*_PRESET)
 //   apps/server-core/src/stt/engines/sherpa-local.ts (the runtime require)
 //

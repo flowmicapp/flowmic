@@ -2,8 +2,8 @@
 // is held on the LAN leg?
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-12-req1205-interim-streaming-analysis.md §2 / §2.5
-//   docs/strategy/2026-08-12-req1205-retest-sheet-round2.md
+//   docs/archive/strategy/2026-08-12-req1205-interim-streaming-analysis.md §2 / §2.5
+//   docs/archive/strategy/2026-08-12-req1205-retest-sheet-round2.md
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §3 (interim = offlineAccum + onlineDraft)
 //
 // ── WHY THIS FILE EXISTS NEXT TO sherpa-preview.test.ts ──────────────────────

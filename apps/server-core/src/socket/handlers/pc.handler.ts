@@ -13,7 +13,7 @@
 //   docs/rebuild/05-DATA-MODEL.md §1/§7 (pc_devices row, device_token)
 //   docs/rebuild/18-CONNECTION-STATES-THREE-ENDS.md §7.3 (absence reason: write
 //     site ② is the pc:reconnect account gate; both join legs erase)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md T-8 (paired-phones table)
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md T-8 (paired-phones table)
 //   *** HUMAN-AUDIT SENSITIVE (auth/pairing) — reviewable in isolation ***
 //
 // The PC side of pairing. register/reconnect flows connect with NO token (auth
@@ -30,6 +30,7 @@ import { PROTOCOL_SCHEMA_VERSION, safeParseEvent } from '@flowmic/protocol';
 import type { Registry } from '../../room/registry';
 import type { RoomStore } from '../../room/store';
 import { errorPayload } from '../../errors';
+import { assertIntegratorOrigin, type IntegratorOriginGuard } from '../integrator-origin';
 import { probeMobileLiveness, type LivenessDeps } from '../../room/liveness';
 import { pcAbsenceReasons } from '../../room/pc-absence';
 import type { ReleaseSuppression } from '../../room/release-suppression';
@@ -45,6 +46,8 @@ import { clientDeclarationOf } from './client-declaration'; // card S2-01
 import { budgetAckFields, pushJoinBudget, type BudgetHandlerDeps } from './budget-frames';
 
 export interface PcHandlerDeps extends BudgetHandlerDeps {
+  /** Missing on an integrator admission throws, never a permissive default. */
+  integratorOrigin?: IntegratorOriginGuard;
   io: Server;
   registry: Registry;
   store: RoomStore<Socket>;
@@ -411,13 +414,14 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
     // stop `reconnectPc` minting a PCID that would just churn — see that
     // method's own doc.
     const skipPcidBackfill = deps.writerOnly() !== null;
+    // Check the real room before reconnectPc writes online. The same closure
+    // runs after read-through, so newly landed rows cannot bypass the check.
+    const reconnect = () => {
+      assertIntegratorOrigin(deps.integratorOrigin, registry.findPcByToken(parsed.data.token), socket, 'pc');
+      return registry.reconnectPc(parsed.data.token, parsed.data.client_instance_id, parsed.data.machine_uid, { skipPcidBackfill });
+    };
     try {
-      let result = registry.reconnectPc(
-        parsed.data.token,
-        parsed.data.client_instance_id,
-        parsed.data.machine_uid,
-        { skipPcidBackfill },
-      );
+      let result = reconnect();
       // ── LOCAL MISS (B1, 2026-09-02) ────────────────────────────────────
       //
       // 🔴 ON A REPLICA A LOCAL MISS IS A MAYBE, NOT A NO — the same asymmetry
@@ -444,12 +448,7 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
           ? await seam.resolveDetailed(parsed.data.token)
           : (await seam.resolve(parsed.data.token)) ? 'landed' : 'writer-confirmed-absent';
         if (outcome === 'landed') {
-          result = registry.reconnectPc(
-            parsed.data.token,
-            parsed.data.client_instance_id,
-            parsed.data.machine_uid,
-            { skipPcidBackfill },
-          );
+          result = reconnect();
         } else if (outcome === 'unverifiable') {
           refusal = 'AUTH_TOKEN_UNVERIFIABLE';
         }

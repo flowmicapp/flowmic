@@ -3,8 +3,8 @@
 //     edge, send pc:reconnect → reconcile the registry against the ack's
 //     connectedMobiles (2s JOINED_SUPPRESS prevents a fresh join from being wiped
 //     out by an empty reconcile; ReconcileGate is a mutex)".
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-3 deliverable C.
-//   docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md + 01-SERVER-PROTOCOL.md
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-3 deliverable C.
+//   docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md + 01-SERVER-PROTOCOL.md
 //     GA-26 ("online phones" count inflated — owner reproduced 2 phones with 1 phone).
 //
 // The mobile-presence registry. It holds a SET of mobile_ids, not a count:
@@ -71,7 +71,7 @@ pub struct Reconciler {
     /// `pc:mobile-joined <same-uid> (mobiles=1)` with no `mobile-left` between,
     /// no CONNECTION frame forwarded, and the capsule — retreated earlier by
     /// `audio:pause` — never came back. Full trace:
-    /// docs/strategy/2026-08-26-0333-device-findings-three-defects.md.
+    /// docs/archive/strategy/2026-08-26-0333-device-findings-three-defects.md.
     ///
     /// ⚠️ It is a SEPARATE value on purpose. Encoding 「an event happened」 into
     /// the count (bumping it, toggling it) would be this repo's #1 defect shape

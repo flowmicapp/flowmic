@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   src/http/billing-routes.ts (the one production caller)
-//   docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.6
+//   docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.6
 //   src/mail/email-verification-mailer.ts — the product-level-mailer shape this
 //     is a sibling of (one product question per interface, transport injected)
 //   src/mail/provider.ts (the transport seam under this)

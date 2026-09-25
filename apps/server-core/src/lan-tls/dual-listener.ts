@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-d2lan-light-encryption.md §3-2 (loopback must
+//   docs/archive/strategy/2026-08-08-design-d2lan-light-encryption.md §3-2 (loopback must
 //     stay plain — the desktop's own sidecar client is hand-rolled HTTP over
 //     TcpStream and its header says "never TLS"), §4-2, §4 compatibility and
 //     ordering (the transition period must accept plain AND TLS at once or every

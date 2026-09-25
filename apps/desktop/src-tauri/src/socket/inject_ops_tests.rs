@@ -50,7 +50,7 @@ fn every_chord_exit_has_a_line_that_names_the_failed_precondition() {
     }
     // The four NON-delivering exits must say NOT sent plus the precondition.
     assert!(lines[1].contains("NOT sent") && lines[1].contains("OS refused"));
-    assert!(lines[2].contains("NOT sent") && lines[2].contains("SetForegroundWindow"));
+    assert!(lines[2].contains("NOT sent") && lines[2].contains("foreground activation"));
     assert!(lines[3].contains("NOT sent") && lines[3].contains("no inject target"));
     assert!(
         lines[4].contains("NOT sent")

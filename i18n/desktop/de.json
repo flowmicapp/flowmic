@@ -23,6 +23,8 @@
     "cap_stt_loading": "'Modell wird geladen…'",
     "cap_stt_ready": "'Bereit'",
     "cap_stt_reconnecting": "'Verbindet neu…'",
+    "cap_stt_reconnecting_n": "'Verbindet neu · Versuch {n}'",
+    "cap_stt_reconnecting_n_of": "'Verbindet neu · Versuch {n}/{max}'",
     "cap_stt_unknown": "'Nicht geprüft'",
     "cap_target_dash": "'—'",
     "cap_target_none": "'Kein Ziel fixiert'",
@@ -713,6 +715,10 @@
     "win_close": "'Schließen'",
     "win_maximize": "'Maximieren'",
     "win_minimize": "'Minimieren'",
-    "win_restore": "'Wiederherstellen'"
+    "win_restore": "'Wiederherstellen'",
+    "st_uncertain": "'Eingabe ungewiss'",
+    "injectFailReason.INJECT_WAYLAND_UNSUPPORTED": "'Texteingabe unter Wayland nicht verfügbar.'",
+    "injectFailReason.INJECT_DISPLAY_UNAVAILABLE": "'Texteingabe in dieser Umgebung nicht möglich'",
+    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'Eventuell nur teilweise eingegeben.'"
   }
 }

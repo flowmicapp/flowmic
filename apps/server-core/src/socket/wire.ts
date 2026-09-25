@@ -109,6 +109,18 @@ export function setAuth(socket: Socket, auth: AuthContext): void {
   (socket.data as { auth?: AuthContext | null }).auth = auth;
 }
 
+/** card HANGUP-3 — the `client_caps` this socket's LATEST mobile admission declared
+ *  (docs/rebuild/04 §3.3-a (c′)). REPLACE, never merge: an admission without the
+ *  field clears it, so 「did not declare」 is always what the last frame said.
+ *  Read by audio.handler.ts at `audio:start`. */
+export function setClientCaps(socket: Socket, caps: readonly string[] | undefined): void {
+  (socket.data as { clientCaps?: readonly string[] }).clientCaps = caps ?? [];
+}
+
+export function getClientCaps(socket: Socket): readonly string[] {
+  return (socket.data as { clientCaps?: readonly string[] }).clientCaps ?? [];
+}
+
 // ── phone-owned preferences (2026-09-03, owner follow-up: the carrier is the
 //    request that starts a cycle) ────────────────────────────────────────────
 //

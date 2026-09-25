@@ -2,7 +2,7 @@
 //
 // SPEC-REF: docs/rebuild/05-DATA-MODEL.md §4 (Free 30d / Pro 365d, daily cron);
 //           docs/strategy/2026-07-23-relaunch-master-plan.md §2.3;
-//           docs/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-06
+//           docs/archive/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-06
 //
 // Everything runs against a REAL in-memory sqlite through the REAL repos — the
 // point of this card is what actually leaves the tables. Only two things are

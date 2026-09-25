@@ -72,17 +72,27 @@ void onAutoStoppedRouted(ChatController c) {
 /// every successful keypress back at the person who pressed it. Those are two
 /// different questions and the frame answers both by existing and being ignored.
 ///
-/// 🔴 IT DOES NOT TOUCH THE ROW. `buildControlRowOf` minted 「the frame left this
-/// device」 and that remains true — this is a second fact about the same press,
-/// with its own (much shorter) lifetime, and 15 §2.0-e's rule is that each side
-/// states only the half it can prove.
+/// Ordinary refusals remain transient notices. `reason:'uncertain'` is the one
+/// exception: it is durable and terminal because an automatic repeat could
+/// duplicate a key the target may already have consumed.
 void onControlKeyResultRouted(ChatController c, ControlKeyResult r) {
   if (r.ok) return;
+  if (r.reason == 'uncertain') {
+    c.store.applyControlSubmissionUncertain(
+      requestId: r.requestId,
+      kind: r.kind,
+    );
+    // The durable row is the surface for this terminal outcome. It must not
+    // also become the transient refusal banner, which would call it failed.
+    c.notifyUi();
+    return;
+  }
   c._controlKeyRefusalTicket += 1;
   c._controlKeyRefusal = ControlKeyRefusal(
     ticket: c._controlKeyRefusalTicket,
     kind: r.kind,
     reason: r.reason,
+    errorCode: r.errorCode,
   );
   // G-20: the scope is read at the moment the fact is produced (§2.5.1 fourth
   // rule), never at display time.
@@ -121,6 +131,19 @@ void dismissAutoStoppedRouted(ChatController c) {
 /// GA-03 — PROCESSING closed with no terminal `stt:final` (15 s safety net, or a
 /// terminal `stt:error`).
 void onSttStalledRouted(ChatController c, SttStall stall) {
+  // Card RC4 — a recovery pass's stall is not the user's press stalling. The
+  // FSM emits it after leaving PROCESSING, so the check is on who opened the
+  // session (ptt_backfill.dart `openSessionIsRecovery`), not on the state.
+  // The recovery leg reads the same stream for its own verdict and journal
+  // (recovery_leg_wire.dart subscribes to it); the pending-recovery screen
+  // and the article status line are where that outcome is shown.
+  if (c.session.openSessionIsRecovery) {
+    diag('ptt.stall.recovery_not_surfaced', <String, Object?>{
+      'reason': stall.reason.name,
+      'code': stall.code,
+    });
+    return;
+  }
   // No final is coming for this utterance: drop the in-flight draft so the UI
   // does not leave a stranded 「转录中」 ("transcribing") row (there will never be a committed
   // row to replace it), and raise the visible notice — a PTT press that
@@ -146,7 +169,8 @@ void onSttStalledRouted(ChatController c, SttStall stall) {
   // screen must not suppress this screen's stall. Without the scope term, the
   // scope guard this comment already relies on (「pttDown clears _sttStalled」)
   // would be broken by pttDown itself refusing to clear parked notices.
-  final bool namedRefusalHolds = held != null &&
+  final bool namedRefusalHolds =
+      held != null &&
       c._noticeOnScreen(c._sttStalledInstanceId) &&
       held.reason == SttStallReason.engineError &&
       stall.reason == SttStallReason.emptyTranscript;

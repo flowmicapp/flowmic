@@ -11,7 +11,7 @@
 //   ④ the target language is a per-utterance snapshot, persisted device-locally.
 //
 // SPEC-REF: docs/rebuild/01-PRODUCT-SPEC.md §3.1; docs/rebuild/08-MOBILE-SPEC.md
-//   §5; docs/strategy/2026-07-25-full-gap-audit/03-MOBILE.md GA-01 (裁定 1-7).
+//   §5; docs/archive/strategy/2026-07-25-full-gap-audit/03-MOBILE.md GA-01 (裁定 1-7).
 //
 // Plain `test()`, not testWidgets: the PTT chain is genuinely async and awaiting
 // it inside a FakeAsync zone deadlocks (a scar this repo already wears).

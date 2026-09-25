@@ -5,7 +5,7 @@
 //   type contracts split out to keep orchestrator-core.ts under the file cap.
 
 import type { EventEmitter } from 'node:events';
-import type { ProcessingMode } from '@flowmic/protocol';
+import { AUDIO_DEFAULTS, type ProcessingMode } from '@flowmic/protocol';
 import type { SttEngine, FinalResult, InterimResult } from './engines/base';
 
 export const DEFAULT_SOFT_SEGMENT_MS = 30_000;
@@ -24,8 +24,8 @@ export const DEFAULT_SOFT_SEGMENT_MS = 30_000;
 export const DEFAULT_SOFT_SEGMENT_GRACE_MS = 15_000;
 export const DEFAULT_REPLAY_WINDOW_MS = 5_000;
 /** engine.open()/flush() caps so audio:start ack + final always fire. */
-export const DEFAULT_ENGINE_SPAWN_TIMEOUT_MS = 5_000;
-export const DEFAULT_ENGINE_FLUSH_TIMEOUT_MS = 3_000;
+export const DEFAULT_ENGINE_SPAWN_TIMEOUT_MS: number = AUDIO_DEFAULTS.engine_spawn_timeout_ms; // NR-96: declared once in the protocol
+export const DEFAULT_ENGINE_FLUSH_TIMEOUT_MS: number = AUDIO_DEFAULTS.engine_flush_timeout_ms; // RC4-S5 follow-up: declared once in the protocol
 
 /**
  * NR-38 — the cold-open cap for an engine whose `open()` is a MODEL LOAD rather
@@ -85,7 +85,7 @@ export function isLocalModelEngine(engineId: string): boolean {
  * Card RT-2 — how long the voice may be absent before the ENGINE LEG is hung up.
  *
  * 3 s is the plan's number, not a tuned one:
- * `docs/strategy/2026-08-08-030-unified-plan-and-ledger.md` RT-2 "silence ≥3s ⇒
+ * `docs/archive/strategy/2026-08-08-030-unified-plan-and-ledger.md` RT-2 "silence ≥3s ⇒
  * hang up / press again to redial". It is written down here rather than inlined so that the day it IS
  * measured there is one place to change.
  *
@@ -105,6 +105,18 @@ export interface OrchestratorOptions {
   hardLimitMs?: number;
   reconnectBackoffMs?: readonly number[];
   maxRetries?: number;
+  /** card RC-1 — this session is a LONG RECORDING (`audio:start.continuous === true`,
+   *  book 04): the reconnect ladder never gives up on count
+   *  (`EngineSessionLadderOptions.unbounded`). The one production writer is
+   *  `engine-factory.ts makeSttOrchestratorFactory`, from the audio handler's
+   *  `SttStartArgs.continuous`. Absent ⇒ the push-to-talk ladder. */
+  reconnectUnbounded?: boolean;
+  /** card RC-E — the same fact (`audio:start.continuous === true`) asked a second question, so it gets a
+   *  field of its own rather than being read off {@link reconnectUnbounded} (one value, two questions):
+   *  may a ≥3 s silence end a row before the 30 s deadline, and does the redial after a hang-up take the
+   *  closed run's tail (`segment-boundary.ts` `continuousSilenceCutAllowed`, book 06 §2 RC-E block).
+   *  Same one production writer as above. Absent ⇒ push-to-talk rows, byte for byte. */
+  continuous?: boolean;
   replayWindowMs?: number;
   /** caps on engine.open() (5_000 ms) / engine.flush() (3_000 ms). */
   engineSpawnTimeoutMs?: number;

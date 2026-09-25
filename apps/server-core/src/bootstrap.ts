@@ -19,6 +19,7 @@ import { startSweepsForBootstrap } from './bootstrap-sweeps';
 import { makeForwardLedger } from './node/forward-ledger';
 import { seedDefaultSettings, seedDefaultSettingsForAllUsers } from './settings/defaults';
 import { Registry } from './room/registry';
+import { boundIntegratorKey } from './room/integrator-room-key';
 import { RoomStore } from './room/store';
 import { PairRateLimiter } from './room/pair-rate-limit';
 import { ReleaseSuppression } from './room/release-suppression';
@@ -30,6 +31,7 @@ import { QrGrantStore } from './auth/qr-grant';
 import { VerificationSendLimiter } from './auth/email-verification';
 import { wireVerificationGrace } from './auth/verification-grace';
 import { createSocketServer } from './socket/server';
+import { makeIntegratorOriginPolicy } from './socket/integrator-origin';
 import { wireNodeRuntime } from './node/node-runtime';
 import { parseNodeHostMap } from './node/node-identity';
 import { makeQuotaGuard } from './billing/quota-guard';
@@ -76,7 +78,7 @@ import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 import { startLatencyReader } from './obs/latency';
 
-export const SERVER_VERSION = '0.3.92';
+export const SERVER_VERSION = '0.3.95';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -581,6 +583,9 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // REST routes sign with. Absent in standalone → the account path is inert.
   const jwtHandshake: JwtHandshakeConfig | undefined =
     config.mode === 'saas' ? { secret: jwtSecret, ...(overrides.now ? { nowMs: overrides.now } : {}) } : undefined;
+  const integratorOrigin = makeIntegratorOriginPolicy({
+    keys: db.integratorKeys, findPc: (id) => registry.findPc(id), firstPartyOrigins: config.corsOrigins,
+  });
   const { io, close: closeSocket } = createSocketServer({
     httpServer,
     // 2026-08-31 (P0-①) — the third argument is present ONLY on a multi-node
@@ -593,12 +598,12 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // handshake, same convention as node-runtime.ts's own `nodeId ?? 'unknown'`.
     // It never gates anything; a single-node deployment passes 'unknown', same
     // as every other log line that already carries this field.
-    authMiddleware: authMiddleware(
+    authMiddleware: integratorOrigin.wrapHandshake(authMiddleware(
       tokenLookupOver(db),
       jwtHandshake,
       nodeRuntime.resolveTokenOnWriter ?? undefined,
       nodeRuntime.nodeConfig.nodeId ?? 'unknown',
-    ),
+    )),
     // GA-15 / S1-03: the saas allow-list is env-driven (FLOWMIC_CORS_ORIGIN,
     // comma separated) with DEFAULT_SAAS_CORS_ORIGINS as the unset default
     // (marketing site + go/web/cdn.flowmic.app). An explicit env still fully
@@ -615,7 +620,9 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
           ipSalt: webRoom.ipSalt, nodeId: nodeRuntime.nodeConfig.nodeId ?? 'unknown',
         }).middleware }
       : {}),
-    cors: { origin: socketCorsOrigin(config.mode, config.corsOrigins) },
+    // W6c supplements this transport list with live key origins; admission
+    // still checks the specific room key on every target/microphone join.
+    cors: { origin: config.mode === 'saas' ? integratorOrigin.corsOrigin : socketCorsOrigin(config.mode, config.corsOrigins) },
   });
   ioRef = io; // WP-W1b: arm the console REST settings fan-out hook
 
@@ -669,7 +676,8 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // are handed over as capabilities rather than as the repo, so a reader of
     // the handler file can see the complete list of what it can do here.
     integratorKeys,
-    integratorKeyIdForRoom: (pcDeviceId) => integratorKeys.keyIdForRoom(pcDeviceId),
+    integratorKeyIdForRoom: (pcDeviceId) => boundIntegratorKey(db.integratorKeys, registry.findPc(pcDeviceId))?.id ?? null,
+    integratorOrigin: integratorOrigin.assert,
     io, config, expiryClock, authService, registerLimiter, qrGrants, db, nodeRuntime, nodeHostMap,
     budgetPusher, registry, store, resolveActingUser, releaseSuppression, pairLimiter, quotaGuard,
     webTrial, // card R-1

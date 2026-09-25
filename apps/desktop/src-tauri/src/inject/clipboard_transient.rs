@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-21-ime-safe-inject-routing-design.md §2 (P0 hardening
+//   docs/archive/strategy/2026-08-21-ime-safe-inject-routing-design.md §2 (P0 hardening
 //     item 1: exclude our transient clipboard content from history/cloud/monitors)
 //   *** HUMAN-AUDIT SENSITIVE (injection path) ***
 //

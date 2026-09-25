@@ -5,7 +5,7 @@
 // is only allowed to improve on that or stay silent.
 //
 // SPEC-REF: docs/rebuild/06-STT-ENGINE-LAYER.md §5;
-//           docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-14
+//           docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-14
 
 import { describe, it, expect } from 'vitest';
 import { STT_REFINE_MIN_UTTERANCE_MS } from '@flowmic/protocol';

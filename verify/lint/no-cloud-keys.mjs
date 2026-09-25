@@ -50,6 +50,21 @@ const FINGERPRINTS = [
   // is deleted the day its service dies protects nobody from the paste that
   // already happened.
   { vendor: 'cliproxy-copy-audit', re: /cpa_[0-9a-f]{32,}/ },
+  // The Groweb server-side (origin) analytics agent key (GW-5, 2026-09-21).
+  // It can write events into our workspace and burn the AU quota, so it is
+  // password-grade, and it lives in the WEB repo's .local/groweb.env — which
+  // this lint never walks.
+  // 🔴 ADDED ANYWAY, AND THE REASON IS THE POINT. The nearest existing rule is
+  // `aliyun`, /LTAI[0-9A-Za-z]{12,}/ — four of the same five leading letters,
+  // and it does NOT match: that rule is upper-case and this prefix is lower.
+  // A key one character away from an existing fingerprint is exactly the kind
+  // that gets assumed covered. Measured shape: `ltao_` + 43 characters of
+  // [A-Za-z0-9-]; the pattern is deliberately looser than that, because a
+  // rotated key is not required to keep the same length.
+  // Where it can still land in THIS tree: a strategy note, a decision log, a
+  // pasted terminal transcript, an agent's scratch script. That is the leak
+  // this catches — not the file it is stored in, which is somewhere else.
+  { vendor: 'groweb-origin-agent', re: /ltao_[A-Za-z0-9_-]{24,}/ },
   { vendor: 'aliyun', re: /LTAI[0-9A-Za-z]{12,}/ },
   { vendor: 'tencent', re: /AKID[0-9A-Za-z]{32}/ },
   { vendor: 'azure-connstr', re: /AccountKey=[A-Za-z0-9+/=]{40,}/ },

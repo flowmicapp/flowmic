@@ -3,7 +3,7 @@
 // sample; latency is the min of the rest. 836 ms was the cold first round.
 //
 // SPEC-REF: docs/strategy/2026-08-30-mobile-connection-state-determinism-design.md §4;
-//   docs/strategy/2026-09-01-lan-fable-work-package-2.md Card 1.
+//   docs/archive/strategy/2026-09-01-lan-fable-work-package-2.md Card 1.
 
 import 'package:flowmic/src/session/node_latency.dart';
 import 'package:flutter_test/flutter_test.dart';

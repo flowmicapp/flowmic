@@ -312,7 +312,27 @@ import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX } from '../src/constants';
 // `AUTH_TOKEN_INVALID`, which tells a caller who never signed in that their
 // pairing died and sends them to pair again — and on `pc:register` pairing is
 // the verb that just failed. Full argument at the entry in src/error-codes.ts.
-const EXPECTED_ERROR_CODE_COUNT = 80;
+// 80 → 83 (Linux desktop port, 2026-09-22): `INJECT_WAYLAND_UNSUPPORTED` and
+// `INJECT_SUBMISSION_UNCERTAIN` — lead decision
+// docs/decisions/2026-09-22-linux-inject-verdict-codes-and-no-new-history-status.md;
+// `INJECT_DISPLAY_UNAVAILABLE` — first responsible person's decision in
+// docs/decisions/2026-09-22-linux-display-unavailable-code-and-three-stage-deploy-order.md.
+// Both decisions may be overturned by the owner; neither is owner approval.
+// 83 → 84 (B RC27, 2026-09-22; 80 → 81 on its own branch before the Linux
+// merge): `INJECT_TARGET_NOT_READY`, retained by the lead maintainer,
+// reversible by the owner. Authority:
+// docs/decisions/2026-09-22-inject-target-not-ready-lead-ruling-and-cached-mode-pin.md.
+// The selected web target received the frame but refused it before the
+// transcript/injection path was ready. It is a pc-admission verdict, so the
+// phone keeps the existing item queued and retries after admission is restored.
+// Reusing relay-authored INJECT_PC_OFFLINE / INJECT_NOT_IN_ROOM would falsely
+// claim the frame never reached the target; INJECT_NOT_PRIMARY would falsely
+// claim another phone owns it.
+// 84 → 85 (card HANGUP-3, 2026-09-23): `STT_SEGMENT_NOT_TRANSCRIBED`, first-
+// responsible approval (CLAUDE.md D-32). A stretch of the recording was captured
+// and no engine ever heard it; sent only to clients that declare
+// `stt.segment_not_transcribed`. Full argument at the entry in src/error-codes.ts.
+const EXPECTED_ERROR_CODE_COUNT = 85;
 
 describe('error-code catalog guard', () => {
   it(`holds exactly ${EXPECTED_ERROR_CODE_COUNT} codes`, () => {
@@ -326,6 +346,27 @@ describe('error-code catalog guard', () => {
       expect(entry.zh_CN.trim().length, `${code} zh_CN`).toBeGreaterThan(0);
       expect(entry.en.trim().length, `${code} en`).toBeGreaterThan(0);
     }
+  });
+
+  describe('INJECT_TARGET_NOT_READY', () => {
+    it('is registered in both locales and fits the phone reason cell', () => {
+      expect(ERROR_CODE_LIST).toContain('INJECT_TARGET_NOT_READY');
+      expect(ERROR_CODES.INJECT_TARGET_NOT_READY.zh_CN).not.toContain('DEV:');
+      expect(ERROR_CODES.INJECT_TARGET_NOT_READY.en).not.toContain('DEV:');
+      expect('INJECT_TARGET_NOT_READY'.length).toBeLessThanOrEqual(28);
+    });
+
+    it('states the queued retry fact without claiming delivery or injection', () => {
+      const { en, zh_CN } = ERROR_CODES.INJECT_TARGET_NOT_READY;
+      expect(en).toContain('remains queued');
+      expect(en).toContain('retry automatically');
+      expect(en.toLowerCase()).not.toContain('delivered');
+      expect(en.toLowerCase()).not.toContain('injected');
+      expect(zh_CN).toContain('排队');
+      expect(zh_CN).toContain('重试');
+      expect(zh_CN).not.toContain('已送达');
+      expect(zh_CN).not.toContain('已注入');
+    });
   });
 
   // RV-87. A refusal that quotes a number is only honest while that number is the

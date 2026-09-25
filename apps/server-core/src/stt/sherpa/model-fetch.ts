@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/strategy/2026-08-19-local-model-onboarding-design.md §3 (the state
 //     machine's criteria), §4 (the snapshot whose field names are the contract)
-//   docs/strategy/spikes/sherpa-onnx-spike.md §6.3 (downloader: on-demand,
+//   docs/archive/strategy/spikes/sherpa-onnx-spike.md §6.3 (downloader: on-demand,
 //     HF → hf-mirror → GitHub three-source failover, SHA-256 fail-loud,
 //     Range resumable download, integrity gate before load)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §3 (the 7th engine)

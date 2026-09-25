@@ -1,5 +1,5 @@
 // REQ-13-19 — the silence-hallucination gates around sherpa-local's terminal
-// decode (docs/strategy/2026-08-13-0263-requirements-backlog.md §REQ-13-19;
+// decode (docs/archive/strategy/2026-08-13-0263-requirements-backlog.md §REQ-13-19;
 // measurements: scratch/q1-silence-hallucination-findings-2026-08-13.md).
 //
 // The native addon is NOT involved: `openRecognizer` is injected, so what this

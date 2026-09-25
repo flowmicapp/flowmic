@@ -103,6 +103,7 @@ PendingRecoveryItem itemIn(
 List<String> allSentences(AppStrings s) => <String>[
       s.pendingRecoveryStateWaiting,
       s.pendingRecoveryStateNeedsManual,
+      s.pendingRecoveryStateShortfall,
       s.pendingRecoveryStateUnverified,
       s.pendingRecoveryStateServerKeepsAudio,
       s.pendingRecoveryStateEmptyResult,
@@ -143,6 +144,7 @@ void main() {
           PendingRecoveryState.waitingAuto => en.pendingRecoveryStateWaiting,
           PendingRecoveryState.needsManual =>
             en.pendingRecoveryStateNeedsManual,
+          PendingRecoveryState.shortfall => en.pendingRecoveryStateShortfall,
           PendingRecoveryState.settledUnverified =>
             en.pendingRecoveryStateUnverified,
           PendingRecoveryState.settledServerKeepsAudio =>
@@ -443,6 +445,39 @@ void main() {
               reason: '${locale.name}/${state.name}: the card overflowed its '
                   'box vertically — expectLegible only covers the horizontal');
         }
+      });
+
+      // Card RC-S — the other-account sentence replaces the state sentence
+      // (pending_recovery_card.dart `item.otherAccount`), so it is not one of
+      // the states above and is rendered here on its own, in every locale.
+      testWidgets('${locale.name}: the other-account sentence lands unclipped',
+          (WidgetTester tester) async {
+        final double width = ahemWidthBudget(locale);
+        tester.view.physicalSize = Size(width * 3, 2400 * 3);
+        tester.view.devicePixelRatio = 3.0;
+        addTearDown(tester.view.reset);
+
+        final AppStrings s = AppStrings(locale);
+        final PendingRecoveryItem item = PendingRecoveryItem(
+          id: 'run-1757000000000000-r1757000000000',
+          state: PendingRecoveryState.waitingAuto,
+          durationMs: 95000,
+          legacy: false,
+          recordedAtMs:
+              recordedAtMsFromId('run-1757000000000000-r1757000000000'),
+          otherAccount: true,
+        );
+        await mountPage(tester,
+            FakePendingRecoverySource(<PendingRecoveryItem>[item]), s);
+        final Finder sentence =
+            find.byKey(ValueKey<String>('pendingRecovery.sentence.${item.id}'));
+        expect(tester.widget<Text>(sentence).data, s.pendingRecoveryOtherAccount,
+            reason: '${locale.name}: positive control, the sentence on screen '
+                'is the other-account one');
+        expectLegible(tester, sentence, reason: '${locale.name}/otherAccount');
+        expect(tester.takeException(), isNull,
+            reason: '${locale.name}/otherAccount: the card overflowed its box '
+                'vertically — expectLegible only covers the horizontal');
       });
     }
   });

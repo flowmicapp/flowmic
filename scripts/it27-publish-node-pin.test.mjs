@@ -97,6 +97,15 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLISH_SRC_PATH = join(ROOT, 'scripts', 'publish.mjs');
 const PUBLISH_SRC = readFileSync(PUBLISH_SRC_PATH, 'utf8'); // text only — never imported, never spawned
 
+// Independent measurements, deliberately not read from each pin's `bytes`.
+// Every declared platform must have one here, including platforms other than
+// the current host, so a newly added pin cannot escape this cross-check in CI.
+const REFERENCE_BYTES_BY_PLATFORM = {
+  'win32-x64': 86_969_160,
+  'darwin-arm64': 112_915_776,
+  'linux-x64': 124_819_136,
+};
+
 let failures = 0;
 // IT-42: binary-dependent sections (§1/§2/§3/§7) set this instead of calling
 // process.exit(2) directly, so §4 (static, needs only publish.mjs's source
@@ -147,6 +156,12 @@ section('IT-27 §1 — positive control: real staged node.exe matches the real p
 const platformKey = hostPlatformKey();
 const pin = BUNDLED_NODE[platformKey];
 assertTrue(!!pin, `scripts/vendor/bundled-node.mjs declares a pin for ${platformKey}`);
+for (const declaredPlatform of Object.keys(BUNDLED_NODE)) {
+  assertTrue(
+    REFERENCE_BYTES_BY_PLATFORM[declaredPlatform] != null,
+    `independent reference measurement is declared for ${declaredPlatform}`,
+  );
+}
 
 let realStagedPath = null;
 if (pin) {
@@ -180,10 +195,12 @@ if (pin) {
     //     bundled-node.mjs); the first macOS CI dispatch (2026-08-15) staged
     //     a byte-identical binary via setup-node — which is also the run that
     //     caught this constant being win32-only and platform-blind.
-    // A pinned platform with no row here FAILS (not skips): the independent
+    //   linux-x64    124,819,136 — extracted from Node's official v22.22.3
+    //     linux-x64 archive after its sha256 matched SHASUMS256.txt,
+    //     2026-09-21 (full provenance in scripts/vendor/bundled-node.mjs).
+    // A pinned platform with no row above FAILS on every host: the independent
     // reference is the whole point of this section, so adding a platform pin
     // means adding its reference in the same commit.
-    const REFERENCE_BYTES_BY_PLATFORM = { 'win32-x64': 86_969_160, 'darwin-arm64': 112_915_776 };
     const REFERENCE_BYTES = REFERENCE_BYTES_BY_PLATFORM[platformKey];
     assertTrue(
       REFERENCE_BYTES != null && real.bytes === REFERENCE_BYTES,

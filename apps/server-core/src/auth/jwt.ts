@@ -6,7 +6,7 @@
 //     default 100 years, and owner ruling 2026-09-02 (问题二) then set it to
 //     90 days — see DEFAULT_TTL_MS. The books are not rewritten, they are
 //     cited as what they said.)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ① (JWT sign/verify HS256
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ① (JWT sign/verify HS256
 //     {sub, plan}, secret = the saas explicit secret from config)
 //   Ported verbatim-mechanism from legacy apps/server/src/auth/jwt.ts
 //   (@flowmic/shared Plan → @flowmic/protocol Plan; behavior unchanged).

@@ -3,9 +3,9 @@
 //     stt:error; pause/resume are M→S AND S→PC)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §2 (F-2135 mobile drop grace: the audio
 //     session survives a brief socket drop and resumes on the new socket)
-//   docs/strategy/2026-07-23-mock-billing-design.md §3/§5 (ensureQuota('stt') has
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §3/§5 (ensureQuota('stt') has
 //     exactly 1 entry point, audio:start; recordSttUsage has exactly 1 session-end call site)
-//   docs/strategy/R1-TASK-CARDS.md WP-R1-3 (audio/STT engine layer)
+//   docs/archive/strategy/R1-TASK-CARDS.md WP-R1-3 (audio/STT engine layer)
 //   docs/strategy/2026-07-23-master... §4.0 (delivery:'none' = record-only: server
 //     never initiates injection)
 //   CLAUDE.md red line: no silent failure; no silent truncation
@@ -43,7 +43,7 @@ import type { VerificationGraceGuard } from '../../auth/verification-grace';
 import type { AnonymousRowReader } from '../../auth/metering-principal';
 import { principalRefOf, secondLedgerFor, targetEndUserId, type PcRoomReader } from './audio-metering';
 import type { RecoveryOperationsRepo } from '../../db/repos/recovery-operations.repo';
-import { getAuth, getRoomUuid, safeAck, setSessionPrefs } from '../wire';
+import { getAuth, getClientCaps, getRoomUuid, safeAck, setSessionPrefs } from '../wire';
 import type { BudgetPusher } from '../../billing/budget-push';
 import { makeAudioBudgetPushes } from './budget-frames';
 import { markAudioStop } from '../../obs/latency';
@@ -58,6 +58,7 @@ import type { SttStartArgs, AudioHandlerDeps } from './audio-handler-deps';
 export type { SttStartArgs, AudioHandlerDeps } from './audio-handler-deps';
 import { admitOperation } from './audio-start-operation';
 import { hashedRoomId } from '../../http/presence-routes';
+import { armFinishWatchdog } from './audio-stop-watchdog';
 
 /**
  * 🔴 card P0-1 (fallback half) — `audio:stop`'s happy path is
@@ -79,6 +80,8 @@ import { hashedRoomId } from '../../http/presence-routes';
  * can go through today (engine spawn 5s + flush 3s + the reconnect ladder's own
  * 1s/2s/4s backoff, per orchestrator-types.ts DEFAULT_*), so this fires only
  * when something is ACTUALLY stuck, never on a slow-but-alive vendor round trip.
+ * ⚠️ 更正（Codex item 4，2026-09-24）：原为 the WHOLE window. It is now the BASE — a flush cap scales with backlog
+ * (RC-2) or leg audio (NR-50) — and the window adds that growth (./audio-stop-watchdog.ts).
  */
 const AUDIO_STOP_FINISH_WATCHDOG_MS = 20_000;
 
@@ -91,6 +94,9 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   // The fallback slot for a socket that has no (roomUuid, pairingId) key: the
   // session lives and dies with the socket, exactly as before GA-04.
   const local: AudioSessionState = { orchestrator: null, paused: false, fannedOut: false };
+  // Codex rc3 ⑤ — the registry session an ordinary audio:stop detached and is
+  // still flushing (see the discard arm of audio:stop).
+  let flushing: { entry: AudioSessionEntry; engine: NonNullable<AudioSessionState['orchestrator']> } | null = null;
 
   // Publish the registry on the socket so mobile.handler's reconnect path can
   // rebind with one call (adoptAudioSession) and no deps-interface change.
@@ -580,6 +586,8 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
         sourceLang: parsed.data.source_lang,
         ...(parsed.data.target_lang !== undefined ? { targetLang: parsed.data.target_lang } : {}),
         ...(recoveryEcho !== undefined ? { recovery: recoveryEcho } : {}), // card CV-1
+        clientCaps: getClientCaps(socket), // card HANGUP-3 — what this client declared at admission
+        ...(parsed.data.continuous === true ? { continuous: true as const } : {}), // card RC-1 — the relay's ONE reader of audio:start.continuous
 
         // GA-04: the mobile leg follows the SESSION, not this socket. During a
         // grace window it resolves to null (nothing to emit to — the phone is
@@ -702,6 +710,7 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     // Detach (not dispose): the orchestrator is handed to the finish → dispose
     // chain below, and the slot must be free for the next utterance.
     const state = key !== null && sessions ? sessions.detach(key) : local;
+    const hadOpenSession = !!state?.orchestrator; // read before the arms below clear it
     if (state) {
       // WP-R2-1b (F-2375): mirror the speak-ended edge to the PC iff this
       // utterance's audio:start was fanned out (record-only was never mirrored).
@@ -736,15 +745,33 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
           // 🔴 P1-1 fallback: a watchdog races `finish()` and forces `dispose()`
           // if it never settles (see AUDIO_STOP_FINISH_WATCHDOG_MS) — otherwise a
           // stuck finish() means `.finally(dispose)` never runs at all.
-          const watchdog = setTimeout(() => {
+          // Codex item 4: the window grows with the flush cap this recording can need (audio-stop-watchdog.ts).
+          const cancelWatchdog = armFinishWatchdog(s, AUDIO_STOP_FINISH_WATCHDOG_MS, () => {
             console.error('[audio.handler] finish() did not settle within the fallback window — disposing anyway');
             s.dispose();
-          }, AUDIO_STOP_FINISH_WATCHDOG_MS);
+          });
+          const f = state !== local ? { entry: state as AudioSessionEntry, engine: s } : null;
+          if (f) flushing = f;
           void s.finish()
             .catch((err) => console.error('[audio.handler] finish error:', err))
-            .finally(() => { clearTimeout(watchdog); s.dispose(); });
+            .finally(() => { cancelWatchdog(); s.dispose(); if (flushing === f) flushing = null; });
         }
       }
+    }
+    // Codex rc3 ⑤ — A DISCARD THAT FINDS NOTHING OPEN STILL HAS SOMETHING TO
+    // SILENCE. The phone yields a recovery attempt to live speech with
+    // `discard` (apps/mobile ptt_backfill.dart `yieldRecoveryForLive`); when that
+    // attempt had already sent its ordinary stop, its session is the one being
+    // flushed above, detached from the slot, and it would go on emitting to this
+    // socket after the ack below — its terminal `stt:error` stopped the new
+    // recording. The phone treats every stt frame before this ack as the old
+    // session's, so from here that session must reach nobody: its socket is
+    // cut and it is torn down (dispose settles its usage once, as always).
+    if (parsed.data.discard === true && !hadOpenSession && flushing !== null) {
+      const f = flushing;
+      flushing = null;
+      f.entry.socket = null;
+      f.engine.dispose();
     }
     safeAck(ack, { ok: true });
   });

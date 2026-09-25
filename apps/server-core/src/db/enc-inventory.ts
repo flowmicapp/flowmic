@@ -1,8 +1,8 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md §4 Stage 0
+//   docs/archive/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md §4 Stage 0
 //     ("add a read-only inventory capability: how many enc: fields exist in the
 //      database, and what prefixes do they carry")
-//   docs/strategy/2026-08-05-d2-stage0-delivery-cn.md (this card's delivery doc —
+//   docs/archive/strategy/2026-08-05-d2-stage0-delivery-cn.md (this card's delivery doc —
 //     §3 records the real caller and captured output this module is proven by)
 //   src/db/repos/settings.repo.ts (isApiKeyField, walkDecrypt — mirrored here,
 //     not imported, because that predicate is module-private there; the same

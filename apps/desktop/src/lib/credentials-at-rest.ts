@@ -1,7 +1,7 @@
 // Whether pairing / Cloud Key files are stored as plaintext on THIS host.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-06-mac-usable-work-breakdown.md MAC-08 (plan B)
+//   docs/archive/strategy/2026-08-06-mac-usable-work-breakdown.md MAC-08 (plan B)
 //   apps/desktop/src-tauri/src/socket/credentials.rs — `dpapi_protect`:
 //     cfg!(windows)      → CryptProtectData (ciphertext)
 //     cfg!(not(windows)) → Ok(plain.to_vec()) (identity / plaintext)

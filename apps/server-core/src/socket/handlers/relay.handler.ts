@@ -10,7 +10,7 @@
 //     both channels are "pass-through, not storage" — the delivery frame now CARRIES the PC's row, and
 //     this file hands it over without writing a byte; plus the 🔴 no-crosstalk
 //     target check the owner calls "the line of life and death")
-//   docs/strategy/2026-07-31-b3-protocol-round-plan.md (0.2.33: the known compat gap
+//   docs/archive/strategy/2026-07-31-b3-protocol-round-plan.md (0.2.33: the known compat gap
 //     below — an address-less frame forwarded unchecked — is CLOSED as a named
 //     refusal, INJECT_PC_UNSPECIFIED)
 //   *** HUMAN-AUDIT SENSITIVE (injection path) — reviewable in isolation ***

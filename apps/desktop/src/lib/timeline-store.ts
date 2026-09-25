@@ -110,7 +110,7 @@
 // about WHAT THE STORE DOES with rows, never about parsing them. The PERSISTENCE
 // boundary (guarded hydrate reads + the D8 quarantine) lives in timeline-hydration.
 import { CHANNELS, rowKey } from './timeline-address';
-import { asChannelTag, focusProvenanceOf, mapItem } from './timeline-normalize';
+import { asChannelTag, focusProvenanceOf, mapItem, type FprImportFacts } from './timeline-normalize';
 import { HydrationGuard, IMAGES_KEY, ROWS_KEY, RETENTION_KEY, hydrateTimeline } from './timeline-hydration';
 import { makeQueryMatcher } from './timeline-query';
 import {
@@ -583,7 +583,8 @@ export class TimelineStore {
     // long before this call had a return value; it is registered, not changed
     // here. The point stands regardless: what the caller is told is the row.
     const after = this.addressed(id, channel);
-    return { ran: true, status: after ? after.status : 'failed' };
+    return { ran: true, status: after ? after.status : 'failed',
+      ...(after?.cached_cause ? { errorCode: after.cached_cause } : {}) };
   }
 
   // ── inbound reconciliation ──
@@ -646,10 +647,11 @@ export class TimelineStore {
    *
    *  `null` = no row exists for this frame, and that now has exactly ONE cause (a frame
    *  with no usable id, which a minted row cannot have). The caller records it. */
-  onHistoryUpdated(item: WireHistoryItem, channel: ChannelTag): RowMintReport | null {
+  // FPR metadata is an explicit same-end import argument, never a wire item field.
+  onHistoryUpdated(item: WireHistoryItem, channel: ChannelTag, fpr?: FprImportFacts): RowMintReport | null {
     const key = rowKey(channel, item.id);
     const prev = this.rows.get(key);
-    const incoming = mapItem(item, channel, prev, this.imageIds.has(item.id));
+    const incoming = mapItem(item, channel, prev, this.imageIds.has(item.id), fpr);
     if (incoming === null) return null;
     const row = prev === undefined ? incoming : mergeIntoOwnedRow(prev, incoming);
     this.rows.set(key, row);
@@ -766,7 +768,7 @@ export class TimelineStore {
         r.target = null;
       }
     } else {
-      r.status = result.mode === 'cached' ? 'cached' : 'failed';
+      r.status = result.error === 'INJECT_SUBMISSION_UNCERTAIN' ? 'cached' : result.mode === 'cached' ? 'cached' : 'failed';
       // 🔴 owner 2026-08-02 (F1a) — WHY this row was not injected, kept on the row so
       // the answer survives the 1.5s capsule flash. The CODE is stored (not the
       // sentence) so the rendering follows a language switch — see TimelineRow.cached_cause.

@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R7-V2-TASK-CARDS.md V2-08 (focus process → LLM scenario inference,
+//   docs/archive/strategy/R7-V2-TASK-CARDS.md V2-08 (focus process → LLM scenario inference,
 //     explicit-consent opt-in; four card-face constraints)
 //   docs/decisions/2026-07-30-a5-owner-rulings.md ② (owner's exact words "V2-08: pick (a)"
 //     — exe basename ONLY; window_title must not be collected under reading (a))

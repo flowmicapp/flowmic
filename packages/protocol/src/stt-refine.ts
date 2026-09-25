@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/05-DATA-MODEL.md §5 (`stt.refine` = two-pass toggle + min_utterance_ms)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §5 (after the final transcript, a fire-and-forget full re-transcription)
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-14
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-14
 //
 // The value schema for the `stt.refine` user_settings key.
 //

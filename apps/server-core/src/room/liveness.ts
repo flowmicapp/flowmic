@@ -2,7 +2,7 @@
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.2 (heartbeat / liveness: sys:ping{nonce}
 //     → sys:pong{nonce, ok}); §3.1 (pc:reconnect ack.connectedMobiles is the
 //     ACTIVELY CONFIRMED set, not a raw membership snapshot)
-//   docs/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-07
+//   docs/archive/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-07
 //
 // The liveness probe behind pc:reconnect. Before the PC is told which phones it
 // has, every mobile socket the RoomStore still lists is asked to prove it is

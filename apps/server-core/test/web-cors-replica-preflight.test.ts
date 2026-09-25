@@ -24,7 +24,8 @@
 //     is a named list, not "let any OPTIONS through".
 
 import { describe, expect, it } from 'vitest';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import { makeHttpHandler } from '../src/http/router';
 import { makeResolveUserId, type AccountVerifier } from '../src/http/account-auth';
@@ -126,6 +127,42 @@ function call(h: (req: IncomingMessage, res: ServerResponse) => boolean, method:
 }
 
 describe('CORS-2: a replica answers the browser-read preflights too', () => {
+  it('W6a: real HTTP exposes the room POST 421 and writer without permitting a mutation', async () => {
+    const world = pairedWorld();
+    const handler = replicaHandlerFor(world);
+    const server = createServer((req, res) => {
+      if (!handler(req, res)) { res.writeHead(404); res.end(); }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const before = world.db.raw.prepare('SELECT count(*) AS n FROM pc_devices').get();
+    try {
+      const origin = 'https://third-party.example';
+      const room = await fetch(`${endpoint}/api/web/rooms?source=embed`, {
+        method: 'POST', headers: { origin, 'content-type': 'application/json' },
+        body: JSON.stringify({ auth: { kind: 'publishable_key' } }),
+      });
+      expect(room.status).toBe(421);
+      expect(await room.json()).toMatchObject({ error: 'NODE_IS_REPLICA', writer: WRITER });
+      expect(room.headers.get('access-control-allow-origin')).toBe(origin);
+      expect(room.headers.get('vary')).toBe('origin');
+      expect(room.headers.get('access-control-allow-credentials')).toBeNull();
+      expect(world.db.raw.prepare('SELECT count(*) AS n FROM pc_devices').get()).toEqual(before);
+      for (const path of ['/api/auth/register', '/api/web/rooms/other']) {
+        const other = await fetch(`${endpoint}${path}`, { method: 'POST', headers: { origin } });
+        expect(other.status).toBe(421);
+        expect(other.headers.get('access-control-allow-origin')).toBeNull();
+        await other.arrayBuffer();
+      }
+      const native = await fetch(`${endpoint}/api/web/rooms`, { method: 'POST' });
+      expect(native.status).toBe(421);
+      expect(native.headers.get('access-control-allow-origin')).toBeNull();
+      await native.arrayBuffer();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      world.db.close();
+    }
+  });
   it.each([
     ['/api/pc/presence', PC_PRESENCE_PATH],
     ['/api/node/list', '/api/node/list'],

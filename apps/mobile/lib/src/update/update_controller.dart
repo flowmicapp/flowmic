@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §3 (failure-direction
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §3 (failure-direction
 //     table) / §5.0 (notice lifecycle) / §5.1 (phone-side UI)
 //   docs/decisions/2026-08-02-in-app-update-both-ends.md (owner: automatic
 //     detection + reminder)

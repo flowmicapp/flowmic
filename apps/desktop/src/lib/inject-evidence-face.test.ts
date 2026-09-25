@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-07-owner-inject-status-wording-evidence-and-window-title.md
-//   docs/strategy/2026-08-07-inject-status-truth-and-evidence-design.md §4-1 / §4-1b / §4-5
+//   docs/archive/strategy/2026-08-07-inject-status-truth-and-evidence-design.md §4-1 / §4-1b / §4-5
 //
 // 🔴 IJ-01 / IJ-02 ACCEPTANCE — "injected" (已注入) splits by ③EVIDENCE, "injection failed" (注入失败) is gone, and
 // the window title never reaches disk.
@@ -490,7 +490,7 @@ describe('anti-façade — the new fields have production readers, not just defi
     const page = src('../main-window/TimelinePage.vue');
     // 2026-08-19: the call grew a fourth argument (the failed row's named reason,
     // §C-2 slot) — the pin follows the ONE composition it exists to protect.
-    expect(page).toContain('statusLine(e.status, targetLabel(e), e.focus_evidence, failedCauseInline(e.status, e.cached_cause, INJECT_FAIL_REASON))');
+    expect(page).toContain("statusLine(e.status, targetLabel(e), e.focus_evidence, failedCauseInline(e.status, e.cached_cause, INJECT_FAIL_REASON), e.control_outcome === 'submission_uncertain' ? 'INJECT_SUBMISSION_UNCERTAIN' : e.cached_cause)");
     // …and the arrow can now name a window on a NOT-injected row, which is the whole
     // of owner's addendum ① ("which window it was injected into", 注到哪个窗口). Before this card `targetLabel` could only ever
     // answer for `injected`, because nothing else had a target to name.

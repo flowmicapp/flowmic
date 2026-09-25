@@ -63,6 +63,14 @@ export interface OperationStartFacts {
  * half the user would otherwise have to guess at — 「the earlier result and
  * charge are unchanged」 — is true by construction (A7-2: billing is a different
  * key and a different table, and a refused start never reaches it).
+ *
+ * ⚠️ 更正（RC-R，2026-09-24，MAIN ruling 3 / owner ruling O-4）：「the phone mints a fresh operation for its next
+ * attempt on its own」 above is no longer how an AUTOMATIC retry works. Its id is now derived from the job and the
+ * attempt kind (`'o-' + sha256('op-v1|' + job_id + '|' + attempt_kind + '|' + generation)`, phone side), so a
+ * second automatic attempt of one job is a `resend` here and the account is metered once (`usage-tracker.ts`
+ * `meterOnce`; test/recovery-attempt-bills-once.test.ts). `generation` counts this refusal: after one, the phone
+ * moves to the next id on its own, so the sentence 「asks for nothing」 stays true. A user's 「transcribe again」
+ * press is still a fresh id per press and is billed per press (O-4). No code on this side changed.
  */
 export const OPERATION_CONFLICT_CODE = 'AUDIO_OP_BINDING_CONFLICT';
 

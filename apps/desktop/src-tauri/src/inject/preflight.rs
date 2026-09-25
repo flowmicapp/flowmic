@@ -3,7 +3,7 @@
 //     (「注入许可：一条投递『该不该被打进焦点窗口』」 ("injection permission: should
 //     this delivery be typed into the focused window"))
 //   docs/decisions/2026-08-02-deferred-delivery-must-not-autoinject.md
-//   docs/strategy/2026-08-02-0248-status-truth-analysis.md §F1a
+//   docs/archive/strategy/2026-08-02-0248-status-truth-analysis.md §F1a
 //   *** HUMAN-AUDIT SENSITIVE (injection path) ***
 //
 // ── WHY THIS CUT, AND NOT ANOTHER ONE ────────────────────────────────────────
@@ -494,9 +494,14 @@ pub fn synthetic_input_preflight() -> Option<InjectOutcome> {
 }
 
 /// See the macOS arm above for why this is `None` everywhere else.
-#[cfg(all(not(target_os = "macos"), not(test)))]
+#[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(test)))]
 pub fn synthetic_input_preflight() -> Option<InjectOutcome> {
     None
+}
+
+#[cfg(all(target_os = "linux", not(test)))]
+pub fn synthetic_input_preflight() -> Option<InjectOutcome> {
+    super::linux_preflight::verdict(crate::focus::linux_session::current_backend())
 }
 
 // ── The test seam, and why this gate needed one at all ───────────────────────

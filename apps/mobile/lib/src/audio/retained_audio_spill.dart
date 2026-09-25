@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-n1-long-recording.md §2.2 (M2 — disk-spill trigger)
+//   docs/archive/strategy/2026-08-08-design-n1-long-recording.md §2.2 (M2 — disk-spill trigger)
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-b
 //   apps/mobile/lib/src/audio/ring_buffer.dart (AudioRingBuffer.onEvict — the
 //     seam this class subscribes to)
@@ -95,6 +95,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'recording_account.dart';
 import 'replay_ownership.dart';
 import 'retained_audio_deleted.dart';
 import 'retained_audio_journal.dart';
@@ -105,6 +106,8 @@ import 'ring_buffer.dart';
 part 'retained_audio_hole.dart';
 part 'retained_audio_legacy_face.dart';
 part 'retained_audio_live_settle.dart';
+part 'retained_audio_owed_widen.dart'; // RC-P
+part 'retained_audio_owed_after_stop.dart'; // RC4-S5
 
 /// Decides whether an evicted ring chunk becomes retained audio, and keys it to
 /// a segment. Retention policy itself lives in [RetainedAudioStore].
@@ -309,6 +312,9 @@ class RetainedAudioSpill {
   /// .dart's header carries the ruling that says so.
   final ReplayOwnership replayOwnership = ReplayOwnership();
 
+  /// Card RC-S — who is signed in, stamped into each journal it opens.
+  final RecordingAccountBinding recordingAccount = RecordingAccountBinding();
+
   /// The recording currently being journalled, or null.
   ///
   /// 🔴 ONE RECORDING = ONE JOURNAL, and the id is minted at
@@ -329,6 +335,75 @@ class RetainedAudioSpill {
   /// Bytes this run has handed to journals. Counted, not read back, for the
   /// same reason [RetainedAudioStore.sessionRetainedBytes] is.
   int get journalBytes => _journalBytes;
+
+  // ───────────────────────────────── card RC-3: the owed tail of a recording
+
+  /// What [beginRecording] puts between the session key and the clock reading
+  /// in a recording id — one author for the format [sessionKeyOf] parses.
+  static const String recordingIdMark = '-r';
+
+  /// The session key a recording id was minted under: the ARTICLE id for a
+  /// continuous recording (`beginContinuous` files it under that key before
+  /// the microphone opens), a per-run key for an ordinary press. An id this
+  /// class did not mint comes back unchanged, which names no article.
+  static String sessionKeyOf(String recordingId) {
+    final int i = recordingId.lastIndexOf(recordingIdMark);
+    if (i <= 0) return recordingId;
+    final String tail = recordingId.substring(i + recordingIdMark.length);
+    return int.tryParse(tail) == null ? recordingId : recordingId.substring(0, i);
+  }
+
+  int _recordingCapturedBytes = 0;
+  String? _owedTailRecordingId;
+  bool _owedStretchNoted = false; // RC6 (F2 ②) — a bounded stretch is owed too
+  final Map<String, List<OwedRange>> _tailPieces = <String, List<OwedRange>>{}; // RC7 — `oweTail`
+
+  /// Bytes the microphone produced for the recording now (or last) open —
+  /// CAPTURED, not kept: the O-2 cap can refuse a write, and the article clock
+  /// needs how long the person spoke, not how much of it fitted.
+  int get recordingCapturedBytes => _recordingCapturedBytes;
+
+  /// A recording that ended owing its tail has closed its journal: the one
+  /// sweep that tail is waiting for may run once the session is at rest. Read
+  /// and consumed through [takeOwedTailSweep] (`chat_outbox_host.dart`).
+  final ValueNotifier<String?> owedTailReady = ValueNotifier<String?>(null);
+
+  /// Card RC-3 — the live recording ends with audio nothing on the wire will
+  /// transcribe (link or engine down at the end; `ptt_capture_pump.dart`
+  /// `_accountOutageForArticle`). [prefixBytes] is how far its live rows
+  /// reached; the manifest records it and the recovery range starts there.
+  ///
+  /// 🔴 IT ALSO TAKES THIS RECORDING AWAY FROM THE LIVE SETTLE, which is the
+  /// half that loses nothing only if it happens: a terminal final whose receipt
+  /// looks complete (the relay DID receive every frame) would otherwise license
+  /// deleting a tail no engine ever heard — 「the audio was kept」 read as 「the
+  /// audio was transcribed」, root-cause §0's phone-side one-value-two-questions.
+  ///
+  /// Card RC-3b — with [endBytes], the owed stretch is in the MIDDLE (the engine
+  /// came back and the relay's ring no longer held its start); same hand-off.
+  /// Card RC-K — [atMs]: where on the article clock this stretch's rows belong.
+  void noteOwedTail(int prefixBytes, {int? endBytes, int? atMs}) {
+    final String? id = _liveAttempt?.recordingId;
+    if (!_retainFromFirstFrame || id == null) return;
+    _owedTailRecordingId = id;
+    if (endBytes != null) _owedStretchNoted = true;
+    _enqueueJournal(() async {
+      final RetainedAudioJournal? j = _journal;
+      if (j == null || _recordingId != id) return;
+      j.setOwedRange(prefixBytes, endBytes, atMs: atMs);
+      await j.commit();
+    });
+  }
+
+  /// Whether [recordingId] ended owing its tail (see [noteOwedTail]).
+  bool owesTail(String recordingId) => _owedTailRecordingId == recordingId;
+
+  /// True once per owed tail whose journal has closed; clears the ticket.
+  bool takeOwedTailSweep() {
+    if (owedTailReady.value == null) return false;
+    owedTailReady.value = null;
+    return true;
+  }
 
   /// Card LS-1b — what the live press stamped on `audio:start`, or null when no
   /// recording has been opened under the journal face.
@@ -391,7 +466,10 @@ class RetainedAudioSpill {
   /// no directory, no handle, no manifest.
   Future<void> beginRecording() {
     if (!_retainFromFirstFrame) return Future<void>.value();
-    final String id = '${_store.sessionKey}-r${_clock()}';
+    final String id = '${_store.sessionKey}$recordingIdMark${_clock()}';
+    // Card RC-3 — both describe ONE recording, so both start over with it.
+    _recordingCapturedBytes = 0;
+    _owedTailRecordingId = null; _owedStretchNoted = false;
     // 🔴 THE STAMP IS MINTED SYNCHRONOUSLY, THE JOURNAL IS OPENED ON THE QUEUE,
     // AND THAT SPLIT IS THE CARD. `ptt_edges.pttDown` puts `recording_id` on
     // `audio:start` in the turn after `audio.start()` returns; a value that
@@ -404,6 +482,9 @@ class RetainedAudioSpill {
       attemptId: '$id-a1',
       startedAtMs: _clock(),
     );
+    // Codex r3 #2 — taken NOW, like the id: a sign-out while the queue is busy
+    // must not change whose recording this is (recording_account.dart).
+    final Map<String, Object?> snapshot = recordingAccount.stamp(_configSnapshot);
     return _enqueueJournal(() async {
       await _closeJournalLocked(null);
       _recordingId = id;
@@ -415,7 +496,7 @@ class RetainedAudioSpill {
         dirPath: _journalDirPath,
         recordingId: id,
         fs: _journalFs,
-        configSnapshot: _configSnapshot,
+        configSnapshot: snapshot,
         republishQueue: _republishQueue,
         deleted: deletedRecordings,
       );
@@ -431,6 +512,7 @@ class RetainedAudioSpill {
   /// Synchronous by necessity — its callers are — so the write is queued.
   void appendCaptured(Uint8List bytes) {
     if (!_retainFromFirstFrame || bytes.isEmpty) return;
+    _recordingCapturedBytes += bytes.length; // RC-3 — counted before the cap
     _enqueueJournal(() async {
       final RetainedAudioJournal? j = _journal;
       if (j == null) return;
@@ -663,6 +745,7 @@ class RetainedAudioSpill {
     // this chain; its tail always completes, so awaiting it cannot throw.
     await _journalOps;
     await _writeFailures.close();
+    owedTailReady.dispose();
   }
 
   /// The uplink is down: from here, chunks aging out of the ring are retained

@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-07-30-task-package-v1.md RV-60
+//   docs/archive/strategy/2026-07-30-task-package-v1.md RV-60
 //   CLAUDE.md red line: no silent failures — both directions forbidden (never
 //   call a real drop "not dropped")
 //

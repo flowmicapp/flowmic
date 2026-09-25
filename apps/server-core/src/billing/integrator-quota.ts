@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §2 (「加每 key /
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §2 (「加每 key /
 //     每宿主 origin 的硬上限（控制台可设，缺省＝档位全量）… 任一上限到顶即拒收，
 //     不降级为试用、不降级为 T 的其他 key、不因说话者登录而改道」), §4, §5
 //   docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md §9-1

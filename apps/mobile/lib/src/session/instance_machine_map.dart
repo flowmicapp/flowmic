@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-04-f2-machine-merge-design.md §3.2 (phase-2 on-disk
+//   docs/archive/strategy/2026-08-04-f2-machine-merge-design.md §3.2 (phase-2 on-disk
 //     mapping table)
 //   apps/mobile/lib/src/timeline/timeline_sqlite.dart (v5 DDL + version step)
 //   apps/mobile/lib/src/session/machine_key.dart (the only reader)

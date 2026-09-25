@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   apps/server-core/src/billing/creem/subscription-client.ts (under test)
 //   apps/server-core/src/billing/subscription-writer.ts (the contract)
-//   docs/strategy/2026-08-29-creem-stage0-findings.md §2b (the live probes)
+//   docs/archive/strategy/2026-08-29-creem-stage0-findings.md §2b (the live probes)
 //
 // Creem's outbound half.
 //

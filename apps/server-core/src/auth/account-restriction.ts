@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-12-a2-3-restricted-use-design.md (THE design — §2 the
+//   docs/archive/strategy/2026-08-12-a2-3-restricted-use-design.md (THE design — §2 the
 //     carrier/enforcer split, §3 what the refusal answers, §4 the two carve-outs)
 //   docs/decisions/owner-web-rulings/latest.md:71 (owner, verbatim: "'banned' is too
 //     authoritative a word, change it to 'restricted use'; once a user is

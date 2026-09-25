@@ -2,8 +2,8 @@
 //
 // SPEC-REF:
 //   docs/rebuild/08-MOBILE-SPEC.md §B-5 (a recording that stops must never
-//     silently vanish) / docs/strategy/R6-UI-AUDIT-REMEDIATION.md P0-R3
-//   docs/strategy/2026-08-10-w8-real-device-findings.md §7-3 (the defect)
+//     silently vanish) / docs/archive/strategy/R6-UI-AUDIT-REMEDIATION.md P0-R3
+//   docs/archive/strategy/2026-08-10-w8-real-device-findings.md §7-3 (the defect)
 //
 // ── WHY THIS FILE EXISTS, GIVEN THE SUITE WAS ALREADY GREEN ──────────────────
 //

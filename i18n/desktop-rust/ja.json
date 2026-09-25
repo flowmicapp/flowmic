@@ -24,5 +24,6 @@
   "AutostartEnabledButOff": "自動起動エントリは書き込まれましたが、システム側では無効と報告されています（タスクマネージャーのスタートアップで無効化された可能性があります）",
   "AutostartStillEnabled": "削除後もシステムは自動起動が有効と報告しています——削除が反映されていません",
   "AutostartRegOpenFailed": "スタートアップのレジストリキーを開けません：{detail}",
-  "AutostartRewriteFailed": "自動起動エントリを引用符付きパスに書き換えられません：{detail}"
+  "AutostartRewriteFailed": "自動起動エントリを引用符付きパスに書き換えられません：{detail}",
+  "LinuxCapsuleUnavailable": "このデスクトップセッションではカプセルを表示できません。メインウィンドウを開きました。"
 }

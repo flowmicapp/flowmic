@@ -103,6 +103,7 @@ class _Rig {
     session.reconnect
         .noteServerCapabilities(<String, Object?>{'capabilities': _tierA});
     final TimelineStore timeline = newTestStore();
+    final List<int> skew = <int>[0];
     final BackfillRunner runner = BackfillRunner(
       session: session,
       store: timeline,
@@ -121,8 +122,15 @@ class _Rig {
       // A real (tiny) sleep, not a stub: the window's wait loop yields through
       // this seam, and a stub would turn it into a hot spin on the test's own
       // CPU rather than a wait.
-      sleep: (Duration _) =>
-          Future<void>.delayed(const Duration(milliseconds: 1)),
+      // Card RC-2 — and every sleep also moves the leg's clock by what was
+      // asked for: the feed is now paced (at most 2x real time against a relay
+      // that reports no processed position, as this one does), and 256 s of
+      // audio would otherwise cost two minutes of wall time here.
+      clock: () => DateTime.now().millisecondsSinceEpoch + skew[0],
+      sleep: (Duration d) {
+        skew[0] += d.inMilliseconds;
+        return Future<void>.delayed(const Duration(milliseconds: 1));
+      },
     );
     transport.pushStatus(SocketStatus.connected);
     while (runner.isBusy) {
@@ -196,7 +204,7 @@ void main() {
     );
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('a server that answers is never throttled: the whole range goes out',
+  test('a server that answers is never held by the window: the whole range goes out',
       () async {
     // The negative control for the window itself. Without it, a window that was
     // simply too small — or an `_awaitWindowRoom` that never returned room —

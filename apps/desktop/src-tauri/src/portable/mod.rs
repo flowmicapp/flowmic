@@ -2,7 +2,7 @@
 //   🔴 docs/rebuild/16-PORTABLE-RECORD-FORMAT-FPR-V1.md (FPR v1 — behaviour contract,
 //      same tier as 04/05/07/08/15; change discipline: revise the doc first,
 //      then the implementation and tests)
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §1 (inventory-layer
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §1 (inventory-layer
 //      ruling: export / statistics / clear share the same traversal)
 //   docs/decisions/2026-07-31-no-cloud-sync-for-phone-pc.md (the cloud stores no
 //      transcripts ⇒ export is the only cross-device / backup path; both ends

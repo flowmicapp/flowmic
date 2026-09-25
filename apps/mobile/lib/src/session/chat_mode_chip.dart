@@ -108,6 +108,7 @@ void foldDraftToNotedOnModeSwitch(ChatController c) {
     mode: c._mode,
     delivery: Delivery.none,
     text: draft,
+    mcpContentReady: true,
     origin: c.destination.isFixed ? 'cloud' : 'paired',
   );
   diag('compose.mode_switch_folded_noted', <String, Object?>{

@@ -1,6 +1,6 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-07-inject-status-truth-and-evidence-design.md §4-2 (A-3)
-//   docs/strategy/2026-08-07-ij03-msaa-focus-editability-spike.md (the measurements)
+//   docs/archive/strategy/2026-08-07-inject-status-truth-and-evidence-design.md §4-2 (A-3)
+//   docs/archive/strategy/2026-08-07-ij03-msaa-focus-editability-spike.md (the measurements)
 //   docs/decisions/2026-08-07-owner-inject-status-wording-evidence-and-window-title.md
 //   docs/decisions/2026-07-30-injected-means-delivered-to-keyboard-focus.md
 //   *** HUMAN-AUDIT SENSITIVE (injection path) ***

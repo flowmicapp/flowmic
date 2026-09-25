@@ -2,7 +2,7 @@
 // dial, not only on the pairing dial.**
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 / §3-5
+//   docs/archive/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 / §3-5
 //   apps/mobile/lib/src/signaling/reconnect.dart  `ReconnectCoordinator._pin`
 //   apps/mobile/lib/src/ptt/pair_retire.dart      `retirePairingOn`
 //

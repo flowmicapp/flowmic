@@ -2,7 +2,7 @@
 // obey.
 //
 // SPEC-REF: packages/protocol/src/restriction-reasons.ts (the table)
-//           docs/strategy/2026-08-12-a2-3-restricted-use-design.md §6.1 (the
+//           docs/archive/strategy/2026-08-12-a2-3-restricted-use-design.md §6.1 (the
 //             three hard copy constraints, owner ①③⑤)
 //           docs/decisions/2026-08-12-owner-needle-closure-and-default-
 //             authority.md §Stamp Q2

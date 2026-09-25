@@ -4,7 +4,7 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-12-owner-req1209-multiselect-and-image-rulings.md
 //     §2-2 (legacy light-record picture rows can never be sent), §3 criteria 1/2/3/4
-//   docs/strategy/2026-08-12-req1209-plus-panel-design.md §4-1, §6-4, §7-3
+//   docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md §4-1, §6-4, §7-3
 //
 // 🔴 WHAT THIS FILE PROVES AND WHAT IT DOES NOT. It proves the PANEL hands over
 // one composed string plus N picture rows, in tick order, and that a picture
@@ -130,6 +130,7 @@ class _Rig {
                   return bytesFor.contains(e.id);
                 }
               : null,
+          prefs: InMemoryLocalPrefs(),
         ),
       ),
     );

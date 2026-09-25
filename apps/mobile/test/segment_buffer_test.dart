@@ -259,7 +259,7 @@ void main() {
   });
 
   // ── W2.5-H —— REPRODUCTION of the four measured losses ─────────────────────
-  // Source: docs/strategy/2026-08-06-w25-closing-the-two-red-lines-ledger.md
+  // Source: docs/archive/strategy/2026-08-06-w25-closing-the-two-red-lines-ledger.md
   // §4.3 原地更正块 (2026-08-07, controller re-ran【measured】, dev-pc-a). Written
   // BEFORE the fix and run red first — the four rows below are the ledger's four
   // rows verbatim, with the RIGHT-HAND side changed from 「what it did」 to

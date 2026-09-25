@@ -23,10 +23,8 @@ part of 'timeline_store.dart';
 /// Contract: docs/rebuild/15 §2.0-e.
 ///
 /// **CALLED ONLY AFTER THE FRAME REALLY LEFT THE DEVICE.** That is the entire
-/// claim this row makes, and it is the only one this end can make: `control:key`
-/// has no receipt, so 「did the computer receive it / did the computer
-/// execute it」 has no evidence here at all —
-/// the answer to those lives on the PC's own row (doc 15 §2.0-e / §6 G-24).
+/// claim this row makes at birth. A later `control:key-result` can add the
+/// independent `uncertain` state, without turning it into delivered or failed.
 /// A press that never left the device mints NOTHING and raises the compose
 /// banner instead: a receipt for a non-event is the other direction of no silent failure.
 ///
@@ -77,4 +75,46 @@ required String kind,
   // resolution) `chat_explicit_delivery.dart` records for `notifyUi`.
   store._insertNew(entry);
   return entry;
+}
+
+/// Write back a `control:key-result` whose reason is `uncertain`.
+///
+/// Exact correlation wins. Only a receipt with no request id may use the
+/// protocol's documented compatibility fallback: newest control row with the
+/// same kind. A named id that resolves nowhere is never redirected to a
+/// different press.
+bool timelineApplyControlSubmissionUncertain(
+  TimelineStore store, {
+  String? requestId,
+  required String kind,
+}) {
+  TimelineEntry? entry;
+  if (requestId != null && requestId.isNotEmpty) {
+    entry = store.findByClientId(requestId);
+    if (entry == null) return false;
+  } else {
+    for (final TimelineEntry candidate in store._entries) {
+      if (candidate.isControl && candidate.controlKind == kind) {
+        entry = candidate;
+        break;
+      }
+    }
+  }
+  if (entry == null ||
+      !entry.isControl ||
+      entry.controlKind != kind ||
+      (entry.status == EntryStatus.cached &&
+          (entry.failureReason == 'INJECT_SUBMISSION_UNCERTAIN' ||
+           entry.failureReason == 'submission_uncertain'))) {
+    return false;
+  }
+  store._replace(
+    entry,
+    entry.copyWith(
+      status: EntryStatus.cached,
+      failureReason: 'submission_uncertain',
+      updatedAt: DateTime.now().toUtc(),
+    ),
+  );
+  return true;
 }

@@ -37,6 +37,7 @@ import '../diag/diag_log.dart';
 import '../ptt/ptt_session.dart';
 import '../signaling/state_machine.dart';
 import '../stt/stt_stream.dart' show CoverageReceipt;
+import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart';
 import 'recovery_backoff.dart' show RecoveryQueueState;
 import 'instance_probe.dart' show ServerChannel;
@@ -64,11 +65,122 @@ Future<RecoverySettleDecision?> settleLiveRecording({
   required String? rowId,
   bool Function()? metered,
   LegacyServerVerifier legacyVerifier = const DenyAllLegacyServerVerifier(),
+}) =>
+    _settleLive(
+      session: session,
+      timeline: timeline,
+      receipt: receipt,
+      resultText: finalText,
+      rowIds: rowId == null ? const <String>[] : <String>[rowId],
+      metered: metered,
+      legacyVerifier: legacyVerifier,
+    );
+
+/// Card RC-B — a live press or long recording whose terminal final carried no
+/// words, after earlier spans of it had already become rows.
+///
+/// CALLER — EXACTLY ONE: `_handleTerminalFinal` (session/chat_utterance.dart),
+/// in its empty-text branch when rows already settled (`fromIdx > 0`).
+/// `live_settle_has_call_site_test.dart` pins it there.
+///
+/// 🔴 THE SHAPE (CR-12-E rerun, RB): the last sentence was cut into a row by a
+/// pause, the user stayed silent, then pressed stop ⇒ `stt:final {text:'',
+/// is_segment:false}` with a complete receipt. That branch used to `return`,
+/// so no live settle ran, the SD-2 stamp expired after
+/// `kLiveSettlePendingGraceMs`, and the recovery queue took the WHOLE
+/// recording, from byte 0, as owed: on a tier-A server it would be
+/// transcribed again, filed into the article a second time, and billed again.
+///
+/// 🔴 THE RESULT IS THE ROWS IT PRODUCED, not the last stretch the terminal
+/// final covers. MAIN ruling 2026-09-24 (root-cause rerun §10-2) licenses the
+/// delete only when all four hold: the terminal final is empty (checked here),
+/// the receipt's `fed_frames` equals the frames sent and it says
+/// `ended_normally` (both checked by the ONE predicate, with the rest of its
+/// conditions), and at least one row of THIS recording is persisted and read
+/// back. [evaluateRecoverySettle] is not touched: its `emptyResult` refusal
+/// still stands for every caller, because what changes is only the result this
+/// entry hands it — the recording's own rows, never an empty one.
+///
+/// ⚠️ 更正（RC-B follow-up，2026-09-24，MAIN ruling）：原为 long recordings only
+/// (`settleLongRecordingSilentTail`), with the ordinary press left to 「today's
+/// behaviour」 — which production reaches: the reconnect ack advertises
+/// recovery, so such a press was transcribed again, filed twice and billed
+/// again. An ordinary press now settles the same way on [pressRowIds]: the rows
+/// `_settleSpan` recorded for the live attempt [pressRecordingId] names. A long
+/// recording still answers with its article's rows.
+///
+/// Returns null (nothing written) when this is not a live final, and when the
+/// recording has no row at all.
+Future<RecoverySettleDecision?> settleSilentTail({
+  required PttSession session,
+  required TimelineStore timeline,
+  required CoverageReceipt? receipt,
+  required String? finalText,
+  String? pressRecordingId,
+  List<String> pressRowIds = const <String>[],
+  bool Function()? metered,
+  LegacyServerVerifier legacyVerifier = const DenyAllLegacyServerVerifier(),
+}) async {
+  // Condition 1 — a final that carried words is `settleLiveRecording`'s case.
+  if ((finalText ?? '').trim().isNotEmpty) return null;
+  final LiveAudioAttempt? attempt = session.audio.retainedAudio?.liveAttempt;
+  // Neither a recovery placing rows nor a recovery session is a live final.
+  if (attempt == null ||
+      session.articles.isReplaying ||
+      session.openSessionRange != null) {
+    return null;
+  }
+  final String? article = session.articles.liveArticleId;
+  final List<TimelineEntry> rows;
+  if (article != null &&
+      RetainedAudioSpill.sessionKeyOf(attempt.recordingId) == article) {
+    // A long recording is filed under its article id (`beginContinuous`).
+    rows = <TimelineEntry>[...articleMembersOf(timeline, article)];
+  } else {
+    // An ordinary press: the rows recorded for THIS live attempt, and only if
+    // the ledger names this attempt (a stale list belongs to another press).
+    if (pressRecordingId != attempt.recordingId) return null;
+    rows = <TimelineEntry>[
+      for (final String id in pressRowIds)
+        if (timeline.findById(id) case final TimelineEntry e) e,
+    ];
+  }
+  if (rows.isEmpty) return null;
+  final List<TimelineEntry> newestFirst = rows.reversed.toList();
+  if (article != null) {
+    newestFirst.sort((TimelineEntry a, TimelineEntry b) =>
+        (b.articleOffsetMs ?? 0).compareTo(a.articleOffsetMs ?? 0));
+  }
+  return _settleLive(
+    session: session,
+    timeline: timeline,
+    receipt: receipt,
+    // What it produced. Only its non-emptiness is read (the predicate bans any
+    // other judgement of the words).
+    resultText: newestFirst.reversed.map((TimelineEntry e) => e.displayText).join('\n'),
+    // Newest first: the first one read back becomes `resultRef` (condition 4).
+    rowIds: <String>[for (final TimelineEntry e in newestFirst) e.id],
+    metered: metered,
+    legacyVerifier: legacyVerifier,
+  );
+}
+
+/// The one body both entries share. [rowIds] are the candidate result rows, in
+/// the order they are tried; the first persisted and read back is the result
+/// (condition (iii)). Empty ⇒ nothing is settled.
+Future<RecoverySettleDecision?> _settleLive({
+  required PttSession session,
+  required TimelineStore timeline,
+  required CoverageReceipt? receipt,
+  required String? resultText,
+  required List<String> rowIds,
+  bool Function()? metered,
+  required LegacyServerVerifier legacyVerifier,
 }) async {
   final RetainedAudioSpill? spill = session.audio.retainedAudio;
   if (spill == null || !spill.retainFromFirstFrame) return null;
   final LiveAudioAttempt? attempt = spill.liveAttempt;
-  if (attempt == null || rowId == null) return null;
+  if (attempt == null || rowIds.isEmpty) return null;
   // 🔴 A STAMP WITH NO FRAME COUNT IS A RECORDING THAT IS STILL RUNNING, and
   // comparing a receipt against a moving number is how a settle comes out right
   // by luck. `endRecording` is what closes it; if it has not run, this final
@@ -114,6 +226,20 @@ Future<RecoverySettleDecision?> settleLiveRecording({
     return null;
   }
 
+  // 🔴 CARD RC-3 — A RECORDING THAT OWES ITS TAIL IS NOT THIS PATH'S TO SETTLE.
+  // It ended with the link or the engine down (`RetainedAudioSpill
+  // .noteOwedTail`), so part of it was never heard by any engine — and the
+  // relay DID take every frame, so the receipt can look complete. Settling
+  // here would delete, or park as `settled_unverified`, audio whose words do
+  // not exist anywhere. The recovery leg owns it from its transcribed prefix.
+  if (spill.owesTail(attempt.recordingId)) {
+    diag('audio.live.settle_skipped_owed_tail', <String, Object?>{
+      'recording_id': attempt.recordingId,
+      'attempt_id': attempt.attemptId,
+    });
+    return null;
+  }
+
   // (ii) — the local half. The frame said `is_segment:false` (the caller's
   // guard) AND the FSM took it: `onSttFinal` refuses anything that is not
   // PROCESSING, so `justDone` here means THIS final drove the transition. It is
@@ -124,8 +250,18 @@ Future<RecoverySettleDecision?> settleLiveRecording({
 
   // (iii) — two facts, in this order. The handle completes on failure too (its
   // own doc says so), so only the read proves anything survived.
-  await timeline.awaitPersisted(rowId);
-  final bool persisted = await timeline.isPersisted(rowId);
+  // Card RC-B — for a long recording's silent tail, the first of its rows that
+  // is read back; the newest one when none is (it names the refusal's row).
+  String rowId = rowIds.first;
+  bool persisted = false;
+  for (final String id in rowIds) {
+    await timeline.awaitPersisted(id);
+    if (await timeline.isPersisted(id)) {
+      rowId = id;
+      persisted = true;
+      break;
+    }
+  }
 
   // A7-3 — the same server gate the recovery leg asks, and for the same reason:
   // a relay that cannot prove it honoured `delivery:'none'` and the receipt
@@ -154,7 +290,9 @@ Future<RecoverySettleDecision?> settleLiveRecording({
       // `RecoverySettleInputs.resultText` for the B-7 measurement that makes
       // the distinction load-bearing: a stale interim can leave the row with
       // text the engine never produced.
-      resultText: finalText,
+      // Card RC-B — for a long recording's silent tail this is its rows (see
+      // `settleLongRecordingSilentTail` for why, and for the ruling).
+      resultText: resultText,
       endedOnTerminalFinal: endedOnTerminalFinal,
       rowPersistedAndReadBack: persisted,
       serverMayDelete: gate.tier.mayDeleteBytes,

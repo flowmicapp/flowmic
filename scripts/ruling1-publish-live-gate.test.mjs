@@ -308,7 +308,11 @@ section('§4 publish.mjs wiring — after the upload, before "done", exit 1 on r
     'and the refusal says the release is NOT done — the gate\'s whole shape is «do not let you think you are done»',
   );
   assertTrue(
-    /docs\/FLEET\.md/.test(tail),
+    // NOTE (2026-09-21 archive round): FLEET.md moved into docs/archive/ with the
+    // rest of the closed records. This assertion follows the pointer instead of
+    // pinning the old spelling - what it checks is that the refusal NAMES where the
+    // deploy half lives, not that the name sits at a particular path.
+    /docs\/archive\/FLEET\.md/.test(tail),
     'while naming where the deploy half lives (device line) instead of implying this script should have done it',
   );
 }

@@ -2,7 +2,7 @@
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (pc:register → token; pc:reconnect{token})
 //   docs/rebuild/07-DESKTOP-SPEC.md §6 (connection layer: if a token is stored,
 //     reconnect; otherwise register; after a dead token is cleared, re-register — must never loop forever)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md T-2 ⑤ (cloud Key invalidation fail-loud)
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md T-2 ⑤ (cloud Key invalidation fail-loud)
 //   *** HUMAN-AUDIT SENSITIVE (pairing/auth) — reviewable in isolation ***
 //
 // The register / reconnect emit pair, split out of client.rs (which sits at the

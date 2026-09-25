@@ -24,6 +24,7 @@ use crate::focus::{self, FocusEvent, FocusState, FocusStateMachine};
 use crate::forensic;
 use crate::inject;
 use crate::socket::client::now_millis;
+use crate::socket::chord_exit::ChordExit;
 use crate::socket::control_row::{ControlOutcome, KeyReceipt, REASON_UNSUPPORTED_HERE};
 use crate::socket::dedup::{InjectDecision, InjectDeduper};
 use crate::socket::wire::{self, InjectRequest};
@@ -302,6 +303,13 @@ pub(super) fn run_inject(
             );
             return Some(result);
         }
+        InjectDecision::SubmissionUncertainRemembered { mode_wire } => {
+            forensic::record("inject", "dedup remembered: prior submission uncertain; no automatic retry and no claimed target");
+            return Some(wire::build_inject_result(
+                false, &mode_wire, Some(error_codes::INJECT_SUBMISSION_UNCERTAIN),
+                None, "", req, wire::FocusObservation::default(),
+            ));
+        }
         InjectDecision::Suppress => {
             eprintln!(
                 "[flowmic] inject INJ-1 byte-window duplicate — discarded (no re-type, no result)"
@@ -535,90 +543,6 @@ pub(super) fn run_inject(
     Some(result)
 }
 
-/// RV-25 — how a control:key CHORD ended. One variant per exit of the
-/// chord branch below.
-///
-/// The chord branch had THREE exits that sent nothing and said nothing, while the
-/// punctuation branch in the same function records every outcome. So "pressed a
-/// chord but nothing happened" had no record on file in the forensic log: "control:key
-/// never reached the desktop" and "it arrived, but some precondition wasn't met" read identically (i.e. as silence). Since control:key
-/// has NO result frame in the protocol, the log is the ONLY place that outcome can
-/// live — a missing line there is the whole story missing.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum ChordExit {
-    /// SendInput accepted the whole sequence.
-    Sent,
-    /// The target was raised, but the OS refused the sequence (carries the
-    /// FlowKeyError text — `Rejected` and `Win32(n)` are different problems).
-    SendFailed(String),
-    /// The OS would discard a synthetic keystroke right now (macOS: no
-    /// Accessibility grant, or secure event input is on). Nothing was posted and
-    /// the foreground was NOT taken. Carries the preflight's error code so the
-    /// log names WHICH of the two conditions held.
-    OsWillNotDeliver(String),
-    /// A target existed but could not be brought to the foreground, so the keys
-    /// would have landed in whatever window IS foreground. Not sent, on purpose.
-    ForegroundRefused,
-    /// No target at all: no live foreground to resolve, or the smoke allowlist
-    /// declined the one there was.
-    NoTarget,
-}
-
-impl ChordExit {
-    /// The forensic wording. Every variant names the PRECONDITION that did not
-    /// hold, because "why it wasn't sent" is the only question this line exists to
-    /// answer — restating "not sent" is not an answer. Mirrors the punctuation
-    /// branch's one-line-per-outcome shape.
-    pub(super) fn line(&self, kind: &str, hwnd: Option<u64>, keys: usize) -> String {
-        let where_ = match hwnd {
-            Some(h) => format!("hwnd={h}"),
-            None => "hwnd=-".to_string(),
-        };
-        match self {
-            ChordExit::Sent => format!("chord {kind} sent ({where_} chords={keys})"),
-            // 🔴 W3 2026-08-07: was 「SendInput refused the sequence」. There is no
-            // SendInput on macOS — naming a Win32 API as the refuser on a platform
-            // that has none sends the reader hunting through Win32 docs for a
-            // CGEvent problem. The `{err}` already distinguishes the real causes.
-            ChordExit::SendFailed(err) => format!(
-                "chord {kind} NOT sent — the OS refused the sequence ({where_} chords={keys}): {err}"
-            ),
-            ChordExit::OsWillNotDeliver(code) => format!(
-                "chord {kind} NOT sent — the OS would discard synthetic keystrokes right now \
-                 ({code}); foreground NOT taken ({where_} chords={keys})"
-            ),
-            ChordExit::ForegroundRefused => format!(
-                "chord {kind} NOT sent — SetForegroundWindow({where_}) refused, so the keys would \
-                 have landed in another window"
-            ),
-            ChordExit::NoTarget => format!(
-                "chord {kind} NOT sent — no inject target resolved (no live foreground, or the \
-                 smoke allowlist declined it)"
-            ),
-        }
-    }
-}
-
-impl ChordExit {
-    /// The ROW's view of this exit (REQ-12-13, doc 15 §2.0-e).
-    ///
-    /// 🔴 COARSER THAN THE FORENSIC LINE, ON PURPOSE. `SendFailed` carries the OS's
-    /// own words because a diagnosis needs them; a row must not, because the user's
-    /// action is identical for every non-`Sent` exit and spelling `Win32(5)` at them
-    /// answers a question they did not ask. The detail stays in [`ChordExit::line`],
-    /// which is written on the SAME press — nothing is lost, it is filed where it is
-    /// read.
-    pub(super) fn outcome(&self) -> ControlOutcome {
-        match self {
-            ChordExit::Sent => ControlOutcome::Sent,
-            ChordExit::SendFailed(_) => ControlOutcome::SendFailed,
-            ChordExit::OsWillNotDeliver(_) => ControlOutcome::OsRefused,
-            ChordExit::ForegroundRefused => ControlOutcome::ForegroundRefused,
-            ChordExit::NoTarget => ControlOutcome::NoTarget,
-        }
-    }
-}
-
 /// What one `control:key` press produced: the local row (when it mints one) and
 /// the wire receipt (always). Two fields rather than two calls, because they are
 /// decided by the SAME predicates and a second pass over them would be a second
@@ -659,6 +583,19 @@ pub(super) fn run_control_key(
     allowlist: &Option<Vec<String>>,
     fsm: &Mutex<FocusStateMachine>,
 ) -> ControlKeyRun {
+    // Capability refusal precedes target lookup too: Wayland has no X11 target
+    // to resolve, so resolving first would hide the reason behind "no target".
+    if let Some(refused) = crate::inject::preflight::synthetic_input_preflight() {
+        return ControlKeyRun {
+            row: inject::key_sequence_for(kind).map(|_| ControlOutcome::OsRefused),
+            // A future unnamed preflight refusal must not invent a target or
+            // display diagnosis. Keep the generic failed receipt in that case.
+            receipt: refused.error_code.map_or(
+                KeyReceipt::from_outcome(ControlOutcome::OsRefused),
+                KeyReceipt::NamedRefusal,
+            ),
+        };
+    }
     // v0.2.1 — the punctuation half of the whitelist is TYPED, not chorded (there
     // is no virtual key for 「、」). Routing it through the ordinary text pipeline
     // rather than a bespoke path is the point: it inherits Stage-1 focus, Stage-1b
@@ -698,6 +635,8 @@ pub(super) fn run_control_key(
             ControlOutcome::NoTarget
         } else if outcome.ok {
             ControlOutcome::Sent
+        } else if outcome.error_code == Some(error_codes::INJECT_SUBMISSION_UNCERTAIN) {
+            ControlOutcome::SubmissionUncertain
         } else {
             ControlOutcome::SendFailed
         };
@@ -746,8 +685,10 @@ pub(super) fn run_control_key(
                 let exit = if let Some(refused) = crate::inject::preflight::synthetic_input_preflight() {
                     ChordExit::OsWillNotDeliver(refused.error_code.unwrap_or("(none)").to_string())
                 } else if focus::set_foreground_window(h) {
-                    match inject::send_chords(&seq) {
+                    match inject::send_chords(&seq, h) {
                         Ok(()) => ChordExit::Sent,
+                        Err(inject::FlowKeyError::TargetChanged(_)) => ChordExit::TargetChanged,
+                    Err(inject::FlowKeyError::SubmissionUncertain(detail)) => ChordExit::SubmissionUncertain(detail),
                         Err(e) => ChordExit::SendFailed(e.to_string()),
                     }
                 } else {

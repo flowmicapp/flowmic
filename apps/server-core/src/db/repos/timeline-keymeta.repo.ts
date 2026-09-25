@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-11-design-e-multidevice-salt.md §3.1 (timeline_keymeta
+//   docs/archive/strategy/2026-08-11-design-e-multidevice-salt.md §3.1 (timeline_keymeta
 //     + first-writer-wins PUT semantics), §2 (why the sentinel may live server-side)
 //   docs/rebuild/05-DATA-MODEL.md §1.1 (table row added in the same batch)
 //   docs/rebuild/13-LESSONS-LEARNED.md §3 D1 (no silent failure)

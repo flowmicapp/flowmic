@@ -23,6 +23,8 @@ import 'dart:io';
 
 import 'package:flowmic/generated/flowmic_settings.g.dart';
 import 'package:flowmic/src/portable/settings_backup.dart';
+import 'package:flowmic/src/mcp/mcp_settings_backup.dart';
+import 'package:flowmic/src/mcp/mcp_secrets.dart';
 import 'package:flowmic/src/settings/app_settings.dart';
 import 'package:flowmic/src/settings/local_prefs.dart';
 import 'package:flowmic/src/settings/prefs_controller.dart';
@@ -64,6 +66,7 @@ class _Harness {
     h.dest = RecordingExportDestination('${h.tmp.path}/out');
     h.source = FixedImportSource(null);
     h.backup = SettingsBackup(
+      mcp: const McpSettingsBackup(store: null, secrets: SecureMcpSecretStore()),
       prefs: h.prefs,
       destination: h.dest,
       source: h.source,

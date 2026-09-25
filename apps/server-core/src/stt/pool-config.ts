@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0d (route fields),
+//   docs/archive/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0d (route fields),
 //     §-0e (two-layer parsing), §-0f tail (production strategy = priority + health failover)
 //   docs/decisions/2026-08-02-owner-stt-pool-groups-and-ops-phase1-scope.md
 //     (owner ②③: applicable region = who is served; custom groups are a real
@@ -37,7 +37,7 @@ export const POOL_ENV = 'FLOWMIC_STT_POOL';
 export const POOL_DEFAULT_GROUP_ENV = 'FLOWMIC_STT_POOL_DEFAULT_GROUP';
 /* 🔴 THERE IS DELIBERATELY NO `FLOWMIC_STT_POOL_REGION`.
  * `RouteRequest.region` is PINNED to {@link REGION_ANY} this round —
- * `docs/strategy/2026-08-02-o5-pool-schema-final.md` §2-S3, and the reason is
+ * `docs/archive/strategy/2026-08-02-o5-pool-schema-final.md` §2-S3, and the reason is
  * mechanical rather than conservative: `packages/protocol` has NO region field
  * at all [measured: `grep -rn "region" packages/protocol/src/*.ts` → zero lines], so the
  * server cannot derive one. A knob here would let an operator set a request

@@ -3,7 +3,7 @@
 // CONTRACT: docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-c
 // (one segment (segment_idx) = one row; EVERY final mints a row and enqueues a delivery
 // item — not just the terminal one) and §2.0-b. Design:
-// docs/strategy/2026-08-08-design-n1-long-recording.md §2.1 / §2.3.
+// docs/archive/strategy/2026-08-08-design-n1-long-recording.md §2.1 / §2.3.
 //
 // While only the TERMINAL final settled, the segment exit was never required to
 // be complete — nothing downstream read it except the display assembler. Under

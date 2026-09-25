@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-07-31-mobile-outbox-design-draft.md §3 (mechanism, full text)
+//   docs/archive/strategy/2026-07-31-mobile-outbox-design-draft.md §3 (mechanism, full text)
 //   docs/decisions/2026-07-31-queue-destination-is-a-machine-not-a-connection.md
 //   docs/decisions/2026-07-31-owner-two-channels-transit-not-storage.md ④⑤⑨
 //   docs/decisions/2026-07-31-owner-b2-outbox-rulings.md ①⑤

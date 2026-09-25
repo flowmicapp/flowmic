@@ -1,12 +1,13 @@
 // Card RT-2 — connection lifetime follows the voice.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-08-030-unified-plan-and-ledger.md RT-2
+//   docs/archive/strategy/2026-08-08-030-unified-plan-and-ledger.md RT-2
 //     (「silence ≥3s hang up / press again to redial; before taking the card, read the two measured rows on the RT-3 ledger」)
-//   docs/strategy/2026-08-07-rt3-outage-resilience-ledger.md §1.1/§1.1b (the ring
+//   docs/archive/strategy/2026-08-07-rt3-outage-resilience-ledger.md §1.1/§1.1b (the ring
 //     prunes on EVERY push and the read side filters independently),
 //     §1.3 (`stop()`'s no-engine branch), §5 RT3-C (the reconnect path has no
-//     spawn cap — an OPEN account this card does not close)
+//     spawn cap — an OPEN account this card does not close; ⚠️ 更正（NR-96，
+//     2026-09-24）：closed since, the rung races `engineSpawnTimeoutMs`)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §2.3, master-plan §2.3 (VAD gate: a
 //     metered streaming session must not accrue billed time on silence)
 //   CLAUDE.md: F-5「make 『replacing a live connection』 and 『a real drop』 two different things」/ no silent failure

@@ -5,7 +5,7 @@
 //     §6 (cloud classification: 172.77.x is not in RFC1918 → treated as cloud, but for LAN pairing any
 //     non-loopback IPv4 the server hands us is dialable)
 //   docs/rebuild/13-LESSONS-LEARNED.md §2 N2 (LAN IP stuck at 127.0.0.1: loopback is not a terminal state)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #5
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #5
 //
 // Pure decision core for turning the server's `/api/network` reply into a pairing
 // endpoint. The server already excludes internal + APIPA addresses and sorts

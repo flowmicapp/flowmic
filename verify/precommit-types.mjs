@@ -4,7 +4,7 @@
 //
 // WHY IT EXISTS. `.husky/pre-commit` used to run `pnpm verify:types`, which
 // chains `tsc --noEmit` over all four TS packages from cold every time —
-// measured 23.4 s (docs/strategy/2026-09-12-verify-delivery-speedup-plan.md
+// measured 23.4 s (docs/archive/strategy/2026-09-12-verify-delivery-speedup-plan.md
 // §1.2 row 4). A commit hook that costs half a minute is a commit hook people
 // pass `--no-verify` to, and a bypassed gate verifies nothing at all.
 //

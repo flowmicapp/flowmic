@@ -1,9 +1,9 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
+//   docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
 //     §4 (SHERPA_REPO / SHERPA_MODEL_FILES demoted to aliases of the catalog's
 //     SenseVoice row — no second source of "what is the current model id"),
 //     the owner's 2026-08-22 addition (the models root must be changeable)
-//   docs/strategy/spikes/sherpa-onnx-spike.md §6.3 (app-data install dir)
+//   docs/archive/strategy/spikes/sherpa-onnx-spike.md §6.3 (app-data install dir)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §3 (engine #7 sherpa-local)
 //
 // Install-directory resolution for local STT models, plus the LEGACY aliases

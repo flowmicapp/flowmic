@@ -33,7 +33,7 @@ import { ModeSchema } from './protocol-schemas-audio';
 //     HistoryUpdateAckSchema (0.2.23 C5 conflict verdict) — it arbitrated two
 //     writers of ONE server row, and there is no server row. The design
 //     knowledge (§「输家必须被告知」("the loser must be told")) is preserved in
-//     docs/strategy/2026-07-30-c5-conflict-criteria-design.md, which carries a
+//     docs/archive/strategy/2026-07-30-c5-conflict-criteria-design.md, which carries a
 //     retirement header naming the light-record multi-device case that will reuse it.
 const HistoryItemSchema = z.object({
   id: NonEmpty,
@@ -118,7 +118,7 @@ export const HistoryCreateSchema     = z.object({ item: HistoryItemSchema });
 // the next reader as「它在服务某个流程」("it's serving some process"), which is the façade shape this project
 // keeps paying for. The rule itself is preserved as DESIGN, with the case that
 // will reuse it named in the header of
-// docs/strategy/2026-07-30-c5-conflict-criteria-design.md.
+// docs/archive/strategy/2026-07-30-c5-conflict-criteria-design.md.
 export const HistoryUpdateSchema     = z.object({
   id: NonEmpty,
   output_text: z.string(),

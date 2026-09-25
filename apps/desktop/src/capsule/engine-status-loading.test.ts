@@ -35,18 +35,25 @@
 //    `cap_stt_unknown` ("Not checked" — a false claim about an engine that is
 //    demonstrably present), and it must not put the raw identifier on screen.
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import CapsuleApp from './CapsuleApp.vue';
-import { onEngineStatus, state } from './controller';
+import { fireAudioStopForTest, fireRealAudioStartForTest, fireSttFinalForTest, fireSttInterimForTest, fireTickForTest, onEngineStatus, state } from './controller';
+import { ENGINE_RECONNECT_WORST_CASE_MS } from '@flowmic/protocol';
 import { S } from '../lib/strings';
 
 beforeEach(() => {
   state.engineProvider = '';
   state.engineStatus = '';
   state.engineKnown = false;
+  state.engineRetry = null;
+  state.engineSilent = false;
   state.diagOpen = false;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 /** The engine row of the real diagnostic panel, rendered through the real SFC —
@@ -124,5 +131,150 @@ describe('capsule engine-status — the loading value', () => {
     // The provider IS taken: the name is a plain string, not part of the enum,
     // and the row's own label is allowed to name an engine it has no verdict on.
     expect(state.engineProvider).toBe('sherpa-local');
+  });
+});
+
+// ── NR-96-C (2026-09-24) — the attempt number on the same cell ─────────────
+// Contract: book 15 §2.7 (laws 1, 2, 3, 5) and §4 R3's executable form. What a
+// user reads is the rendered cell of the real SFC, so every row below asserts
+// THAT — the state field is how it gets there, not what is delivered. The
+// expected text is built from the string getters (the copy is a DEV placeholder
+// until the AGY lane writes it; asserting its wording would pin the placeholder).
+//
+// The capsule only receives these frames for an utterance bound for this PC
+// (the relay's `makeSttEmitter` withholds engine-status for record-only
+// sessions); each row therefore opens a real utterance first, as production
+// would, rather than feeding a frame into a capsule that has no utterance.
+const counted = (n: number, max?: number): string =>
+  max === undefined
+    ? S.cap_stt_reconnecting_n.replace('{n}', String(n))
+    : S.cap_stt_reconnecting_n_of.replace('{n}', String(n)).replace('{max}', String(max));
+const rung = (n: number, extra: Record<string, unknown> = {}): Record<string, unknown> =>
+  ({ provider: 'soniox', status: 'reconnecting', retry_count: n, ...extra });
+
+describe('capsule engine-status — NR-96-C attempt number', () => {
+  beforeEach(() => { fireRealAudioStartForTest({ mode: 'realtime' }); });
+
+  it('a budgeted frame renders "attempt n of N" in the engine cell, amber', async () => {
+    onEngineStatus(rung(2, { retry_max: 3, retry_in_ms: 2_000, attempt_timeout_ms: 5_000 }));
+    const row = await engineRow();
+    expect(row.dot).toBe('y');
+    expect(row.value).toBe(counted(2, 3));
+    expect(row.value).toContain('2');
+    expect(row.value).toContain('3');
+    expect(row.value, 'placeholders must be filled, never shown').not.toMatch(/\{n\}|\{max\}/);
+    expect(row.value, 'the counted face is not the plain one').not.toBe(S.cap_stt_reconnecting);
+  });
+
+  it('a frame WITHOUT retry_max (unbounded, or an old relay) renders "attempt n" and no total', async () => {
+    onEngineStatus(rung(1));
+    const row = await engineRow();
+    expect(row.value).toBe(counted(1));
+    expect(row.value).not.toBe(counted(1, 3));
+    expect(row.value).not.toMatch(/\{n\}|\{max\}/);
+  });
+
+  it('a frame with no usable count keeps the plain reconnecting face (no fabricated number)', async () => {
+    onEngineStatus({ provider: 'soniox', status: 'reconnecting' });
+    expect((await engineRow()).value).toBe(S.cap_stt_reconnecting);
+    onEngineStatus({ provider: 'soniox', status: 'reconnecting', retry_count: 0 });
+    expect((await engineRow()).value).toBe(S.cap_stt_reconnecting);
+  });
+
+  it('failed replaces the reconnect face for good — past the old deadline the cell still reads Failed', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_000_000));
+    onEngineStatus(rung(3, { retry_max: 3, retry_in_ms: 4_000, attempt_timeout_ms: 5_000 }));
+    onEngineStatus({ provider: 'soniox', status: 'failed', retry_count: 3 });
+    vi.setSystemTime(new Date(1_000_000 + 60_000));
+    fireTickForTest();
+    const row = await engineRow();
+    expect(row.value, 'the give-up edge must have ended the reconnect claim, so no watchdog blanks it').toBe(S.cap_stt_failed);
+    expect(row.dot).toBe('r');
+  });
+
+  it('ready replaces it the same way (the success edge)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_000_000));
+    onEngineStatus(rung(2, { retry_max: 3, retry_in_ms: 2_000, attempt_timeout_ms: 5_000 }));
+    onEngineStatus({ provider: 'soniox', status: 'ready' });
+    vi.setSystemTime(new Date(1_000_000 + 60_000));
+    fireTickForTest();
+    expect((await engineRow()).value).toBe(S.cap_stt_ready);
+  });
+
+  it('an interim proves the engine is producing: the cell shows ready, green', async () => {
+    onEngineStatus(rung(2, { retry_max: 3, retry_in_ms: 2_000, attempt_timeout_ms: 5_000 }));
+    fireSttInterimForTest({ segment_idx: 0, text: 'hello' });
+    const row = await engineRow();
+    expect(row.value).toBe(S.cap_stt_ready);
+    expect(row.dot).toBe('g');
+  });
+
+  it('a final is NOT taken as that proof (the relay folds one from its accumulators after the engine is gone)', async () => {
+    onEngineStatus(rung(1, { retry_max: 3, retry_in_ms: 1_000, attempt_timeout_ms: 5_000 }));
+    fireSttFinalForTest({ segment_idx: 0, text: 'hello', is_segment: false });
+    expect((await engineRow()).value).not.toBe(S.cap_stt_ready);
+  });
+
+  it('the watchdog blanks the cell at receipt + retry_in_ms + attempt_timeout_ms, and not before', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_000_000));
+    onEngineStatus(rung(2, { retry_max: 3, retry_in_ms: 2_000, attempt_timeout_ms: 5_000 }));
+    vi.setSystemTime(new Date(1_006_999));
+    fireTickForTest();
+    expect((await engineRow()).value, 'one ms early is still inside the frame\'s own deadline').toBe(counted(2, 3));
+    vi.setSystemTime(new Date(1_007_000));
+    fireTickForTest();
+    const row = await engineRow();
+    // The truth is unknown: nothing at all — not the old "Reconnecting…", not
+    // "Not checked" (NR-38), not ready, not failed (law 3).
+    expect(row.value).toBe('');
+    expect(row.dot, 'no verdict colour either').toBe('o');
+    expect(row.html, 'the row itself is still there — only its value is empty').toContain(S.cap_stt_label);
+  });
+
+  it('a newer frame re-arms the deadline from ITS facts, and brings the cell back after a blank', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_000_000));
+    onEngineStatus(rung(1, { retry_max: 3, retry_in_ms: 1_000, attempt_timeout_ms: 5_000 }));
+    vi.setSystemTime(new Date(1_005_000));
+    onEngineStatus(rung(2, { retry_max: 3, retry_in_ms: 2_000, attempt_timeout_ms: 5_000 }));
+    vi.setSystemTime(new Date(1_006_500)); // past rung 1's deadline, inside rung 2's
+    fireTickForTest();
+    expect((await engineRow()).value).toBe(counted(2, 3));
+    vi.setSystemTime(new Date(1_012_000));
+    fireTickForTest();
+    expect((await engineRow()).value).toBe('');
+    onEngineStatus(rung(3, { retry_max: 3, retry_in_ms: 4_000, attempt_timeout_ms: 5_000 }));
+    expect((await engineRow()).value).toBe(counted(3, 3));
+  });
+
+  it('old relay (no timing facts): the fallback deadline is the ladder\'s derived worst case, from the last frame', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_000_000));
+    onEngineStatus(rung(1));
+    vi.setSystemTime(new Date(1_000_000 + ENGINE_RECONNECT_WORST_CASE_MS - 1));
+    fireTickForTest();
+    expect((await engineRow()).value).toBe(counted(1));
+    vi.setSystemTime(new Date(1_000_000 + ENGINE_RECONNECT_WORST_CASE_MS));
+    fireTickForTest();
+    expect((await engineRow()).value, 'an old relay\'s claim expires too').toBe('');
+  });
+
+  it('a new utterance does not blank a cell that holds a real verdict (only a stale reconnect goes blank)', async () => {
+    onEngineStatus({ provider: 'soniox', status: 'failed', retry_count: 3 });
+    fireRealAudioStartForTest({ mode: 'realtime' });
+    expect((await engineRow()).value).toBe(S.cap_stt_failed);
+    onEngineStatus({ provider: 'soniox', status: 'ready' });
+    fireAudioStopForTest();
+    expect((await engineRow()).value).toBe(S.cap_stt_ready);
+  });
+  it('the utterance stopping under a reconnect blanks the cell (its claim ended with the activity)', async () => {
+    onEngineStatus(rung(2, { retry_max: 3, retry_in_ms: 2_000, attempt_timeout_ms: 5_000 }));
+    fireAudioStopForTest();
+    expect((await engineRow()).value).toBe('');
+    onEngineStatus({ provider: 'soniox', status: 'failed', retry_count: 3 });
+    expect((await engineRow()).value, 'a give-up after release still shows').toBe(S.cap_stt_failed);
   });
 });

@@ -18,13 +18,20 @@
 import { describe, expect, it } from 'vitest';
 import {
   endsAtSentenceBoundary, seamText, segmentCutDecision, MIN_PAUSE_MS,
+  WORD_GAP_MIN_MS, WORD_GAP_CERTAIN_MIN_MS, type SegmentCutInput,
 } from '../src/stt/segment-boundary';
+
+/** card RC-4 made `wordGap` a REQUIRED input (null = 「not knowable」). The rows
+ *  below predate it and are about the other arms, so they go through this
+ *  adapter with the word gap unknown — what they assert did not change. */
+type PreRc4Input = Omit<SegmentCutInput, 'wordGap' | 'overdue'> & Partial<Pick<SegmentCutInput, 'wordGap' | 'overdue'>>;
+const decide = (i: PreRc4Input) => segmentCutDecision({ wordGap: null, overdue: null, ...i });
 
 /** The SEG-1 rows below were written against a `'cut' | 'wait'` verdict. SEG-3
  *  made the decision carry its REASON, so they read it through this adapter
  *  rather than being rewritten — what they assert did not change. */
-const segmentCutVerdict = (i: Parameters<typeof segmentCutDecision>[0]): 'cut' | 'wait' =>
-  segmentCutDecision(i).cut ? 'cut' : 'wait';
+const segmentCutVerdict = (i: PreRc4Input): 'cut' | 'wait' =>
+  decide(i).cut ? 'cut' : 'wait';
 
 /** 🔴 SEG-3 changed what "the gate is closed" means: an INSTANT reading became a
  *  measured silence run, because a breath closes the gate and does not end a
@@ -135,7 +142,7 @@ describe('SEG-3 §1 — a breath is not a sentence', () => {
 
 describe('SEG-3 §2 — the reason travels, because the repair depends on it', () => {
   it('a sentence the speaker finished is reported as such', () => {
-    expect(segmentCutDecision({ ...mid, confirmed: '说完了。', gateClosedMs: PAUSE }))
+    expect(decide({ ...mid, confirmed: '说完了。', gateClosedMs: PAUSE }))
       .toEqual({ cut: true, reason: 'sentence' });
   });
 
@@ -144,13 +151,13 @@ describe('SEG-3 §2 — the reason travels, because the repair depends on it', (
     // only; misreading this as 'pause' would add up to 800 ms to a row that
     // already had its terminator. (Fix C: both reasons now KEEP the mark, so
     // this row is no longer about seamText stripping.)
-    expect(segmentCutDecision({ ...mid, confirmed: '说完了。', gateClosedMs: 5_000 }).cut).toBe(true);
-    expect(segmentCutDecision({ ...mid, confirmed: '说完了。', gateClosedMs: 5_000 }))
+    expect(decide({ ...mid, confirmed: '说完了。', gateClosedMs: 5_000 }).cut).toBe(true);
+    expect(decide({ ...mid, confirmed: '说完了。', gateClosedMs: 5_000 }))
       .toEqual({ cut: true, reason: 'sentence' });
   });
 
   it('a mid-sentence, mid-speech chunk reports no cut at all', () => {
-    expect(segmentCutDecision({ due: true, confirmed: '还没说完', gateClosedMs: 0 }))
+    expect(decide({ due: true, confirmed: '还没说完', gateClosedMs: 0 }))
       .toEqual({ cut: false });
   });
 });
@@ -194,3 +201,53 @@ describe('SEG-3 §3 — the seam repair', () => {
 // and the wiring row:
 //   AssertionError: expected '没有标点也可以切，覆盖离线来了' to be '没有标点也可以切，覆盖离线来了。'
 // Restored; marker F2-FIXC-REVERSE-CONTROL grepped to 0 in src/.
+
+// ── card RC-4 (2026-09-24) — the third arm ─────────────────────────────────
+// CR-12-E: in rooms whose floor keeps the −45 dBFS gate open, and with Soniox's
+// finals arriving only on a flush, neither SEG arm fired and one recording was
+// one row (369 s). The third arm reads the engine's own word timestamps; it
+// needs BOTH numbers (`segment-pause.ts` `liveWordGap`): the whole gap, and the
+// part the vendor has already answered for.
+describe('RC-4 — three arms, exhaustively', () => {
+  const GAPS = {
+    unknown: null,
+    short: { ms: WORD_GAP_MIN_MS - 1, certainMs: WORD_GAP_MIN_MS - 1 },
+    uncertain: { ms: WORD_GAP_MIN_MS + 2_000, certainMs: WORD_GAP_CERTAIN_MIN_MS - 1 },
+    enough: { ms: WORD_GAP_MIN_MS, certainMs: WORD_GAP_CERTAIN_MIN_MS },
+  } as const;
+  for (const due of [false, true]) {
+    for (const sentence of [false, true]) {
+      for (const pause of [false, true]) {
+        for (const [gapName, wordGap] of Object.entries(GAPS)) {
+          for (const overdue of [null, 'gap', 'word_end'] as const) {
+            // card RC-4 follow-up — the overdue arm is last in the order.
+            const expected = !due ? { cut: false }
+              : sentence ? { cut: true, reason: 'sentence' }
+                : pause ? { cut: true, reason: 'pause' }
+                  : gapName === 'enough' ? { cut: true, reason: 'word_gap' }
+                    : overdue !== null ? { cut: true, reason: 'overdue' } : { cut: false };
+            it(`due=${due} sentence=${sentence} pause=${pause} wordGap=${gapName} overdue=${overdue} ⇒ ${expected.cut ? (expected as { reason: string }).reason : 'wait'}`, () => {
+              expect(segmentCutDecision({
+                due, confirmed: sentence ? '说完了。' : '还没说完', gateClosedMs: pause ? MIN_PAUSE_MS : MIN_PAUSE_MS - 1, wordGap, overdue,
+              })).toEqual(expected);
+            });
+          }
+        }
+      }
+    }
+  }
+
+  it('the two numbers are the ones the design names (3 s = owner\'s 「3 秒以上」; the certain part above the measured 1,320 ms lag)', () => {
+    expect(WORD_GAP_MIN_MS).toBe(3_000);
+    expect(WORD_GAP_CERTAIN_MIN_MS).toBe(2_000);
+    expect(WORD_GAP_CERTAIN_MIN_MS).toBeLessThan(WORD_GAP_MIN_MS);
+  });
+
+  it('KEEPS an engine-produced terminator on a word-gap cut — it is the speaker\'s pause, not a span we closed', () => {
+    expect(seamText('我在想。', 'word_gap')).toBe('我在想。');
+  });
+
+  it('KEEPS it on an overdue cut too — those tokens were finalised with their right context', () => {
+    expect(seamText('我在想。', 'overdue')).toBe('我在想。');
+  });
+});

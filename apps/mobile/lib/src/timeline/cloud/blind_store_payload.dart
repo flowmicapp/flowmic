@@ -1,6 +1,6 @@
 // E-CL — what a light record looks like INSIDE the envelope.
 //
-// SPEC-REF: docs/strategy/2026-08-08-design-e-blindstore-client.md §3.1
+// SPEC-REF: docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §3.1
 //   (「序列化为条目 JSON → AEAD 封装 → timeline:push」("serialize to entry JSON →
 //   AEAD-seal → timeline:push");「本卡只上行文本条目与元数据,
 //   不上行图片字节」("this card only uploads text entries and metadata, it does

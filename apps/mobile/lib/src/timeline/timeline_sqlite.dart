@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/08-MOBILE-SPEC.md §7 (local timeline table + loc_ idempotency
 //     key lineage, F-2367)
-//   docs/strategy/R7-V2-TASK-CARDS.md V2-06a-2 (incremental persistence + SQLite)
+//   docs/archive/strategy/R7-V2-TASK-CARDS.md V2-06a-2 (incremental persistence + SQLite)
 //
 // The timeline's real store.
 //
@@ -31,10 +31,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../diag/diag_log.dart';
+import '../mcp/mcp_schema.dart';
+import '../mcp/mcp_store.dart';
 import '../session/instance_machine_map.dart';
 import '../session/outbox_store.dart';
 import 'cloud/blind_store_cloud_state.dart';
 import 'owner_timeline_pager.dart';
+import 'local_record_persistence.dart';
 import 'timeline_entry.dart';
 import 'timeline_persistence.dart';
 
@@ -105,7 +108,7 @@ const String kTimelineDbFile = 'flowmic_timeline.db';
 /// existing row read, rewritten or dropped. It holds this device's belief about
 /// what its account's blind store contains, including the pending-tombstone set
 /// that design §4.1 requires to outlive the rows it is about.
-const int kTimelineDbVersion = 7;
+const int kTimelineDbVersion = 8;
 
 /// D13 ① — 「装了更老的 APK」("an older APK got installed") has an explicit answer instead of an accident.
 ///
@@ -261,6 +264,8 @@ Future<TimelineStorageOpen> openTimelinePersistence({
                 await _upgradeV6CreateBlindStoreCloudStateAsShipped(d);
               case 7:
                 await _upgradeV7AddTimelineArticleId(d);
+              case 8:
+                await installMcpSchemaV8(d);
             }
           }
         },
@@ -289,6 +294,10 @@ Future<TimelineStorageOpen> openTimelinePersistence({
     );
     final SqfliteTimelinePersistence store = SqfliteTimelinePersistence(db);
     final int imported = await _importOnce(db: db, prefs: prefs, legacy: legacy);
+    // A failed optional migration retries without dropping primary history to
+    // shared preferences. Its own diagnostic and settings state name failure.
+    await installMcpSchemaV8(db);
+    await store.mcp.initialize();
     return TimelineStorageOpen(
       persistence: store,
       kind: TimelineStorageKind.sqlite,
@@ -450,10 +459,38 @@ String _likeArg(String query) {
 }
 
 class SqfliteTimelinePersistence
-    implements TimelinePersistence, OwnerScopedTimelineSource {
-  SqfliteTimelinePersistence(this._db);
+    implements TimelinePersistence, OwnerScopedTimelineSource, LocalRecordPersistence {
+  SqfliteTimelinePersistence(this._db) : mcp = McpStore(_db);
 
   final Database _db;
+  final McpStore mcp;
+  Future<void> _mcpWrites = Future<void>.value();
+
+  @override
+  Future<void> saveLocalRecord(TimelineEntry entry, {required LocalRecordSource source}) async {
+    final Map<String, int> targets = mcp.armedTargets;
+    final Future<void> localWrite = upsert(entry);
+    // Separate chains: optional bookkeeping never holds the next local write.
+    // Birth and content-ready bookkeeping still preserve their invocation order.
+    final Future<void> registration = _mcpWrites.then((_) async {
+      await localWrite;
+      try {
+        await mcp.recordLocal(entry, source: source, targets: targets);
+      } on Object {
+        await mcp.markUnavailable('register_local');
+      }
+    });
+    _mcpWrites = registration.catchError((Object _) {});
+    await localWrite;
+    await registration;
+  }
+
+  @override
+  Future<void> forgetSubmissionRecords(Iterable<String> entryIds) async {
+    await _mcpWrites;
+    try { await mcp.forget(entryIds); }
+    on Object { await mcp.markUnavailable('reap'); }
+  }
 
   /// Serialises writes. The store issues `upsert`/`delete` fire-and-forget in
   /// mutation order; without this, two writes to the SAME id could interleave
@@ -546,8 +583,11 @@ class SqfliteTimelinePersistence
     );
   }
 
+  /// [limit] counts ROWS, and one recording can own dozens of matching rows,
+  /// so it sits well above the 200 RESULTS a screen shows after grouping
+  /// (`kSearchResultLimit`, search_hits.dart).
   @override
-  Future<List<TimelineEntry>> search(String query, {int limit = 200}) {
+  Future<List<TimelineEntry>> search(String query, {int limit = 1000}) {
     if (query.trim().isEmpty) return Future<List<TimelineEntry>>.value(<TimelineEntry>[]);
     return _decode(
       _db.query(

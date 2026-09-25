@@ -3,7 +3,7 @@
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.8; the server side is
 //   apps/server-core/src/socket/handlers/timeline.handler.ts and
 //   apps/server-core/src/db/repos/timeline.repo.ts;
-//   docs/strategy/2026-08-08-design-e-blindstore-client.md §3.1 / §3.2 / §4.
+//   docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §3.1 / §3.2 / §4.
 //
 // 🔴 THIS FILE IS THE ONLY PLACE IN THE PHONE THAT PUTS A `ciphertext` ON THE
 // WIRE, and verify/lint/timeline-e2e-prefix.mjs enforces that it stays the only

@@ -1,9 +1,9 @@
 // A2-4 (2026-08-12) — the cross-account USER LIST (`/api/ops/users` and its
 // single-account read).
 //
-// SPEC-REF: docs/strategy/2026-08-02-o3-user-management-final.md §3 R1/R2 (THE
+// SPEC-REF: docs/archive/strategy/2026-08-02-o3-user-management-final.md §3 R1/R2 (THE
 //             contract this implements)
-//           docs/strategy/2026-08-12-req1207-admin-user-management-design.md §2
+//           docs/archive/strategy/2026-08-12-req1207-admin-user-management-design.md §2
 //             (§2.1 the contract, §2.2 the two mines, §2.3 why 「login information」 is not
 //             here, §2.4 why USAGE is not here)
 //           src/http/ops-user-routes.ts / src/db/repos/user.repo.ts `toOpsUser`

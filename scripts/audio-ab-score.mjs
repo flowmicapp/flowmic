@@ -4,7 +4,7 @@
 // RECOGNITION-LAYER hypothesis (what an STT engine returned for a .wav) against
 // the reference script that was actually read aloud. That is a different layer
 // from `verify/eval/`, whose cases are *already-transcribed text* — as
-// docs/strategy/2026-08-07-rt6-soniox-tradeoff-cards.md says three separate
+// docs/archive/strategy/2026-08-07-rt6-soniox-tradeoff-cards.md says three separate
 // times, the existing corpus "can confirm endpoint-detection didn't make the
 // downstream pipeline worse, but proving the ASR layer itself didn't lose a word
 // needs an audio-based A/B". This file is that missing layer, not a replacement

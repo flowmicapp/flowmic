@@ -83,11 +83,36 @@ extension PttSessionInbound on PttSession {
       diag('ptt.cancel.frame_dropped', <String, Object?>{'event': env.name});
       return;
     }
+    // Follow-up (MAIN 2026-09-24) — a recovery attempt that yielded to a live
+    // press still has frames in flight: everything the relay produced for it
+    // precedes the acknowledgement of its discarding `audio:stop` (ptt_backfill
+    // .dart `yieldRecoveryForLive`). Until that ack, a transcript frame is the
+    // yielded attempt's — its segment finals carry no receipt that could say
+    // so, and would otherwise be filed under the live press.
+    // ⚠️ 更正（Codex rc3 ⑤，2026-09-24）：原为 transcript frames only. A yielded
+    // attempt that was already flushing can also send its terminal `stt:error`
+    // (a flush cap) and engine-status frames in that window, and neither names
+    // its session: the error stopped the new long recording. Every stt frame
+    // before the ack is the yielded session's.
+    if (articles.attempts.discardingYieldedFrames &&
+        (_isAbortableTranscriptFrame(env.name) ||
+            env.name == FlowMicEvents.sttError ||
+            env.name == FlowMicEvents.sttEngineStatus)) {
+      diag('ptt.yielded.frame_dropped', <String, Object?>{'event': env.name});
+      return;
+    }
     switch (env.name) {
       case FlowMicEvents.sttInterim:
+        // NR-96-B — transcript text only comes from a live engine leg, so the
+        // engine-reconnect chip ends here (engine_reconnect_state.dart). RC-3:
+        // a draft also clears `engineDown`; a final does not (see that file).
+        engineReconnect.noteInterimFrame();
+        fsm.onSttActivity(); // RC-M — the relay is still answering
         stt.onInterim(data);
         final SttInterim? p = SttInterim.tryFromJson(data);
         if (p != null) {
+          // RC-L — how far the relay has answered, as a capture position.
+          _noteAnsweredForArticle(p.ackedAudioMs);
           segments.put(idx: p.segmentIdx, text: p.text);
           // N1-B3: retained audio is keyed by the segment the SERVER delimited,
           // and inbound stt frames are the only place this device learns it.
@@ -99,8 +124,26 @@ extension PttSessionInbound on PttSession {
         }
         break;
       case FlowMicEvents.sttFinal:
+        engineReconnect.noteContentFrame(); // NR-96-B, see the interim arm
         stt.onFinal(data);
         final SttFinal? p = SttFinal.tryFromJson(data);
+        // 🔴 RC-N — a terminal final whose receipt names ANOTHER session than
+        // the one open on the wire (S5: the live stop's final arriving while a
+        // recovery attempt is open). It must not write into the open session's
+        // segment buffer and must not close its PROCESSING — that would hand
+        // the recovery a live receipt. The chat layer settles it on its own
+        // (`chat_utterance_owner.dart`).
+        if (p != null &&
+            !p.isSegment &&
+            articles.attempts.isForeignEcho(p.coverage?.attemptId,
+                liveAttemptId: audio.retainedAudio?.liveAttempt?.attemptId)) {
+          diag('stt.final.foreign_session', <String, Object?>{
+            'attempt_id': p.coverage?.attemptId,
+            'wire_attempt_id': articles.attempts.wireAttemptId,
+          });
+          break;
+        }
+        if (p != null && p.isSegment) fsm.onSttActivity(); // RC-M
         if (p != null) {
           // 🔴 REG-D1 — the duration rides in on the SAME frame that closes the
           // span, and this is the only place it can be banked. `24b75cc` made
@@ -156,7 +199,16 @@ extension PttSessionInbound on PttSession {
         //   RECORDING latches the error until the press ends, PROCESSING stalls
         //   immediately, everything else is refused (see onSttTerminalError).
         final SttError? e = SttError.tryFromJson(data);
-        if (e != null && !e.retryable) {
+        // Card RC4-S5 — BEFORE the FSM closes PROCESSING: the terminal final
+        // follows this frame, and its settle must find the tail already owed.
+        // Follow-up (MAIN ruling): an owed stretch of a long recording does not
+        // reach the FSM at all — no 「say that part again」 banner (the app
+        // recovers it; the article page's pending line says so), and PROCESSING
+        // waits for the final that follows. Push-to-talk keeps the banner.
+        final bool owed = e != null && _oweUnheardTail(e);
+        if (owed) {
+          diag('stt.error.owed_not_shown', <String, Object?>{'code': e.code});
+        } else if (e != null && !e.retryable) {
           fsm.onSttTerminalError(
             code: e.code,
             message: e.message,
@@ -209,7 +261,15 @@ extension PttSessionInbound on PttSession {
       // received**, not backfilled when the sheet opens — the backfilled
       // version answers 「who is connected right now」, not 「who did that
       // observation belong to」.
+      //
+      // NR-96-B — the same frame, second reader: the recording screens' 「attempt
+      // n」. Its own store rather than a field on the one above, because that
+      // store is scoped to the LAN diagnostics sheet (P-8) and answers 「what
+      // did the engine say last time」, not 「is it being re-dialled now」.
       case FlowMicEvents.sttEngineStatus:
+        engineReconnect.observeStatusFrame(data);
+        fsm.onSttActivity(); // RC-M — the relay is still working on it
+        _noteEngineStatusForArticle(data); // RC-3b — ptt_capture_pump.dart
         engineStatus.observeFrame(
           data,
           channelIsLan: serverChannel.value == ServerChannel.lan,
@@ -276,7 +336,7 @@ extension PttSessionInbound on PttSession {
         // and the terminal final then drives PROCESSING → JUST_DONE → IDLE with
         // the transcribed content preserved. No-op if we were not recording (the
         // cap can also fire on a disconnect edge).
-        fsm.onPttUp();
+        fsm.onPttUp(netAtLeast: _longStopNet()); // RC4-S5 follow-up — a long recording's net
         // 🔴 W8-3 — THE EMIT IS RECORDED, AND `has_listener` IS WHY.
         //
         // The 2026-08-10 real-device round measured a 5-minute cap that ended

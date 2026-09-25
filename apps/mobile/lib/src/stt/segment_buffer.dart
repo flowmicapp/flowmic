@@ -267,7 +267,7 @@ class SegmentBuffer {
   /// DELETED REAL SPEECH, measured four times on this source (the four rows are
   /// pinned in `test/segment_buffer_test.dart`, group 「W2.5-H」, and were first
   /// measured by the previous window — ledger
-  /// docs/strategy/2026-08-06-w25-closing-the-two-red-lines-ledger.md §4.3
+  /// docs/archive/strategy/2026-08-06-w25-closing-the-two-red-lines-ledger.md §4.3
   /// in-place-correction block (原地更正块):
   ///   「这个方案我觉得可以」("I think this plan works")+「可以的话我们下周开始。」
   ///     ("if that works, we'll start next week.") → 「可以」("works") gone

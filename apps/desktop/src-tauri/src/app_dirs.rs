@@ -41,13 +41,13 @@
 //!
 //! A migration would only be needed if some macOS user already has data under
 //! `$TMPDIR`. Nobody does: the first macOS `.app` was built on 2026-08-06 and
-//! **was never launched** — see `docs/strategy/2026-08-06-macmini-onboarding-findings.md`
+//! **was never launched** — see `docs/archive/strategy/2026-08-06-macmini-onboarding-findings.md`
 //! §5, which states in as many words 「没有验证它能跑起来 …没有启动过 `.app`」
 //! ("never verified it can run ... never launched the `.app`").
 //! ⇒ There is no on-disk state to move. Writing a migration for it would be
 //! inventing a recovery path for a state no machine is in.
 //!
-//! # Linux is knowingly NOT fixed here — open account
+//! # Linux was knowingly NOT fixed by MAC-01 — historical open account
 //!
 //! Linux still lands on the `temp_dir()` fallback. That is the same defect this
 //! module fixes for macOS, and a Linux portable build IS a standing owner ruling
@@ -57,8 +57,21 @@
 //! guess. Registered as an open account in the W3 ledger. The shape of the fix is
 //! known (`$XDG_DATA_HOME` else `~/.local/share`), which is exactly why it should be
 //! done by someone who can watch it work.
+//!
+//! L-1 (2026-09-21) closes that directory account: Linux data, configuration,
+//! diagnostic state and the instance lock have separate XDG roles. The legacy
+//! roaming/local accessors below remain for existing callers; both carry data
+//! on Linux. Locale persistence calls config_home, forensics calls state_home,
+//! and single_instance calls instance_home. No old temporary files are deleted.
 
 use std::path::PathBuf;
+
+#[cfg(target_os = "linux")]
+mod linux;
+
+#[cfg(windows)]
+#[cfg(test)]
+mod windows_tests;
 
 /// The app-data name used on every platform. One constant so a rename cannot land
 /// on some directories and miss others.
@@ -76,13 +89,16 @@ fn macos_app_support() -> Option<PathBuf> {
     Some(PathBuf::from(home).join("Library").join("Application Support"))
 }
 
-/// The ROAMING-role home: parent of the standalone DB, the standalone secret, the
-/// instance lock and the UI locale file. Passed to the sidecar as `FLOWMIC_HOME`.
+/// The legacy ROAMING-role home: standalone DB and secret, passed to the sidecar
+/// as FLOWMIC_HOME. Linux locale and lock consumers now use their own roles.
 ///
 /// - Windows: `%APPDATA%\FlowMic` (unchanged — this is the shipped behaviour).
 /// - macOS: `~/Library/Application Support/FlowMic`.
-/// - Anything else, or a stripped env: the temp-dir fallback that was here before.
+/// - Linux: XDG data, requiring validated storage at production startup.
+/// - Other platforms, or stripped Windows/macOS env: the historical temp fallback.
 pub fn roaming_home() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    { linux::required(linux::Role::Data) }
     #[cfg(windows)]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
@@ -95,16 +111,21 @@ pub fn roaming_home() -> PathBuf {
             return base.join(APP_DIR_NAME);
         }
     }
-    std::env::temp_dir().join(APP_DIR_NAME)
+    #[cfg(not(target_os = "linux"))]
+    { std::env::temp_dir().join(APP_DIR_NAME) }
 }
 
-/// The LOCAL-role home: parent of the forensic log and the credential blob.
+/// The legacy LOCAL-role home: credential blob and existing persistent local
+/// data. Linux forensics now uses state_home separately.
 ///
 /// - Windows: `%LOCALAPPDATA%\FlowMic` (unchanged — this is the shipped behaviour).
 /// - macOS: `~/Library/Application Support/FlowMic` — same dir as `roaming_home`,
 ///   see the module header.
-/// - Anything else, or a stripped env: the temp-dir fallback that was here before.
+/// - Linux: XDG data, requiring validated storage at production startup.
+/// - Other platforms, or stripped Windows/macOS env: the historical temp fallback.
 pub fn local_home() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    { linux::required(linux::Role::Data) }
     #[cfg(windows)]
     {
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
@@ -117,7 +138,42 @@ pub fn local_home() -> PathBuf {
             return base.join(APP_DIR_NAME);
         }
     }
-    std::env::temp_dir().join(APP_DIR_NAME)
+    #[cfg(not(target_os = "linux"))]
+    { std::env::temp_dir().join(APP_DIR_NAME) }
+}
+
+/// Check all persistent roles before startup initializes any consumer. Linux
+/// refuses a stripped environment by name rather than inventing a temporary home.
+pub fn validate_environment() -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    { linux::initialize()?; }
+    Ok(())
+}
+
+/// User choices, currently the locale mirrored from the WebView.
+pub fn config_home() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    { linux::required(linux::Role::Config) }
+    #[cfg(not(target_os = "linux"))]
+    { roaming_home() }
+}
+
+/// Diagnostic state. Fallible so forensic initialization can report a missing
+/// home on stderr without panicking or changing the main flow's outcome.
+pub fn state_home() -> std::io::Result<PathBuf> {
+    #[cfg(target_os = "linux")]
+    { linux::current(linux::Role::State) }
+    #[cfg(not(target_os = "linux"))]
+    { Ok(local_home()) }
+}
+
+/// Lock identity: Linux runtime directory, falling back to persistent state.
+/// Windows/macOS retain the exact old path (Windows production uses a mutex).
+pub fn instance_home() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    { linux::required(linux::Role::Runtime) }
+    #[cfg(not(target_os = "linux"))]
+    { roaming_home() }
 }
 
 #[cfg(test)]

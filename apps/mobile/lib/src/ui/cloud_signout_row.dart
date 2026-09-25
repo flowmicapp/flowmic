@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l3-account-card-design.md §5 (the phone settings
+//   docs/archive/strategy/2026-08-02-l3-account-card-design.md §5 (the phone settings
 //     page's cloud block)
 //   owner 2026-08-02 form ruling:「设置页那一块不放退出本身，而是放一个『前往…』的
 //     跳转按钮 ⇒ 危险动作只有一个落点」("the settings-page block does not host

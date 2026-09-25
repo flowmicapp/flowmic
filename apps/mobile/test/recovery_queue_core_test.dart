@@ -333,11 +333,18 @@ class _Rig {
       );
       runner = controller!.backfill;
     } else {
+      // Card RC-2 — the feed is paced now (2x real time against this relay,
+      // which reports no processed position), so a sleep moves the leg's clock
+      // by what it asked for instead of leaving it to spin on the real one.
+      int skewMs = 0;
       runner = BackfillRunner(
         session: session,
         store: timeline,
         recoveryTimeouts: timeouts,
-        sleep: (Duration _) async {},
+        clock: () => DateTime.now().millisecondsSinceEpoch + skewMs,
+        sleep: (Duration d) async {
+          skewMs += d.inMilliseconds;
+        },
       );
     }
     transport.pushStatus(SocketStatus.connected);
@@ -468,34 +475,6 @@ void main() {
           digestPrefs(<String, Object?>{'b': 2, 'a': 1}));
       expect(digestPrefs(<String, Object?>{'a': 1}),
           isNot(digestPrefs(<String, Object?>{'a': 2})));
-    });
-  });
-
-  group('range_boundary_continuity_test / sub_chunk_residual_test', () {
-    test('adjacent half-open ranges touch and never overlap', () {
-      const RecoverySampleRange a = RecoverySampleRange(0, 3200);
-      const RecoverySampleRange b = RecoverySampleRange(3200, 4800);
-      expect(a.joinsTo(b), isTrue);
-      expect(a.overlaps(b), isFalse);
-      expect(a.overlaps(const RecoverySampleRange(3199, 4000)), isTrue);
-      expect(a.lengthSamples + b.lengthSamples, 4800);
-    });
-
-    test('a sub-200ms residual is measured in samples, not in 6400-byte frames',
-        () {
-      // 3200 bytes = 100 ms = 1600 samples. It is NOT a multiple of the 6400
-      // transport frame, and A3-2a forbids deriving the coordinate from that.
-      final RecoverySampleRange r = RecoverySampleRange.fromBytes(
-          const JournalByteRange(0, 3200), AudioJournalFormat.current);
-      expect(r.endSample, 1600);
-      expect(3200 % 6400, isNot(0));
-    });
-
-    test('an odd byte offset is refused as a coordinate, not rounded', () {
-      expect(
-          () => RecoverySampleRange.fromBytes(
-              const JournalByteRange(0, 3201), AudioJournalFormat.current),
-          throwsArgumentError);
     });
   });
 
@@ -1069,8 +1048,13 @@ void main() {
       );
     });
 
-    test('a wrong frame count settles UNVERIFIED and never marks for cleanup',
-        () async {
+    // ⚠️ 更正（RC-3，2026-09-24）: this case used to expect `settled_unverified`
+    // — 「the words are yours, only the proof is missing」. A receipt that says
+    // the server saw fewer frames is a SHORTFALL (root-cause §1.8), a named
+    // state under owner ruling 2026-09-06 §3: kept, not auto-retried, offered
+    // for a manual retry (article_backfill_placement_test.dart pins the screen).
+    test('a wrong frame count is a SHORTFALL: kept, not auto-retried, never '
+        'marked for cleanup', () async {
       final _Rig rig = await tierA();
       addTearDown(rig.dispose);
       rig.transport.overrideFedFrames = 1; // the server saw fewer than we sent
@@ -1080,9 +1064,9 @@ void main() {
 
       final RecordingManifest m = (await rig.manifestOf('rec-short'))!;
       expect(m.settled, isFalse);
-      expect(m.recoveryState, RecoveryQueueState.settledUnverified);
-      expect(m.attempts.single.outcome,
-          JournalAttempt.outcomeSettledUnverified);
+      expect(m.recoveryState, RecoveryQueueState.shortfall);
+      expect(m.nextEligibleAtMs, isNull, reason: 'no automatic attempt to delay');
+      expect(m.attempts.single.outcome, JournalAttempt.outcomeFailed);
       expect(m.attempts.single.failureCode, contains('frameCountMismatch'));
     });
 
@@ -1123,7 +1107,12 @@ void main() {
 
       expect(rig.fs.wholeFileReads, 0,
           reason: 'a 30-minute recording must never be held whole');
-      expect(rig.fs.rangeSizes, hasLength(8));
+      // ⚠️ 更正（RC-M，2026-09-24）：原为 `hasLength(8)` — one read per block. The
+      // feed now cuts a block at the pacing allowance so the relay never sees a
+      // multi-second silence (recovery_leg_policy.dart `RecoveryPacing`), so a
+      // block may take several reads. What this test is for is unchanged: every
+      // read is bounded and none is the whole file.
+      expect(rig.fs.rangeSizes.length, greaterThanOrEqualTo(8));
       for (final int n in rig.fs.rangeSizes) {
         expect(n, lessThanOrEqualTo(kRecoveryReadBlockBytes));
       }

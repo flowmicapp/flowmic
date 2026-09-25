@@ -3,7 +3,7 @@
 //
 // WHY IT HAD TO BE END-TO-END. The whole card exists because a NUMBER was
 // asserted from constants: "an ordinary /24 (256 addresses) can try
-// 12,800 times in 5 minutes combined" (docs/strategy/2026-08-06-it39-pairing-bruteforce-proposal.md),
+// 12,800 times in 5 minutes combined" (docs/archive/strategy/2026-08-06-it39-pairing-bruteforce-proposal.md),
 // with that same document admitting "the numbers above are measured constants + arithmetic; no end-to-end
 // blast experiment was run; do not read this as 'proven to punch through'". A unit test over PairRateLimiter cannot close
 // that: it measures the limiter, and the claim is about what the SERVER lets a

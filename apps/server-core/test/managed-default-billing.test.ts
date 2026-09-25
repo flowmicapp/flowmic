@@ -1,5 +1,5 @@
 // 🔴 T7 acceptance — "who supplied the key", not "whether there is a key".
-//   docs/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0f
+//   docs/archive/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0f
 //
 // The bug: `managed-default.ts` copies FLOWMIC_MANAGED_STT_API_KEY onto the
 // platform routing, and `resolveByok` used to answer TRUE for any non-empty key
@@ -277,6 +277,7 @@ describe('T7-b — the LLM meter must read the LLM key, not the STT key', () => 
     } as never);
 
     await new Promise((r) => setTimeout(r, 5));
+    bridge.pushChunk(0, Buffer.alloc(6_400).toString('base64'), 0); // card HANGUP-3: a leg handed no audio is not flushed at release
     eng.finalOnFlush = '你好';
     await bridge.finish();
 

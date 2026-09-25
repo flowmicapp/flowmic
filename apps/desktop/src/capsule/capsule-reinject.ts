@@ -88,7 +88,7 @@ export function canReinjectLine(l: Pick<RecentLine, 'entryType' | 'text' | 'full
  *  `ReinjectVerdict` (lib/timeline-store.ts) plus the two things only this side
  *  can observe: nobody answered, and the request never left. */
 export type ReinjectReply =
-  | { ran: true; status: HistoryStatus }
+  | { ran: true; status: HistoryStatus; errorCode?: string | null }
   | { ran: false; reason: 'no-such-row' | 'not-a-transcript' | 'nothing-typed' };
 
 /** The three faces the row's icon can wear after a click.
@@ -114,6 +114,7 @@ export interface ReinjectFeedback {
   icon: 'check' | 'alert' | 'x';
   /** Which status word to caption with, when there is one (`warn` and `ok`). */
   status: HistoryStatus | null;
+  errorCode?: string | null;
   /** Which failure this was, when nothing was typed. */
   reason: 'no-such-row' | 'not-a-transcript' | 'nothing-typed' | 'timeout' | 'not-sent' | null;
 }
@@ -134,7 +135,7 @@ export function reinjectFeedback(reply: ReinjectReply | null | 'not-sent'): Rein
   if (!reply.ran) return { tone: 'err', icon: 'x', status: null, reason: reply.reason };
   return reply.status === 'injected'
     ? { tone: 'ok', icon: 'check', status: 'injected', reason: null }
-    : { tone: 'warn', icon: 'alert', status: reply.status, reason: null };
+    : { tone: 'warn', icon: 'alert', status: reply.status, reason: null, ...(reply.errorCode ? {errorCode: reply.errorCode} : {}) };
 }
 
 /** Narrow whatever arrived on the reply event. An unrecognised shape becomes
@@ -142,11 +143,11 @@ export function reinjectFeedback(reply: ReinjectReply | null | 'not-sent'): Rein
  *  what it is — rather than being coerced into a success or a specific failure. */
 export function parseReinjectReply(p: unknown): ReinjectReply | null {
   if (p === null || typeof p !== 'object') return null;
-  const o = p as { ran?: unknown; status?: unknown; reason?: unknown };
+  const o = p as { ran?: unknown; status?: unknown; reason?: unknown; errorCode?: unknown };
   if (o.ran === true) {
     return typeof o.status === 'string' &&
       (['injected', 'cached', 'failed', 'noted'] as const).includes(o.status as HistoryStatus)
-      ? { ran: true, status: o.status as HistoryStatus }
+      ? { ran: true, status: o.status as HistoryStatus, ...(typeof o.errorCode === 'string' ? {errorCode: o.errorCode} : {}) }
       : null;
   }
   if (o.ran === false) {

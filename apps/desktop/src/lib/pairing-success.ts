@@ -2,7 +2,7 @@
 // you are holding up to this QR just paired」.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-25-owner-rulings-and-execution-plan.md §3-4 (design:
+//   docs/archive/strategy/2026-08-25-owner-rulings-and-execution-plan.md §3-4 (design:
 //     identity diff, not a count; null device_uid ⇒ count fallback, criterion
 //     recorded; success shown ~1 s before the modal closes; the new row flashes)
 //   lib/paired-mobiles.ts `PairedMobile.device_uid` (v0.2.4 machine identity)

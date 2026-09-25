@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 (pin the SPKI,
+//   docs/archive/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 (pin the SPKI,
 //     not the certificate), §4-1 (the QR key `fp=`)
 //   apps/server-core/src/lan-tls/fingerprint.ts — THE OTHER IMPLEMENTATION
 //   apps/server-core/src/lan-tls/x509.ts — the certificate this walks

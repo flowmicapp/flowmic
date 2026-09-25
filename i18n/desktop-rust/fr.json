@@ -24,5 +24,6 @@
   "AutostartEnabledButOff": "L'entrée de démarrage a été écrite, mais le système la signale comme désactivée (elle a pu être désactivée dans l'onglet Démarrage du Gestionnaire des tâches)",
   "AutostartStillEnabled": "Après la suppression, le système signale toujours le démarrage automatique comme activé — la suppression n'a pas pris effet",
   "AutostartRegOpenFailed": "Échec de l'ouverture de la clé de registre de démarrage : {detail}",
-  "AutostartRewriteFailed": "Échec de la réécriture de l'entrée de démarrage avec un chemin entre guillemets : {detail}"
+  "AutostartRewriteFailed": "Échec de la réécriture de l'entrée de démarrage avec un chemin entre guillemets : {detail}",
+  "LinuxCapsuleUnavailable": "La capsule n'est pas disponible dans cette session de bureau. La fenêtre principale est ouverte."
 }

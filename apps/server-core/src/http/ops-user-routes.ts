@@ -1,11 +1,11 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-o3-user-management-final.md §3 R1/R2 (THE contract
+//   docs/archive/strategy/2026-08-02-o3-user-management-final.md §3 R1/R2 (THE contract
 //     — change discipline: edit that document first, then this file and the
 //     tests)
-//   docs/strategy/2026-08-12-req1207-admin-user-management-design.md §2
+//   docs/archive/strategy/2026-08-12-req1207-admin-user-management-design.md §2
 //     (the read-only half; read that file's CORRECTION HEADER first — owner
 //     overturned the ban mechanism, and `suspended_at` is now `restricted_at`)
-//   docs/strategy/2026-08-12-a2-3-restricted-use-design.md §8 (what A2-4 inherits
+//   docs/archive/strategy/2026-08-12-a2-3-restricted-use-design.md §8 (what A2-4 inherits
 //     unchanged, and the one rename it inherits)
 //   src/db/repos/user.repo.ts `toOpsUser` (THE whitelist) and `listPage` (the page)
 //   src/http/ops-audit-trail.ts `adminGate` (O-1 gate + audit trail)
@@ -74,7 +74,7 @@
 //
 // Both routes below now carry `plan_resolved_now` (`OpsPlanResolution`,
 // defined further down). 🔴 THE LIST ROUTE TOO — which
-// docs/strategy/2026-08-02-o3-user-management-final.md §3 R1 explicitly rules
+// docs/archive/strategy/2026-08-02-o3-user-management-final.md §3 R1 explicitly rules
 // out: 「列表刻意不含 plan…循环调 getPlan 就是 M2-8 的字面形状」(the list
 // deliberately excludes it, because looping `getPlan` is M2-8's literal
 // shape). That rule's REASON was the per-row WRITE — a list is a loop, and

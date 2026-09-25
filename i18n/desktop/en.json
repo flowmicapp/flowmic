@@ -23,6 +23,8 @@
     "cap_stt_loading": "'Loading model…'",
     "cap_stt_ready": "'Ready'",
     "cap_stt_reconnecting": "'Reconnecting…'",
+    "cap_stt_reconnecting_n": "'Reconnecting · try {n}'",
+    "cap_stt_reconnecting_n_of": "'Reconnecting · try {n}/{max}'",
     "cap_stt_unknown": "'Not checked'",
     "cap_target_dash": "'—'",
     "cap_target_none": "'No target locked'",
@@ -713,6 +715,10 @@
     "win_close": "'Close'",
     "win_maximize": "'Maximize'",
     "win_minimize": "'Minimize'",
-    "win_restore": "'Restore'"
+    "win_restore": "'Restore'",
+    "st_uncertain": "'Input uncertain'",
+    "injectFailReason.INJECT_WAYLAND_UNSUPPORTED": "'Cannot type into other windows'",
+    "injectFailReason.INJECT_DISPLAY_UNAVAILABLE": "'Cannot type in this display environment'",
+    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'Part of the text may already be typed.'"
   }
 }

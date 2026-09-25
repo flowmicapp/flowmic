@@ -3,7 +3,7 @@
 //     （永不遮挡 caret）→ 记忆拖动位 → 顶部居中」
 //     ("Capsule placement: caret-anchored + multi-monitor flip/clamp (never
 //     occludes the caret) → remembered drag position → top-center")
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md §0 D1 (owner ruling: caret-anchored) / §2 T-1
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md §0 D1 (owner ruling: caret-anchored) / §2 T-1
 //   docs/rebuild/07-DESKTOP-SPEC.md §4 (capsule first-surface placement)
 //
 // Foreground caret geometry via Win32 `GetGUIThreadInfo`. Deliberately tauri-free
@@ -71,7 +71,7 @@ pub fn foreground_caret() -> Option<CaretSnapshot> {
             // 🔴 This used to read 「e.g. an elevated foreground process we may not
             // query」. Measured false 2026-08-02: a genuinely Medium-integrity
             // process reads a High-integrity target's GUITHREADINFO fine
-            // (`docs/strategy/2026-08-02-f1b-universal-focus-probe-matrix.md` §2.2 ①).
+            // (`docs/archive/strategy/2026-08-02-f1b-universal-focus-probe-matrix.md` §2.2 ①).
             // We do not know why it failed, so we no longer name a reason — the
             // caret is simply unknown and the caller falls back. anti-façade ④.
             return None;

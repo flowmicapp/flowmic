@@ -88,6 +88,17 @@ class RecoveryQueueState {
   /// the words are already rows.
   static const String settledUnverified = 'settled_unverified';
 
+  /// Card RC-3 — a recovery attempt came back with words on a coverage receipt
+  /// that says it fell SHORT of the range (pin mismatch, frame count, gaps or
+  /// drops, not ended normally). A named state UNDER owner ruling
+  /// 2026-09-06 §3, not an exception to it: kept, NOT auto-retried (without a
+  /// stable operation id every automatic retry would re-bill the range), and
+  /// — unlike [settledUnverified], whose words are already complete — offered
+  /// to the user for a manual retry, because words ARE still owed. A manual
+  /// retry that succeeds replaces the partial rows of that range
+  /// (recovery_leg_settle.dart).
+  static const String shortfall = 'shortfall';
+
   /// Card LK-1 — the press transcribed, the row was read back, and the ONLY
   /// thing missing is a coverage receipt this server does not know how to
   /// issue.
@@ -117,6 +128,7 @@ class RecoveryQueueState {
     awaitingServerCapability,
     needsManual,
     settledUnverified,
+    shortfall,
     transcribedUnverified,
     settled,
   };
@@ -151,9 +163,26 @@ class RecoveryJobStatus {
   /// Derive from a manifest. Counts only [RecoveryAttemptKind.autoRetry]
   /// records that FAILED - a user's own retry never spends the automatic
   /// budget, and a successful attempt is not a failure to back off from.
+  ///
+  /// Codex rc2 ④ — counted SINCE THE LAST ATTEMPT THAT REACHED A CONCLUSION.
+  /// A recording that owes several stretches (card RC-K) recovers them one
+  /// after another, and each is its own job (the range is part of the job id):
+  /// stretch A failing four times and then settling left stretch B one failure
+  /// from `needs_manual`. A single-range recording is never attempted
+  /// automatically after a conclusion, so for it nothing changes — and the
+  /// reset only applies once a stretch has been marked done (the fact that a
+  /// conclusion was followed by ANOTHER stretch), which a single-range
+  /// manifest never carries.
   factory RecoveryJobStatus.fromManifest(RecordingManifest m) {
+    final bool stretched = m.owedRanges.any((OwedRange o) => o.done != null);
     int failed = 0;
     for (final JournalAttempt a in m.attempts) {
+      if (stretched &&
+          (a.outcome == JournalAttempt.outcomeSettled ||
+              a.outcome == JournalAttempt.outcomeSettledUnverified)) {
+        failed = 0;
+        continue;
+      }
       if (a.kind == RecoveryAttemptKind.autoRetry.wire &&
           a.outcome != null &&
           a.outcome != JournalAttempt.outcomeSettled &&
@@ -190,7 +219,9 @@ class RecoveryJobStatus {
   /// question and asking it twice is how two answers appear.
   bool mayAutoAttemptAt(int nowMs) {
     if (RecoveryQueueState.isTerminalSettle(state) ||
-        state == RecoveryQueueState.needsManual) {
+        state == RecoveryQueueState.needsManual ||
+        // RC-3 — owner ruling 2026-09-06 §3: no automatic re-transcription.
+        state == RecoveryQueueState.shortfall) {
       return false;
     }
     if (budgetExhausted) return false;

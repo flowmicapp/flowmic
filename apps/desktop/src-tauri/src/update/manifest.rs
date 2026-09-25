@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §1.2 (the payload) / §2.2 (the three gates)
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §1.2 (the payload) / §2.2 (the three gates)
 //   apps/server-core/src/http/update-routes.ts — `validateUpdateManifest`, the
 //     TypeScript half of this same contract. THAT FILE IS THE CONTRACT; this one
 //     mirrors it.

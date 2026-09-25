@@ -2,7 +2,7 @@
 //
 // SPEC-REF: docs/rebuild/05-DATA-MODEL.md §2 (「同口令重输（主路径，本地验证 blob
 //   `AES-GCM(MasterKey,'flowmic-e2ee-v1')`，服务端不参与判定）」);
-//   docs/strategy/2026-08-08-design-e-blindstore-client.md §2.1.
+//   docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §2.1.
 //
 // The property under test is not "AES works" — the envelope suite owns that. It
 // is that a second device can tell "this passphrase is wrong" apart from "the cloud is empty"

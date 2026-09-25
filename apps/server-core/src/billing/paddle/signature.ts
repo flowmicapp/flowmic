@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.2 (this signature —
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.2 (this signature —
 //     the type and all five requirements are verbatim from there)
 //   CLAUDE.md red line: no silent failure; human review for four sensitive-path
 //     classes (billing)

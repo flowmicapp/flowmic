@@ -277,9 +277,10 @@ void main() {
       // An EXACT map, not a subset, and it stays exact: this control's whole
       // job is 「nothing else rode along」, so it has to see a new key rather
       // than tolerate one. Card S2-01 added `client` (the version is absent
-      // because this harness never warms that cache); `pcid` is still missing,
-      // which is the claim.
-      expect(frame, <String, Object?>{'short_code': '1234', 'client': 'app'});
+      // because this harness never warms that cache); card HANGUP-3 added
+      // `client_caps` (declared_client_capabilities.dart); `pcid` is still
+      // missing, which is the claim.
+      expect(frame, <String, Object?>{'short_code': '1234', 'client': 'app', 'client_caps': <String>['stt.segment_not_transcribed']});
     },
   );
 
@@ -344,7 +345,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Exact, for the reason spelled out at ④c above.
-      expect(lastPairFrame(), <String, Object?>{'short_code': '1234', 'client': 'app'});
+      expect(lastPairFrame(), <String, Object?>{'short_code': '1234', 'client': 'app', 'client_caps': <String>['stt.segment_not_transcribed']});
     },
   );
 

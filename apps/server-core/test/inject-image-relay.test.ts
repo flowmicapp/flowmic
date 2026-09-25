@@ -14,7 +14,7 @@
 //      would see a link drop with no reason: a silent failure by construction.
 //
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.5 (inject:request, F-2350
-//   image field-add); docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4;
+//   image field-add); docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4;
 //   CLAUDE.md red line "no silent failure".
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';

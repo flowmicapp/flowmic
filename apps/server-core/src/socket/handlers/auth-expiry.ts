@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/05-DATA-MODEL.md §7 (Cloud KEY JWT expiry → auth:expired
 //     watchdog, F-2093)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ③ (sockets whose identity
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ③ (sockets whose identity
 //     rests on a JWT get a timer at exp → emit auth:expired + disconnect;
 //     pairing-token sockets are exempt)
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (auth:expired is a whitelisted S→C

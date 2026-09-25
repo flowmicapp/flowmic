@@ -2,7 +2,7 @@
 //   docs/rebuild/09-WEB-SPEC.md §5 (web JWT socket may emit ONLY
 //     timeline:grant-request + timeline:pull; everything else →
 //     WEB_EVENT_NOT_ALLOWED, default-deny)
-//   docs/strategy/2026-08-11-design-e-grant-web-preview.md §3.3 (the allowlist
+//   docs/archive/strategy/2026-08-11-design-e-grant-web-preview.md §3.3 (the allowlist
 //     answers "what may this class of client say" (这类客户端能说什么); the
 //     read-only codes answer a different
 //     question and live in timeline.handler.ts — two gates on purpose)

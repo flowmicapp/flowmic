@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R1-TASK-CARDS.md WP-R1-4 (compose + scenario pipeline)
+//   docs/archive/strategy/R1-TASK-CARDS.md WP-R1-4 (compose + scenario pipeline)
 //   apps/server-core/src/socket/handlers/compose.handler.ts (the mount point —
 //     calls deps.composeFactory per compose:start)
 //   apps/server-core/src/bootstrap.ts (the WIRING ROOT — the controller wires

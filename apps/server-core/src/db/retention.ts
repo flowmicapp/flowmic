@@ -3,8 +3,8 @@
 //     daily cron; the E2EE timeline carries the SAME policy)
 //   docs/strategy/2026-07-23-relaunch-master-plan.md §2.3 (30-day cloud retention
 //     is the Free/Pro entitlement boundary)
-//   docs/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-06
-//   docs/strategy/2026-07-23-mock-billing-design.md §8.4 (PLAN_LIMITS single source)
+//   docs/archive/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-06
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §8.4 (PLAN_LIMITS single source)
 //   CLAUDE.md red line: no silent failure
 //
 // GA-06: the production DB was write-only — `transcript_history` and

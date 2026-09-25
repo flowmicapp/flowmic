@@ -20,7 +20,7 @@
  *
  * owner ruling 2026-08-12, docs/decisions/owner-web-rulings/latest.md "quality floor":
  * "B · add a floor to the rules (do not change product code; lowest false-kill risk)". This table is that ruling.
- * Options page: docs/strategy/2026-08-12-c12-floor-family-design-options.md §5-B.
+ * Options page: docs/archive/strategy/2026-08-12-c12-floor-family-design-options.md §5-B.
  *
  * 🔴 WHAT IT WATCHES THAT THE FAMILY TABLES CANNOT. The two tables above are keyed
  * by `suite/family`; they answer "did some family lose catches". This one is keyed

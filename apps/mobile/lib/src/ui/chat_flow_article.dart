@@ -41,15 +41,18 @@ extension _ChatFlowArticleRouting on _ChatFlowPageState {
   void _openArticleRouted(TimelineEntry head, AppStrings strings) {
     final String? id = head.articleId;
     if (id == null) return;
+    // Card RC-G — this piece's debt, not the phone's (BackfillProgress.forArticle).
+    // The type is inferred because chat_flow_page.dart sits at the 800-line
+    // cap and an import line for `ArticleBackfill` would push it over.
+    final owed = controller.backfill.progress.value.forArticle(id);
     Navigator.of(context, rootNavigator: true).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => ArticlePage(
           head: head,
           rows: articleMembersOf(controller.store, id),
           strings: strings,
-          pendingBackfillMs: controller.backfill.progress.value.pendingMs,
-          pendingBackfillFromOutage:
-              controller.backfill.progress.value.pendingFromOutage,
+          pendingBackfillMs: owed.pendingMs,
+          pendingBackfillFromOutage: owed.fromOutage,
         ),
       ),
     );

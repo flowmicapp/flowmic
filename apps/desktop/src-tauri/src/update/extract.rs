@@ -1,7 +1,7 @@
 // UP-3b — unpack a verified portable bundle.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §4.5 (what about the
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §4.5 (what about the
 //     portable edition)
 //   docs/decisions/2026-08-05-owner-build-and-release-additions.md ② (a true
 //     in-place upgrade)

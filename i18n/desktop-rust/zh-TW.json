@@ -24,5 +24,6 @@
   "AutostartEnabledButOff": "開機自動啟動項目已寫入，但系統層複查為未啟用（可能在工作管理員的「開機」索引標籤被停用）",
   "AutostartStillEnabled": "開機自動啟動項目刪除後系統層仍回報為已啟用——移除未生效",
   "AutostartRegOpenFailed": "開啟開機自動啟動的登錄檔機碼失敗：{detail}",
-  "AutostartRewriteFailed": "自動啟動項目改寫為帶引號路徑失敗：{detail}"
+  "AutostartRewriteFailed": "自動啟動項目改寫為帶引號路徑失敗：{detail}",
+  "LinuxCapsuleUnavailable": "此桌面工作階段無法使用膠囊，已開啟主視窗。"
 }

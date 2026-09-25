@@ -63,6 +63,8 @@ extension PttSessionDispose on PttSession {
     serverChannel.dispose();
     releaseCooldown.tick.dispose();
     captureStopped.dispose(); // D-1b, same shape as the two notifiers above.
+    // NR-96-B/E1 — the engine chip's watchdog is a timer, the ticket a notifier.
+    engineReconnect.dispose(); reconnectAckLost.dispose();
     // IT-10 / F2: SessionScope is a ChangeNotifier — without dispose it outlives
     // the session (third named leak of this shape; same as `_pcBusy` above).
     // Dispose LAST among the notifiers in this method: nothing below this line

@@ -2,7 +2,7 @@
 // mobile:reconnect) that decide whether a phone gets to start or resume using a
 // PC at all.
 //
-// SPEC-REF: docs/strategy/2026-08-12-a2-3-restricted-use-design.md §5 (the three
+// SPEC-REF: docs/archive/strategy/2026-08-12-a2-3-restricted-use-design.md §5 (the three
 //             effect-moments; row ③ is the hole this file measures) and §9 #4/#5
 //           docs/decisions/owner-web-rulings/latest.md:71 (owner, verbatim)
 //           src/auth/account-restriction.ts (the ONE conversion site)

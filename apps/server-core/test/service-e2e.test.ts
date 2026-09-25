@@ -26,7 +26,7 @@
 // run is evidence about OUR chain and none about theirs. The honest phrase for
 // this file's result is 「wired end to end against a stubbed provider」. What IS
 // real about the provider was established by live probes and is recorded in
-// docs/strategy/2026-08-29-creem-stage0-findings.md §2b.
+// docs/archive/strategy/2026-08-29-creem-stage0-findings.md §2b.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { startServer, type BootstrapHandle } from '../src/bootstrap';

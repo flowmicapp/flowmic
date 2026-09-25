@@ -1,6 +1,6 @@
 // 0.2.48 — O-2 platform usage aggregation HTTP surface (`/api/ops/usage/*`).
 //
-// SPEC-REF: docs/strategy/2026-08-02-o2-usage-route-contract.md (THE contract)
+// SPEC-REF: docs/archive/strategy/2026-08-02-o2-usage-route-contract.md (THE contract)
 //           src/http/ops-routes.ts / src/http/ops-audit-trail.ts
 //           CLAUDE.md red line: no silent failure / one value answers one question / anti-façade
 //

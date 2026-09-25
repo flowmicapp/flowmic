@@ -15,7 +15,7 @@
 #
 # Types: incremental, and only the packages this commit touches. Replaces
 # `pnpm verify:types` (all four packages from cold, measured 23.4 s in
-# docs/strategy/2026-09-12-verify-delivery-speedup-plan.md §1.2).
+# docs/archive/strategy/2026-09-12-verify-delivery-speedup-plan.md §1.2).
 #
 # 🔴 PATH A, KEPT. Measured, then decided, then decided again — and the second
 # decision is the one that stands (owner's priority this round is quality

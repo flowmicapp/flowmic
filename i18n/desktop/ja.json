@@ -23,6 +23,8 @@
     "cap_stt_loading": "'モデル読み込み中…'",
     "cap_stt_ready": "'準備完了'",
     "cap_stt_reconnecting": "'再接続中…'",
+    "cap_stt_reconnecting_n": "'再接続 {n} 回目'",
+    "cap_stt_reconnecting_n_of": "'再接続 {n}/{max} 回目'",
     "cap_stt_unknown": "'未検査'",
     "cap_target_dash": "'—'",
     "cap_target_none": "'ターゲット未ロック'",
@@ -713,6 +715,10 @@
     "win_close": "'閉じる'",
     "win_maximize": "'最大化'",
     "win_minimize": "'最小化'",
-    "win_restore": "'元に戻す'"
+    "win_restore": "'元に戻す'",
+    "st_uncertain": "'入力結果不明'",
+    "injectFailReason.INJECT_WAYLAND_UNSUPPORTED": "'他ウィンドウへの入力に対応していません'",
+    "injectFailReason.INJECT_DISPLAY_UNAVAILABLE": "'ディスプレイが利用できません'",
+    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'一部のみ入力された可能性があります。'"
   }
 }

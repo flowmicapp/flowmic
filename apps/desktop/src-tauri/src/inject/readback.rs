@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-21-ime-safe-inject-routing-design.md §3 (the safety net
+//   docs/archive/strategy/2026-08-21-ime-safe-inject-routing-design.md §3 (the safety net
 //     and evidence layer — promoted here from "evidence" to "the thing that lets
 //     us stop holding the user's clipboard")
 //   master-plan §4 / CLAUDE.md red line R11: a status word must be able to answer

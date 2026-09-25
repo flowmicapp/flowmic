@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R7-V2-TASK-CARDS.md V2-08 (focus process → LLM scenario
+//   docs/archive/strategy/R7-V2-TASK-CARDS.md V2-08 (focus process → LLM scenario
 //     inference, explicit consent-type opt-in; card constraint 3
 //     「模型去向从本地切到外部时必须重新征求同意」("consent must be re-requested
 //     when the model destination moves from local to external"))

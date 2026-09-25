@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/rebuild/03-SYSTEM-ARCHITECTURE.md §4 (sidecar /api/health)
-//   docs/strategy/2026-07-23-mock-billing-design.md §2/§4 (mock gateway = a
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §2/§4 (mock gateway = a
 //     server-internal fake-payment endpoint set driving the state machine; gated by
 //     FLOWMIC_MOCK_BILLING), §8.3 (UNLOCK_ALL shutdown-path acceptance)
 //   CLAUDE.md: payment uses a mock (0.1.0 private internal build)
@@ -46,10 +46,11 @@ import { tryHandleSiteCollectRoutes } from './site-collect-routes';
 import { tryHandleOpsSiteRoutes } from './ops-site-routes';
 import { tryHandlePaddleRoutes } from './paddle-routes';
 import { isLocalRequest, refuseNonLocal } from './local-only';
-import { applyWebCors, handleWebCorsPreflight } from './web-cors';
+import { applyReflectedOrigin, applyWebCors, handleWebCorsPreflight } from './web-cors';
 import { refuseUnidentified } from './account-auth';
 import { isWellFormedFingerprint } from '../lan-tls/fingerprint';
 import { makeWriterOnlyGuard } from '../node/writer-only';
+import { readBody, sendJson } from './router-body';
 // 🔴 THE DEPS INTERFACE MOVED, THE IMPORT PATH DID NOT. `HttpDeps` now lives in
 // `./router-deps` (the 800-line cap forced the split — that file's header says
 // so) and is RE-EXPORTED from here so every existing importer keeps working:
@@ -100,31 +101,6 @@ export function publishableLanTlsFingerprint(deps: Pick<HttpDeps, 'lanTlsFingerp
   return raw;
 }
 
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const json = JSON.stringify(body);
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
-  res.end(json);
-}
-
-function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    let raw = '';
-    req.on('data', (c) => {
-      raw += c;
-      if (raw.length > 64_000) raw = raw.slice(0, 64_000);
-    });
-    req.on('end', () => {
-      if (raw.trim() === '') return resolve({});
-      try {
-        resolve(JSON.parse(raw) as Record<string, unknown>);
-      } catch {
-        resolve({});
-      }
-    });
-    req.on('error', () => resolve({}));
-  });
-}
 
 function isCycle(v: unknown): v is Cycle {
   return v === 'monthly' || v === 'yearly';
@@ -254,6 +230,11 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
       // version faces:「两者用不同手段回答同一个问题」). One constructor, one
       // sentence, and it comes from the protocol registry.
       const body = JSON.stringify({ ok: false, ...makeWriterOnlyGuard(deps.nodes.writerUrl)() });
+      // W6a: let the host page READ this refusal and its writer URL. No room
+      // is minted here; only this room route reflects Origin, without cookies.
+      if (config.mode === 'saas' && method === 'POST' && url.split('?')[0] === '/api/web/rooms') {
+        applyReflectedOrigin(req, res);
+      }
       res.writeHead(421, {
         'content-type': 'application/json; charset=utf-8',
         'content-length': Buffer.byteLength(body),
@@ -504,7 +485,7 @@ export function makeHttpHandler(deps: HttpDeps): (req: IncomingMessage, res: Ser
     // naming: registry.ts's own `deviceLimit` already NOOPs to Infinity here).
     //
     // 🔴 THE NUMBER IS A PRE-RULING DEFAULT, NAMED AS ONE. Card A8
-    // (`docs/strategy/2026-09-01-week-consolidation-and-lan-fable-handoff.md`
+    // (`docs/archive/strategy/2026-09-01-week-consolidation-and-lan-fable-handoff.md`
     // §5-A) is still open: owner has not ruled on what a standalone instance's
     // OWN continuous-recording ceiling should be — it has no subscription tier
     // to read one from. Until that ruling, this answers with the MAX tier's

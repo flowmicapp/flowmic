@@ -20,6 +20,19 @@
 //   attemptId    — which try; new for every real recognition attempt
 //   operationId  — which network send of that try; the same across re-sends
 //
+// ⚠️ 更正（RC-R，2026-09-24）：the operationId line above said 「which network
+// send of that try」, and until this card every attempt minted a fresh one.
+// MAIN ruling 3 (option 甲, root-cause 2026-09-24 §2.2 / §11) moved it: the
+// relay meters once per `(user, operation_id, stt)`, so an operation that is
+// new on every attempt charged every automatic retry of the same stretch in
+// full (measured: one 65.9 s stretch billed 4 × 65.85 s). For `auto_retry` it
+// is now DERIVED from `jobId` + `attempt_kind` ([deriveOperationId]) — the same
+// for every automatic attempt at the same job, so the relay registers the
+// second one as a re-send and charges once. A `user_retranscribe` press still
+// mints a fresh one per press: owner ruling O-4 (an explicit re-transcription
+// is metered as a new attempt) wins over ruling 3 there (MAIN, 2026-09-24).
+// `attemptId` still names each try.
+//
 // 🔴 `jobId` IS DERIVED, NOT MINTED. Two runs of the app that resume the same
 // range with the same variant must compute the same value or the whole 「same
 // job ⇒ new version of one row」 rule collapses into 「every restart is a new
@@ -312,6 +325,65 @@ Map<String, Object?> liveStartFields({
 /// spelled `0` twice: [liveStartFields] sends it and the settle path builds the
 /// [StartEcho] it will be compared against, and those are two files.
 const int kLiveRangeStartSample = 0;
+
+/// Card RC-R (MAIN ruling 3, option 甲, 2026-09-24) — the operation id of an
+/// AUTOMATIC recovery attempt, DERIVED so every `auto_retry` attempt at the
+/// same job carries the same one and the relay meters the job once.
+///
+/// ⚠️ PRODUCTION DERIVES ONLY `auto_retry` (MAIN follow-up, 2026-09-24): owner
+/// ruling O-4 says an explicit user re-transcription is metered as a new
+/// attempt, so `RecoveryJournalLeg._attempt` mints a fresh id for every
+/// `user_retranscribe` press instead of calling this. The function still takes
+/// the kind (and accepts `user_retranscribe`) so the id can never collide with
+/// the relay's binding of another kind.
+///
+/// THE EXACT DERIVATION (stated because the relay-side card is written against
+/// it, and because a manifest written today is read by tomorrow's build):
+///
+///   'o-' + hex(sha256(utf8('op-v1|' + jobId + '|' + attempt_kind + '|' +
+///                          generation)))[0:32]
+///
+/// where `attempt_kind` is the wire spelling (`auto_retry` /
+/// `user_retranscribe`) and `generation` is a decimal integer, 0 unless the
+/// relay has refused this very operation (below).
+///
+/// 🔴 WHY `attempt_kind` IS AN INPUT: the relay's `recovery_operations` binds an
+/// operation to `(recording_id, range, attempt_kind, mode)` and refuses a
+/// re-send whose binding differs (`AUDIO_OP_BINDING_CONFLICT`). An automatic
+/// retry and a user's re-transcription of the same job sharing one id would be
+/// refused. Every other binding field is already inside [jobId]
+/// ([deriveJobId]: recording, range, variant incl. mode) — so two attempts
+/// with the same id cannot describe different audio.
+///
+/// 🔴 WHY `generation`: if the relay ever DOES refuse this operation as a
+/// binding conflict, re-sending it would be refused for ever. The leg counts
+/// this job's attempts of this kind that closed on that refusal and passes the
+/// count here, so the next attempt carries a new id (the rule
+/// `recovery_leg_settle.dart` states at its binding-conflict branch).
+///
+/// ⚠️ KNOWN CONSEQUENCES, both in the charge-less direction:
+///   · ruling 3's own: a first attempt that fed half the stretch and died was
+///     charged for that half; the complete retry of the same job is not charged
+///     again;
+///   · ⚠️ 更正（RC-R follow-up, 2026-09-24）：this bullet originally read 「owner
+///     ruling O-4 says a user's explicit re-transcription is metered as a new
+///     attempt. Under this derivation the SECOND and later presses on the same
+///     job share one id and are not charged again (the first one is). Reported
+///     to MAIN as an open point, not decided here.」 MAIN ruled O-4 wins: user
+///     presses no longer go through this function (see the note above), so
+///     every press is charged as its own attempt.
+String deriveOperationId({
+  required String jobId,
+  required RecoveryAttemptKind attemptKind,
+  int generation = 0,
+}) {
+  if (attemptKind == RecoveryAttemptKind.live) {
+    // A live press sends no operation at all ([liveStartFields]).
+    throw ArgumentError.value(attemptKind, 'attemptKind', 'live has no operation');
+  }
+  final String canonical = 'op-v1|$jobId|${attemptKind.wire}|$generation';
+  return 'o-${sha256.convert(utf8.encode(canonical)).toString().substring(0, 32)}';
+}
 
 /// Everything one recovery attempt says about itself on `audio:start`.
 @immutable

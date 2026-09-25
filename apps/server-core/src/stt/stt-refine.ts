@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/rebuild/05-DATA-MODEL.md §5 (`stt.refine` {enabled, min_utterance_ms})
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-14
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-14
 //   owner ruling 2026-09-04 — the second pass is an LLM SMOOTHING pass
 //     (「二次改顺」), not a second transcription.
 //   CLAUDE.md red line: no silent failures

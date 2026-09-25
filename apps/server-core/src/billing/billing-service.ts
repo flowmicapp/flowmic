@@ -1,9 +1,9 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (single source of truth
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (single source of truth
 //     PlanView + PlanSource's four values + four-step priority), §6.1-bis (permanent_free
 //     is an exemption, not a tier; effectiveLimits is the sole source of quota)
 //   docs/decisions/2026-08-01-owner-three-tier-pricing-usd-monthly.md (three-tier table)
-//   docs/strategy/2026-07-23-mock-billing-design.md §1 (plan + cycle;
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §1 (plan + cycle;
 //     FLOWMIC_MOCK_UNLOCK_ALL bypasses in exactly one place), §2 (mock checkout state
 //     machine none/pending/active/canceled/expired), §3 (getQuota's current-month
 //     used/limit; the sole expiry-determination site), §4 (BillingService stub
@@ -139,7 +139,8 @@ const EXEMPT_LIMITS: Readonly<PlanLimits> = {
   // (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md). Still a
   // deliberate copy, not an independent number — see the comment above this
   // constant.
-  llm_tokens: 15_000_000,
+  // owner 2026-09-23: mirrors MAX 15M → 50M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md; 2026-08-07 ① rule)
+  llm_tokens: 50_000_000,
   pcs: 10,
   mobiles: Number.POSITIVE_INFINITY,
   history_days: 365,

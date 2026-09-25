@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-b
 //     (segment ⊖ "retained" (留存) — the state word this layer exists to make true)
-//   docs/strategy/2026-08-08-design-n1-long-recording.md §2.2 (M2)
+//   docs/archive/strategy/2026-08-08-design-n1-long-recording.md §2.2 (M2)
 //   packages/protocol/src/constants.ts AUDIO_DEFAULTS
 //     (sample_rate_hz / channels / encoding — the format written here is the
 //      CAPTURE format, byte-for-byte; see the no-transcoding note below)

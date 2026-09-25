@@ -24,5 +24,6 @@
   "AutostartEnabledButOff": "The startup entry was written, but the system reports it as disabled (it may be turned off in Task Manager's Startup tab)",
   "AutostartStillEnabled": "The system still reports autostart as enabled after removal — the removal did not take effect",
   "AutostartRegOpenFailed": "Failed to open the startup registry key: {detail}",
-  "AutostartRewriteFailed": "Failed to rewrite the startup entry with a quoted path: {detail}"
+  "AutostartRewriteFailed": "Failed to rewrite the startup entry with a quoted path: {detail}",
+  "LinuxCapsuleUnavailable": "The capsule isn't available in this desktop session, so the main window was opened."
 }

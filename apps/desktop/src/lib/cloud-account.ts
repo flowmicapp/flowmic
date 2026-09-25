@@ -1,6 +1,6 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l3-account-card-design.md (this module IS that design's §2 + §3, 本模块就是那份稿的 §2 + §3)
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 / §6.1-bis
+//   docs/archive/strategy/2026-08-02-l3-account-card-design.md (this module IS that design's §2 + §3, 本模块就是那份稿的 §2 + §3)
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 / §6.1-bis
 //     (PlanView's three fields plan / source / quota_exempt —— the sole source of truth, 唯一真相点)
 //   apps/server-core/src/billing/billing-service.ts (the definitions of PlanView / QuotaView, PlanView / QuotaView 的定义)
 //   CLAUDE.md red line: one value answers only one question; no silent failure (unknown ≠ error ≠ stale value)
@@ -558,7 +558,7 @@ function restrictionReasonSentence(reasonKey: string): string | null {
  *  "which internal primary key is this key bound to", and printing it under that label is the same shape
  *  owner 2026-08-02 rejected on the "grouped by source phone" grouping (a UUID
  *  running naked ⇒ rework, 裸奔 UUID ⇒ 返工;
- *  `docs/strategy/2026-08-02-ui-batch1-rework-design.md` §1.3 "a UUID never appears on screen", UUID 永不上屏).
+ *  `docs/archive/strategy/2026-08-02-ui-batch1-rework-design.md` §1.3 "a UUID never appears on screen", UUID 永不上屏).
  *  Its old defence ("the id is an immutable property of this key, it won't
  *  change just because we can't reach the server",
  *  L3 design doc §7-2) answers a DIFFERENT objection — staleness — and staleness was
@@ -638,7 +638,7 @@ function sourceChip(a: LiveAccount | null): string | null {
 //
 // ⇒ both branches render a real `{used}/{limit}`; the exempt branch adds the one
 // thing that is still uniquely true of it (nothing is billed). Every number is the
-// SERVER's — 3,000 and 1M/5M/15M live in billing/plans.ts, and typing any of them
+// SERVER's — 3,000 and 1M/10M/50M live in billing/plans.ts, and typing any of them
 // here would make this the second answer.
 
 /** Half the track. Each side's full bar ends at the centre tick, so "100% of this
@@ -679,10 +679,10 @@ export function gaugePct(used: number, limit: number): number {
   return Math.round(Math.min(used / limit, 1) * HALF_TRACK_PCT * 100) / 100;
 }
 
-/** Tokens → millions, at most one decimal ("0" / "0.4" / "5" / "15").
+/** Tokens → millions, at most one decimal ("0" / "0.4" / "10" / "50").
  *
- *  Why M and not the raw count: the tiers are 1M / 5M / 15M and the used figure
- *  runs to seven digits, so `12345678 / 15000000` on a 12px line is a wall of
+ *  Why M and not the raw count: the tiers are 1M / 10M / 50M and the used figure
+ *  runs to seven or eight digits, so `12345678 / 50000000` on a 12px line is a wall of
  *  digits nobody reads. The unit is spelled in the string (`cloud_usage_context`),
  *  so this returns the bare number and no locale has to agree about the letter. */
 export function formatTokensM(n: number): string {

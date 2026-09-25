@@ -20,7 +20,7 @@ import type { DatabaseSync } from 'node:sqlite';
 // docs/decisions/2026-07-31-no-cloud-sync-for-phone-pc.md — the server does not
 // store transcripts). (05-DATA-MODEL §1 used to still list seven; it was rewritten
 // 2026-08-02 and its §1.1 now lists all nine, so the doc and this array agree.)
-// EIGHT since Window D1 (docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.2/§3.3):
+// EIGHT since Window D1 (docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.2/§3.3):
 // `paddle_subscriptions` (subscription truth) + `billing_events` (idempotency ledger). Both are ADDITIVE —
 // nothing was dropped for them.
 // NINE since 0.2.47: `ops_audit_log` (ops-action trail, schema.ts `-- 10.`). Also purely

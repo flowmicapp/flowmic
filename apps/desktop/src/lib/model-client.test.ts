@@ -2,7 +2,7 @@
 // the half that matters — what it does with a NON-answer.
 //
 // SPEC-REF: docs/strategy/2026-08-19-local-model-onboarding-design.md §4;
-//   docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT):
+//   docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT):
 //   the wire body is now the full per-language catalog status (legacy snapshot
 //   at top level, plus catalog/models/selected_by_lang/spoken_langs/models_root/
 //   busy_model_id), actions name a pack ({model_id, lang}), and the folder is

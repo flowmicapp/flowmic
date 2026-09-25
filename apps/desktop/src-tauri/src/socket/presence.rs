@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §6 (dual channels resident: presence set + primary
 //     promotion) + §3.5 F-3113 (the mobile count is what gates focus:state)
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-26/GA-28/GA-29
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-26/GA-28/GA-29
 //
 // The mobile-presence WIRE EDGES: the two frames that say a phone entered or left
 // this desktop's room, and the capsule-ownership verdict each one triggers.

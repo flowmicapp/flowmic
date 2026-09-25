@@ -17,7 +17,8 @@
 //     which would type into whatever window the developer has in front (the exact
 //     hazard `an_image_into_a_proven_non_input_focus_is_still_ATTEMPTED` was
 //     `#[ignore]`d for on owner's instruction, and the exact hazard CLAUDE.md's M5
-//     tooling discipline exists for). The seam that would fix it is already
+//     tooling discipline exists for — that discipline is CLAUDE.md D-8 today, and
+//     the M5 round it came from is docs/archive/CLAUDE-HISTORY.md §146-173). The seam that would fix it is already
 //     registered as RV-53 ("seam the clipboard client the way the probe is
 //     seamed") and it is not this card's to build.
 //     ⇒ Both values ARE covered one level down — `target_probe::wire_evidence`

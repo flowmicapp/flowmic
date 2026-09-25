@@ -148,7 +148,7 @@ class InMemoryTimelinePersistence implements TimelinePersistence {
   }
 
   @override
-  Future<List<TimelineEntry>> search(String query, {int limit = 200}) async {
+  Future<List<TimelineEntry>> search(String query, {int limit = 1000}) async {
     final String q = query.trim().toLowerCase();
     if (q.isEmpty) return <TimelineEntry>[];
     final List<TimelineEntry> all = await loadAll();
@@ -262,6 +262,9 @@ class SharedPrefsTimelinePersistence implements TimelinePersistence {
         .toList(growable: false);
   }
 
+  // Deliberately NOT the SQLite default of 1,000: this store persists at most
+  // [maxPersistedEntries] (100) rows, so a larger default could never return
+  // more and would only pretend a depth that is not there.
   @override
   Future<List<TimelineEntry>> search(String query, {int limit = 200}) async {
     final String q = query.trim().toLowerCase();

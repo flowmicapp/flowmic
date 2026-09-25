@@ -9,7 +9,7 @@
 //     the phone-local source of truth;
 //     e2e:v1: blind store not yet built ⇒ this card only lands on the phone
 //     locally, no cloud upload)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md Wave 2 T-4 ①
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md Wave 2 T-4 ①
 //   CLAUDE.md red line: no silent failure / status only records the delivery
 //     truth / the timeline is the source of truth
 //

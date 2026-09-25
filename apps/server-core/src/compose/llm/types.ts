@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §6 (LLM/Compose layer — two protocols
 //     cover every provider: openai-compatible + anthropic; node-native fetch)
-//   docs/strategy/R1-TASK-CARDS.md WP-R1-4 (LLM client, dual protocol)
+//   docs/archive/strategy/R1-TASK-CARDS.md WP-R1-4 (LLM client, dual protocol)
 //   CLAUDE.md red line: LLM failure → explicit code, never a silent fallback
 //
 // The streamer contract shared by both protocol implementations. A streamer is

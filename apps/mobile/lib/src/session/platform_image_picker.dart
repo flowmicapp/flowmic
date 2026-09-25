@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ① (dependency: image_picker, only this one added)
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ① (dependency: image_picker, only this one added)
 //   CLAUDE.md red line: no silent failures — a denied photo permission is a NAMED failure,
 //     never a picker that opens onto nothing.
 //

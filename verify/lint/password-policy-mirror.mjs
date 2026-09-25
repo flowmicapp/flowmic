@@ -260,8 +260,14 @@ async function sweepConstants(repoRoot, srcDir, exts) {
  * The web repo's root, found by asking each directory beside this one what it
  * calls itself. Returns `{ dir }`, or `{ reason }` explaining what was looked at
  * and found — the caller prints that reason rather than going quietly green.
+ *
+ * ⚠️ EXPORTED, AND THAT IS THE POINT — site-path-allowlist-mirror needs exactly
+ * this answer, and a second copy of a sibling-repo search is how one of them
+ * keeps the worktree fix recorded below and the other quietly loses it. Nothing
+ * else about this function changed when the second caller arrived (2026-09-21,
+ * card SITE-COUNT-2).
  */
-async function findWebRepo() {
+export async function findWebRepo() {
   const override = process.env.FLOWMIC_WEB_REPO;
   if (override) {
     const pkg = await readJson(path.join(override, 'package.json'));

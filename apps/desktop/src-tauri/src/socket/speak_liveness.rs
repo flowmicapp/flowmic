@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §3 (the SPEAKING lock never gets wedged / ruling 2)
 //   CLAUDE.md red line: "a latch closed by a remote event must have a local watchdog"
-//   docs/strategy/2026-08-02-0248-status-truth-analysis.md §F3 (owner 2026-08-02:
+//   docs/archive/strategy/2026-08-02-0248-status-truth-analysis.md §F3 (owner 2026-08-02:
 //     the tray's red dot stays lit with nobody speaking)
 //
 // "is audio still flowing" —— the ONE liveness signal the SPEAKING lock's local watchdog

@@ -23,6 +23,8 @@
     "cap_stt_loading": "'Cargando modelo…'",
     "cap_stt_ready": "'Listo'",
     "cap_stt_reconnecting": "'Reconectando…'",
+    "cap_stt_reconnecting_n": "'Reconectando · intento {n}'",
+    "cap_stt_reconnecting_n_of": "'Reconectando · intento {n}/{max}'",
     "cap_stt_unknown": "'Sin comprobar'",
     "cap_target_dash": "'—'",
     "cap_target_none": "'Sin destino fijado'",
@@ -713,6 +715,10 @@
     "win_close": "'Cerrar'",
     "win_maximize": "'Maximizar'",
     "win_minimize": "'Minimizar'",
-    "win_restore": "'Restaurar'"
+    "win_restore": "'Restaurar'",
+    "st_uncertain": "'Inserción incierta'",
+    "injectFailReason.INJECT_WAYLAND_UNSUPPORTED": "'Escritura no disponible en Wayland'",
+    "injectFailReason.INJECT_DISPLAY_UNAVAILABLE": "'Escritura no disponible en este entorno gráfico'",
+    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'La inserción puede ser parcial.'"
   }
 }

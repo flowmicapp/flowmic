@@ -4,7 +4,7 @@
 // ── WHY THIS FILE EXISTS ────────────────────────────────────────────────────
 //
 // There was no mechanism. The registry
-// (`packages/protocol/src/error-codes.ts`) and the phone's three copy switches
+// (`packages/protocol/src/error-codes.ts`) and the phone's copy switches
 // were two hand-maintained lists that agreed only as long as somebody
 // remembered. The history of that seam, all of it paid for in shipped
 // releases:
@@ -55,7 +55,7 @@
 //
 // ── SEGMENT-AWARENESS IS PART OF THE CONTRACT, NOT A DETAIL ─────────────────
 //
-// The three tables are deliberately separate and their code sets are
+// The four tables are deliberately separate and their code sets are
 // disjoint (each table's own doc says so in prose — this file is the first
 // thing that MEASURES it). 投递 ≠ 注入 (docs/rebuild/15 §2.0): a delivery-segment
 // refusal must not be answered by an injection-segment sentence, and the reverse.
@@ -74,9 +74,9 @@ import 'package:flowmic/src/settings/app_settings.dart' show AppLocale;
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// ── The three tables, by name ────────────────────────────────────────────────
+// ── The four tables, by name ─────────────────────────────────────────────────
 //
-// These are the exact three `_humanNoteFor` composes, in its order. A test
+// These are the exact four `_humanNoteFor` composes, in its order. A test
 // below reads that function's source and fails if the composition ever grows a
 // fourth table this gate does not know about — because a table the gate cannot
 // see is a table whose codes it would report as missing copy (noise) or, far
@@ -92,6 +92,10 @@ enum CopyTable {
   /// The frame reached the PC; the PC tried and said why it did not land.
   injectVerdict,
 
+  /// [ChatStrings.pcAdmissionRefusalNote] — target-authored admission refusal.
+  /// The frame reached the selected target, but no injection attempt began.
+  pcAdmissionRefusal,
+
   /// [ChatStrings.deliveryRefusalNote] — relay-authored DELIVERY-segment refusals.
   /// The frame never reached any PC.
   deliveryRefusal,
@@ -106,14 +110,13 @@ enum CopyTable {
 ///   · `deliveryRefusalNote`'s doc: 「这里的四个全部是 relay/协议层的投递段裁决
 ///     （帧压根没到 PC，PC 从未参与判决）」, and its own 「绝不许进 injectVerdictNote」.
 ///
-/// `pc-admission` deliberately maps to NO table: the frame did reach the PC,
-/// but the PC refused before the injection stage, so neither charter covers it.
-/// Its one member is allowlisted below rather than forced into a table whose
-/// sentence would be false about which segment finished.
+/// `pc-admission` has its own table because the frame did reach the target, but
+/// the target refused before injection. Neither neighbouring charter can state
+/// that fact truthfully.
 const Map<String, Set<CopyTable>> kTableForAuthor = <String, Set<CopyTable>>{
   'pc-injection': <CopyTable>{CopyTable.injectVerdict},
   'relay': <CopyTable>{CopyTable.deliveryRefusal, CopyTable.cloudImage},
-  'pc-admission': <CopyTable>{},
+  'pc-admission': <CopyTable>{CopyTable.pcAdmissionRefusal},
 };
 
 /// Why a reachable code legitimately has no copy.
@@ -210,7 +213,11 @@ const Map<String, CopyGap> kCopyGapAllowlist = <String, CopyGap>{
 // (`error_codes.rs::desktop_error_codes_are_a_subset_of_the_protocol_ssot`).
 // `flutter test`'s working directory is always this package root (apps/mobile).
 
-final File _registryFile = File('../../packages/protocol/src/error-codes.ts');
+final List<File> _registryFiles = <File>[
+  File('../../packages/protocol/src/error-codes.ts'),
+  File('../../packages/protocol/src/error-codes-auth-and-pairing.ts'),
+  File('../../packages/protocol/src/error-codes-inject.ts'),
+];
 final File _authorshipFile = File(
   '../../packages/protocol/src/inject-verdict-authorship.ts',
 );
@@ -262,8 +269,8 @@ String _read(File f) {
   return f.readAsStringSync();
 }
 
-Set<String> _registryCodes() => _registryEntry
-    .allMatches(_read(_registryFile))
+Set<String> _registryCodes() => _registryFiles
+    .expand((File file) => _registryEntry.allMatches(_read(file)))
     .map((RegExpMatch m) => m.group(1)!)
     .toSet();
 
@@ -284,6 +291,7 @@ Map<String, String> _authorship() {
 Set<CopyTable> _tablesAnswering(String code, AppStrings s) => <CopyTable>{
   if (s.cloudImageRelayErrorNote(code) != null) CopyTable.cloudImage,
   if (s.injectVerdictNote(code) != null) CopyTable.injectVerdict,
+  if (s.pcAdmissionRefusalNote(code) != null) CopyTable.pcAdmissionRefusal,
   if (s.deliveryRefusalNote(code) != null) CopyTable.deliveryRefusal,
 };
 
@@ -319,6 +327,7 @@ void main() {
       // And the copy tables themselves must be non-empty, or "has copy"
       // would be trivially false everywhere.
       expect(_zh.injectVerdictNote('INJECT_FOCUS_LOST'), isNotNull);
+      expect(_zh.pcAdmissionRefusalNote('INJECT_TARGET_NOT_READY'), isNotNull);
       expect(_zh.deliveryRefusalNote('INJECT_PC_MISMATCH'), isNotNull);
       expect(
         _zh.cloudImageRelayErrorNote('INJECT_CLOUD_IMAGE_TOO_LARGE'),
@@ -403,7 +412,7 @@ void main() {
       },
     );
 
-    test('the three tables stay disjoint (each code answered once)', () {
+    test('the four tables stay disjoint (each code answered once)', () {
       // Each table's doc asserts this in prose ("三张表互斥"). Nothing measured
       // it until now — and `_humanNoteFor`'s `??` chain means a code answered
       // by two tables silently takes whichever comes first, i.e. the ORDER
@@ -481,7 +490,7 @@ void main() {
     });
 
     // ── ④ STRUCTURAL PIN ON THE COMPOSITION ────────────────────────────────
-    test('_humanNoteFor still composes exactly the three known tables', () {
+    test('_humanNoteFor still composes exactly the four known tables', () {
       // If a fourth copy table joins that `??` chain, this gate would report
       // its codes as missing copy (noise) or — far worse — never notice copy
       // authored into the WRONG segment, because it would not know the table
@@ -512,6 +521,7 @@ void main() {
       const List<String> known = <String>[
         'cloudImageRelayErrorNote',
         'injectVerdictNote',
+        'pcAdmissionRefusalNote',
         'deliveryRefusalNote',
       ];
       for (final String table in known) {
@@ -521,7 +531,7 @@ void main() {
           reason: '_humanNoteFor no longer consults $table',
         );
       }
-      // Count the `strings.<x>(` calls: exactly three, no more.
+      // Count the `strings.<x>(` calls: exactly four, no more.
       final int calls = RegExp(r'strings\.\w+\(').allMatches(body).length;
       expect(
         calls,
@@ -534,11 +544,11 @@ void main() {
       );
     });
 
-    // ── ⑤ COVERED CODES ARE COVERED IN ALL FOUR LANGUAGES ──────────────────
-    test('every covered code has non-empty copy in all four locales', () {
+    // ── ⑤ COVERED CODES ARE COVERED IN ALL NINE LANGUAGES ──────────────────
+    test('every covered code has non-empty copy in all nine locales', () {
       // The i18n lint (`verify:lint i18n-error-keys`) guards the REGISTRY's
       // zh_CN+en. Nothing guarded these phone-side tables, which carry four
-      // languages and are hand-written.
+      // languages and are selected by hand-written tables.
       final Map<String, String> authorship = _authorship();
       final List<String> bad = <String>[];
       for (final AppLocale loc in AppLocale.values) {
@@ -548,6 +558,7 @@ void main() {
             final String? note = switch (t) {
               CopyTable.cloudImage => s.cloudImageRelayErrorNote(code),
               CopyTable.injectVerdict => s.injectVerdictNote(code),
+              CopyTable.pcAdmissionRefusal => s.pcAdmissionRefusalNote(code),
               CopyTable.deliveryRefusal => s.deliveryRefusalNote(code),
             };
             if (note == null || note.trim().isEmpty) {
@@ -616,5 +627,6 @@ void main() {
 String _tableName(CopyTable t) => switch (t) {
   CopyTable.cloudImage => 'cloudImageRelayErrorNote',
   CopyTable.injectVerdict => 'injectVerdictNote',
+  CopyTable.pcAdmissionRefusal => 'pcAdmissionRefusalNote',
   CopyTable.deliveryRefusal => 'deliveryRefusalNote',
 };

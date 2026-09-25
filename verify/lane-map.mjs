@@ -43,6 +43,8 @@ import { LANES } from './run-delivery-fast.mjs';
  *  silently never selected. */
 export const S = {
   lint: 'verify:lint',
+  webTargetCachedMode: 'verify:web-target-cached-mode',
+  i18nDevPlaceholders: 'verify:i18n-dev-placeholders',
   types: 'verify:types',
   typesDesktop: 'verify:types:desktop',
   clippy: 'verify:clippy',
@@ -52,6 +54,7 @@ export const S = {
   i18nWebTests: 'verify:i18n-web-tests',
   serverTests: 'verify:server-tests',
   desktopTests: 'verify:desktop-tests',
+  linuxCopyRender: 'verify:linux-copy-render',
   mobileTests: 'verify:mobile-tests',
   scripts: 'verify:scripts',
   golden: 'golden',
@@ -133,6 +136,7 @@ export const DIST_READERS = new Set([
   S.i18nWebTests,
   S.serverTests,
   S.desktopTests,
+  S.linuxCopyRender,
   S.scripts,
   S.golden,
 ]);
@@ -196,12 +200,15 @@ export const RULES = [
       S.rustTests,
       S.doctests,
       S.lint,
+      S.webTargetCachedMode,
+      S.i18nDevPlaceholders,
       S.types,
       S.typesDesktop,
       S.protocolTests,
       S.i18nWebTests,
       S.serverTests,
       S.desktopTests,
+      S.linuxCopyRender,
       S.scripts,
       S.golden,
       S.mobileTests,
@@ -226,8 +233,8 @@ export const RULES = [
       'apps/desktop/src-tauri/tauri.conf.json',
       'apps/desktop/src-tauri/tauri.*.conf.json',
     ],
-    stages: [...ALWAYS, ...RUST],
-    why: 'scripts/preflight-sidecar-resources.mjs derives the resource manifest from tauri.conf.json and both cargo stages run it first; scripts/*.test.mjs drills the sidecar preflight and the mac addon build',
+    stages: [...ALWAYS, ...RUST, S.linuxCopyRender],
+    why: 'scripts/preflight-sidecar-resources.mjs derives resources from tauri.conf.json; the rendering gate reads its minimum window dimensions too',
   },
   {
     id: 'desktop-rust',
@@ -238,14 +245,17 @@ export const RULES = [
   {
     id: 'desktop-ts',
     patterns: ['apps/desktop/src/**'],
-    stages: [...ALWAYS, S.typesDesktop, S.desktopTests],
-    why: 'apps/desktop/vitest.config.ts includes src/**/*.test.ts; vue-tsc covers the same tree',
+    stages: [...ALWAYS, S.typesDesktop, S.desktopTests, S.linuxCopyRender],
+    why: 'vitest and vue-tsc cover the desktop tree; the rendered Linux cause check executes its real pages and CSS',
   },
   {
     id: 'mobile',
     patterns: [
       'apps/mobile/lib/**',
       'apps/mobile/test/**',
+      // Host integration scenarios are imported by test/*_integration_test.dart;
+      // Flutter's existing gate executes those wrappers (no release plugin).
+      'apps/mobile/integration_test/**',
       'apps/mobile/tool/**',
       'apps/mobile/android/**',
       'apps/mobile/ios/**',
@@ -258,14 +268,14 @@ export const RULES = [
   {
     id: 'i18n-mobile',
     patterns: ['i18n/mobile/**'],
-    stages: [...ALWAYS, S.mobileTests, S.i18nWebTests],
-    why: 'scripts/i18n/gen-mobile-dart.mjs writes the (gitignored) Dart catalogues and scripts/i18n/gen-i18n-web.mjs reads the same directory; i18n-generated-fresh, disclosure-copy-mirror and plan-limit-copy all read these files',
+    stages: [...ALWAYS, S.mobileTests, S.i18nWebTests, S.i18nDevPlaceholders],
+    why: 'verify:i18n-dev-placeholders scans these catalogues for DEV placeholders (NR-83); scripts/i18n/gen-mobile-dart.mjs writes the (gitignored) Dart catalogues and scripts/i18n/gen-i18n-web.mjs reads the same directory; i18n-generated-fresh, disclosure-copy-mirror and plan-limit-copy all read these files',
   },
   {
     id: 'i18n-desktop',
     patterns: ['i18n/desktop/**', 'i18n/desktop-rust/**'],
-    stages: [...ALWAYS, S.typesDesktop, S.desktopTests, ...RUST],
-    why: 'the desktop TS and Rust catalogues generated from these are COMMITTED (apps/desktop/src/lib/strings/generated/*.g.ts, apps/desktop/src-tauri/src/ui_i18n_table.g.rs), so editing the JSON without `pnpm i18n:gen` turns i18n-generated-fresh red and compiles the old sentences',
+    stages: [...ALWAYS, S.typesDesktop, S.desktopTests, S.linuxCopyRender, S.i18nDevPlaceholders, ...RUST],
+    why: 'verify:i18n-dev-placeholders scans these catalogues for DEV placeholders (NR-83); the desktop TS and Rust catalogues generated from these are COMMITTED (apps/desktop/src/lib/strings/generated/*.g.ts, apps/desktop/src-tauri/src/ui_i18n_table.g.rs), so editing the JSON without `pnpm i18n:gen` turns i18n-generated-fresh red and compiles the old sentences',
   },
   {
     id: 'i18n-web-src',
@@ -282,6 +292,7 @@ export const RULES = [
       S.i18nWebTests,
       S.typesDesktop,
       S.desktopTests,
+      S.linuxCopyRender,
       ...RUST,
     ],
     why: 'equivalent to "every i18n source changed" (scripts/refresh-derived.mjs puts scripts/i18n/ and i18n/ in one rule), plus verify:scripts because the generators live under scripts/',
@@ -293,10 +304,34 @@ export const RULES = [
     why: 'nothing but the golden runner reads them (beyond the two unconditional stages)',
   },
   {
+    id: 'delivery-check-web-target',
+    patterns: ['verify/delivery-checks/web-target-cached-mode.mjs'],
+    stages: [...ALWAYS, S.webTargetCachedMode],
+    why: 'the cross-repo producer check must execute when its own assertions change; the citation it compares lives in packages/protocol/src/inject-verdict-authorship.ts, whose row is the full set',
+  },
+  {
+    id: 'delivery-check-dev-placeholders',
+    patterns: ['verify/delivery-checks/i18n-dev-placeholders.mjs'],
+    stages: [...ALWAYS, S.i18nDevPlaceholders],
+    why: 'the placeholder scan must execute when its own assertions change (NR-83)',
+  },
+  {
+    id: 'delivery-checks',
+    patterns: ['verify/delivery-checks/**'],
+    stages: [...ALWAYS, S.webTargetCachedMode, S.i18nDevPlaceholders],
+    why: 'verify/delivery-checks/_cli.mjs is the entry shape of every delivery check; changing it re-runs them',
+  },
+  {
     id: 'lints',
     patterns: ['verify/lint/**'],
     stages: [...ALWAYS],
     why: 'several scripts/*.test.mjs spawn verify/lint/run-all.mjs or a single lint (e.g. scripts/gate-covers-workspaces.test.mjs) — which the unconditional verify:scripts already covers',
+  },
+  {
+    id: 'linux-copy-render',
+    patterns: ['scripts/linux-copy-render.mjs'],
+    stages: [...ALWAYS, S.linuxCopyRender],
+    why: 'the browser regression script must execute when its own assertions or server lifecycle change (acceptance R-3)',
   },
   {
     id: 'gate-tooling',

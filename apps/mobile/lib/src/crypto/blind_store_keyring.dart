@@ -5,7 +5,7 @@
 // SPEC-REF: docs/rebuild/05-DATA-MODEL.md §2 (Argon2id → MasterKey 32B, kept
 //   ONLY in the client keystore, never sent upstream; sentinel =
 //   AES-GCM(MasterKey,'flowmic-e2ee-v1'));
-//   docs/strategy/2026-08-08-design-e-blindstore-client.md §2 / §2.1.
+//   docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §2 / §2.1.
 //
 // ── WHAT THIS IS NOT ────────────────────────────────────────────────────────
 // It is NOT card E-B2. E-B2 owns the key LIFECYCLE the user can see: the
@@ -55,7 +55,7 @@
 // ── ✅ IN-PLACE UPDATE (SALT-2, 2026-08-11): THE GAP ABOVE IS CLOSED ─────────
 // The section above was true when E-CL wrote it and stays as its record. The
 // distribution mechanism now exists, decided WITH authority (owner delegated
-// the design: docs/strategy/2026-08-11-design-e-multidevice-salt.md — it chose
+// the design: docs/archive/strategy/2026-08-11-design-e-multidevice-salt.md — it chose
 // the first candidate): salt + sentinel are per-account key metadata stored
 // server-side in the clear, fetched over authenticated HTTP; zero protocol
 // events moved. [adoptSharedKeyMaterial] has its production caller now —

@@ -2,7 +2,7 @@
 //   docs/strategy/2026-07-23-relaunch-master-plan.md §2.3 (VAD gating: managed
 //     streaming session-duration / audio-duration ≤ 1.3 — silence does not occupy billed streaming session time)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §2 (four-layer robustness; no silent failure)
-//   docs/strategy/R1-TASK-CARDS.md WP-R1-3 (VAD gating)
+//   docs/archive/strategy/R1-TASK-CARDS.md WP-R1-3 (VAD gating)
 //
 // Energy-based voice-activity gate. sherpa's Silero VAD (same stack as engine #7) is a
 // heavier alternative; the spec explicitly permits energy-based gating, chosen here for a
@@ -13,6 +13,9 @@
 // Metric (master-plan §2.3): ratio = sessionMs / voicedMs, where sessionMs is
 // the wall-time the gate held open (billed) and voicedMs is the actual spoken
 // audio. Hangover padding is the only overhead → ratio ≈ 1 + hangover/voiced.
+
+import { MIN_PAUSE_MS } from './segment-boundary';
+import { DEFAULT_ENGINE_IDLE_HANGUP_MS } from './orchestrator-types';
 
 const BYTES_PER_SAMPLE = 2;
 const FLOOR_DB = -100;
@@ -29,6 +32,12 @@ export interface VadGateOptions {
    *  Env: FLOWMIC_STT_VAD_HANGOVER_MS. */
   hangoverMs?: number;
 }
+
+/** card RC-6 — how often the gate CLOSED after having been open, and how long those closures ran (hangover
+ *  excluded, gate time not wall time). The two thresholds are the relay's own: `MIN_PAUSE_MS` (600, the
+ *  pause-cut arm, segment-boundary.ts) and the 3 s silence hang-up (`DEFAULT_ENGINE_IDLE_HANGUP_MS`). A closure
+ *  still running at `finish()` is counted with the length it reached. */
+export interface GateClosureCounts { count: number; ge_600ms: number; ge_3s: number }
 
 export interface VadFrameResult {
   voiced: boolean;
@@ -68,6 +77,9 @@ export class VadGate {
   private _voicedMs = 0;
   private _sessionMs = 0;
   private _lastDb = FLOOR_DB;
+  /** card RC-6 — the running closure (ms of gate time since it closed), or -1 while open / before first voice. */
+  private closedRunMs = -1;
+  private readonly _closures: GateClosureCounts = { count: 0, ge_600ms: 0, ge_3s: 0 };
 
   constructor(opts: VadGateOptions = {}) {
     this.sampleRate = opts.sampleRate ?? 16_000;
@@ -81,6 +93,8 @@ export class VadGate {
   get voicedMs(): number { return this._voicedMs; }
   get sessionMs(): number { return this._sessionMs; }
   get lastAmplitudeDb(): number { return this._lastDb; }
+  /** card RC-6 — a copy; read by the `audio intake` line (engine/stt-session.ts). */
+  get closures(): GateClosureCounts { return { ...this._closures }; }
 
   /** sessionMs / voicedMs. 1 when no voiced audio has been seen (no billing). */
   ratio(): number {
@@ -114,10 +128,12 @@ export class VadGate {
     if (voiced) {
       this.silenceRunMs = 0;
       this._voicedMs += this.frameMs;
-      if (!this._open) this._open = true; // onset = first voiced frame
+      if (!this._open) { this._open = true; this.endClosure(); } // onset = first voiced frame
     } else if (this._open) {
       this.silenceRunMs += this.frameMs;
-      if (this.silenceRunMs >= this.hangoverMs) this._open = false; // offset after hangover
+      if (this.silenceRunMs >= this.hangoverMs) { this._open = false; this.closedRunMs = 0; this._closures.count += 1; } // offset after hangover
+    } else if (this.closedRunMs >= 0) {
+      this.closedRunMs += this.frameMs;
     }
     if (this._open) this._sessionMs += this.frameMs;
   }
@@ -135,5 +151,14 @@ export class VadGate {
     }
     this.residual = Buffer.alloc(0);
     this._open = false;
+    this.endClosure();
+  }
+
+  /** card RC-6 — bucket the closure that just ended (or is cut short by `finish`). */
+  private endClosure(): void {
+    if (this.closedRunMs < 0) return;
+    if (this.closedRunMs >= MIN_PAUSE_MS) this._closures.ge_600ms += 1;
+    if (this.closedRunMs >= DEFAULT_ENGINE_IDLE_HANGUP_MS) this._closures.ge_3s += 1;
+    this.closedRunMs = -1;
   }
 }

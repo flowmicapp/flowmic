@@ -34,6 +34,8 @@
 // now means only 「这个调用本身失败了」 ("the call itself failed"). It is no longer a statement about the
 // target.
 
+#![cfg(any(not(target_os = "linux"), test))]
+
 use crate::error_codes;
 use crate::inject::app_learning::AppLearningStore;
 use crate::inject::pipeline::{InjectMode, InjectOutcome};

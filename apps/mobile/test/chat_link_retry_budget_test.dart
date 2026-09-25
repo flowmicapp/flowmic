@@ -22,7 +22,7 @@
 //
 // SPEC-REF:
 //   docs/decisions/2026-08-19-owner-phase2-four-rulings.md (ruling 4)
-//   docs/strategy/2026-08-18-039-connection-stability-window-handoff-report.md §7-6
+//   docs/archive/strategy/2026-08-18-039-connection-stability-window-handoff-report.md §7-6
 
 import 'dart:io';
 

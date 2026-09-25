@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §3 (one orchestrator per recording; FLOWMIC_STT_*
 //     env an illegal value fails loud at startup), §4 (managed-default env gating), §2 (stt:* fan-out)
-//   docs/strategy/2026-07-23-mock-billing-design.md §5 (recordSttUsage exactly once —
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §5 (recordSttUsage exactly once —
 //     driven from the bridge's onComplete seam), §3 (Free remaining-quota clamp hard cap)
 //   docs/strategy/2026-07-23-relaunch-master-plan.md §4.0 C (delivery:'none' =
 //     record-only: "at this point the content never went to the PC at all")
@@ -29,6 +29,7 @@ import { SttSessionBridge, type SttEmitter, type SttSessionDeps } from './stt-se
 import { loadRoutings, makeSttOrchestratorFactory, makeManagedDefaultResolver } from '../stt/engine-factory';
 import { configFromRouting, selectRouting, type Routing } from '../stt/engine-router';
 import { DEFAULT_POLISH_STRENGTH, type SttRefine } from '@flowmic/protocol';
+import { declaresSegmentNotTranscribed } from '../stt/owed-voice-verdict';
 import { log } from '../log';
 import { readOrchestratorTuningFromEnv, assertSttTuningEnv } from '../stt/tuning-env';
 import { makeFinalTextPipeline } from '../stt/final-text-pipeline';
@@ -382,7 +383,7 @@ export function makeSttSessionFactory(
         // The terminology the ENGINE is told (FunASR hotwords / Soniox context)
         // comes from the same overlay as the replacer above — one card, both
         // destinations. Routings inside `build` stay on the database.
-        const buildWithPrefs: SttSessionDeps['build'] = (s, l, u, v) => build(s, l, u, v, { settings });
+        const buildWithPrefs: SttSessionDeps['build'] = (s, l, u, v) => build(s, l, u, v, { settings, ...(args.continuous === true ? { continuous: true } : {}) }); // RC-1
         const built = withQuotaBudget(buildWithPrefs, quotaBudgetMs, deps.quota, args.capUserId, keyRemainingMs)(session, language, userId, vad);
         // WP2-6a: one author of the flush-sent stamp is raceFlushFinal; this
         // is only the room wiring. Soft-segment flushes before audio:stop
@@ -390,6 +391,8 @@ export function makeSttSessionFactory(
         if (roomUuid !== null) {
           built.orchestrator.flushSentHook = (): void => { markFlushSent(roomUuid); };
         }
+        // card HANGUP-3 — the ONE production writer; read by orchestrator-terminal.ts `emitTerminalFinal`.
+        built.orchestrator.segmentNotTranscribedDeclared = declaresSegmentNotTranscribed(args.clientCaps);
         return built;
       },
       emitter,
@@ -512,7 +515,8 @@ function withQuotaBudget(
     // that is forced rather than chosen: `audio:start` carries no flag saying
     // which kind of press this is (mode / delivery / language / sample rate, and
     // nothing else), so THIS SIDE CANNOT TELL a continuous sitting from somebody
-    // holding the button. It is also the right answer if it ever became a
+    // holding the button. ⚠️ 更正（RC-1，2026-09-24）：the field now exists — `audio:start.continuous`; it
+    // drives only the reconnect ladder (`buildWithPrefs` above), and this wall stays on every start. It is also the right answer if it ever became a
     // choice: a modified client that simply never releases is the same threat as
     // one that ignores its own countdown, and an ordinary utterance is seconds
     // long — the nearest tier ceiling is ten minutes away, so the wall is

@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/strategy/2026-08-29-multi-node-relay-design-srvny-srvjp.md §2-2 (why the
 //     probe must be application-level and what the self-check is for), §9
-//   docs/strategy/2026-08-28-soniox-geo-latency-findings.md §8/§9
+//   docs/archive/strategy/2026-08-28-soniox-geo-latency-findings.md §8/§9
 //   apps/server-core/src/http/node-routes.ts (the three routes this speaks to)
 //   apps/desktop/src-tauri/src/socket/cloud_endpoint.rs (the rule this obeys)
 //

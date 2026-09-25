@@ -11,13 +11,10 @@
 // extra 「…except when it's a control-key row」 clause, and this repo has paid
 // for that shape many times over.
 //
-// 🔴 This row **carries no delivery vocabulary at all**. The only thing the
-// phone side can prove is "the frame left this device", and there is **no
-// receipt frame** on this path: the answer to "did the computer receive it /
-// did the computer execute it" lives on **the PC's own timeline row** (15 册
-// §6 G-24 has this gap on record). So this only says "sent" (已发出), and
-// `deliveryFaceOf` **is never even asked about this row** — the fork happens
-// before it.
+// This row normally says only "sent". A `control:key-result` may now add one
+// independent terminal fact: submission is uncertain. That state does not
+// claim failure or success, and `deliveryFaceOf` remains reserved for message
+// delivery rows — the fork still happens before it.
 
 import 'package:flutter/widgets.dart';
 
@@ -36,7 +33,6 @@ import 'tokens.dart';
 // banner_queue.dart now needs the same function and declares itself
 // Flutter-free, and a second copy of a display name is the copy-side version of
 // this repo's #1 defect shape, which that function's own comment already names.
-
 
 /// A single remote control-key row.
 class ChatControlTile extends StatelessWidget {
@@ -61,6 +57,9 @@ class ChatControlTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final String kind = entry.controlKind ?? '';
+    final bool uncertain = (entry.status == EntryStatus.cached &&
+          (entry.failureReason == 'INJECT_SUBMISSION_UNCERTAIN' ||
+           entry.failureReason == 'submission_uncertain'));
     final Widget card = Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
@@ -96,11 +95,21 @@ class ChatControlTile extends StatelessWidget {
               ),
               const SizedBox(width: 7),
               Text(
-                strings.controlRowSent,
+                uncertain ? strings.injectionUncertain : strings.controlRowSent,
+                key: ValueKey<String>('entry.control.status.${entry.id}'),
                 style: TextStyle(color: FlowMicColors.t2, fontSize: 10.5),
               ),
             ],
           ),
+          if (uncertain) ...<Widget>[
+            const SizedBox(height: 5),
+            Text(
+              strings.injectVerdictNote('INJECT_SUBMISSION_UNCERTAIN') ??
+                  strings.injectionUncertain,
+              key: ValueKey<String>('entry.control.uncertain.${entry.id}'),
+              style: TextStyle(color: FlowMicColors.amber, fontSize: 11),
+            ),
+          ],
           // The Clear key is still the only one of the four that carries a
           // note, but **the reason changed** (T-1, 2026-08-13): it used to
           // carry a note because "it did two things in one press" (08 §5, both

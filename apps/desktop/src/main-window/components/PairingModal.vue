@@ -25,7 +25,7 @@
 // SPEC-REF:
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (QR payload / short code TTL)
 //   docs/rebuild/07-DESKTOP-SPEC.md §5 (F-2346 loopback ⇒ QR suppressed)
-//   docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-18 (live countdown)
+//   docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-18 (live countdown)
 
 import { computed, onUnmounted, ref, watch } from 'vue';
 import QRCode from 'qrcode';

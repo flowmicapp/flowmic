@@ -80,7 +80,8 @@ bool timelineApplyInjectResult(
 }) {
   TimelineEntry? entry;
   if (correlationId != null && correlationId.isNotEmpty) {
-    entry = store.findById(correlationId) ?? store.findByClientId(correlationId);
+    entry =
+        store.findById(correlationId) ?? store.findByClientId(correlationId);
     // ── 🔴 Card F11 ② — 「could not find that row」 IS NOT 「did not say which
     // row」 ────────────────────
     //
@@ -224,7 +225,8 @@ bool timelineApplyInjectResult(
       entry.status == EntryStatus.cached &&
       entry.cachedByVerdict &&
       isPcInjectionVerdictCode(entry.failureReason);
-  if (entry.status == EntryStatus.injected || settledByPcInjectionVerdict) {
+  if (entry.status == EntryStatus.injected ||
+      settledByPcInjectionVerdict) {
     // ⚠️ SELF-EXPOSING, same shape as the queue's own terminal gate
     // (`outbox.settle_ignored_terminal`, delivery_outbox_settle.dart): 「why
     // didn't this row move with that last receipt」 has to be answerable from
@@ -286,19 +288,24 @@ bool timelineApplyInjectResult(
       !ok &&
       (wireMode == TimelineStore.kWireModeCached ||
           isPcAdmissionRefusalCode(failureReason));
+  final bool submissionUncertain =
+      !ok && failureReason == 'INJECT_SUBMISSION_UNCERTAIN';
   final TimelineEntry updated = entry.copyWith(
     status: ok
         ? EntryStatus.injected
+        : submissionUncertain
+        ? EntryStatus.cached
         : (undelivered ? EntryStatus.cached : EntryStatus.failed),
     // Written on EVERY outcome, `false` included: copyWith treats false as an
     // explicit clear, so a row that is injected/failed/delivering can never
     // keep a
     // stale 「the verdict said undelivered」 bit from an earlier attempt.
-    cachedByVerdict: undelivered,
+    cachedByVerdict: undelivered || submissionUncertain,
     injectTarget: target,
-    // Only a row that actually landed gets a PC stamp — a failed delivery
-    // has no 「where did it go」 to report.
-    pcName: ok ? pcName : null,
+    // Submission uncertainty is spoken by the PC after delivery, so preserve
+    // the same destination evidence as a confirmed injection. Ordinary local
+    // or relay failures still have no 「where did it go」 to report.
+    pcName: ok || submissionUncertain ? pcName : null,
     // Persist the named code on fail. On ok we pass null; copyWith cannot
     // clear a prior reason (documented on TimelineEntry.failureReason), and
     // the UI only reads it while status is failed. An undelivered row keeps

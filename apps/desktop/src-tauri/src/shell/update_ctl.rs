@@ -1,7 +1,7 @@
 // UP-3b — the Tauri command surface for in-app update.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §4.3 / §5.0 / §5.2
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §4.3 / §5.0 / §5.2
 //
 // Everything decidable lives in `crate::update` (tauri-free, unit-tested under
 // the lean build). This file owns only what needs an `AppHandle`: managed state,

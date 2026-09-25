@@ -103,6 +103,7 @@ import 'tokens.dart';
 // button + panel, mode-chip tap confirm) moved out verbatim — see that
 // file's header for the exact diff-discipline contract.
 part 'chat_flow_composer.dart';
+part 'chat_flow_plus_panel.dart'; // CR-12-F — the cap again (800/800).
 part 'chat_flow_continuous.dart'; // Card CR-9 — the cap again (798/800).
 part 'chat_flow_article.dart'; // CR-8 cell E-2 — the cap again (840/800).
 // P3 0.3.1 (800-line cap again — the tablet press-stability skeleton pushed
@@ -136,6 +137,9 @@ part 'chat_flow_pager_sync.dart'; // REQ-12-02 — split at the 800-line cap.
 // bottom") affordance and the floating edit card's hit order. Same
 // verbatim-move contract as above.
 part 'chat_flow_scroll.dart';
+// RC-H (the cap again, this file stood at 800/800): the haptic receipt
+// observer. Same verbatim-move contract as above.
+part 'chat_flow_inject_receipt.dart';
 
 class ChatFlowPage extends StatefulWidget {
   const ChatFlowPage({
@@ -441,6 +445,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
     // first notification is compared against the truth and not against `false`.
     _lastBackLeaves = _backLeavesPage;
     controller.addListener(_onBackDispositionChanged);
+    controller.addListener(_pullBalanceAfterContinuous); // RC-H, chat_flow_continuous.dart
   }
 
   /// Card FB-7 — a `setState`, not a merge into `build`'s `Listenable.merge`:
@@ -461,6 +466,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
   void dispose() {
     controller.removeListener(_syncComposeText);
     controller.removeListener(_onBackDispositionChanged);
+    controller.removeListener(_pullBalanceAfterContinuous);
     controller.removeListener(_syncSheetOnController);
     controller.removeListener(_maybeLeaveOnSessionLost);
     controller.removeListener(_maybeLeaveOnCapsuleTaken);
@@ -480,48 +486,20 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
     super.dispose();
   }
 
-  /// V2-04: the inject:result IS the moment the PC's truth arrives — the one
-  /// signal the person watching the PC (not the phone) can actually feel.
-  /// ONE pulse = landed, TWO = failed. `cached` is NEITHER (the PC queued the
-  /// text for a target it does not have yet): buzzing success would claim an
-  /// injection that has not happened, buzzing failure would claim a loss that
-  /// did not occur — so it stays silent and the row badge carries the truth.
-  ///
-  /// 只吵一次 ("makes noise at most once") check: a wire inject:result never coincides with a banner. The
-  /// banner sources (connection / auto-stopped / sttStalled / utterance /
-  /// send / ai / image failures) all settle WITHOUT an inject:result frame —
-  /// the send-side failures mean no frame ever left or returned.
-  void _onInjectReceipt(InjectResult r) {
-    if (r.ok) {
-      unawaited(FlowMicHaptics.injectSuccess());
-      // N2: the literal was already here, and this observer was the ONLY place
-      // that read the verdict's own word — the row write-back threw it away and
-      // called every ok:false a failure, which is how the buzz and the badge came
-      // to describe the same frame differently. Same named constant now.
-      // 🔴 Card F2 addendum (2026-08-02) — the second clause is **the same
-      // leak plugged twice**, see the long comment inside
-      // `timeline_store.applyInjectResult`: the `mode` the desktop stamps for
-      // `INJECT_NOT_PRIMARY` (another phone is occupying this PC) is
-      // **fabricated** (`socket/client.rs`'s `build_inject_result(false,
-      // "sendinput", Some(error_codes::INJECT_NOT_PRIMARY), …)` stamps
-      // `"sendinput"`, while it never pressed a single key).
-      // The passage above already sets its own rule — 「buzzing failure would
-      // claim a loss that did not occur」 — and being occupied is **precisely
-      // NOT a loss**: the queue still owes it, and it will be delivered the
-      // moment the other side leaves.
-      // ⇒ Same category as `cached`: **stay silent**, and let the truth be
-      // carried by the row's badge and that state-type banner (§2.5d).
-    } else if (r.mode != TimelineStore.kWireModeCached &&
-        !isPcAdmissionRefusalCode(r.error)) {
-      unawaited(FlowMicHaptics.injectFailure());
-    }
-  }
+  /// V2-04: the haptic receipt — body and reasoning in
+  /// chat_flow_inject_receipt.dart (verbatim move at the 800-line cap).
+  void _onInjectReceipt(InjectResult r) => _onInjectReceiptRouted(this, r);
 
   // Both exits live in chat_flow_exits.dart (verbatim move at the 800-line cap);
   // why they are two and may never be merged is argued there.
   void _maybeLeaveOnSessionLost() => _maybeLeaveOnSessionLostRouted(this);
   void _maybeLeaveOnCapsuleTaken() => _maybeLeaveOnCapsuleTakenRouted(this);
   void _maybeLeaveOnPcReleased() => _maybeLeaveOnPcReleasedRouted(this);
+
+  /// Card RC-H — body in chat_flow_continuous.dart. [_balanceOwed] is its memory:
+  /// a long recording was seen running and the account has not been re-read.
+  void _pullBalanceAfterContinuous() => _pullBalanceAfterContinuousRouted(this);
+  bool _balanceOwed = false;
 
   void _onScrollOffset() {
     if (!_scrollCtl.hasClients) return;

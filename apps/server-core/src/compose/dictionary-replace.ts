@@ -47,7 +47,7 @@
 //     inflected, so a short term bites inside longer words constantly.
 // The rule is now the script's own property — does it have word boundaries and
 // case — which is the question the two strategies were always answering.
-// Full account: docs/strategy/2026-08-28-multilingual-chain-audit.md §3 F2.
+// Full account: docs/archive/strategy/2026-08-28-multilingual-chain-audit.md §3 F2.
 //
 // Pure: no I/O, no clock. The settings-reading resolver is resolveReplacementRules
 // (scenario-context.ts); the TWO live call sites are createComposeFactory

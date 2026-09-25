@@ -1,7 +1,7 @@
 // FB-11 (LLM half) — THE SWITCHBACK (switch-back): the LLM equivalent of the STT side's
 // FLOWMIC_MANAGED_STT_ENABLED 0/1 proven in BOTH directions.
 //
-// The W1 ledger (docs/strategy/2026-08-06-w1-engine-switch-ledger.md §10-E-1)
+// The W1 ledger (docs/archive/strategy/2026-08-06-w1-engine-switch-ledger.md §10-E-1)
 // records the LLM line as "only switched over, never switched back" — the switch TO the managed line was
 // proven, the switch BACK to the backup line was not. The forward+back+user cases
 // are already unit-covered in settings-provenance.test.ts; what this file adds is a

@@ -1,6 +1,6 @@
 // E-CL — the orchestrator: drain deletes, push, pull-and-merge.
 //
-// SPEC-REF: docs/strategy/2026-08-08-design-e-blindstore-client.md §3.1 / §3.2 /
+// SPEC-REF: docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §3.1 / §3.2 /
 //   §4.1 (「在下一次云端已认证连接时排空」("drain on the next cloud-authenticated
 //   connection");「解不开的条目计数并出声」("entries that cannot be decrypted are
 //   counted and spoken aloud");

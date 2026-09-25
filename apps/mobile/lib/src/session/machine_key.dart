@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-04-owner-ten-rulings-0.3.0.md ruling④ (two channels to
 //     ONE computer are ONE session surface and ONE history)
-//   docs/strategy/2026-08-04-f2-machine-merge-design.md §2.2 §2.4 §2.5
+//   docs/archive/strategy/2026-08-04-f2-machine-merge-design.md §2.2 §2.4 §2.5
 //   apps/mobile/lib/src/auth/token_storage.dart (`MobileSession.pcMachineUid`,
 //     `MobileSession.connectionIdentity`)
 //

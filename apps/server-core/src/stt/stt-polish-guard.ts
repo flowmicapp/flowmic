@@ -2,7 +2,7 @@
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §5 (final pipeline last stage — the
 //     opt-in polish's meaning-preservation guard is what keeps it from degrading
 //     into a rewrite/summarize feature)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 (opt-in LLM polish layer)
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 (opt-in LLM polish layer)
 //   Ported VERBATIM from legacy apps/server/src/stt/stt-polish-guard.ts
 //     (F-3073 track-B safety gate). Carrying code over takes priority over rewriting it: `checkMeaningPreserved` +
 //     its closed-class / cardinality machinery is the PROVEN, adversarially-

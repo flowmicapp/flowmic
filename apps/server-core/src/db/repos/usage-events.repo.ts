@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md
+//   docs/archive/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md
 //     §5.2 (the column list, argued per column), §5.3 (write points + the two
 //     hard constraints), §5.4 (retention), §5.5 (the two read APIs)
 //   src/db/schema.ts `-- 14. usage_events` (the DDL argues every column)

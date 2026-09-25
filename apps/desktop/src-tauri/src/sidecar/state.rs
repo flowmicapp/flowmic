@@ -3,7 +3,7 @@
 //     EADDRINUSE fail-loud → adopt a healthy external listener (socket.io polling
 //     probe) → else netstat+taskkill the port and respawn ONCE — F-2363/2365)
 //   docs/rebuild/13-LESSONS-LEARNED.md §2 N-series (port/adopt), §4 (deploy)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #1 (the port
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #1 (the port
 //     remediation chain's ordering is a human-audit red line)
 //     + #3 (the lifecycle state machine is made pure-logic and testable, modeled on the focus FSM)
 //   *** HUMAN-AUDIT SENSITIVE (pairing/auth + inject adjacency: the taskkill path

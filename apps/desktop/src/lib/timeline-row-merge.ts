@@ -28,7 +28,8 @@ export function refusedBy(prev: TimelineRow, incoming: TimelineRow): string[] {
 export function mergeIntoOwnedRow(prev: TimelineRow, incoming: TimelineRow): TimelineRow {
   const merged: TimelineRow = { ...prev };
   // ① status — forward only (see onHistoryUpdated).
-  if (prev.status !== 'injected') merged.status = incoming.status;
+  // Uncertainty is a terminal native verdict too; a replay cannot prove no input.
+  if (prev.status !== 'injected' && prev.cached_cause !== 'INJECT_SUBMISSION_UNCERTAIN') merged.status = incoming.status;
   // ② display backfills — ABSENT → PRESENT only. Each adds an answer where the row had
   //    none, so none of them can contradict anything the user or this machine knows.
   if (prev.thumb_b64 === null && incoming.thumb_b64 !== null) merged.thumb_b64 = incoming.thumb_b64;

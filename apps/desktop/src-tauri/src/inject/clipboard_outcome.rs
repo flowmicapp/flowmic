@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §2 (three-stage injection pipeline, Stage 3)
-//   docs/strategy/2026-07-30-inject-state-narrowing-design.md §3
+//   docs/archive/strategy/2026-07-30-inject-state-narrowing-design.md §3
 //   *** HUMAN-AUDIT SENSITIVE (injection path) ***
 //
 // WHAT A PASTE MEANS — the clipboard half of the truth mapping.
@@ -25,9 +25,12 @@
 // `receipt_phrase` without touching a single test.
 
 use crate::error_codes;
+#[cfg(any(not(target_os = "linux"), test))]
 use crate::inject::app_learning::AppLearningStore;
 use crate::inject::clipboard_confirm::ConfirmOutcome;
-use crate::inject::clipboard_paste::{PasteOutcome, PASTE_HOLD};
+use crate::inject::clipboard_paste::PasteOutcome;
+#[cfg(not(target_os = "linux"))]
+use crate::inject::clipboard_paste::PASTE_HOLD;
 use crate::inject::readback::LandingEvidence;
 use crate::inject::pipeline::{InjectMode, InjectOutcome};
 use crate::inject::sendinput::InjectError;
@@ -47,7 +50,7 @@ use crate::inject::sendinput::InjectError;
 /// that names the wrong mechanism is worse than no sentence, because it stops the
 /// next reader from measuring. The question it kept being asked is answered by
 /// `LandingEvidence` now.
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub(crate) fn receipt_phrase(confirmed: bool) -> String {
     if confirmed {
         "render-receipt=served(somebody fetched our format — NOT evidence the target inserted it)"
@@ -57,6 +60,15 @@ pub(crate) fn receipt_phrase(confirmed: bool) -> String {
             "render-receipt=none(nobody fetched our format in the {}ms it was held)",
             PASTE_HOLD.as_millis()
         )
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn receipt_phrase(confirmed: bool) -> String {
+    if confirmed {
+        "render-receipt claimed on Linux: impossible; no target-read instrument exists".into()
+    } else {
+        "render-receipt n/a on Linux: X11 selection requests do not identify a target landing".into()
     }
 }
 
@@ -143,6 +155,8 @@ pub(crate) fn receipt_phrase(confirmed: bool) -> String {
 /// target that declined. See the `dropped_unrendered && !confirmed` branch.
 pub(crate) fn map_image_outcome(result: Result<ConfirmOutcome, InjectError>) -> InjectOutcome {
     match result {
+        Err(InjectError::SubmissionUncertain(detail)) => submission_uncertain(detail),
+        Err(InjectError::TargetChanged(detail)) => target_changed(detail),
         Ok(ConfirmOutcome {
             confirmed,
             requested_format,
@@ -271,6 +285,8 @@ pub(crate) fn map_routed_paste_outcome(
     reason: crate::inject::text_route::PasteReason,
 ) -> InjectOutcome {
     match result {
+        Err(InjectError::SubmissionUncertain(detail)) => submission_uncertain(detail),
+        Err(InjectError::TargetChanged(detail)) => target_changed(detail),
         Ok(PasteOutcome {
             confirmed,
             landing,
@@ -305,11 +321,18 @@ pub(crate) fn map_routed_paste_outcome(
     }
 }
 
+#[cfg(any(not(target_os = "linux"), test))]
 pub(crate) fn map_clipboard_outcome(
     result: Result<PasteOutcome, InjectError>,
     app_id: Option<&str>,
     store: &AppLearningStore,
 ) -> InjectOutcome {
+    if let Err(InjectError::SubmissionUncertain(detail)) = result {
+        return submission_uncertain(detail);
+    }
+    if let Err(InjectError::TargetChanged(detail)) = result {
+        return target_changed(detail);
+    }
     // Per-app learning now follows the same narrowing: only a hard error counts as
     // this app rejecting the paste path. An unconsumed-but-error-free paste used to
     // be recorded as a failure, which then bounced the app back onto SendInput —
@@ -372,4 +395,20 @@ pub(crate) fn map_clipboard_outcome(
             focus_evidence: None,
         },
     }
+}
+
+fn submission_uncertain(detail: String) -> InjectOutcome {
+    crate::forensic::record("inject", &format!("input submission UNCERTAIN; no automatic retry: {detail}"));
+    InjectOutcome {
+        ok: false,
+        mode: InjectMode::Clipboard,
+        error_code: Some(error_codes::INJECT_SUBMISSION_UNCERTAIN),
+        error_message: Some(detail),
+        focus_evidence: None,
+    }
+}
+
+fn target_changed(detail: String) -> InjectOutcome {
+    InjectOutcome { ok: false, mode: InjectMode::Cached,
+        error_code: Some(error_codes::INJECT_FOCUS_LOST), error_message: Some(detail), focus_evidence: None }
 }

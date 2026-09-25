@@ -454,7 +454,7 @@
         let tmp_path = std::path::PathBuf::from(tmp_path);
 
         let mut entries = std::collections::VecDeque::new();
-        entries.push_back(TypedLedgerEntry { request_id: "rq-atomic".to_string(), mode: "sendinput".to_string() });
+        entries.push_back(TypedLedgerEntry { request_id: "rq-atomic".to_string(), mode: "sendinput".to_string(), submission_uncertain: false, recorded_at_ms: None });
         let file = TypedLedgerFile { entries };
         file.save(&path).expect("save must succeed");
 
@@ -489,7 +489,7 @@
     fn a_failed_tmp_write_never_touches_the_still_good_live_file() {
         let path = tmp_ledger_path();
         let mut old = std::collections::VecDeque::new();
-        old.push_back(TypedLedgerEntry { request_id: "rq-old-good".to_string(), mode: "clipboard".to_string() });
+        old.push_back(TypedLedgerEntry { request_id: "rq-old-good".to_string(), mode: "clipboard".to_string(), submission_uncertain: false, recorded_at_ms: None });
         TypedLedgerFile { entries: old }.save(&path).expect("the first save must succeed");
         assert_eq!(TypedLedgerFile::load(&path).entries.len(), 1, "sanity: the good save loaded back");
 
@@ -499,7 +499,7 @@
         std::fs::create_dir_all(&tmp_path).expect("plant a directory where the tmp FILE needs to go");
 
         let mut new = std::collections::VecDeque::new();
-        new.push_back(TypedLedgerEntry { request_id: "rq-new-should-not-land".to_string(), mode: "sendinput".to_string() });
+        new.push_back(TypedLedgerEntry { request_id: "rq-new-should-not-land".to_string(), mode: "sendinput".to_string(), submission_uncertain: false, recorded_at_ms: None });
         let result = TypedLedgerFile { entries: new }.save(&path);
 
         assert!(result.is_err(), "the tmp write must fail — a directory sits where the file needs to be");

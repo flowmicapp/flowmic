@@ -33,6 +33,7 @@ import '../audio/audio_emitter.dart';
 import '../auth/token_storage.dart';
 import '../diag/diag_log.dart';
 import '../session/endpoint_candidates.dart';
+import '../session/engine_reconnect_state.dart';
 import '../session/instance_probe.dart';
 import '../session/hold_out_retry.dart';
 import '../session/local_engine_status.dart';
@@ -43,7 +44,8 @@ import '../session/pc_presence_probe.dart';
 import '../session/presence_route.dart';
 import '../session/recovery_identity.dart';
 import '../session/platform_device_info.dart';
-import '../timeline/article.dart' show pcmBytesToMs;
+import '../settings/declared_client_capabilities.dart' show declaredClientCapabilities; // card HANGUP-3 (ptt_pair.dart)
+import '../timeline/article.dart' show pcmBytesToMs, pcmMsToBytes;
 import '../signaling/auth_expired_handler.dart';
 import '../signaling/health_handler.dart';
 import '../signaling/http_endpoint.dart';
@@ -58,13 +60,15 @@ import '../signaling/node_follow.dart'
         resolveNodeUrl,
         sameRelayHost,
         settledAtHomeNode;
-import '../signaling/node_list_client.dart' show httpNodeListFetch, planNodeHop, planSelfNodeHop;
+import '../signaling/node_list_client.dart'
+    show httpNodeListFetch, planNodeHop, planSelfNodeHop;
 import '../signaling/reconnect.dart';
 import '../signaling/socket_core.dart';
 import '../signaling/wire_payloads.dart';
 import '../stt/segment_buffer.dart';
 import '../stt/stt_stream.dart';
 import '../signaling/state_machine.dart';
+import 'engine_outage_stretch.dart';
 import 'mic_permission.dart';
 import 'pair_result.dart';
 import 'pair_retire.dart';
@@ -108,6 +112,7 @@ part 'ptt_session_dispose.dart';
 part 'ptt_edges.dart';
 part 'ptt_continuous.dart'; // CR-2/CR-6/CR-9 — the continuous lifecycle.
 part 'ptt_backfill.dart'; // CR-5 — the re-transcription channel's wire half.
+part 'ptt_unheard_tail.dart'; // RC4-S5 — a long recording owes what the relay says no engine heard.
 
 // 800-line cap: the stored-pairing resume / reconnect-dial family moved
 // VERBATIM — see that file's header.
@@ -174,7 +179,8 @@ class PttSession {
        // green. main.dart supplies the opened store's spill.
        audio =
            audio ?? AudioCapture(recorder: RealAudioRecorder(), spill: spill),
-       micPermission = micPermission ??
+       micPermission =
+           micPermission ??
            MicPermissionFlow(
              port: const PlatformMicPermission(),
              asked: const SharedPrefsMicAskedStore(),
@@ -196,7 +202,8 @@ class PttSession {
           // turns it on, this stops the ladder and a recovery attempt sending
           // the same samples on the same socket.
           replayGate: () => replayRefusalFor(
-            journalFaceOn: this.audio.retainedAudio?.retainFromFirstFrame ?? false,
+            journalFaceOn:
+                this.audio.retainedAudio?.retainFromFirstFrame ?? false,
             ownership: this.audio.retainedAudio?.replayOwnership,
             recorderRunning: fsm.session == SessionState.recording,
             serverAudioWatermark: _reconnectAckAudioSeq,
@@ -228,7 +235,10 @@ class PttSession {
     _statusSub = this.transport.status.listen((SocketStatus s) {
       fsm.onSocketStatus(s);
       // G-15① (started only once PAIRED, see file) stops here same as presence.
-      if (s != SocketStatus.connected) { _pcPresence.noteLinkNotLive(); _stopPresencePoll(); }
+      if (s != SocketStatus.connected) {
+        _pcPresence.noteLinkNotLive();
+        _stopPresencePoll();
+      }
       // N1-B3 retained-audio uplink signal; body + rationale in
       // ptt_capture_pump.dart (`_noteUplinkStatus`).
       _noteUplinkStatus(s);
@@ -245,6 +255,7 @@ class PttSession {
     // failure directions is written out in continuous_recording.dart.
     continuous = ContinuousRecording(recorderState: this.audio.state);
     wireCaptureEndedEdge(); // D-1b, body + rationale in ptt_continuous.dart
+    wireContinuousTerminalErrorStop(); // RC-3, ptt_continuous.dart
   }
 
   /// Card CR-6 — the per-sitting ceiling, armed with the number the SERVER
@@ -267,6 +278,7 @@ class PttSession {
   /// edge. Ordinary push-to-talk never touches it, which is what keeps its
   /// behaviour unchanged.
   late final ContinuousRecording continuous;
+
   /// D-1b — 「a capture just ended」 as an EDGE; `wireCaptureEndedEdge`
   /// (ptt_continuous.dart) has the account. Consumers re-ask the predicate.
   final ValueNotifier<int> captureStopped = ValueNotifier<int>(0);
@@ -340,6 +352,20 @@ class PttSession {
   /// reader is the connection-diagnostics sheet.
   final LocalEngineStatusStore engineStatus = LocalEngineStatusStore();
 
+  /// NR-96-B — 「the relay is re-dialling the speech engine, attempt n」 for the
+  /// recording screens. Writers: the inbound loop (ptt_inbound.dart) and the
+  /// capture-boundary edge (ptt_continuous.dart); every edge is in its own file.
+  final EngineReconnectState engineReconnect = EngineReconnectState();
+
+  /// Card RC-3b — the capture position a long recording's engine outage began
+  /// at; one writer and one reader, both in ptt_capture_pump.dart.
+  final EngineOutageStretch engineOutage = EngineOutageStretch();
+
+  /// NR-96-E1 — a ticket raised when `mobile:reconnect` went unanswered past
+  /// [HoldOutRetry.lostAckWaits]; 0 = not standing. Raise, clear and dismiss
+  /// all live in ptt_reconnect_ack.dart.
+  final ValueNotifier<int> reconnectAckLost = ValueNotifier<int>(0);
+
   /// card F2 / ruling ④ — 「which rows this screen reads, which bucket this
   /// screen's instantaneous state falls into」. The sole writer is
   /// [applyPairedIdentity] / [clearConnectedInstance] below, living and
@@ -352,7 +378,8 @@ class PttSession {
   /// kept separate from the occupancy banner」 are in [HoldOutRetry]; the
   /// wiring is in ptt_reconnect_ack.dart.
   final HoldOutRetry _holdOut = HoldOutRetry();
-  final PcReleaseCooldown releaseCooldown = PcReleaseCooldown(); // owner 2026-08-20 — full rationale in its own file; the OPPOSITE of _holdOut above: a deadline, never a dialler.
+  final PcReleaseCooldown releaseCooldown =
+      PcReleaseCooldown(); // owner 2026-08-20 — full rationale in its own file; the OPPOSITE of _holdOut above: a deadline, never a dialler.
   /// Stops the timer on leaving the transcription page
   /// (connections_controller `leaveRoom()`).
   void cancelHoldOutRetry() => _holdOut.cancel();
@@ -365,6 +392,7 @@ class PttSession {
   /// wrong, and what it cost, is at the sole-writer site of
   /// [PttSession.noteRoomJoined] in ptt_reconnect_ack.dart.
   final ValueNotifier<int> roomJoins = ValueNotifier<int>(0);
+
   /// owner 2026-09-17 — 「this session is the site demo, and it is temporary」.
   /// Written by ONE site (`pair()` on a `PairEntry.ephemeral` ack), cleared by
   /// `clearConnectedInstance`. Read by the chat header (the standing note) and
@@ -372,7 +400,10 @@ class PttSession {
   /// than a bool so a screen already mounted repaints on the edge.
   /// Design: docs/strategy/2026-09-17-app-ephemeral-demo-session-design.md.
   final ValueNotifier<bool> ephemeralSession = ValueNotifier<bool>(false);
-  void noteRoomJoined({required bool atHomeNode}) { reconnect.noteJoinAtHomeNode(atHomeNode); roomJoins.value++; } // P0: the verdict BEFORE the edge — see ReconnectCoordinator.lastJoinAtHomeNode
+  void noteRoomJoined({required bool atHomeNode}) {
+    reconnect.noteJoinAtHomeNode(atHomeNode);
+    roomJoins.value++;
+  } // P0: the verdict BEFORE the edge — see ReconnectCoordinator.lastJoinAtHomeNode
 
   /// Seam so the channel reading is testable without a network.
   HealthReader healthReader = httpHealthRead;
@@ -510,16 +541,19 @@ class PttSession {
   // Presentation-facing inbound streams (WP-R3-2). Routed off the one dispatch
   // loop so the chat-flow layer never re-subscribes to the raw transport.
   final _injectResultCtl = StreamController<InjectResult>.broadcast();
+
   /// Card MP-14 — the receipt `control:key` never had.
   final _controlKeyResultCtl = StreamController<ControlKeyResult>.broadcast();
   final _focusStateCtl = StreamController<FocusState>.broadcast();
   final _autoStoppedCtl = StreamController<String>.broadcast();
   final _aiComposeCtl = StreamController<AiComposeEvent>.broadcast();
+
   /// GA-14 stt:refined — a LATE, better version of an utterance that already
   /// settled. Deliberately its own stream: it carries no FSM meaning, and routing
   /// it through the final path would hand a finished utterance a second terminal
   /// (the wedging class GA-03 fixed).
   final _refinedCtl = StreamController<SttRefined>.broadcast();
+
   /// Card S2-02 billing:budget - the account allowance reading. Its own stream
   /// for the same reason stt:refined has one: it carries no FSM meaning, and
   /// routing it through anything that does would give a progress number a say in
@@ -555,9 +589,9 @@ class PttSession {
 
   /// control:key-result — what the far end did with one remote keypress
   /// (card MP-14). Its OWN stream, for the same reason `stt:refined` has one:
-  /// it carries no FSM meaning and settles no row, and routing it through
-  /// anything that does would give a keypress a say in whether an utterance is
-  /// finished.
+  /// it carries no FSM meaning. The chat layer may persist an independent
+  /// uncertain control-row outcome; it never gives a keypress a say in whether
+  /// an utterance is finished.
   Stream<ControlKeyResult> get controlKeyResults => _controlKeyResultCtl.stream;
 
   /// GA-14 / D7 ③: the second-pass transcript, NAMED by its utterance id (frames without one never reach here).
@@ -664,6 +698,11 @@ class PttSession {
 
   /// See [_openSessionRange].
   RecoverySampleRange? get openSessionRange => _openSessionRange;
+
+  /// Card RC4 — whether the open session was opened by a recovery pass.
+  /// Written before the FSM edge by the two openers; read by
+  /// [PttSessionBackfill.openSessionIsRecovery] (ptt_backfill.dart).
+  bool _openSessionIsRecovery = false;
   // `_lastChunkSeq` lived here until 2026-07-31 purely to fill the
   // `audio:heartbeat` payload; both went out with that event (stage-5 cleanup).
   // AudioCapture owns the authoritative seq counter, so nothing else read it.

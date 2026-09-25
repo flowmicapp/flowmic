@@ -2,7 +2,7 @@
 //
 // G18 — annual-pay tier (window D1 Lane H), over a REAL saas server.
 //
-//   docs/strategy/2026-08-01-window-d1-handoff-report.md §1 (criterion grading), §2 last paragraph
+//   docs/archive/strategy/2026-08-01-window-d1-handoff-report.md §1 (criterion grading), §2 last paragraph
 //     (the assumption "this round does not do annual pay" was falsified that day by owner's action), §4 rule 2 (a test that only asserts the label is green on
 //     "the label moved and the gate did not")
 //   docs/decisions/2026-08-01-owner-three-tier-pricing-usd-monthly.md (four prices)
@@ -66,12 +66,15 @@ import { paddleSignature, subscriptionFrame, diff } from './g17-paddle-billing-c
 // note in g17-paddle-billing-chain.mjs for why that cost is the point.
 const FREE_STT_MIN = 20;
 const FREE_LLM = 1_000_000;
-const PRO_STT_MIN = 900;
+// 2026-09-23: 900 → 1000 (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md §1-5).
+const PRO_STT_MIN = 1000;
 // 2026-08-27: 20M → 5M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-const PRO_LLM = 5_000_000;
+// 2026-09-23: 5M → 10M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md §1-3).
+const PRO_LLM = 10_000_000;
 const MAX_STT_MIN = 3_000;
 // 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-const MAX_LLM = 15_000_000;
+// 2026-09-23: 15M → 50M (same ruling §1-3). MAX_STT_MIN stays 3,000 (§1-5).
+const MAX_LLM = 50_000_000;
 
 /** A throwaway notification-destination secret — never a real one. Different
  *  from G17's on purpose: two paths sharing one secret would let a bug that

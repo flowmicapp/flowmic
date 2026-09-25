@@ -157,14 +157,19 @@ fn a_delivered_clipboard_paste_carries_no_error_code() {
 // about what the target did with the bytes. `LandingEvidence` owns that claim.
 #[cfg(not(target_os = "macos"))]
 #[test]
-fn the_receipt_line_names_its_window_and_never_claims_the_target_inserted_anything() {
+fn the_receipt_line_never_claims_consumption() {
     for confirmed in [true, false] {
-        let phrase = receipt_phrase(confirmed);
+        let phrase = crate::inject::clipboard_outcome::receipt_phrase(confirmed);
         assert!(
             !phrase.contains("consumed"),
             "「consumed」 is the word that was measured wrong; it must not come back: {phrase}"
         );
     }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[test]
+fn the_receipt_line_names_its_window_and_disclaims_landing() {
     // ⚠️ This used to also assert `!contains("inserted")`, and it failed against
     // a sentence that reads 「NOT evidence the target inserted it」 — i.e. the
     // assertion could not tell a CLAIM from its DENIAL. Substring bans are a bad
@@ -507,6 +512,7 @@ fn a_refused_synthetic_input_gate_ends_the_image_frame_before_stage_1() {
     assert_eq!(bad.error_code, Some(error_codes::INJECT_IMAGE_UNSUPPORTED));
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 #[test]
 fn the_image_path_is_deliberately_untouched_by_the_self_window_ruling() {
     // owner's ruling is about 「我说的话」 ("the words I spoke"). FlowMic's own surfaces are plain text

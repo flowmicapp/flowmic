@@ -198,6 +198,7 @@ describe('W2.5-B: the fix costs the common path nothing', () => {
     const { orch, clock, finals } = harness([a, b]);
     await orch.start({ language: 'zh', mode: 'realtime' });
     a.flush = async (): Promise<void> => { a.emitFinal('大家好'); };
+    orch.pushChunk({ seq: 0, ts_ms: clock.now, payload: Buffer.alloc(6_400) }); // card HANGUP-3: a leg handed no audio is not flushed at release
     const before = clock.now;
     await orch.stop();
     // Measured on the injected clock: `if (this.rolloverWork)` is not taken, so
@@ -227,6 +228,7 @@ describe('W2.5-B: the fix costs the common path nothing', () => {
       if (++call === 1) { await rolloverAnswered; a.emitFinal('前半句'); return; }
       await terminalAnswered; a.emitFinal('前半句后半句');
     };
+    orch.pushChunk({ seq: 0, ts_ms: clock.now, payload: Buffer.alloc(6_400) }); // card HANGUP-3: a leg handed no audio is not flushed at release
 
     await clock.advance(45_000);          // card SEG-4: the LEG rotation parks in its flush
     const stopped = orch.stop();

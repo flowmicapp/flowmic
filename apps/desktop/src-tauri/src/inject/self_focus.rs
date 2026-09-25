@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-0248-status-truth-analysis.md §F1a
+//   docs/archive/strategy/2026-08-02-0248-status-truth-analysis.md §F1a
 //     + 「owner's 2026-08-02 clarification」item 1
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.5e-4
 //   docs/decisions/2026-07-30-injected-means-delivered-to-keyboard-focus.md

@@ -14,7 +14,7 @@
 // answer to a different one. The index for that question has existed, unused,
 // since V2-06a-1: `idx_timeline_owner (spoken_to_instance_id, created_at DESC)`.
 //
-// 🔴 F2 CONTRACT (docs/strategy/2026-08-04-f2-machine-merge-design.md §5 Stage 3):
+// 🔴 F2 CONTRACT (docs/archive/strategy/2026-08-04-f2-machine-merge-design.md §5 Stage 3):
 // 「分页谓词从「单 owner」推广为「owner ∈ 集合」（索引不变）」("the paging predicate
 // generalizes from 'single owner' to 'owner ∈ set' (the index stays
 // unchanged)"). F2 will widen the

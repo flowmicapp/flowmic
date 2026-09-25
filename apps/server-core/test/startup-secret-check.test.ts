@@ -1,10 +1,10 @@
 // D2 Stage 0 — boot self-check: make §1.3's silent disaster loud (warn only, do not refuse to start).
 //
 // SPEC-REF: src/startup-secret-check.ts (the module this file drives)
-//           docs/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md
+//           docs/archive/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md
 //             §1.3 (the silent-disaster mechanism) §3.4 (the self-check design)
 //             §7 decision 3 (refuse-to-start vs warn-only — owner has not ruled; this file only tests the warn branch)
-//           docs/strategy/2026-08-05-d2-stage0-delivery-cn.md (§5 quotes the RED
+//           docs/archive/strategy/2026-08-05-d2-stage0-delivery-cn.md (§5 quotes the RED
 //             failure text captured here, verbatim)
 //           test/ops-audit-wiring.test.ts (the grep-wiring pattern this file's
 //             last two tests copy — a caller that lives in a module nobody
@@ -87,7 +87,7 @@ describe('checkSettingsSecretAtBoot', () => {
     expect((result.reason as string).length).toBeGreaterThan(0);
     expect(result.detail).toContain('database was restored but the deployment secret env var was not');
     // eslint-disable-next-line no-console -- deliberate: this exact text is
-    // quoted verbatim into docs/strategy/2026-08-05-d2-stage0-delivery-cn.md §5.
+    // quoted verbatim into docs/archive/strategy/2026-08-05-d2-stage0-delivery-cn.md §5.
     console.log('【measured·RED original text】', result.reason);
     db.close();
   });

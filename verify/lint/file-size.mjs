@@ -148,8 +148,8 @@ export const TRANSLATION_BLOAT_BASELINE = new Map([
   // 🔴 The card that paid this off is also the one that would have grown it: the
   // file sat EXACTLY on its pinned 801, so the gate refused an eight-line
   // addition and the split happened because of that refusal, not despite it.
-  ['apps/mobile/lib/src/ui/chat_message_tile.dart', 835],
-  ['apps/mobile/lib/src/ui/status_badge.dart', 907],
+  // Linux L7: row helpers and badge widgets moved VERBATIM into part files;
+  // both former UI debts are now below the unchanged 800-line cap.
 ]);
 
 export function isTestFile(relPath) {

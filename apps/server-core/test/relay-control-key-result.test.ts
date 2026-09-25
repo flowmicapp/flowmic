@@ -76,9 +76,9 @@ describe('control:key-result — far end → the speaker', () => {
   // ① — verbatim, including the correlation echo. A receipt that loses
   // `request_id` still arrives, but it settles the wrong press (or none), which
   // is the failure `duration_ms` taught this repo to assert for.
-  it('a refusal reaches every mobile in the room, verbatim', () => {
+  it.each(['unsupported_here', 'uncertain'])('a %s receipt reaches every mobile in the room, verbatim', (reason) => {
     const { pc, phones } = harness();
-    const frame = { request_id: 'k-17', kind: 'tab', ok: false, reason: 'unsupported_here' };
+    const frame = { request_id: 'k-17', kind: 'tab', ok: false, reason };
     pc.fire('control:key-result', frame);
     for (const phone of phones) {
       const got = phone.emits.filter((e) => e.event === 'control:key-result');

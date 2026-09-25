@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-17-lan-cc-agent-work-package-2.md §1 C7
+//   docs/archive/strategy/2026-08-17-lan-cc-agent-work-package-2.md §1 C7
 //   docs/rebuild/07-DESKTOP-SPEC.md §6 (connection layer — cloud relay channel)
 //
 // The one-time migration of a RETIRED relay address off this install.

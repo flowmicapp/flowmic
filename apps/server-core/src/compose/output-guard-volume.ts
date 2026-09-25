@@ -129,7 +129,7 @@ export const MAX_EXPANSION: Readonly<Record<ComposeGuardTask, number>> = {
   // re-expressed in another language — so translate's wider allowance (which
   // exists for dense CJK sources that legitimately expand) does not apply.
   // ⚠️ NOT measured against a corpus: draft_polish has no eval suite at all
-  // (docs/strategy/2026-08-28-multilingual-chain-audit.md F7). Borrowing a
+  // (docs/archive/strategy/2026-08-28-multilingual-chain-audit.md F7). Borrowing a
   // sibling's calibrated ceiling is the honest move when you have no sample —
   // inventing a tighter number would look like a measurement and be a guess.
   draft_polish: 4,

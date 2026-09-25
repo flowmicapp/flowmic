@@ -10,6 +10,8 @@
 // result - and nothing here does anything. The leg re-exports this file, so no
 // importer had to change.
 
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 import '../ptt/ptt_session.dart' show kBackfillChunkBytes;
@@ -66,6 +68,106 @@ const int kRecoveryReadBlockBytes = 64 * kBackfillChunkBytes;
 /// (interims every few seconds) never reaches it and the feed is unchanged.
 const int kRecoveryInFlightWindowBytes = 8 * kRecoveryReadBlockBytes;
 
+/// Card RC-2 — HOW FAST a recovery feed may hand audio to a real-time engine.
+///
+/// 🔴 THE MEASUREMENT THAT PUT IT HERE. [kRecoveryInFlightWindowBytes] bounds
+/// memory, not speed: every interim reset it, so on CR-12-E the feed pushed
+/// 428 s of audio in 4.3 s (about 100x real time). Soniox takes such a burst
+/// without complaint and works through it at about 1.1-1.2x real time
+/// (root-cause doc §1.6; `.local/rc-backfill/soniox-ack-probe.log` in the
+/// lane-d slot), so the relay's flush cap fired long before the vendor was done
+/// and the recording came back as its first 8 characters.
+///
+/// So the feed is paced by the engine's OWN processed position, which the
+/// relay reports on every interim as `acked_audio_ms` ([SttInterim.ackedAudioMs])
+/// in the clock we stamp chunks with: the feed may run at most
+/// [maxAheadOfEngineMs] ahead of the last position reported. Between reports
+/// the allowance grows at [fallbackRealTimeFactor] x real time, which is also
+/// the whole rule against a relay that reports nothing (an older relay, or an
+/// engine with no processed position).
+///
+/// ⚠️ WHY IT GROWS BETWEEN REPORTS INSTEAD OF HOLDING. A relay only speaks when
+/// the engine has words: across a long pause its VAD gate withholds the silence
+/// and hangs the leg up, so no interim comes however long the pause is. A hard
+/// hold would stop every recovery that crosses a pause longer than the window,
+/// and the pause costs the vendor nothing. An engine that keeps REPORTING
+/// without advancing is the stuck one, and each report re-anchors the allowance
+/// to the same position, so it holds; the leg's upload clock ends that wait.
+///
+/// ⚠️ NOT A FAKE REAL-TIME CADENCE. P1-3 (2) refuses 「drag a 30-minute
+/// recording through at 200 ms per frame」, and this is not that: a healthy
+/// engine sets the pace, and the fallback is twice real time in whole blocks.
+///
+/// ⚠️ 更正（RC-M，2026-09-24）：原为 `maxAheadOfEngineMs = 30000`. A feed 30 s
+/// ahead of the engine means the relay's final comes ~30 s after `audio:stop`,
+/// and the phone waited 15 s (root cause §3.2: 26.5–26.7 s on attempts 2–5). Now
+/// 10 s ahead, the first block included ([allowedEndMs]), and the feed sends in
+/// frames up to the allowance instead of waiting for a whole block to fit, so
+/// the relay never sees [maxGapMs] of silence from a healthy recovery.
+@immutable
+class RecoveryPacing {
+  const RecoveryPacing({
+    this.maxAheadOfEngineMs = 10000,
+    this.fallbackRealTimeFactor = 2.0,
+  });
+
+  /// Card RC-M — the longest a healthy feed leaves the wire silent between two
+  /// sends. Under the relay's 3 s idle hang-up (server-core
+  /// `stt/engine-idle-hangup.ts`), which re-feeds everything unflushed to a new
+  /// leg. Informational: the frame-granular feed ([allowedEndMs] + a one-frame
+  /// wait at [fallbackRealTimeFactor]) keeps it at a tenth of a second; only an
+  /// engine that keeps reporting the SAME position holds longer, and that one
+  /// is stuck (`uploadProgress` ends it).
+  static const int maxGapMs = 1000;
+
+  /// How far ahead of the engine's last reported position the feed may run.
+  final int maxAheadOfEngineMs;
+
+  /// How fast the allowance grows between reports, and against a relay that
+  /// never reports, as a multiple of real time.
+  final double fallbackRealTimeFactor;
+
+  /// The furthest audio position (ms from the start of the range) the feed may
+  /// have sent at [nowMs]. [ackedMs] null = no report yet in this attempt: the
+  /// allowance then starts at 0 at [startedAtMs].
+  int limitMs({
+    required int? ackedMs,
+    required int reportedAtMs,
+    required int startedAtMs,
+    required int nowMs,
+  }) {
+    // ⚠️ 更正（Codex rc3 ⑧，2026-09-24）：原为 `ackedMs == null ? 0 : …` — with no
+    // report the allowance restarted from zero after the first send's 10 s
+    // ([allowedEndMs]), so the next frame waited ~5.1 s at 2x: past the relay's
+    // 3 s idle hang-up. No report reads as an engine at 0, the lead included.
+    final int anchorPos = (ackedMs ?? 0) + maxAheadOfEngineMs;
+    final int anchorWall = ackedMs == null ? startedAtMs : reportedAtMs;
+    final int grown = ((nowMs - anchorWall) * fallbackRealTimeFactor).floor();
+    return anchorPos + math.max(0, grown);
+  }
+
+  /// How long to wait before sending the block that ends at [endMs], given the
+  /// current [limitMs]; 0 = send now. [sentMs] 0 = the first block, which never
+  /// waits (nothing is in flight yet).
+  int waitMs({required int sentMs, required int endMs, required int limitMs}) {
+    if (sentMs == 0 || endMs <= limitMs) return 0;
+    return ((endMs - limitMs) / fallbackRealTimeFactor).ceil();
+  }
+
+  /// Card RC-M — how far (ms from the start of the range) the feed may send
+  /// now: the allowance, and for the first send at least [maxAheadOfEngineMs]
+  /// (nothing is in flight yet, and the engine is at 0).
+  int allowedEndMs({required int sentMs, required int limitMs}) =>
+      sentMs == 0 ? math.max(limitMs, maxAheadOfEngineMs) : limitMs;
+}
+
+/// The production pacing; see [RecoveryPacing].
+const RecoveryPacing kRecoveryPacing = RecoveryPacing();
+
+/// How often a paced wait re-reads the clock, so a report that raises the
+/// allowance is noticed without waiting out the whole computed gap.
+const Duration kRecoveryPacePoll = Duration(milliseconds: 250);
+
 /// The four timeouts P1-3 asks for, separated because they mean four different
 /// things and their remedies differ.
 ///
@@ -113,6 +215,18 @@ class RecoveryTimeouts {
               .round());
 }
 
+/// Card RC-G — what one session key still owes, in journal bytes.
+@immutable
+class SessionDebtBytes {
+  const SessionDebtBytes({required this.pendingBytes, required this.outageBytes});
+
+  final int pendingBytes;
+
+  /// How much of [pendingBytes] was recorded while the link (or the engine)
+  /// was down — the same test [RecoveryLegOutcome.outagePendingBytes] sums.
+  final int outageBytes;
+}
+
 /// What one pass of the journal leg did. Read by [BackfillRunner] for the
 /// progress face; card RC-1b renders the counts.
 @immutable
@@ -124,6 +238,7 @@ class RecoveryLegOutcome {
     required this.settledUnverified,
     required this.stopEarly,
     this.outagePendingBytes = 0,
+    this.bySession = const <String, SessionDebtBytes>{},
   });
 
   static const RecoveryLegOutcome none = RecoveryLegOutcome(
@@ -151,6 +266,17 @@ class RecoveryLegOutcome {
   /// having dropped (observed 2026-09-07). A count, not a flag, because the
   /// legacy face contributes bytes of its own and the caller sums them.
   final int outagePendingBytes;
+
+  /// Card RC-G — [pendingBytes] and [outagePendingBytes] again, split by the
+  /// session key each recording was minted under
+  /// (`RetainedAudioSpill.sessionKeyOf`; for a continuous recording that key
+  /// IS the article id).
+  ///
+  /// 🔴 THE TOTALS ABOVE ANSWER 「how much does this phone owe」; this answers
+  /// 「how much does THIS piece owe」. The article page used to print the first
+  /// as if it were the second — 「断网时录下的 10:51 还在转写」 on a piece that
+  /// owed 1:35 (CR-12-E re-run, root-cause §5.5).
+  final Map<String, SessionDebtBytes> bySession;
   final int needsManual;
   final int settledUnverified;
 

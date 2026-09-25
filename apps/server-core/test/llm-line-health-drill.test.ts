@@ -1,7 +1,7 @@
 // FB-11 (LLM half) — THE LIVENESS DRILL for the managed LLM line, one-for-one with
 // test/stt-live-drill.test.ts's "real/fake key drill".
 //
-// What §5 (docs/strategy/2026-08-06-w1-engine-switch-ledger.md) says delivered the
+// What §5 (docs/archive/strategy/2026-08-06-w1-engine-switch-ledger.md) says delivered the
 // STT failover was the DRILL: "failover drill is delivered by stt-live-drill.test.ts's real/fake key drill". This is that acceptance for the LLM line's health primitive
 // (src/compose/llm-health.ts). Unlike the STT drill it does NOT hit a live network
 // — there is no DeepSeek key on this machine — so the "kill" is a fetch that answers

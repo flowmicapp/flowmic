@@ -65,6 +65,16 @@ const int kPcmBytesPerSecond = 32000;
 int pcmBytesToMs(int bytes) =>
     bytes <= 0 ? 0 : (bytes * 1000) ~/ kPcmBytesPerSecond;
 
+/// Card RC-3 — the inverse: bytes of captured PCM in [ms] milliseconds, floored
+/// to a whole 16-bit sample so the result is always a valid journal offset
+/// (§A3-2a: an odd byte offset is not a sample coordinate).
+///
+/// Round-trips with [pcmBytesToMs] for every whole millisecond (32 B/ms at
+/// [kPcmBytesPerSecond]), which is what lets the owed-tail prefix written in
+/// bytes and the article clock kept in milliseconds name the same instant.
+int pcmMsToBytes(int ms) =>
+    ms <= 0 ? 0 : ((ms * kPcmBytesPerSecond) ~/ 1000) & ~1;
+
 /// Mint the id for one article.
 ///
 /// [seq] is the session's own counter and [micros] a wall-clock reading; the

@@ -43,7 +43,7 @@ const String kFprAttachmentDir = 'att';
 /// app's own model (a future MCP reader gets the same rule from the same file).
 const Set<String> kFprModes = <String>{'realtime', 'translate', 'organize'};
 
-/// The four delivery-truth words (Book 15 §2.1 — `EntryStatus` plus the
+/// The five delivery-truth words (Book 15 §2.1 — `EntryStatus` plus the
 /// orthogonal `edited` bit, which rides in `source_ext`, not here).
 const Set<String> kFprStatuses = <String>{
   'injected',

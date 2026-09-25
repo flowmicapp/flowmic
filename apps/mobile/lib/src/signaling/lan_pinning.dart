@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 (pin the SPKI),
+//   docs/archive/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 (pin the SPKI),
 //     §3-5 + §6-4 (a wrong fingerprint must fail LOUDLY, and must not degrade into
 //     「够不着」 — "cannot be reached"), §4-3 (ONE funnel; the socket seam only on a secure URL)
 //   apps/server-core/src/lan-tls/dual-listener.ts (one port answers plain AND TLS,

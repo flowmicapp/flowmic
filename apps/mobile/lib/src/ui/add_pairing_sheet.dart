@@ -2,8 +2,8 @@
 //   docs/rebuild/08-MOBILE-SPEC.md §4 (pairing entry: 4-digit code / QR; the PC
 //     endpoint the phone must dial), §2 (PAIR_NOT_CONNECTED gate)
 //   docs/ui-design/demo/mobile.html frame 1 (add device)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (4-digit code entry required; QR scan once deferred)
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-30
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (4-digit code entry required; QR scan once deferred)
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-30
 //   CLAUDE.md red line: no silent failure
 //
 // The "add pairing" bottom sheet — TWO tabs, and QR scan is the first one.

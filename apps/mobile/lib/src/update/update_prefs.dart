@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   apps/mobile/lib/src/settings/local_prefs.dart (this file copies its
 //     posture and its reasoning)
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §5.0 / §5.1
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §5.0 / §5.1
 //   CLAUDE.md red line: settings apply-and-save-immediately, no save button
 //
 // The 「auto-check for updates」 switch, and 「when the last successful check happened」.

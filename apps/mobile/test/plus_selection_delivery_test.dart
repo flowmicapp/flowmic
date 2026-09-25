@@ -4,7 +4,7 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-12-owner-req1209-multiselect-and-image-rulings.md
 //     §2-1 (1 text + M pictures = 1+M items), §3 criterion 1 and criterion 5, §3 卡 09-I
-//   docs/strategy/2026-08-12-req1209-plus-panel-design.md §7-1/§7-2/§7-3, §7-4
+//   docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md §7-1/§7-2/§7-3, §7-4
 //
 // 🔴 THE RULING IN ONE LINE: N ticked texts compose into **exactly one**
 // `deliverText` (one message, one row), and each ticked picture is **its own**

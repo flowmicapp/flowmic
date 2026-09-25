@@ -76,7 +76,7 @@ export interface FlushErrorFrame {
  * retryable:true" on one run and "STT_ENGINE_AUTH_FAIL /
  * [organization_balance_exhausted] / retryable:false" on the next — the SAME
  * event answered two ways, decided by a race. Two runs of the drill, same code:
- * see docs/strategy/shots-2026-08-02-l2-soniox/README.md §4.
+ * see docs/archive/strategy/shots-2026-08-02-l2-soniox/README.md §4.
  *
  * An engine that declared `retryable:false` has already answered the question,
  * and the phase it happened in does not change the answer.

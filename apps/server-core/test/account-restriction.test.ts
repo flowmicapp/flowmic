@@ -1,6 +1,6 @@
 // A2-3 「restricted use」 — 「does login still succeed」「does the block hold」「can the user still get their own things back」.
 //
-// SPEC-REF: docs/strategy/2026-08-12-a2-3-restricted-use-design.md §9 (acceptance table)
+// SPEC-REF: docs/archive/strategy/2026-08-12-a2-3-restricted-use-design.md §9 (acceptance table)
 //           docs/decisions/owner-web-rulings/latest.md:71 (owner, verbatim)
 //           src/auth/account-restriction.ts (the policy under test)
 //           src/http/account-restriction-routes.ts (the write path)

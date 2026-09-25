@@ -5,7 +5,7 @@
 //     send; show ⭐ on an exact match against history),
 //     §6.1 (the 「+」 panel → the Favorites list), §6.4 (F-5's ≤50 and the
 //     term cap of 100 are two separate limits)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-3 ③
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-3 ③
 //
 // The Favorites phrase book. Pure local state + a LocalPrefs round-trip; it
 // never touches the wire, the timeline, or settings sync — a favourite is a

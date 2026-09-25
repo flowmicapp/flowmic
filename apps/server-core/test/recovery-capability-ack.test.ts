@@ -29,14 +29,23 @@ afterEach(async () => {
   server = null;
 });
 
+async function saasCloud(): Promise<string> {
+  // card RC-C — the cloud-instance arm is saas-only (mobile.handler.ts refuses it
+  // in standalone), and it needs an account; mockBilling off and no proxy, the
+  // same posture test/saas-cloud-admission.test.ts states for itself.
+  server = await startServer(loadConfig({
+    mode: 'saas', secret: 'recovery-capability-secret-32-byt', port: 0, dbPath: ':memory:', mockBilling: false, trustedProxies: [],
+  }));
+  return `http://127.0.0.1:${server.port}`;
+}
 async function standalone(): Promise<string> {
   server = await startServer(
     loadConfig({ mode: 'standalone', secret: 'recovery-capability-secret-32-byt', port: 0, dbPath: ':memory:' }),
   );
   return `http://127.0.0.1:${server.port}`;
 }
-function connect(url: string): Promise<ClientSocket> {
-  const s = ioClient(url, { transports: ['websocket'], forceNew: true, reconnection: false });
+function connect(url: string, auth: Record<string, unknown> = {}): Promise<ClientSocket> {
+  const s = ioClient(url, { transports: ['websocket'], auth, forceNew: true, reconnection: false });
   sockets.push(s);
   return new Promise((resolve, reject) => {
     s.on('connect', () => resolve(s));
@@ -89,6 +98,30 @@ describe('recovery capability bits reach the phone', () => {
     const again = await connect(url);
     const back = await ack<CapAck>(again, 'mobile:reconnect', { token: paired.mobile_token });
     expect(back.capabilities).toEqual([
+      CAPABILITY_RECOVERY_COVERAGE_RECEIPT,
+      CAPABILITY_RECOVERY_DELIVERY_NONE_SAFE,
+      CAPABILITY_RECOVERY_IDEMPOTENT_OPERATION,
+    ]);
+  });
+
+  it('🔴 card RC-C — the cloud-instance mobile:pair ack advertises them too', async () => {
+    // The third admission arm, and the one PR-1 missed: a phone entering its
+    // light record (first use, after sign-in, after readmit) is admitted here and
+    // NOT by reconnect, and it stays on this ack until its socket next drops. A
+    // missing bit is read fail-closed, so every recovery candidate sat in
+    // 「awaiting server capability」 on a server that had the capability
+    // (docs/strategy/2026-09-24-cr12e-rerun-root-cause.md §1.1).
+    const url = await saasCloud();
+    const reg = await fetch(`${url}/api/register`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'cap-cloud@b.co', password: 'longenough1' }),
+    });
+    const { token } = await reg.json() as { token: string };
+    const phone = await connect(url, { jwt: token });
+    const paired = await ack<CapAck & { pc_instance_id?: string }>(phone, 'mobile:pair', { cloud_instance: true, mobile_name: 'Pixel-cap4' });
+
+    expect(paired.pc_instance_id, 'precondition: this is the cloud-instance arm').toBe('flowmic-cloud-instance');
+    expect(paired.capabilities).toEqual([
       CAPABILITY_RECOVERY_COVERAGE_RECEIPT,
       CAPABILITY_RECOVERY_DELIVERY_NONE_SAFE,
       CAPABILITY_RECOVERY_IDEMPOTENT_OPERATION,

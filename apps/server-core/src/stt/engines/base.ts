@@ -3,7 +3,7 @@
 //     flush/close/open?; EventEmitter interim|final|error|state; SttEngineError)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §2 (four-layer robustness — reconnect
 //     owned by the orchestrator, not the engine)
-//   docs/strategy/R1-TASK-CARDS.md WP-R1-3
+//   docs/archive/strategy/R1-TASK-CARDS.md WP-R1-3
 //
 // Common abstraction for the seven bundled STT engines. Each implementation is
 // its own file. Ported ("the mechanism follows the old line" — 机理照旧线) from
@@ -50,6 +50,25 @@ export interface InterimResult {
   text: string;
   confidence: number;
   language: string;
+  /**
+   * card RC-4 — ADAPTER-INTERNAL facts for the orchestrator's segment-cut policy
+   * (`stt/segment-boundary.ts`). Never on the wire: the relay builds its own
+   * `stt:interim` frame from `text` alone. Each field ABSENT = the engine did not
+   * say (absent is a third answer, not 0 / ''). Today only Soniox sets them.
+   *  · `finalized_text` — the leg's never-changing prefix (vendor `is_final`),
+   *    so the sentence arm can read CONFIRMED text between flushes.
+   *  · `hypothesis_last_word_ms` — end of the last content word in the current
+   *    hypothesis (final or provisional), in this leg's fed-audio clock.
+   *  · `audio_proc_ms` — how much of this leg's audio the vendor has processed.
+   * Consumer and account: `apps/server-core/src/stt/segment-pause.ts` `liveWordGap`.
+   */
+  finalized_text?: string;
+  hypothesis_last_word_ms?: number;
+  audio_proc_ms?: number;
+  /** card RC-4 overdue — content words THIS event's frame finalised (vendor
+   *  `is_final`), as spans in this leg's fed-audio clock. Deltas: a final token
+   *  arrives once. Read by `apps/server-core/src/stt/overdue-cut.ts`. */
+  finalized_word_spans?: ReadonlyArray<{ readonly start_ms: number; readonly end_ms: number }>;
 }
 
 export interface FinalResult {
@@ -58,6 +77,32 @@ export interface FinalResult {
   confidence: number;
   language: string;
   duration_ms: number;
+  /**
+   * card CR-12-D — where this leg's speech sat inside the audio THIS LEG was
+   * handed, in ms of that audio: start of the first content word, end of the
+   * last one. Both ABSENT when the engine reports no word timestamps (today
+   * only Soniox does); absent is a third answer, not 0.
+   *
+   * ⚠️ NOT wall-clock and NOT session time. The clock is `engineFedBytes / 32`
+   * for this leg, so anything a VAD gate withheld is not in it. The consumer,
+   * and the whole account of what that costs, is
+   * `apps/server-core/src/stt/segment-pause.ts`.
+   */
+  first_word_ms?: number;
+  last_word_ms?: number;
+  /**
+   * card RC-5c — ADAPTER-INTERNAL, never on the wire (the relay rebuilds its own
+   * frames). Set only on the final that answers END-OF-STREAM (Soniox: the
+   * `finished` frame): a LOWER BOUND on how much of this leg's audio, in this
+   * leg's fed-audio clock, the vendor had processed — i.e. how far this final can
+   * cover. ABSENT = unknown ⇒ the seam merge keeps RC-5b's rule. Consumer:
+   * `apps/server-core/src/stt/leg-facts.ts` `closeLeg`.
+   */
+  audio_proc_floor_ms?: number;
+  /** card RC-5c — every token of `text`, in order, with the vendor's start time in
+   *  this leg's clock (null = none given); the `text` fields concatenate to `text`.
+   *  ABSENT when the engine has no token timestamps. Consumer: `leg-facts.ts` `foldFinal`. */
+  token_spans?: ReadonlyArray<{ readonly text: string; readonly start_ms: number | null }>;
 }
 
 export type EngineEvent = InterimResult | FinalResult;
@@ -125,6 +170,20 @@ export interface SttEngine {
   readonly interimIsPreviewOnly?: boolean;
 
   /**
+   * card RC-D — does this engine emit `final` ONLY in answer to our `flush()`
+   * (end-of-stream), never mid-session? `true` ⇒ between flushes the only
+   * 「confirmed」 text is the vendor's finalised prefix, which trails the audio by
+   * 4.1–5.3 s (measured, `docs/strategy/2026-09-24-cr12e-rerun-root-cause.md`
+   * §2), so a sentence end read from it is seconds behind the live edge and a row
+   * cut on it lands inside the next word. The orchestrator therefore closes the
+   * sentence arm for such an engine (`orchestrator-core.ts` `pushChunk`,
+   * book 06 §2 RC-D block). Absent/false ⇒ finals may arrive mid-session
+   * (FunASR 2pass, SenseVoice) and the sentence arm reads them as before.
+   * Declared by the engine, never inferred from its events (INT-2's rule).
+   */
+  readonly finalsOnlyAtFlush?: boolean;
+
+  /**
    * card NR-60 — the LONGEST span of audio this engine can decode in ONE
    * `flush()`. Audio beyond it is not transcribed, and the engine does not
    * necessarily say so: the local whisper packs keep the first 30 s and discard
@@ -142,6 +201,21 @@ export interface SttEngine {
    */
   readonly maxDecodeAudioMs?: number;
 
+  /**
+   * Card RC-2 — how much of the audio THIS leg was handed the vendor says it has
+   * processed, in ms of that audio (the same fed-audio clock as
+   * `FinalResult.first_word_ms`). Starts at 0 on a leg the vendor has not
+   * answered yet. ABSENT = the engine reports nothing of the kind, which is every
+   * engine but Soniox today (it reads the vendor's own `total_audio_proc_ms`).
+   *
+   * Two readers, both in server-core: the flush cap for network engines
+   * (`flush-final.ts` `networkFlushCapMs`) and the `stt:interim.acked_audio_ms`
+   * wire field the phone paces a recovery feed by (`stt/engine-backlog.ts`).
+   * Absent is 「unknown」, never 「nothing processed」: reading it as 0 would make
+   * every other engine's flush wait out its whole leg.
+   */
+  readonly ackedAudioMs?: number;
+
   /** Push a PCM chunk to the engine. */
   push(chunk: Buffer, ts_ms: number): void;
 
@@ -156,6 +230,11 @@ export interface SttEngine {
 
   /** Optional connect step for network engines (ws handshake). */
   open?(): Promise<void>;
+
+  /** card RC-4 overdue — the next final carries only tokens that started before
+   *  [legMs] of this leg's audio (null lifts it). Declared by engines whose
+   *  finals carry word times; today Soniox. See `stt/overdue-cut.ts`. */
+  limitFinalTo?(legMs: number | null): void;
 }
 
 /** Error carried on the 'error' channel and mapped onto stt:error (06 §3). */

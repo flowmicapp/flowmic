@@ -209,6 +209,7 @@ export const TIMELINE_KEYS = [
    *  `cached` (`status.ts` canReinject already includes `failed`). The row keeps its
    *  ✗ glyph and its red class — only the word is neutral now. */
   'st_failed',
+  'st_uncertain',
   'st_noted',
   /** ③evidence, the parenthetical half of 甲-3. THE BRACKETS ARE PART OF THE
    *  STRING on purpose: zh/ja take full-width （）with no leading space, en/ko take

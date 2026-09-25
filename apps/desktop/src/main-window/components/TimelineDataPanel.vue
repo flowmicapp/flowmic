@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // SPEC-REF:
-//   docs/strategy/2026-08-02-ui-batch1-rework-design.md §1.1 (owner ruling: data
+//   docs/archive/strategy/2026-08-02-ui-batch1-rework-design.md §1.1 (owner ruling: data
 //     gets its own page, toggled with the timeline list —— this component IS
 //     that "data" view), §1.2 (summary shares its source), §1.4 (prose
 //     demotion), §1.5 (clear's second-layer disclosure)

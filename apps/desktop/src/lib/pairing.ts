@@ -3,7 +3,7 @@
 //     flowmic://pair?endpoint=<ws-url>&code=NNNN&channel=standalone|saas)
 //   docs/rebuild/07-DESKTOP-SPEC.md §5 (F-2346: standalone + loopback endpoint →
 //     QR is suppressed, only the short code is shown)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (ruling 2: QR rendered from a LOCAL
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (ruling 2: QR rendered from a LOCAL
 //     dep — no CDN; loopback endpoints suppress the QR)
 //
 // Pure, Tauri-free, DOM-free helpers for the device-page "添加手机" ("Add phone")
@@ -352,7 +352,7 @@ export function pairLinkLang(locale: string | null | undefined): string | null {
  *  running, and the phone had no way to learn the other one — a QR that scans
  *  and then cannot connect, with no path forward.
  *
- *  D2-LAN (design docs/strategy/2026-08-08-design-d2lan-light-encryption.md §4-1)
+ *  D2-LAN (design docs/archive/strategy/2026-08-08-design-d2lan-light-encryption.md §4-1)
  *  — `fp=` is the SAME additive-optional trick, one key further along, and it is
  *  APPENDED AFTER `alt=` for the SAME reason `alt=` is appended after `code=`:
  *  `resolvePcForPair` takes the FIRST `/code=(\d{4})/` match, so every key added

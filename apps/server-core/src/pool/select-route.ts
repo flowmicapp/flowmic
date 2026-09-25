@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md
+//   docs/archive/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md
 //     §-0d  pool entry fields + the four "one value answers two questions"
 //           traps (registered as B17: Q1 role↔group, Q2 region, Q4 "all")
 //     §-0e  the two-layer resolution. 🔴 Layer 1 (which GROUP) is decided by

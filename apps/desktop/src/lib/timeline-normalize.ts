@@ -13,6 +13,16 @@
 
 import type { ChannelTag, FocusEvidence, TimelineRow, WireHistoryItem } from './types';
 
+/** Same-end file facts, never fields supplied by the live wire/bridge item. */
+export interface FprImportFacts {
+  source: 'fpr';
+  cached_cause: unknown;
+}
+
+function normalizeCause(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
 /** ③evidence's three values, as RUNTIME data — same reason KNOWN_MODES exists below: the
  *  union is a TYPE and types are erased, so a row read back from disk cannot be
  *  validated against it. 🔴 An unrecognised value becomes `null` (= "never probed"), never
@@ -80,6 +90,7 @@ export function mapItem(
   channel: ChannelTag,
   prev?: TimelineRow,
   isImage = false,
+  fpr?: FprImportFacts,
 ): TimelineRow | null {
   const base = normalizeCachedRow(item, channel);
   if (base === null) return null;
@@ -118,10 +129,9 @@ export function mapItem(
     // Provenance is PC-local knowledge reconciled from inject:result — a server
     // row never carries it, so the previously-known target survives a refresh.
     target: prev?.target ?? null,
-    // book 15 §2.5e-4 — same rule and same reason as `target`: PC-local, written only
-    // by `onInjectResult`, so an inbound row must carry the one this PC already knows
-    // rather than blanking the explanation the user is looking at.
-    cached_cause: prev?.cached_cause ?? null,
+    // Live bridge items never author this local fact. Same-end FPR can restore
+    // it on a new row; an existing owned row keeps its own value, including null.
+    cached_cause: prev === undefined ? normalizeCause(fpr?.cached_cause) : prev.cached_cause ?? null,
     // IJ-01 — same rule and same reason as `target` / `cached_cause`: both are written
     // ONLY by `onInjectResult`, so an inbound row (which never carries them) must hand
     // back the ones this PC already knows rather than blanking the answer on screen.
@@ -234,9 +244,7 @@ export function normalizeCachedRow(raw: unknown, channel?: ChannelTag): Timeline
     // Narrowed like the rest (RV-新A ⑤ — a hand-written narrowing that lies): every
     // row cached before 0.2.49 has no such key, and "wasn't stated" must read as
     // "there is no further cause worth mentioning", which is what the tooltip then omits.
-    cached_cause: typeof r.cached_cause === 'string' && r.cached_cause.length > 0
-      ? r.cached_cause
-      : null,
+    cached_cause: normalizeCause(r.cached_cause),
     // IJ-01, narrowed like the rest. 🔴 owner 2026-08-07 ruling (c): this is the PROCESS
     // NAME and a persisted row may never hold the window title — so nothing here reads
     // a `window_title`, and a row written by some future build that tried to put one in

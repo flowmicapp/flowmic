@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.3 step 3 (envelope
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.3 step 3 (envelope
 //     parsing), §3.2 (the columns these facts feed)
 //   apps/server-core/src/db/repos/billing.repo.ts (ISO-STRING ORDERING header —
 //     the normalization this file performs is the obligation that comment names)

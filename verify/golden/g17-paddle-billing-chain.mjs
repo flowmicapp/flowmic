@@ -2,7 +2,7 @@
 //
 // G17 — the collection chain (window D1: Paddle sandbox), over a REAL saas server.
 //
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §7 (this path, item by
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §7 (this path, item by
 //   item), §5.2/§5.3 (what is being driven), §3.3-bis (the redelivery assertions,
 //   as corrected), §6.1/§6.1-bis (the single plan resolver + the exemption).
 //
@@ -88,12 +88,15 @@ import { ROOT, SERVER_DIST, startSaasServer, verifyRegisteredEmail, mailFileEnv,
 // checking asserts nothing at all; red-until-updated IS the mechanism.
 const FREE_STT_MIN = 20;
 const FREE_LLM = 1_000_000;
-const PRO_STT_MIN = 900;
+// 2026-09-23: 900 → 1000 (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md §1-5).
+const PRO_STT_MIN = 1000;
 // 2026-08-27: 20M → 5M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-const PRO_LLM = 5_000_000;
+// 2026-09-23: 5M → 10M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md §1-3).
+const PRO_LLM = 10_000_000;
 const MAX_STT_MIN = 3_000;
 // 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-const MAX_LLM = 15_000_000;
+// 2026-09-23: 15M → 50M (same ruling §1-3). MAX_STT_MIN stays 3,000 (§1-5).
+const MAX_LLM = 50_000_000;
 
 /** config.ts's DEFAULT_PADDLE_TOLERANCE_SEC (the Paddle SDK default). Deliberately
  *  NOT set in this instance's env: the expired control below has to be refused by

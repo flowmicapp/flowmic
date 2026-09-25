@@ -28,13 +28,13 @@
 //   its code at all.
 //
 // SCOPE — four sections, matched 1:1 to
-//   docs/strategy/2026-08-04-third-party-license-matrix.md §6.2:
+//   docs/archive/strategy/2026-08-04-third-party-license-matrix.md §6.2:
 //   1. The sidecar's bundled npm production dependencies (MIT, ~19 packages
 //      — resolved from apps/server-core's dependency graph, not hardcoded,
 //      so a future `pnpm add` in that package cannot silently fall out of
 //      this NOTICE without at least changing the generated file's diff).
-//   2. Node.js (bundled as node.exe with both the MSI and the portable
-//      one-click bundle) — MIT core + ~18-20 embedded third-party notices.
+//   2. Node.js (bundled with desktop installers and portable bundles) — MIT
+//      core + ~18-20 embedded third-party notices.
 //      Which runtime, and therefore which license text, comes from the
 //      committed declaration in scripts/vendor/bundled-node.mjs; this script
 //      NEVER executes the staged binary (see that file's header for the
@@ -289,8 +289,8 @@ SenseVoice model — points a downloader at.
   const sidecarSection = section(
     `1. Node.js sidecar bundled dependencies (${deps.length} packages, all MIT)\n` +
       'Bundled by apps/desktop/scripts/build-sidecar.mjs (esbuild) into a single\n' +
-      'server.js shipped with both the MSI installer and the FlowMic-portable\n' +
-      'bundle. Resolved from apps/server-core\'s production dependency graph — see\n' +
+      'server.js shipped with desktop installers and portable bundles. Resolved\n' +
+      'from apps/server-core\'s production dependency graph — see\n' +
       'this file\'s own header for how and why (esbuild legalComments cannot do\n' +
       'this reliably; zod ships no license banner in its source at all).',
     sidecarDepsBody,
@@ -314,8 +314,7 @@ SenseVoice model — points a downloader at.
     )
     .join('\n\n');
   const nodeSection = section(
-    '2. Node.js runtime (node.exe, bundled with both the MSI installer and\n' +
-      'the FlowMic-portable one-click bundle)',
+    '2. Node.js runtime (bundled with desktop installers and portable bundles)',
     `Pinned runtime, per platform (owner ruling 2026-08-05: the bundled Node stays\n` +
       `on the 22 line):\n\n${pinnedRuntimes}\n\n` +
       `Those values are declared in scripts/vendor/bundled-node.mjs and read from\n` +
@@ -356,7 +355,7 @@ SenseVoice model — points a downloader at.
       `sherpa-onnx-win-x64 npm package ships a LICENSE or NOTICE file, and the\n` +
       `upstream k2-fsa/sherpa-onnx repository has no NOTICE file either (confirmed\n` +
       `404 by the license audit,\n` +
-      `docs/strategy/2026-08-04-third-party-license-matrix.md §3.3). Apache-2.0\n` +
+      `docs/archive/strategy/2026-08-04-third-party-license-matrix.md §3.3). Apache-2.0\n` +
       `§4(a) still requires a copy of the license text to travel with any\n` +
       `distribution of the Work; vendored verbatim below from\n` +
       `https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/LICENSE\n` +
@@ -416,7 +415,7 @@ SenseVoice model — points a downloader at.
       `Microsoft redistribution notice belongs here. If a future change switches\n` +
       `to \`offlineInstaller\` or \`fixedVersion\` (which DO embed the runtime),\n` +
       `this section must be revisited — see\n` +
-      `docs/strategy/2026-08-04-third-party-license-matrix.md §5.4.`,
+      `docs/archive/strategy/2026-08-04-third-party-license-matrix.md §5.4.`,
   );
 
   return [header, sidecarSection, nodeSection, sherpaSection, senseVoiceSection, webview2Section].join('\n');

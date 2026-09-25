@@ -3,10 +3,10 @@
 //   docs/rebuild/16-PORTABLE-RECORD-FORMAT-FPR-V1.md §6.1 (stats — the inventory
 //     layer's second verb, with two 2026-08-02 revisions: grouping merged by
 //     machine · duration returns to desktop via the delivery frame)
-//   docs/strategy/2026-08-02-ui-batch1-rework-design.md §1.3/§1.4 (reworked
+//   docs/archive/strategy/2026-08-02-ui-batch1-rework-design.md §1.3/§1.4 (reworked
 //     mockup: the machine-merge rule table + the prose-demotion list — this
 //     file implements it as drawn; any deviation goes through the mockup first)
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §4 (the definition
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §4 (the definition
 //     owner already ruled on), §5-1 (each end's definition is independent),
 //     §5-3 (every cell has a real data source)
 //

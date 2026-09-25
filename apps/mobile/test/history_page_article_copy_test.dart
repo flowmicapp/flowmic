@@ -40,9 +40,9 @@ const String kArt = 'a0-1788000000000000';
 /// a PREFIX of the first segment and `find.text(title)` matches the head row
 /// alone rather than the head and its first member.
 const String kFirst = '今天先过两件事，第一件是库存口径，第二件是采购节奏，第三件是月结日对齐，第四件是人手安排';
-const String kPiece = '00:00–00:30 $kFirst\n'
-    '00:30–01:00 第一件是库存口径\n'
-    '01:00–01:30 第二件是采购节奏';
+// CR-12-F (2026-09-22): one line per PARAGRAPH, not per segment. Three
+// back-to-back 30 s segments with no sentence end are one CR-12-B paragraph.
+const String kPiece = '00:00–01:30 $kFirst第一件是库存口径第二件是采购节奏';
 
 class _FakeOwner implements InstanceOwnerProbe {
   _FakeOwner(this.instanceId, this.instanceName);

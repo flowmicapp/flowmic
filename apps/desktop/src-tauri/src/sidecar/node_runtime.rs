@@ -67,6 +67,13 @@ pub fn annotate_node_version(node_exe: &str, tail: String) -> String {
 /// signing pass.
 pub const BUNDLED_NODE_NAME: &str = if cfg!(windows) { "node.exe" } else { "node" };
 
+/// Tauri uses `productName`, not Cargo's package/binary name, for Linux's
+/// `/usr/lib/<name>` resource directory. Measured in both L-8 bundles:
+/// `usr/lib/FlowMic/resources/node`. `env!("CARGO_PKG_NAME")` is
+/// `flowmic-desktop` and points at a directory the bundle never creates.
+#[cfg(target_os = "linux")]
+const LINUX_RESOURCE_DIR_NAME: &str = "FlowMic";
+
 /// P2 (2026-09-02 audit) — `sidecar/portclear.rs`'s `clear_port` used to kill
 /// whatever PID `netstat` named as the `:port` listener, having already
 /// FORENSIC-LOGGED its process name but never actually looked at it. This is
@@ -91,6 +98,9 @@ pub fn image_name_looks_like_node(process_image_name: &str) -> bool {
 ///   • macOS `.app`: the executable is in `Contents/MacOS/`, and Tauri puts the
 ///     declared resources in `Contents/Resources/resources/` — i.e. **not**
 ///     under the exe's directory at all, but a sibling of it.
+///   • Linux AppImage / deb: Tauri resolves resources under
+///     `<exe-dir>/../lib/<productName>/`; our declared `resources/node`
+///     therefore lands at `<exe-dir>/../lib/FlowMic/resources/node`.
 ///
 /// 🔴 That last one is measured, not assumed [measured 2026-08-07, Mac mini]: the
 /// 0.2.55 bundle really contains
@@ -99,7 +109,8 @@ pub fn image_name_looks_like_node(process_image_name: &str) -> bool {
 /// candidates could reach across that boundary, so on macOS this function
 /// returned `None` for a bundle that was carrying a perfectly good 113 MB Node
 /// — ship the runtime, then walk straight past it. That is the same defect
-/// CLAUDE.md records for the MSI (「少一行就会带着 83MB 的 Node 然后径直走过去
+/// CLAUDE.md records for the MSI (that whole account moved verbatim to
+/// docs/archive/CLAUDE-HISTORY.md §186-231: 「少一行就会带着 83MB 的 Node 然后径直走过去
 /// 用宿主的」, "skip one line and it'll carry 83MB of Node and then walk
 /// straight past it to use the host's"), reproduced on a second platform, and it is worse here: a
 /// GUI-launched `.app` gets a minimal PATH, so there is usually no host Node to
@@ -121,6 +132,21 @@ pub fn bundled_node_beside(dir: &Path) -> Option<PathBuf> {
         // `Contents/MacOS/..` → `Contents/`, then the bundle's Resources dir.
         candidates.push(dir.join("..").join("Resources").join("resources").join(name));
         candidates.push(dir.join("..").join("Resources").join(name));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Tauri 2.11's PathResolver::resource_dir contract is relative to the
+        // executable on Linux: AppImage uses `$APPDIR/usr/bin` → `../lib`, deb
+        // uses `/usr/bin` → `../lib`, and a target/release run uses the same
+        // shape. Keep this relative so an AppImage mount never depends on its
+        // random `/tmp/.mount_*` prefix.
+        candidates.push(
+            dir.join("..")
+                .join("lib")
+                .join(LINUX_RESOURCE_DIR_NAME)
+                .join("resources")
+                .join(name),
+        );
     }
     candidates.into_iter().find(|c| c.is_file())
 }
@@ -420,6 +446,37 @@ mod tests {
         std::fs::create_dir_all(msi.join("resources")).unwrap();
         std::fs::write(msi.join("resources").join(name), b"stub").unwrap();
         assert_eq!(bundled_node_beside(&msi), Some(msi.join("resources").join(name)));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// L-8 — Tauri's Linux resource directory is outside `usr/bin`, for both
+    /// AppImage and deb. A sibling-only lookup ships Node and then ignores it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_bundle_layout_finds_the_runtime_under_usr_lib() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../../tauri.conf.json"))
+            .expect("Tauri configuration must parse");
+        assert_eq!(config["productName"].as_str(), Some(LINUX_RESOURCE_DIR_NAME),
+            "Linux resource lookup must follow Tauri productName");
+        let root = std::env::temp_dir().join(format!("fm-node-linux-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let bin_dir = root.join("usr").join("bin");
+        let resource_dir = root
+            .join("usr")
+            .join("lib")
+            .join(LINUX_RESOURCE_DIR_NAME)
+            .join("resources");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(&resource_dir).unwrap();
+        std::fs::write(resource_dir.join(BUNDLED_NODE_NAME), b"stub").unwrap();
+
+        let found = bundled_node_beside(&bin_dir)
+            .expect("the Linux bundle layout must find resources/node under usr/lib");
+        assert_eq!(
+            found.canonicalize().unwrap(),
+            resource_dir.join(BUNDLED_NODE_NAME).canonicalize().unwrap()
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

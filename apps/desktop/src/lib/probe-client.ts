@@ -2,7 +2,7 @@
 //
 // SPEC-REF:
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §6 (four-dimension probe)
-//   docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-12
+//   docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-12
 //   docs/rebuild/13-LESSONS-LEARNED.md §3 D3 (one-shot result shown inline, no lingering green light)
 //
 // Everything except the markup lives here so it is unit-testable in the desktop's

@@ -1,7 +1,7 @@
 // REQ-12-09 09-B/09-C — the 「+」 panel's light-records tab: the three states and the
 // search box.
 //
-// SPEC-REF: docs/strategy/2026-08-12-req1209-plus-panel-design.md §3-3, §5-1, §9.
+// SPEC-REF: docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md §3-3, §5-1, §9.
 //
 // 🔴 THE ONE THAT MATTERS is state B: signed out, and the rows ARE on disk. The
 // easy implementation ——「signed out ⇒ show empty」—— is a lie in the direction book 15 F2

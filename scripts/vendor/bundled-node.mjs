@@ -21,7 +21,7 @@
 //       staged node.exe = v24.15.0, 91,694,408 B  ⇒ `--check` green, and it is
 //       that v24 reading which sat in the committed NOTICE
 //   Both readings are true. They are readings of different files. Full record:
-//   docs/strategy/2026-08-05-local-crosscheck-of-remote-window.md §4.
+//   docs/archive/strategy/2026-08-05-local-crosscheck-of-remote-window.md §4.
 //
 //   The churn was the cheap half. The expensive half is that the vendored
 //   license text said Node 24 while this machine's artifacts ship Node 22 — a
@@ -111,6 +111,27 @@ export const BUNDLED_NODE = {
      *  platform-appropriate name, and a signing/notarisation pass has to reason
      *  about nested executables whose names describe a different OS. One
      *  filename per platform, spelled here once, is the whole fix. */
+    stagedPath: 'apps/desktop/src-tauri/resources/node',
+  },
+
+  // PROVENANCE OF THE linux-x64 HASH [measured 2026-09-21, Ubuntu 22.04
+  // under WSL2, archive and extraction both stored on F:]:
+  //   1. Downloaded node-v22.22.3-linux-x64.tar.xz and SHASUMS256.txt from
+  //      https://nodejs.org/dist/v22.22.3/.
+  //   2. The archive digest matched the upstream line exactly:
+  //        2e5d13569282d016861fae7c8f935e741693c269101a5bebcf761a5376d1f99f
+  //   3. Extracted bin/node from that verified archive. It reports v22.22.3,
+  //      is 124,819,136 bytes, and hashes to e6ec2c18... below.
+  //   4. The archive LICENSE is byte-identical to node-LICENSE.txt: both are
+  //      2,732 lines and sha256 c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4.
+  // This is the same four-link chain used for darwin-arm64: the upstream
+  // archive digest authenticates the container, then this declaration pins
+  // the exact extracted executable that build-sidecar stages.
+  'linux-x64': {
+    version: 'v22.22.3',
+    sha256: 'e6ec2c188d83d813f81f2de8aea084d74dce603ac1abedd0a30ad941b10087b2',
+    bytes: 124819136,
+    licenseFile: 'node-LICENSE.txt',
     stagedPath: 'apps/desktop/src-tauri/resources/node',
   },
 };

@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/05-DATA-MODEL.md §1 (usage_records PK (user_id, month),
 //     UPSERT accumulate)
-//   docs/strategy/2026-07-23-mock-billing-design.md §3 (month bucket = UTC
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §3 (month bucket = UTC
 //     YYYY-MM; cross-month = new row = natural reset, NO reset job)
 //   Ported UPSERT mechanism from legacy usage-tracker.ts makeSqliteUsageRepo.
 //
@@ -30,7 +30,7 @@
 //   listMonths()         → GET /api/ops/usage/months
 //   totalForMonth()      → GET /api/ops/usage/summary?month=
 //   listUsersForMonth()  → GET /api/ops/usage/users?month=
-// Contract: docs/strategy/2026-08-02-o2-usage-route-contract.md (change
+// Contract: docs/archive/strategy/2026-08-02-o2-usage-route-contract.md (change
 // discipline: edit that document first). Verdict = [proven by unit test + not deployed] — `test/ops-usage-route.test.ts` boots a
 // real saas server, so it proves the ROUTES exist and not merely the functions;
 // nothing here has run in production yet.

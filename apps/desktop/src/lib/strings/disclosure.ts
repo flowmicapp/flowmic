@@ -77,7 +77,7 @@
 //       apps/server-core/src/compose/llm-config.ts  managedLlmConfig()
 //   · which vendor / endpoint / model that is
 //       docs/decisions/2026-08-02-production-engine-lineup-soniox-deepseek.md
-//       docs/strategy/2026-08-06-engine-switch-execution-brief.md §5
+//       docs/archive/strategy/2026-08-06-engine-switch-execution-brief.md §5
 // Pinned by main-window/data-flow-disclosure.test.ts, INVERTED rather than
 // deleted: the sentence must name the vendor that processes the text and must
 // carry no 「planned / not yet」 hedge. Sliding back into a plan is now as loud a
@@ -90,7 +90,7 @@
 // ARMED ONLY WHEN A POOL IS CONFIGURED:
 //     pool-routing.ts   `const probing = pool.source === 'pool-env';`
 // and production deliberately does not set FLOWMIC_STT_POOL
-// (docs/strategy/2026-08-06-w1-engine-switch-ledger.md §5; measured on the box
+// (docs/archive/strategy/2026-08-06-w1-engine-switch-ledger.md §5; measured on the box
 // as `candidates:1`). loadPool() therefore synthesises a ONE-route pool, health
 // is null, and no failover can occur. The copy promised the user a mechanism the
 // deployment does not have. A second overstatement rode along: route selection

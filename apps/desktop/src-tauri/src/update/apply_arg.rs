@@ -1,7 +1,7 @@
 // UP-3b — the mover process: how it is started, and what it does.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §4.3 ④b/④c, §4.4
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §4.3 ④b/④c, §4.4
 //   docs/decisions/2026-08-05-owner-build-and-release-additions.md
 //     (owner **2026-08-04 ②**「便携版真原地升级」("the portable edition truly
 //     upgrades in place") — see swap.rs on the date)

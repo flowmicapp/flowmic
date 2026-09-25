@@ -3,7 +3,7 @@
 //     resident: primary + presence background socket, a phone join on either
 //     channel promotes it to primary)
 //   docs/rebuild/02-FEATURE-INVENTORY.md L75 (PC dual-socket resident presence ✅)
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-28/GA-29
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-28/GA-29
 //   docs/decisions/2026-07-26-dual-channel-spec-misref.md
 //   CLAUDE.md red line: no silent failure · a latch closed by a remote event must have a local watchdog
 //

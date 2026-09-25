@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-07-30-inject-state-narrowing-design.md §2
+//   docs/archive/strategy/2026-07-30-inject-state-narrowing-design.md §2
 //   docs/decisions/2026-07-30-injected-means-delivered-to-keyboard-focus.md
 //   docs/rebuild/07-DESKTOP-SPEC.md §2 (inject pipeline stages)
 //   CLAUDE.md red line: no silent failures — both directions are forbidden
@@ -89,7 +89,7 @@
 // which leaves integrity at High) queried a High-integrity target and got
 // `guiOk=True err=0`; across four scenarios its readings were identical to the
 // High prober's, down to the `rcCaret` numbers.
-// Anchor: `docs/strategy/2026-08-02-f1b-universal-focus-probe-matrix.md` §2.2 ①.
+// Anchor: `docs/archive/strategy/2026-08-02-f1b-universal-focus-probe-matrix.md` §2.2 ①.
 // ⇒ **`gui_ok == false` is NOT reached because the target is elevated.** Do not
 //   reach for elevation when explaining that branch.
 // ⚠️ Only the READ half was falsified. **Whether `SendInput` into an elevated
@@ -214,7 +214,7 @@ pub fn image_refusal_for(_state: FocusInputState) -> Option<&'static str> {
 /// writes NO KEY AT ALL. Collapsing the two would re-tell the exact lie
 /// `gui_ok == false` exists to avoid above ("could not be asked" vs "genuinely absent"), and the one the
 /// MSAA spike restated for `d=0 CLIENT`
-/// (docs/strategy/2026-08-07-ij03-msaa-focus-editability-spike.md §2.2-3).
+/// (docs/archive/strategy/2026-08-07-ij03-msaa-focus-editability-spike.md §2.2-3).
 ///
 /// ⚠️ DELIBERATELY NOT [`state_name`] REUSED. That one is a HUMAN token on a
 /// forensic line and may be reworded by anyone reading a log; this one is a wire

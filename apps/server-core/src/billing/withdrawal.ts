@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md §2.1
+//   docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md §2.1
 //     (EU-1/EU-2/EU-3/EU-4) and §3.3
 //   Directive 2011/83/EU (Consumer Rights Directive) art. 9 (the 14 days),
 //     art. 11a as inserted by Directive (EU) 2023/2673 (the withdrawal function),

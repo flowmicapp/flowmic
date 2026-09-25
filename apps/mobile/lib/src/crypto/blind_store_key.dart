@@ -4,7 +4,7 @@
 //   salt16B)→MasterKey32B（仅存客户端 keystore/DPAPI/Android Keystore，永不上行）`
 //   — "passphrase → Argon2id(m=64MiB,t=3,p=4, salt16B) → MasterKey32B (kept
 //   ONLY in the client keystore/DPAPI/Android Keystore, never sent upstream)");
-//   docs/strategy/2026-08-08-design-e-blindstore-client.md §2, §2.1.
+//   docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §2, §2.1.
 //
 // 🔴 The MasterKey NEVER leaves the device. Nothing in this file writes it
 // anywhere; persistence into the platform keystore is card E-B2's job, and the

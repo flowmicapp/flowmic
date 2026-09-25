@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-07-31-mobile-outbox-design-draft.md §3.2 (four states, terminal states must be named)
+//   docs/archive/strategy/2026-07-31-mobile-outbox-design-draft.md §3.2 (four states, terminal states must be named)
 //   docs/decisions/2026-07-31-queue-destination-is-a-machine-not-a-connection.md
 //   CLAUDE.md red line: status only records delivery truth / no silent failure (banned in both directions)
 //

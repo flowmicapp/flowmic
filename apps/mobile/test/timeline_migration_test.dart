@@ -592,7 +592,7 @@ void main() {
       // ③ 🔴 …and the user's history is untouched and still on SQLite.
       //
       // REVERSE CONTROL — see this test's entry in
-      // docs/strategy/2026-08-05-f2-machine-merge-delivery-cn.md §6 for the
+      // docs/archive/strategy/2026-08-05-f2-machine-merge-delivery-cn.md §6 for the
       // verbatim red output: moving this seed inside openTimelinePersistence's
       // try (which design §3.2 forbids) turns assertion ① red, i.e. one failed
       // seed of DERIVED data costs the user the 100-row cap on their REAL
@@ -634,7 +634,7 @@ void main() {
       //
       // REVERSE CONTROL — removing `onDowngrade:` from timeline_sqlite.dart;
       // the verbatim red output is in
-      // docs/strategy/2026-08-05-f2-machine-merge-delivery-cn.md §6. That is the
+      // docs/archive/strategy/2026-08-05-f2-machine-merge-delivery-cn.md §6. That is the
       // D13 gate this card waited on: without it, v5 is the hand that turns a
       // dormant hazard into an incident (design §3.3), because v5 is the first
       // version bump this repo has shipped since `onDowngrade` existed.

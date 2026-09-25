@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §6 (the fork risk on a
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §6 (the fork risk on a
 //     store channel)
 //   CLAUDE.md red line: no silent failures (both directions banned)
 //

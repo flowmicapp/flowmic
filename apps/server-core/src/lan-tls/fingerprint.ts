@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 (pin the SPKI;
+//   docs/archive/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 (pin the SPKI;
 //     base64url, truncated, and it may contain neither ',' nor '&')
 //
 // The one definition of "the fingerprint" — the string that rides the pairing QR

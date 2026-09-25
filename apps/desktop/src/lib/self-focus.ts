@@ -1,4 +1,4 @@
-// 🔴 owner 2026-08-02 (F1a reversal ruling, docs/strategy/2026-08-02-0248-status-truth-analysis.md
+// 🔴 owner 2026-08-02 (F1a reversal ruling, docs/archive/strategy/2026-08-02-0248-status-truth-analysis.md
 // 「owner 澄清」("owner clarification") item 1):「FlowMic 自家输入框（如时间线搜索框）必须能注入——它本身就是
 // PC 端的一个窗口，光标定位到这里我说的话肯定能注入，这是非常正常的要求。」("FlowMic's own input boxes (like the timeline search box) must be able to receive injection — it's a window on the PC side itself; with the cursor positioned there, what I say obviously must be injectable — this is a perfectly normal requirement.")
 //

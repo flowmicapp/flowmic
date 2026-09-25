@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §2 (Stage 3 clipboard fallback)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ② (image injection must equally
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ② (image injection must equally
 //     go through confirmation)
 //   master-plan §4 / CLAUDE.md red line: no silent failures / status only records
 //     the delivery truth
@@ -181,7 +181,12 @@ pub use crate::inject::macos::pasteboard::{
 // the real implementation above land in the SAME change (breakdown §0-2), and why a host
 // that gets a focus source later finds an error here rather than a lie.
 // doc 13 §7 F1 ②: a DI default must be the real thing or must throw.
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+#[cfg(target_os = "linux")]
+pub fn paste_with_confirmation(_: &str, _: Duration) -> Result<ConfirmOutcome, InjectError> {
+    Err(InjectError::Unsupported("Linux paste requires the explicit Stage-1 target; use for_linux_target"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub fn paste_with_confirmation(
     _text: &str,
     _hold: Duration,
@@ -697,7 +702,7 @@ mod win {
         // Measured end to end, same target, same rig, one variable:
         //   break-on-receipt  → target pasted the user's old clipboard   (RED)
         //   hold + read-back  → target pasted the injected text          (GREEN)
-        // Full trace in `docs/strategy/2026-08-22-clipboard-restore-race-findings.md`.
+        // Full trace in `docs/archive/strategy/2026-08-22-clipboard-restore-race-findings.md`.
         //
         // So the exit condition is now positive EVIDENCE (read-back saw the text
         // land) or the hold expiring — never the receipt. A paste that errored

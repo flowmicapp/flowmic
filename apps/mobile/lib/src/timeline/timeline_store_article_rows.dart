@@ -175,6 +175,23 @@ Future<List<TimelineEntry>> articleMembersOnDisk(
   String articleId,
 ) async => articleMembersIn(await store._persistence.loadAll(), articleId);
 
+/// Card CR-12-G — every live row (head and members) of [articleIds], from
+/// STORAGE, in one scan.
+///
+/// The full-history search groups its hits by recording, and a hit is one row:
+/// the head it belongs under and the members its paragraphs are made of are
+/// usually not among the hits and need not be paged in. Empty ids read nothing.
+Future<List<TimelineEntry>> articleRowsOnDisk(
+  TimelineStore store,
+  Set<String> articleIds,
+) async {
+  if (articleIds.isEmpty) return const <TimelineEntry>[];
+  return <TimelineEntry>[
+    for (final TimelineEntry e in await store._persistence.loadAll())
+      if (!e.deleted && articleIds.contains(e.articleId)) e,
+  ];
+}
+
 /// Every article head on this device, newest first.
 List<TimelineEntry> articleHeadsOf(TimelineStore store) => <TimelineEntry>[
   for (final TimelineEntry e in store._entries)

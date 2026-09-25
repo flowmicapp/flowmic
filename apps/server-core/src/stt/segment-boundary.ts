@@ -37,6 +37,23 @@
 // revised away by the next token, and cutting on it would put the boundary
 // inside a sentence the engine had not finished deciding.
 //
+// ⚠️ 更正（RC-4，2026-09-24）：the paragraph above is true of FunASR/SenseVoice,
+// which emit finals mid-session. For Soniox it has been false since SEG-1: its
+// adapter emits `final` only at our end-of-stream, so `offlineAccum` changed only
+// on a flush and the leg flush stripped the stop — the sentence signal never
+// fired, and neither did the gate in any room above −45 dBFS (CR-12-E: one row
+// of 369 s). Two repairs, argued at {@link segmentCutDecision}: the confirmed
+// text now includes the leg's vendor-finalised prefix, and a third arm reads the
+// engine's own word timestamps.
+//
+// ⚠️ 更正（RC-D，2026-09-24）：the first of those two repairs is withdrawn for any
+// engine that declares `finalsOnlyAtFlush` (Soniox). Its finalised prefix trails
+// the audio by 4.1–5.3 s, so the arm fired while the speaker was already 1–5 s into
+// the next sentence and the cut landed inside a word (CR-12-E rerun: 5 of 7 sentence
+// seams damaged, 0 of 4 pause seams). For such an engine the orchestrator hands this
+// file an empty confirmed text — neither the prefix nor the hang-up bank — and the
+// sentence arm never fires; FunASR / SenseVoice are unchanged. Book 06 §2 RC-D block.
+//
 // ⚠️ The ceiling is not optional. Two of the three inputs can stay false
 // forever (a speaker who never pauses and an engine configured without
 // punctuation), and a segment that never closes is a row that grows without
@@ -76,7 +93,7 @@ export function endsAtSentenceBoundary(confirmed: string): boolean {
  * user never sees: its flush text is seam-repaired and banked, and the same row
  * keeps growing across the new leg.
  */
-export type SegmentCutReason = 'sentence' | 'pause' | 'leg';
+export type SegmentCutReason = 'sentence' | 'pause' | 'word_gap' | 'overdue' | 'leg';
 
 /**
  * card SEG-3 — how long the VAD gate must have been CONTINUOUSLY closed before
@@ -92,6 +109,31 @@ export type SegmentCutReason = 'sentence' | 'pause' | 'leg';
  * in place.
  */
 export const MIN_PAUSE_MS = 600;
+
+/**
+ * card RC-4 (D-bis) — the third delivery arm: the engine's own words stopped for
+ * this long. owner's rule for a paragraph is 「3 秒以上」, and the gate cannot see
+ * a 3 s pause in a room whose floor sits above −45 dBFS (CR-12-E, three rooms,
+ * gate open 91–100 %), so the vendor's word timestamps are the only signal left.
+ * Same number as the phone's `kStrongPauseMs` on purpose (`apps/mobile/lib/src/timeline/
+ * article_paragraphs.dart`): a row cut here carries a
+ * `pause_before_ms` that the paragraph rule then accepts.
+ */
+export const WORD_GAP_MIN_MS = 3_000;
+
+/**
+ * card RC-4 — how much of {@link WORD_GAP_MIN_MS} must be CERTAIN: audio the
+ * vendor has already processed without producing a word, or audio the gate
+ * withheld. The rest of the gap is audio we have handed over and the vendor has
+ * not answered for yet — the next word may be in it. Reading only our own fed
+ * count cuts mid-sentence whenever feeding outruns the vendor (a recovery burst,
+ * an uplink stall that flushes). MEASURED 2026-09-24 (`stt-rt-v5`, material A
+ * with −40 dBFS noise, book 06 §2 RC-4 block): during continuous speech
+ * 「processed − last word end」 peaked at 1,320 ms; in pauses the vendor kept
+ * sending frames at most 1.2 s apart. 2,000 sits above the first and lets the
+ * arm fire within one frame of a 3 s pause.
+ */
+export const WORD_GAP_CERTAIN_MIN_MS = 2_000;
 
 /**
  * 🔴 card NR-60 — THE SECOND BOUND ON AN ENGINE LEG, and the first one that is
@@ -153,9 +195,9 @@ export function legAudioBudgetMs(engineMaxDecodeAudioMs: number | undefined): nu
   return Math.max(0, engineMaxDecodeAudioMs - LEG_AUDIO_BUDGET_MARGIN_MS);
 }
 
-/** The three inputs a DELIVERY decision is allowed to read, and nothing else.
+/** The inputs a DELIVERY decision is allowed to read, and nothing else.
  *  card SEG-4 removed `ceilingReached`: no timer can deliver a row any more —
- *  the timer's whole authority is now the engine leg. */
+ *  the timer's whole authority is now the engine leg. card RC-4 added `wordGap`. */
 export interface SegmentCutInput {
   /** Has the `soft_segment_ms` cadence deadline already passed? Before it, the
    *  answer is always 'wait' — a pause at second 3 must not mint a 3-second row. */
@@ -166,6 +208,49 @@ export interface SegmentCutInput {
    *  🔴 Required, not optional-with-a-default: a caller that cannot answer
    *  「how long has it been quiet」 must not get 「long enough」 for free. */
   gateClosedMs: number;
+  /** card RC-4 — silence since the engine's last word (`segment-pause.ts`
+   *  `liveWordGap`), or null when it is not knowable. Required for the same reason
+   *  `gateClosedMs` is: a caller that cannot answer must say so, not get 「long
+   *  enough」 for free. */
+  wordGap: { readonly ms: number; readonly certainMs: number } | null;
+  /** card RC-4 follow-up — the overdue arm's PROVEN cut point, if the row is old enough
+   *  and one exists (`overdue-cut.ts`), or null. Required, like the other two readings. */
+  overdue: 'gap' | 'word_end' | null;
+  /** card RC-E — a LONG RECORDING's open row (age on the `duration_ms` clock, and the
+   *  text it holds so far); absent/null ⇒ push-to-talk, where nothing here changes.
+   *  Optional, unlike the three readings above, because absence IS an answer here —
+   *  the one every push-to-talk session gives. */
+  continuousRow?: { rowAgeMs: number; rowText: string } | null;
+}
+
+/**
+ * card RC-E — the youngest row a long recording's silence may end
+ * (`docs/strategy/2026-09-24-cr12e-rerun-root-cause.md` §2.3 / §3.2). Floors of
+ * 0 / 8 / 10 s gave the same rows on material A; 15 s swallowed one of its 13
+ * silences. 10 s is the largest floor that kept all of them.
+ */
+export const CONTINUOUS_SILENCE_ROW_MIN_MS = 10_000;
+
+/** card RC-E — the row holds at least one content word: a letter or a digit in any script. */
+export function hasContentWord(text: string): boolean { return /[\p{L}\p{N}]/u.test(text); }
+
+/**
+ * 🔴 card RC-E — may a ≥3 s silence end this row of a LONG RECORDING before the
+ * 30 s deadline? The ONE rule both of its sources read: the silence hang-up
+ * (`orchestrator-rollover.ts` `flushAndCloseLegForSilence`) and the word-gap arm
+ * below (via {@link SegmentCutInput.continuousRow}).
+ *
+ * WHY. In a long recording the 30 s floor and the 3 s hang-up were phase-locked:
+ * every silence that fell inside a row's first 30 s was hung up on and banked, the
+ * sentence arm then cut 31–39 s into the row at the live edge, and the next row's
+ * first 30 s swallowed the next silence — 4 of 13 silences started a row (CR-12-E
+ * rerun, material A). The 30 s floor answers a PUSH-TO-TALK question (how often a
+ * realtime long sentence delivers text to the PC; CR-12 design book §2), and a long
+ * recording delivers nothing (constraint A: light records only), so the floor is
+ * lifted for it alone. Push-to-talk never reaches here: `continuousRow` is absent.
+ */
+export function continuousSilenceCutAllowed(rowAgeMs: number, rowText: string): boolean {
+  return rowAgeMs >= CONTINUOUS_SILENCE_ROW_MIN_MS && hasContentWord(rowText);
 }
 
 /** 'cut' + why, or 'wait'. The reason travels because {@link seamText} needs it. */
@@ -173,8 +258,12 @@ export type SegmentCutDecision = { cut: false } | { cut: true; reason: SegmentCu
 
 /**
  * The DELIVERY policy, top-down: nothing before the deadline, and past it only
- * the two boundaries we can defend. There is deliberately no third arm — card
+ * the boundaries we can defend. There is deliberately no TIME arm — card
  * SEG-4's whole content is that time alone never again ends a row.
+ * ⚠️ 更正（RC-4，2026-09-24）：the sentence above originally read 「past it only
+ * the two boundaries we can defend. There is deliberately no third arm」. There is
+ * a third arm now, and it is still not time: it is the speaker's own silence as
+ * the engine's word timestamps measure it ({@link WORD_GAP_MIN_MS}).
  *
  * 🔴 SENTENCE IS TESTED BEFORE PAUSE and the order is load-bearing, not tidiness:
  * a speaker who ends a sentence and then breathes satisfies both. The reason
@@ -183,9 +272,22 @@ export type SegmentCutDecision = { cut: false } | { cut: true; reason: SegmentCu
  * as 'pause' would add up to 800 ms to a row that already had its terminator.
  */
 export function segmentCutDecision(input: SegmentCutInput): SegmentCutDecision {
-  if (!input.due) return { cut: false };
+  const g = input.wordGap;
+  const gapHolds = g !== null && g.ms >= WORD_GAP_MIN_MS && g.certainMs >= WORD_GAP_CERTAIN_MIN_MS;
+  // card RC-E — before the deadline, only a long recording's ≥3 s word gap, and only
+  // on a row {@link continuousSilenceCutAllowed} admits. Push-to-talk: 'wait', as ever.
+  if (!input.due) {
+    const row = input.continuousRow;
+    return row && gapHolds && continuousSilenceCutAllowed(row.rowAgeMs, row.rowText) ? { cut: true, reason: 'word_gap' } : { cut: false };
+  }
   if (endsAtSentenceBoundary(input.confirmed)) return { cut: true, reason: 'sentence' };
   if (input.gateClosedMs >= MIN_PAUSE_MS) return { cut: true, reason: 'pause' };
+  // card RC-4 — the third arm, after the two above: when the gate did close, its
+  // reading is the direct one and F-2 keys on 'pause'. Both numbers must clear.
+  if (gapHolds) return { cut: true, reason: 'word_gap' };
+  // card RC-4 follow-up — last: the row is past 90 s and the speech's own boundaries
+  // have not ended it. It cuts in the PAST, at a point `overdue-cut.ts` has proven.
+  if (input.overdue !== null) return { cut: true, reason: 'overdue' };
   return { cut: false };
 }
 
@@ -255,7 +357,11 @@ export function segmentCutDecision(input: SegmentCutInput): SegmentCutDecision {
  * than no repair.
  */
 export function seamText(finalText: string, reason: SegmentCutReason): string {
-  if (reason === 'sentence' || reason === 'pause') return finalText;
+  // card RC-4: 'word_gap' is a speaker's pause measured by the engine instead of
+  // the gate, so an engine-produced terminator on it is kept exactly as on 'pause'.
+  // 'overdue' cuts between words the vendor had already finalised WITH their right
+  // context, so no terminator on it was made up by the span: kept, too.
+  if (reason === 'sentence' || reason === 'pause' || reason === 'word_gap' || reason === 'overdue') return finalText;
   const end = finalText.trimEnd().length; // index just past the last visible char
   if (end === 0) return finalText;
   if (!SENTENCE_TERMINATORS.includes(finalText[end - 1]!)) return finalText;
@@ -286,6 +392,11 @@ export interface SoftSegmentCadenceHooks {
    *  routine (the chunk that spends the budget can arrive during the rollover a
    *  delivery cut started one chunk earlier). */
   rotateLeg(): boolean;
+  /** card RC-U — true while the TIMED rotation is on hold (the vendor's backlog is over
+   *  `BACKLOG_HOLDS_CUT_ARMS_MS`, `engine-backlog.ts`). Read by phase 2 only: the NR-60 audio budget
+   *  ({@link SoftSegmentCadence.rotateLegForAudioBudget}) is a decoder limit and never waits on it.
+   *  Absent ⇒ never on hold. */
+  holdLegRotation?(): boolean;
 }
 
 /**
@@ -341,13 +452,16 @@ export class SoftSegmentCadence {
    * the engine, passed in rather than re-derived: two answers to 「is this voice」
    * inside one decision is this repo's #1 bug shape.
    */
-  shouldCut(gateOpen: boolean, nowMs: number, confirmed: string): boolean {
+  shouldCut(gateOpen: boolean, nowMs: number, confirmed: string, wordGap: SegmentCutInput['wordGap'], overdue: SegmentCutInput['overdue'] = null, continuousRow: SegmentCutInput['continuousRow'] = null): boolean {
     if (gateOpen) this.gateClosedAtMs = 0;
     else if (this.gateClosedAtMs === 0) this.gateClosedAtMs = nowMs;
     const d = segmentCutDecision({
       due: this._due,
       confirmed,
       gateClosedMs: this.gateClosedAtMs === 0 ? 0 : nowMs - this.gateClosedAtMs,
+      wordGap,
+      overdue,
+      continuousRow, // card RC-E
     });
     if (!d.cut) return false;
     this._lastCutReason = d.reason;
@@ -378,6 +492,9 @@ export class SoftSegmentCadence {
       // reason is recorded BEFORE the hook so the orchestrator's bank read
       // (`lastCutReason`) cannot see a stale 'sentence' from a previous
       // delivery and skip the seam repair.
+      // card RC-U — while the vendor is behind, a rotation would re-feed the next leg the backlog it is
+      // draining; skip this one, and try again one leg span later (the re-arm below is unchanged).
+      if (this.hooks.holdLegRotation?.() === true) { this.arm(this.cadenceMs + this.graceMs); return; }
       this._lastCutReason = 'leg';
       this.hooks.rotateLeg();
       // Re-arm for the NEXT leg span: legs keep rotating for as long as the

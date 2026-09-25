@@ -4,7 +4,7 @@
 //   packages/protocol/src/protocol-schemas-inject.ts (InjectImageBase64Schema:
 //     max 5_500_000, canonical base64; InjectImageMimeSchema: png|jpeg|webp)
 //   docs/rebuild/07-DESKTOP-SPEC.md §2 (Stage 3 clipboard fallback)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ② (receive image → inject)
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ② (receive image → inject)
 //   master-plan §4 / CLAUDE.md red line: no silent failures — a payload we cannot
 //     decode is REJECTED with a named reason, never silently dropped and never
 //     reported as injected.

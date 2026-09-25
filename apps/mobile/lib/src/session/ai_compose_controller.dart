@@ -3,7 +3,7 @@
 //   docs/ui-design/REDESIGN-PLAN.md §6.2 ④ (the AI action row), §2 F-3 (the three
 //     operations act on the buffer, replace it, never inject; a failure keeps
 //     the pre-op buffer)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md Wave 2 T-3 (the AI row)
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md Wave 2 T-3 (the AI row)
 //   CLAUDE.md red line: no silent failure / an LLM failure must not silently
 //     fall back to injecting the raw original text / a latch closed by a
 //     remote event must have a local watchdog

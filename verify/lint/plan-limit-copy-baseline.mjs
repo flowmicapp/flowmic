@@ -15,4 +15,13 @@
 // Pinned 2026-08-29. Covers 3 tiers x 6 keys, from apps/server-core/src/billing/plans.ts.
 // Re-pinning means: the numbers moved, and someone read the 27 web strings and
 // the 8 mobile ones that describe them.
-export const PLAN_LIMIT_VALUE_PIN = 'b4189d1c2d4f';
+//
+// Re-pinned 2026-09-23 (NR-90: pro stt_minutes 900→1000, pro llm_tokens
+// 5M→10M, max llm_tokens 15M→50M; docs/decisions/2026-09-23-owner-nr89-nr90-
+// unshelve-price-and-token-caps.md). Read at re-pin time: the 9 mobile
+// quotaRulesLine3 strings spell only the 120-second demo cap (not a plan
+// limit, unchanged); of the 27 @flowmic/web planFeat* strings the 18
+// planFeatPro/planFeatMax ones are updated to 1,000 min / 10M / 50M on that
+// repo's lane/NR-90 branch (planFeatFree's numbers did not move).
+// Previous pin: b4189d1c2d4f (2026-08-29).
+export const PLAN_LIMIT_VALUE_PIN = '3ec5f307dd24';

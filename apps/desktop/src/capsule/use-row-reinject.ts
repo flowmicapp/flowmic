@@ -49,6 +49,7 @@ export function useRowReinject(ask = requestRowReinject) {
     const f = injectStatus.value[l.id];
     if (!f) return S.op_reinject;
     if (f.status === 'injected') return S.st_injected;
+    if (f.status === 'cached' && f.errorCode === 'INJECT_SUBMISSION_UNCERTAIN') return S.st_uncertain;
     if (f.status === 'cached') return S.st_cached;
     if (f.status === 'failed') return S.st_failed;
     if (f.status === 'noted') return S.st_noted;

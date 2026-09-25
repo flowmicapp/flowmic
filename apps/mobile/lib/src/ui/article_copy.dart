@@ -18,9 +18,9 @@
 // ── THE ONE RENDERER ────────────────────────────────────────────────────────
 //
 // [articleCopyText] is the single place a recording becomes clipboard text:
-// every segment in timeline order, each line prefixed with the SAME range label
-// `ArticlePage` draws above it ([formatArticleRange] — 「00:30–01:00」, or a
-// bare start when the length is unknown). Not a second time format: the label
+// every paragraph in timeline order, each line prefixed with the SAME range
+// label `ArticlePage` draws above it ([formatParagraphRange] — 「00:30–01:00」,
+// or a bare start when a length is unknown). Not a second time format: the label
 // the user reads on the page and the label they paste must be one author, or
 // the two faces of one number drift apart with nothing on any screen to say
 // which one is right.
@@ -34,13 +34,30 @@
 // it, without timestamps. Copy is a different action with a different owner
 // ruling (the times are asked for by name), so it gets its own renderer rather
 // than a flag on that one — a flag would make one function answer two rulings.
+//
+// ── CR-12-F: ONE PARAGRAPH PER LINE, AND SEND-WITH-TIMES READS THIS TOO ─────
+//
+// Since CR-12-B the page draws paragraphs (`paragraphsOf`), not rows, so the
+// label a user reads is a paragraph's, and copy follows the page (CR-12 design
+// §10.6): each line is [formatParagraphRange] + [paragraphText], the two
+// functions `ArticlePage._paragraph` draws with. A paragraph whose start is
+// unknown has no label on the page and gets none here — its words alone, never
+// an invented 「00:00」.
+//
+// Owner 2026-09-22 then let the user opt into times when FORWARDING too
+// (ruling 3's in-place addendum). The 「+」 panel's 「with times」 chip sends
+// exactly this function's output, so a pasted recording and a forwarded one
+// carry the same labels. Ruling 3 is still the default for sending: with the
+// chip off the panel sends `transcriptOf`, byte for byte as before.
 
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import '../session/image_clipboard.dart'
     show ImageClipboardPort, ImageCopyOutcome, TextCopy, copyEntryToClipboard;
 import '../timeline/timeline_entry.dart';
-import 'article_page.dart' show formatArticleRange;
+import '../timeline/article_paragraphs.dart'
+    show ArticleParagraph, paragraphText, paragraphsOf;
+import 'article_page.dart' show formatParagraphRange;
 
 /// The same one line `image_clipboard.dart` keeps private, rewritten here for
 /// the reason `batch_actions.dart` gives for doing the same: duplicating one
@@ -67,15 +84,18 @@ typedef ArticleMembersAsync =
 /// .membersOf`, all of which sort through `articleMembersIn`, so the order
 /// here is the order `ArticlePage` shows.
 ///
-/// One line per segment: `<range> <words>`. A segment with no words prints no
-/// line (there is nothing to prefix). An empty piece is the empty string, which
-/// callers must treat as 「nothing to copy」 rather than write to the clipboard.
+/// One line per paragraph: `<range> <words>`, or just `<words>` when the
+/// paragraph's start is unknown ([formatParagraphRange] answers null). A
+/// paragraph with no words prints no line. No title, no header, no blank line.
+/// An empty piece is the empty string, which callers must treat as 「nothing to
+/// copy」 rather than write to the clipboard.
 String articleCopyText(Iterable<TimelineEntry> membersOldestFirst) {
   final List<String> lines = <String>[];
-  for (final TimelineEntry m in membersOldestFirst) {
-    final String words = m.displayText.trim();
+  for (final ArticleParagraph p in paragraphsOf(membersOldestFirst)) {
+    final String words = paragraphText(p);
     if (words.isEmpty) continue;
-    lines.add('${formatArticleRange(m)} $words');
+    final String? range = formatParagraphRange(p);
+    lines.add(range == null ? words : '$range $words');
   }
   return lines.join('\n');
 }

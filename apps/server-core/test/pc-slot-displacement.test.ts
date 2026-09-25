@@ -23,7 +23,7 @@
 // field a displaced session comes BACK and re-registers — which is the intended
 // recovery, and would make 「did it get closed」 unobservable in this harness.
 //
-// SPEC-REF: docs/strategy/2026-08-07-w9-window-handoff-report.md §2-2 (the three
+// SPEC-REF: docs/archive/strategy/2026-08-07-w9-window-handoff-report.md §2-2 (the three
 //           halves) + §5-3 (why experiment (A) was kept out of golden);
 //           apps/server-core/src/socket/handlers/mobile.handler.ts (`joinAndNotify`
 //           — the identical treatment of the identical value since GA-26).

@@ -23,6 +23,8 @@
     "cap_stt_loading": "'모델 불러오는 중…'",
     "cap_stt_ready": "'준비됨'",
     "cap_stt_reconnecting": "'재연결 중…'",
+    "cap_stt_reconnecting_n": "'재연결 {n}회차'",
+    "cap_stt_reconnecting_n_of": "'재연결 {n}/{max}회차'",
     "cap_stt_unknown": "'미검사'",
     "cap_target_dash": "'—'",
     "cap_target_none": "'대상 잠금 없음'",
@@ -713,6 +715,10 @@
     "win_close": "'닫기'",
     "win_maximize": "'최대화'",
     "win_minimize": "'최소화'",
-    "win_restore": "'이전 크기로'"
+    "win_restore": "'이전 크기로'",
+    "st_uncertain": "'입력 결과 불확실'",
+    "injectFailReason.INJECT_WAYLAND_UNSUPPORTED": "'Wayland에서는 다른 창 입력이 지원되지 않습니다.'",
+    "injectFailReason.INJECT_DISPLAY_UNAVAILABLE": "'현재 디스플레이 환경에서는 입력할 수 없습니다.'",
+    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'텍스트가 일부만 입력되었을 수 있습니다.'"
   }
 }

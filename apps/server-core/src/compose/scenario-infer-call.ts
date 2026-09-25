@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R7-V2-TASK-CARDS.md V2-08 (Option C: LLM inference + per-process cache)
+//   docs/archive/strategy/R7-V2-TASK-CARDS.md V2-08 (Option C: LLM inference + per-process cache)
 //   docs/decisions/2026-07-30-a5-owner-rulings.md ② (ruling (a): exe basename only)
 //   docs/strategy/2026-07-23-relaunch-master-plan.md §4.1 (restraint #2)
 //   ./scenario-inference.ts (the gate + the whitelist this file obeys)

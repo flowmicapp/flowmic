@@ -3,7 +3,7 @@
 //     liveness on top of the transport ping)
 //   docs/rebuild/05-DATA-MODEL.md §1 (pc_devices.last_seen_at,
 //     mobile_pairings.last_seen_at)
-//   docs/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-07
+//   docs/archive/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-07
 //
 // `heartbeat` had ZERO consumers: the desktop pump emitted it every tick and the
 // server dropped it on the floor, which meant `last_seen_at` only ever moved at

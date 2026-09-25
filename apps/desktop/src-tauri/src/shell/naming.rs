@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.7 (reserved key `device.pc_name`, F-3101)
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-10
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-10
 //
 // THIS PC'S NAME, as a command. Split out of shell/mod.rs for the 800-line cap;
 // the reasoning below is the whole reason the file exists, so it moves intact.

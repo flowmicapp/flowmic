@@ -58,6 +58,17 @@ pub enum InjectError {
     /// `Ok` (doc 13 §7 F1 ②).
     #[error("not implemented on this platform: {0}")]
     Unsupported(&'static str),
+    /// The native operation failed at a named step before submitting input.
+    #[error("native operation failed: {0}")]
+    Native(String),
+    #[error("verified target changed before input: {0}")]
+    TargetChanged(String),
+    /// Input may already have reached the target. Never report a known failure
+    /// or automatically retry; the wire code preserves uncertainty. Decision:
+    /// docs/decisions/2026-09-22-linux-inject-verdict-codes-and-no-new-history-status.md
+    /// (Chose / INJECT_SUBMISSION_UNCERTAIN; first responsible person, owner may overturn).
+    #[error("input submission uncertain: {0}")]
+    SubmissionUncertain(String),
 }
 
 /// Sender callback: take a slice of UTF-16 code units, push them to the OS,

@@ -110,6 +110,9 @@ const List<String> _autoHideBannerKeys = <String>[
   // ⚠️ Its window (kBannerAutoHideAfter, 4 s) must stay LONGER than the panel's
   // hold+fade (~2 s), or it would kill a panel that is still on screen.
   BannerIds.pairingSuccess,
+  // Card NR-96-E1 — the asking is over by the time this is raised; the ✕ and
+  // this timer fire the same dismiss. A later exhaustion is a new ticket.
+  BannerIds.reconnectAckLost,
 ];
 
 /// [key]'s current face: the value that decides whether this is a FRESH
@@ -164,6 +167,12 @@ const List<String> _autoHideBannerKeys = <String>[
   BannerIds.pairingSuccess => (
     value: c.pairingSuccess.ticket,
     dismiss: c.pairingSuccess.dismiss,
+  ),
+  BannerIds.reconnectAckLost => (
+    value: c.session.reconnectAckLost.value == 0
+        ? null
+        : c.session.reconnectAckLost.value,
+    dismiss: c.session.dismissReconnectAckLost,
   ),
   _ => (value: null, dismiss: () {}),
 };
@@ -237,13 +246,22 @@ Future<void> disposeRouted(ChatController c) async {
   c.deliveryLink.dispose();
   c.session.pcBusyListenable.removeListener(c.notifyUi); // 卡 L7
   c.session.latestBudget.removeListener(c.notifyUi); // Card G-2c
+  // NR-96 — mirrors the three addListener lines in chat_controller_wiring.dart.
+  c.session.engineReconnect.listenable.removeListener(c.notifyUi);
+  c.session.reconnectAckLost.removeListener(c.notifyUi);
+  c.session.reconnect.scheduledAttempt.removeListener(c.notifyUi);
   c.session.captureStopped.removeListener(c._onCaptureStopped); // D-1c
+  // Card RC-3 — mirrors the two addListener lines in chat_controller_wiring.
+  c.session.audio.retainedAudio?.owedTailReady
+      .removeListener(c._onOwedTailReady);
+  c.session.engineReconnect.engineDownListenable.removeListener(c.notifyUi);
   // AUD-D F6 / P1-6 (card B2-O) — mirrors the constructor's addListener; a
   // torn-down controller must not go on writing into a field nobody reads.
   c.session.audio.retainedAudio?.store.lastNotice
       .removeListener(c._onRetainedAudioNotice);
   c._polishSkippedEntryIds.clear();
   c._sessionLostTimer?.cancel();
+  c._owedTailGrace?.cancel(); // RC-P
   c.recording.dispose();
   c.aiCompose.dispose();
   // 🔴 卡 F3 缺陷① (second leak, same timer) — `utteranceCompose.dispose()` had

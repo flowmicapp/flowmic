@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-2 ① (persist JWT + public user
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-2 ① (persist JWT + public user
 //     via flutter_secure_storage; the PASSWORD is NEVER stored, only the JWT +
 //     public user), frozen wire contract (login SUCCESS = {token:<JWT>, user:{id,email,
 //     display_name,plan}})

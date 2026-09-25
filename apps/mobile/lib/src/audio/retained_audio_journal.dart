@@ -470,6 +470,50 @@ class RetainedAudioJournal {
   void clearLiveSettlePending() =>
       _manifest = _manifest.copyWith(clearLiveSettlePending: true);
 
+  /// Card RC-3 — how far this recording's live rows reached, in PCM bytes; the
+  /// recovery range starts here. Only ever moves EARLIER: a prefix is a claim
+  /// that those bytes are already words, and a second writer asserting more is
+  /// the direction that would skip audio nobody transcribed.
+  void setTranscribedPrefix(int bytes, {int? atMs}) =>
+      setOwedRange(bytes, null, atMs: atMs);
+
+  /// Card RC-3b — bytes `[startBytes, endBytes)` are owed; a null [endBytes]
+  /// means 「to the end」 (the owed tail above). A second owed stretch in one
+  /// recording WIDENS the one on record — earlier start, later end, a tail
+  /// taking it to the end — so no owed byte is ever left outside the range.
+  /// The price, named: live words BETWEEN two stretches are fed again and
+  /// come back a second time.
+  /// ⚠️ 更正（RC-K，2026-09-24）：原为 the widening above. Each stretch is now
+  /// APPENDED to `owedRanges` ([addOwedRange]: only overlapping stretches
+  /// merge), with [atMs] — where its rows belong on the article clock.
+  void setOwedRange(int startBytes, int? endBytes, {int? atMs}) {
+    final int frame = _manifest.format.bytesPerFrame;
+    final int s = startBytes < 0 ? 0 : startBytes - (startBytes % frame);
+    final int? e = endBytes == null ? null : endBytes - (endBytes % frame);
+    if (e != null && e <= s) return;
+    _manifest = _manifest.copyWith(
+      owedRanges: addOwedRange(
+          _manifest.owedRanges, OwedRange(start: s, end: e, atMs: atMs)),
+    );
+  }
+
+  /// Codex rc3 ① — see [narrowOwedStart] (the only writer that moves an owed
+  /// start LATER; called only once the draft row has been read back).
+  void narrowOwedRangeStart(int fromBytes, int toBytes) =>
+      _manifest = _manifest.copyWith(owedRanges: narrowOwedStart(
+          _manifest.owedRanges, fromBytes, toBytes, _manifest.format.bytesPerFrame));
+
+  /// Card RC-K — the stretch starting at [startBytes] reached [outcome]
+  /// (`OwedRange.done*`); the next one may be fed. Codex rc2 ②: a null
+  /// [outcome] REOPENS a stretch (one that came back empty, at the end).
+  void markOwedRangeDone(int startBytes, String? outcome) =>
+      _manifest = _manifest.copyWith(owedRanges: <OwedRange>[
+        for (final OwedRange r in _manifest.owedRanges)
+          r.start == startBytes && (outcome == null || r.isOwed)
+              ? r.withDone(outcome)
+              : r,
+      ]);
+
   /// Timeline row id for a completed recovery. Slot only — written by RC-1.
   void setResultRef(String rowId) =>
       _manifest = _manifest.copyWith(resultRef: rowId);

@@ -9,7 +9,7 @@
 //   ⑤ minting requires a live Bearer, and a since-deleted user grants nothing;
 //   ⑥ redemption is throttled — it is a login.
 //
-// SPEC-REF: docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-31
+// SPEC-REF: docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-31
 //           docs/decisions/2026-07-26-web-login-qr.md
 // *** HUMAN-AUDIT SENSITIVE (auth) ***
 

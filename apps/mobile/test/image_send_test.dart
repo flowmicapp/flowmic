@@ -11,7 +11,7 @@
 //
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.5 (F-2350 image fields);
 //   docs/ui-design/REDESIGN-PLAN.md §6.1 / §6.2-6;
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ①;
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ①;
 //   CLAUDE.md 红线: 没有静默失败 / 时间线为本体 / status records only delivery truth.
 
 import 'dart:convert';

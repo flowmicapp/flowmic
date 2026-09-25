@@ -26,6 +26,9 @@ import 'src/crypto/blind_store_keyring.dart';
 import 'src/diag/build_stamp.dart';
 import 'src/diag/diag_log.dart';
 import 'src/destination/destination_controller.dart';
+import 'src/mcp/mcp_service.dart';
+import 'src/mcp/mcp_scope.dart';
+import 'src/mcp/mcp_settings_backup.dart';
 import 'src/ptt/ptt_session.dart';
 import 'src/settings/app_settings.dart';
 // B1 — the network-return hint the reconnect ladder never had (network_watch.dart).
@@ -229,6 +232,7 @@ class FlowMicApp extends StatefulWidget {
 }
 
 class _FlowMicAppState extends State<FlowMicApp> {
+  late final McpService _mcp;
   late final PttSession _session;
 
   /// B1 — 「网络回来了」. Owned here because it outlives every session span and
@@ -328,7 +332,11 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // gate's remaining jobs are the delivery link probe and the http image
     // ingress's item shape.
     _syncGate = TimelineSyncGate(transport: _session.transport);
+    _mcp = McpService(store: widget.storage.persistence is SqfliteTimelinePersistence
+      ? (widget.storage.persistence as SqfliteTimelinePersistence).mcp : null);
+    _mcp.attach(networkReturned: _networkWatch.returned);
     _settingsRoot = SettingsRoot(
+      mcp: McpSettingsBackup(store: _mcp.store, secrets: _mcp.secrets),
       prefs: widget.prefs,
       transport: _session.transport,
       roomJoins: _session.roomJoins,
@@ -351,7 +359,12 @@ class _FlowMicAppState extends State<FlowMicApp> {
       // AUD-D P2-5/F9 — see LoginController's `_onSignedOut` doc. `_blindStore`
       // is assigned further down in this same method before any real logout.
       onSignedOut: () => _blindStore?.detachForAccountChange(),
+      // RC-S follow-up: a recording in progress ends under its own account.
+      onBeforeAccountChange: () => _controller.stopRecordingForAccountChange(),
     );
+    // Card RC-S — each retained recording names the account it was made under,
+    // and recovery runs only under that account (recording_account.dart).
+    widget.retainedAudio?.recordingAccount.bind(() => _login.email);
     // No `fetcher:` ⇒ the REAL http read (`httpCloudSummaryFetch`); the production
     // default is deliberately not a friendly empty implementation (13 册 §7 F1 ②).
     // budgetFeed: card S2-02 (the param carries the argument for owning the sub here).
@@ -562,6 +575,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
 
   @override
   void dispose() {
+    _mcp.dispose();
     _blindStore?.dispose();
     _update.dispose();
     _portable.dispose();
@@ -595,11 +609,11 @@ class _FlowMicAppState extends State<FlowMicApp> {
     // all. The wire frames now always go out; the bridge (not a recorder-state
     // guard) is what makes the edges idempotent and pairs them 1:1.
     return AppLifecycleBridge(
-      onBackground: () => onAppBackground(_session),
-      onForeground: () => onAppForeground(
-        session: _session,
-        connections: _connections,
-      ),
+      onBackground: () { _mcp.background(); return onAppBackground(_session); },
+      onForeground: () {
+        _mcp.foreground();
+        return onAppForeground(session: _session, connections: _connections);
+      },
       // V2-07.3/.4: the palette is switchable and the settings selector is
       // WIRED (history: the visual contract was dark-only and a non-functional
       // theme selector was once removed as a façade — this listener is the
@@ -653,7 +667,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
           // (exactly what that layer's deliberate use of `child:` avoids).
           builder: (BuildContext context, Widget? page) => TextScaleScope(
             appSettings: widget.appSettings,
-            child: page!,
+            child: McpScope(service: _mcp, settings: widget.appSettings, child: page!),
           ),
         // Startup home is the instance list (08 §1: paired→connection list; no
         // auto-connect on launch).

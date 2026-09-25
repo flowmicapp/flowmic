@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-13-0263-design-task-book.md §9-1 (managed STT liveness:
+//   docs/archive/strategy/2026-08-13-0263-design-task-book.md §9-1 (managed STT liveness:
 //     no existing probe — `stt.pool` is an in-session log, not a probe ⇒ needs a
 //     new probe), §9-2.6 (W-5a: STT probe + probe timer + GET /api/status; the
 //     probe does not consume real session quota)

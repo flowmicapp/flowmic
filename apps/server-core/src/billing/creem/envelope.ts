@@ -4,7 +4,7 @@
 //     is imported from it rather than re-written — one normalizer, one ordering)
 //   https://docs.creem.io/code/webhooks — every field path below was read off
 //     the published sample bodies on 2026-08-29
-//   docs/strategy/2026-08-29-creem-stage0-findings.md §2b (the live objects these
+//   docs/archive/strategy/2026-08-29-creem-stage0-findings.md §2b (the live objects these
 //     paths were checked against)
 //   *** HUMAN-AUDIT SENSITIVE (billing) — reviewable in isolation ***
 //

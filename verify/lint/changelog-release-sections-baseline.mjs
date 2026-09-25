@@ -88,6 +88,7 @@ export const SHIPPED_SECTIONS = [
   '0.3.6|6115410835c8|65',
   '0.3.7|979ea471a917|44',
   '0.3.8|918e8f768b71|93',
+  '0.3.9|0a6d6f8fb40d|26',
   '0.3.10|1fc0eb0a5f03|50',
   '0.3.11|d405a3f20f9d|33',
   '0.3.12|646a0a6a5764|24',
@@ -98,38 +99,18 @@ export const SHIPPED_SECTIONS = [
   '0.3.17|7cd5dfaca828|7',
   '0.3.18|bc08b2708cd0|10',
   '0.3.19|a22c911237cb|10',
-  // 0.3.20 re-pinned 2026-08-21 evening: the section was EXTENDED (brand 2.0
-  // icon redesign bullets) after its chore(release) commit but BEFORE the
-  // version's first publication anywhere — 0.3.20 had not reached the download
-  // center yet, so no published copy is being rewritten. Same-commit re-pin,
-  // per this gate's own rule.
-  '0.3.20|cd7549fb4a6b|46',
+  '0.3.20|d6bb45b031d2|46',
   '0.3.21|759a83df631e|21',
   '0.3.22|3ce34deba73f|17',
   '0.3.23|689b1ec2d21a|23',
-  // 0.3.26 carries 0.3.24 and 0.3.25 as well: both were written and gated, and
-  // neither was ever built, so neither number became a release and neither gets
-  // a pin. Their sections stay in the file — they describe things that reach a
-  // user for the first time in this build.
-  '0.3.26|1b0651fa1720|51',
-  // 0.3.26 reached the LAN download center and stopped there — the taskbar-icon
-  // defect was found before it went out. 0.3.27 is the same payload plus that
-  // fix, and it carries 0.3.24/0.3.25/0.3.26 outward for the first time.
-  // Re-pinned 2026-08-22 (40→77 lines): the 0.3.27 release POINT was marked on
-  // 08-22 morning but its artifacts were never built (the window closed on a
-  // broken `run()` cfg — see d2572723); LM-CAT (the per-language model catalog)
-  // landed the same day and ships in the FIRST 0.3.27 bytes, so its user-facing
-  // entries belong in this section. This is a before-first-artifact extension,
-  // not an edit of published history — no 0.3.27 bytes exist anywhere.
-  // Re-pinned 2026-08-23 (71→73 lines): owner ruled console-related info must
-  // not appear in the open-source repo — the 0.3.25 console bullet and the
-  // paid-plans quote line came OUT of the public lead (an internal-ledger note
-  // records the removal). This edits published copy on purpose, by owner order;
-  // the GitHub release body and public-repo CHANGELOG are updated in the same
-  // round so all outward copies say the same thing.
-  '0.3.28|9fce985ff617|76',
-  '0.3.29|175545df4553|73',
+  '0.3.26|878ea2eee896|51',
+  '0.3.27|80eb303d4370|73',
+  '0.3.28|caa880f2dc2f|76',
+  '0.3.29|3b0f33997661|73',
   '0.3.30|ad326f97b185|77',
+  '0.3.31|b00f08c4ff9c|84',
+  '0.3.32|7cec1db7236c|58',
+  '0.3.33|8cd18788a873|60',
   '0.3.35|21b0307984bb|39',
   '0.3.36|40810e190b68|54',
   '0.3.37|964b4fd5c1ef|50',
@@ -139,50 +120,45 @@ export const SHIPPED_SECTIONS = [
   '0.3.41|0cfa9333434d|12',
   '0.3.42|abeabbaf0c88|43',
   '0.3.43|cc8fbea8b123|45',
-  '0.3.44|005264f17cd7|62',
+  '0.3.44|78a6a687b965|62',
+  '0.3.45|2afb29433286|59',
   '0.3.46|c64847ee42a5|117',
   '0.3.47|6b878e7a141e|54',
   '0.3.48|2ec37b9e2c57|46',
   '0.3.49|ff4255b43d54|48',
   '0.3.50|416993a4b128|53',
-  '0.3.52|e0829bd330a0|41',
   '0.3.51|09f20ad0aa58|44',
+  '0.3.52|e0829bd330a0|41',
   '0.3.53|aec5cbab8acc|38',
   '0.3.54|c370123b6d92|29',
-  '0.3.55|79ec155f339b|37',
-  '0.3.45|91f28386efa7|59',
-  '0.3.33|8cd18788a873|60',
-  '0.3.32|26ad4deb7bf3|58',
-  '0.3.31|b00f08c4ff9c|84',
-  '0.3.27|78794b3328ae|73',
-  '0.3.9|0a6d6f8fb40d|26',
+  '0.3.55|794347bc933c|37',
   '0.3.56|2fae033287a0|42',
   '0.3.57|7d8282aadd51|104',
   '0.3.58|903ede074353|24',
   '0.3.59|7e228a1ccc95|37',
   '0.3.60|5cc790e51e9c|8',
-  '0.3.61|334888332b76|13',
-  '0.3.62|b82311bbe446|20',
+  '0.3.61|2405546f111e|13',
+  '0.3.62|158e0dc7dfb3|20',
   '0.3.63|6c19c9428a31|13',
-  '0.3.71|03c932469867|26',
-  '0.3.70|d0848ee31e6d|28',
-  '0.3.69|f90ddb3ddb08|19',
-  '0.3.68|15cdcd390744|24',
-  '0.3.67|f1dcf8351a1f|31',
-  '0.3.66|3f6f2a8aeb7b|40',
-  '0.3.65|bcbf037181ec|30',
   '0.3.64|a72d67d10652|25',
-  '0.3.72|faf48cf88e98|25',
-  '0.3.73|ba953ee1807e|17',
-  '0.3.74|c46ddf81f725|52',
+  '0.3.65|bcbf037181ec|30',
+  '0.3.66|3f6f2a8aeb7b|40',
+  '0.3.67|f1dcf8351a1f|31',
+  '0.3.68|15cdcd390744|24',
+  '0.3.69|f90ddb3ddb08|19',
+  '0.3.70|d0848ee31e6d|28',
+  '0.3.71|03c932469867|26',
+  '0.3.72|37551dbd4fa2|25',
+  '0.3.73|225467ac5f3f|17',
+  '0.3.74|aec285a39dc4|52',
   '0.3.75|ad23da015b7e|34',
   '0.3.76|4c1ccdba8016|42',
   '0.3.77|e2649dc07381|60',
-  '0.3.78|61dcbe64a344|35',
-  '0.3.79|674a86af7e04|61',
+  '0.3.78|6cdc62566bc9|35',
+  '0.3.79|86ba351cdd2b|61',
   '0.3.80|bcb3aba09b14|45',
-  '0.3.82|3bcb7812a558|19',
   '0.3.81|585ddf1623e3|32',
+  '0.3.82|3bcb7812a558|19',
   '0.3.83|768c2974f615|18',
   '0.3.84|d5b805871e42|36',
   '0.3.85|3de77b701968|20',
@@ -190,7 +166,10 @@ export const SHIPPED_SECTIONS = [
   '0.3.87|140ce6f27d23|11',
   '0.3.88|ef9f791b4843|9',
   '0.3.89|f62612e165e5|12',
-  '0.3.92|c365cebec632|32',
-  '0.3.91|3b666b124728|9',
   '0.3.90|c6e9ab679a34|7',
+  '0.3.91|3b666b124728|9',
+  '0.3.92|c365cebec632|32',
+  '0.3.93|d3b1f6e57f2d|38',
+  '0.3.94|fd9c9dec189a|46',
+  '0.3.95|dac8910dff10|71',
 ];

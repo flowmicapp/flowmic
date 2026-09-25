@@ -35,8 +35,11 @@ class FakeEngine extends EventEmitter implements SttEngine {
   constructor(public readonly id: SttEngineId = 'custom-openai-compatible') { super(); }
   get state(): EngineState { return this._state; }
   async open(): Promise<void> { this._state = 'open'; }
-  push(): void {}
-  async flush(): Promise<void> { if (this.finalOnFlush !== null) this.emit('final', { kind: 'final', text: this.finalOnFlush, confidence: 1, language: 'zh', duration_ms: 1234 }); }
+  pushes = 0;
+  push(): void { this.pushes += 1; }
+  // card HANGUP-3 — a vendor never answers words for a leg it was handed no audio for (Soniox answers
+  // "No audio received"); this double used to, which is how ~50 cases hid the terminal empty-leg rule.
+  async flush(): Promise<void> { if (this.finalOnFlush !== null && this.pushes > 0) this.emit('final', { kind: 'final', text: this.finalOnFlush, confidence: 1, language: 'zh', duration_ms: 1234 }); }
   async close(): Promise<void> { this._state = 'closed'; }
   emitInterim(text: string): void { this.emit('interim', { kind: 'interim', text, confidence: 0.5, language: 'zh' }); }
 }
@@ -193,6 +196,7 @@ describe('SttSessionBridge', () => {
     // processing is an INJECTED capability, wired in production by stt-factory.
     const { bridge, eng, emitted } = makeBridge();
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     const final = emitted.find((e) => e.event === 'stt:final')?.payload as { text: string };
@@ -227,6 +231,7 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
   it('polish OFF: stt:final has NO polish field (byte-identical to today)', async () => {
     const { bridge, eng, emitted } = makeBridge();
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     const f = finalPayload(emitted);
@@ -238,6 +243,7 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
   it("polish ON + guard-accepted change → stt:final polish:'applied' with the polished text", async () => {
     const { bridge, eng, emitted } = makeBridge({ polish: polishWith([{ kind: 'done', full: '打开FlowMic' }]) });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     const f = finalPayload(emitted);
@@ -277,6 +283,7 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
       polish: polishWith([{ kind: 'done', full: '打开FlowMic' }]),
     });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     await settleDetached();
@@ -302,6 +309,7 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
       polish: { llm: { cfg: CFG, source: 'user' }, deps: { streamerFor: slow, budgetMs: 10_000 } },
     });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     expect(answered).toBe(true);   // finish() waited for it …
@@ -314,6 +322,7 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
     const finalText = makeFinalTextPipeline(buildDictionaryReplacer([{ canonical: 'FlowMic', aliases: ['飞麦克'] }]));
     const { bridge, eng, emitted } = makeBridge({ finalText, polish: polishWith([{ kind: 'done', full: '打开FlowMic。' }]) });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     expect(finalPayload(emitted)).toMatchObject({ text: '打开FlowMic。', polish: 'applied' });
@@ -328,6 +337,7 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
     const raw = reason === 'guard_reject' ? '我不去' : '你好世界';
     const { bridge, eng, emitted } = makeBridge({ polish: polishWith(events) });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = raw;
     await bridge.finish();
     expect(finalPayload(emitted)).toMatchObject({ text: raw, is_segment: false, polish: 'skipped', polish_reason: reason });
@@ -348,6 +358,7 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
       onPolishUsage: () => { throw new Error('SQLITE_BUSY: database is locked'); },
     });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     // Text and signal AGREE: the polish really did apply, and the money loss is a
@@ -422,6 +433,7 @@ describe("SttSessionBridge — RT-1 'detached' timing: the final does not wait o
       polish: { llm: { cfg: CFG, source: 'user' }, deps: { streamerFor: slow, budgetMs: 10_000 } },
     });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     const t0 = Date.now();
     await bridge.finish();
@@ -453,6 +465,7 @@ describe("SttSessionBridge — RT-1 'detached' timing: the final does not wait o
       polish: { llm: { cfg: CFG, source: 'user' }, deps: { streamerFor: dead, budgetMs: 40 } },
     });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '你好世界';
     const t0 = Date.now();
     await bridge.finish();
@@ -524,6 +537,7 @@ describe('SttSessionBridge — RT-1: the detached pass never delivers on stt:ref
     // do with the carrier, and the case would pass while measuring the guard.
     const { bridge, eng, emitted } = makeBridge({ polishDelivery: 'detached', polish: polishWith([{ kind: 'done', full: POLISHED }]) });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = RAW;
     await bridge.finish();
     bridge.dispose();
@@ -546,10 +560,12 @@ describe('SttSessionBridge — RT-1: the detached pass never delivers on stt:ref
     // how the discard survived a whole release.
     const { bridge, eng, emitted } = makeBridge({ polishDelivery: 'detached', polish: polishWith([{ kind: 'done', full: POLISHED }]) });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = RAW;
     await bridge.finish();
     await settleDetached();
-    expect([...new Set(emitted.map((e) => e.event))].sort()).toEqual(['stt:engine-status', 'stt:final']);
+    // card HANGUP-3: 'stt:level' is the input meter for the audio this case now feeds (a leg handed none is not asked); still an EXACT census.
+    expect([...new Set(emitted.map((e) => e.event))].sort()).toEqual(['stt:engine-status', 'stt:final', 'stt:level']);
   });
 
   it('GA-14 refine is UNCHANGED by this card — same gate, same shape', async () => {
@@ -626,11 +642,13 @@ describe('SttSessionBridge — RT-1: the detached pass never delivers on stt:ref
     // startsWith('inject:') probe.
     const { bridge, eng, emitted } = makeBridge({ polishDelivery: 'detached', polish: polishWith([{ kind: 'done', full: POLISHED }]) });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = RAW;
     await bridge.finish();
     await settleDetached();
     expect(emitted.filter((e) => e.event.startsWith('inject:'))).toEqual([]);
-    expect([...new Set(emitted.map((e) => e.event))].sort()).toEqual(['stt:engine-status', 'stt:final']);
+    // card HANGUP-3: 'stt:level' is the input meter for the audio this case now feeds (a leg handed none is not asked); still an EXACT census.
+    expect([...new Set(emitted.map((e) => e.event))].sort()).toEqual(['stt:engine-status', 'stt:final', 'stt:level']);
   });
 });
 
@@ -640,6 +658,7 @@ describe('SttSessionBridge — RT-1 polishUnavailable', () => {
   it("polish requested but unarmable → stt:final says skipped(llm_error) — not silence", async () => {
     const { bridge, eng, emitted } = makeBridge({ polishUnavailable: 'llm_error' });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '你好世界';
     await bridge.finish();
     expect(finalPayload(emitted)).toMatchObject({ text: '你好世界', polish: 'skipped', polish_reason: 'llm_error' });
@@ -659,6 +678,7 @@ describe('SttSessionBridge — RT-1 polishUnavailable', () => {
     const off = await (async () => {
       const { bridge, eng, emitted } = makeBridge();
       await tick();
+      bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
       eng.finalOnFlush = '你好世界';
       await bridge.finish();
       return finalPayload(emitted);
@@ -666,6 +686,7 @@ describe('SttSessionBridge — RT-1 polishUnavailable', () => {
     const degraded = await (async () => {
       const { bridge, eng, emitted } = makeBridge({ polishUnavailable: 'llm_error' });
       await tick();
+      bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
       eng.finalOnFlush = '你好世界';
       await bridge.finish();
       return finalPayload(emitted);
@@ -696,6 +717,7 @@ describe('SttSessionBridge — RT-1 polishUnavailable', () => {
     // 「could not run at all」 and must not be confused with it.
     const { bridge, eng, emitted } = makeBridge({ polish: polishWith([{ kind: 'done', full: '我去' }]) });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '我不去';
     await bridge.finish();
     expect(finalPayload(emitted)).toMatchObject({ polish: 'skipped', polish_reason: 'guard_reject' });
@@ -704,6 +726,7 @@ describe('SttSessionBridge — RT-1 polishUnavailable', () => {
   it('positive control: an armed session that SUCCEEDS says applied, not skipped', async () => {
     const { bridge, eng, emitted } = makeBridge({ polish: polishWith([{ kind: 'done', full: '打开FlowMic' }]) });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     expect(finalPayload(emitted)).toMatchObject({ polish: 'applied' });
@@ -751,6 +774,7 @@ describe('SttSessionBridge — M4 polish metering judges BYOK by provenance', ()
       onPolishUsage: (tIn, tOut, byok) => { seen = { tIn, tOut, byok }; },
     });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     bridge.dispose();          // inert here (see the correction above), and kept:
@@ -785,6 +809,7 @@ describe('SttSessionBridge — M4 polish metering judges BYOK by provenance', ()
       onPolishUsage: () => { calls += 1; },
     });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '打开飞麦克';
     await bridge.finish();
     await settleDetached();
@@ -803,6 +828,7 @@ describe('SttSessionBridge — M4 polish metering judges BYOK by provenance', ()
       onPolishUsage: (_tIn, tOut, byok) => { seen = { tOut, byok }; },
     });
     await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
     eng.finalOnFlush = '我不去';
     await bridge.finish();
     await settleDetached();
@@ -881,6 +907,7 @@ describe("SttSessionBridge — RT-1 D-4: the 'detached' task cannot take the pro
           onPolishUsage: () => { throw new Error('SQLITE_BUSY: database is locked'); },
         });
         await tick();
+        bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
         eng.finalOnFlush = '打开飞麦克';
         await bridge.finish();
         bridge.dispose();
@@ -920,6 +947,7 @@ describe("SttSessionBridge — RT-1 D-4: the 'detached' task cannot take the pro
         polish: { llm: { cfg: CFG, source: 'user' }, deps: { streamerFor: exploding } },
       });
       await tick();
+      bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
       eng.finalOnFlush = '你好世界';
       await bridge.finish();
       bridge.dispose();
@@ -950,6 +978,7 @@ describe("SttSessionBridge — RT-1 D-4: the 'detached' task cannot take the pro
         levelIntervalMs: 0,
       });
       await tick();
+      bridge.pushChunk(0, b64(sine(200)), 0); // card HANGUP-3: the leg must be handed audio to be asked for words
       eng.finalOnFlush = '打开飞麦克';
       await bridge.finish();
       bridge.dispose();

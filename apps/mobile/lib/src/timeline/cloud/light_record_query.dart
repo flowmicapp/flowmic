@@ -1,7 +1,7 @@
 // REQ-12-09 09-A — the ONE read the 「+」 panel's light-record (轻记录) tab
 // needs and the timeline layer did not already have: 「search ∩ light record」.
 //
-// SPEC-REF: docs/strategy/2026-08-12-req1209-plus-panel-design.md §5-3
+// SPEC-REF: docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md §5-3
 //   (the gap is exactly one intersection query — 缺口只有一个交集查询),
 //   §1-3 (across owners, on-screen entries are always empty — 跨 owner，
 //   屏幕上的 entries 恒空).
@@ -30,6 +30,7 @@
 
 import '../../ui/plus_panel_selection.dart' show joinSelectedTexts;
 import '../article_view.dart' show articleMembersIn, collapseArticles;
+import '../search_hits.dart';
 import '../timeline_entry.dart';
 import '../timeline_persistence.dart';
 import 'blind_store_timeline_bridge.dart';
@@ -160,15 +161,32 @@ class LightRecordQuery {
   /// COST, stated rather than hidden: this decodes every row, which is the same
   /// scan [all] already is. If it ever stops being milliseconds the fix is the
   /// projected `origin` column and its migration — not a limit.
-  Future<List<TimelineEntry>> search(String query, {String? liveArticleId}) async {
+  ///
+  /// 🔴 CR-12-G — THE MATCH RUNS OVER EVERY PART, THEN GROUPS. It used to run
+  /// over [all], i.e. AFTER the collapse, so a finished recording was searchable
+  /// by its title only and the words inside it were unreachable from this box.
+  /// Now each recording with a matching part is one result
+  /// ([groupSearchHits], the rule the full-history page uses too), and the
+  /// recording being made is grouped like any other: its page opens from here
+  /// as well (design §11.2). Still no truncation: the limit handed to the
+  /// grouping is the whole slice.
+  Future<SearchResults> search(String query) async {
     final String needle = query.trim().toLowerCase();
-    if (needle.isEmpty) return const <TimelineEntry>[];
+    if (needle.isEmpty) return SearchResults.empty;
     // Narrow to light records FIRST (unbounded), match SECOND. See above.
-    final List<TimelineEntry> notes = await all(liveArticleId: liveArticleId);
-    return <TimelineEntry>[
-      for (final TimelineEntry e in notes)
-        if (timelineSearchText(e).contains(needle)) e,
+    final List<TimelineEntry> notes = <TimelineEntry>[
+      for (final TimelineEntry e in await _persistence.loadAll())
+        if (isLightRecord(e)) e,
     ];
+    return groupSearchHits(
+      _newestFirst(<TimelineEntry>[
+        for (final TimelineEntry e in notes)
+          if (timelineSearchText(e).contains(needle)) e,
+      ]),
+      articleRows: notes,
+      query: query,
+      limit: notes.length,
+    );
   }
 }
 

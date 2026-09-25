@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §5 (adopt-first: socket.io polling probe →
 //     /api/health → netstat+taskkill)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #1
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #1
 //   docs/rebuild/13-LESSONS-LEARNED.md §3 D5 (same version number, can't tell new from old)
 //
 // The adopt-first probe: given something already listening on :41879, decide

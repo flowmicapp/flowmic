@@ -1,10 +1,10 @@
 // SPEC-REF:
-//   docs/strategy/2026-07-23-mock-billing-design.md §3 (metering call sites: recordSttUsage
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §3 (metering call sites: recordSttUsage
 //     is the sole STT-session-finalization entry point / recordLlmUsage is the sole
 //     compose-finalization entry point; is_byok=true
 //     NOOP; standalone NOOP; month-bucket UPSERT), §5 (the each-exactly-one discipline)
 //   docs/rebuild/05-DATA-MODEL.md §1 (usage_records)
-//   docs/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md
+//   docs/archive/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md
 //     §5.3 (write points + the two hard constraints), §5.6 (failure directions)
 //   src/db/schema.ts `-- 14. usage_events` (the DDL argues every column)
 //   Ported metering mechanism from legacy billing/usage-tracker.ts.

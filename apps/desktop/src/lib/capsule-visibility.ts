@@ -64,7 +64,7 @@ export class CapsuleVisibility {
   /// this method does nothing. Measured six times in one session on owner's
   /// machine 2026-08-26 — the capsule, retreated earlier by `audio:pause`, never
   /// came back until the socket really dropped. Trace:
-  /// docs/strategy/2026-08-26-0333-device-findings-three-defects.md.
+  /// docs/archive/strategy/2026-08-26-0333-device-findings-three-defects.md.
   ///
   /// ⚠️ Deliberately a PARAMETER here rather than a new `onPhoneArrived()`
   /// method: 「should the capsule be on screen」 already has exactly one door,

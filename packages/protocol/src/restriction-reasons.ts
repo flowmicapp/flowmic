@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-12-owner-needle-closure-and-default-authority.md
 //     §Stamp Q2 (owner: 「枚举原因给用户；运营自由文本只进审计」)
-//   docs/strategy/2026-08-12-a2-3-restricted-use-design.md §6 (the four-language
+//   docs/archive/strategy/2026-08-12-a2-3-restricted-use-design.md §6 (the four-language
 //     copy rules: no 「封/ban/suspend」, no promise anyone will reply, no
 //     imperative for an action that does not exist)
 //   docs/legal/terms-of-service.md 「We will tell you why unless the law

@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §5.1 (mobile UI
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §5.1 (mobile UI
 //     sketch) / §5.0 (notice lifecycle) / §3 (failure-direction table)
 //   docs/decisions/2026-08-02-in-app-update-both-ends.md (owner: auto-detect
 //     + notify)

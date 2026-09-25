@@ -3,7 +3,7 @@
 // into a confirmed local key, and the confirmation authority the push gate asks.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-11-design-e-multidevice-salt.md §3.2 (the four
+//   docs/archive/strategy/2026-08-11-design-e-multidevice-salt.md §3.2 (the four
 //     steps: GET → adopt / enroll+PUT → 409 discard-and-adopt → push gate);
 //   apps/server-core/src/http/timeline-keymeta-routes.ts (the wire contract);
 //   CLAUDE.md's four human-reviewed sensitive paths: the cryptography surface

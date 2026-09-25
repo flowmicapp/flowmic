@@ -1,6 +1,6 @@
 // 0.3.25 B2 — POST /api/cloud/billing/{cancel,resume}, the subscription controls.
 //
-// SPEC-REF: docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md
+// SPEC-REF: docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md
 //           §2.2 US-3/US-4 (ROSCA: a simple mechanism to stop recurring charges),
 //           §3.3 (the gate ruling), §4 B2
 //

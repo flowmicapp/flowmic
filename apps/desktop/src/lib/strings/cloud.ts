@@ -96,8 +96,8 @@ export const CLOUD_KEYS = [
   // 🔴 It says 「context」 and not 「tokens」 on purpose. A token is our unit,
   // not the user's; what they can act on is 「how much of the text I send is
   // being read as background」. The number is in MILLIONS with at most one
-  // decimal (`formatTokensM`) because the tiers are 1M/5M/15M and a raw
-  // seven-digit count on a 12px line is unreadable.
+  // decimal (`formatTokensM`) because the tiers are 1M/10M/50M and a raw
+  // seven- or eight-digit count on a 12px line is unreadable.
   //
   // ⚠️ The M is part of the TRANSLATED string, not appended in code: a
   // language that abbreviates the unit differently has to be able to say so,
@@ -141,7 +141,7 @@ export const CLOUD_KEYS = [
   // the user is left to conclude either 「it is not recording」 or 「the meter is
   // broken」, and both are wrong: the design's own words for this row are
   // 「PC 屏幕不许把「别人在扣」画成自己的表」
-  // (docs/strategy/2026-09-11-metering-principal-matrix-design.md D5).
+  // (docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md D5).
   //
   // 🔴 NO AMOUNT. The other end's remaining minutes are not this end's business
   // and never cross the wire (design §4: 「不透对方余量」) — the frame carries the

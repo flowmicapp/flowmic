@@ -28,7 +28,13 @@ refuseDirectRun(import.meta.url, 'pnpm verify:lint');
 
 export const name = 'i18n-error-keys';
 
-const ERROR_CODES_TS = path.join(ROOT, 'packages', 'protocol', 'src', 'error-codes.ts');
+export const ERROR_CODE_SOURCE_RELS = [
+  'packages/protocol/src/error-codes.ts',
+  'packages/protocol/src/error-codes-auth-and-pairing.ts',
+  'packages/protocol/src/error-codes-inject.ts',
+];
+
+const ERROR_CODE_SOURCES = ERROR_CODE_SOURCE_RELS.map((rel) => path.join(ROOT, ...rel.split('/')));
 
 // Parse the ERROR_CODES object literal. Returns { entries, error }.
 // entries: [{ code, zh_CN|null, en|null }]
@@ -78,8 +84,8 @@ export function validate(src) {
   const bad = [];
   for (const e of entries) {
     const missing = [];
-    if (!e.zh_CN || e.zh_CN.trim() === '') missing.push('zh_CN');
-    if (!e.en || e.en.trim() === '') missing.push('en');
+    if (!e.zh_CN || e.zh_CN.trim() === '' || /^DEV:/i.test(e.zh_CN.trim())) missing.push('zh_CN');
+    if (!e.en || e.en.trim() === '' || /^DEV:/i.test(e.en.trim())) missing.push('en');
     if (missing.length) bad.push(`${e.code}(missing ${missing.join('+')})`);
   }
 
@@ -104,6 +110,34 @@ export async function validateFile(absPath) {
   return validate(src);
 }
 
+export async function validateFiles(absPaths) {
+  const entries = [];
+  for (const absPath of absPaths) {
+    const src = await readText(absPath);
+    if (src == null) return { status: 'FAIL', detail: `cannot read ${absPath}` };
+    const parsed = parseErrorCodes(src);
+    if (parsed.error) return { status: 'FAIL', detail: `${absPath}: ${parsed.error}` };
+    entries.push(...parsed.entries);
+  }
+  const names = entries.map((entry) => entry.code);
+  const duplicate = names.find((name, index) => names.indexOf(name) !== index);
+  if (duplicate) return { status: 'FAIL', detail: `duplicate error code across registry shards: ${duplicate}` };
+  // Same per-entry rule as validate(): empty OR a `DEV:` placeholder is missing.
+  const bad = entries.filter((entry) =>
+    !entry.zh_CN?.trim() || /^DEV:/i.test(entry.zh_CN.trim()) || !entry.en?.trim() || /^DEV:/i.test(entry.en.trim()));
+  if (bad.length > 0) {
+    return {
+      status: 'FAIL',
+      detail: `${bad.length}/${entries.length} incomplete: ${bad.map((entry) => entry.code).slice(0, 10).join(', ')}`,
+    };
+  }
+  return { status: 'PASS', detail: `${entries.length} codes, all bilingual (zh_CN+en)` };
+}
+
+// The DEV-placeholder scan of i18n/{desktop,desktop-rust,mobile} that used to
+// sit here moved to the delivery gates (NR-83): it now lives, unchanged in
+// strength, in verify/delivery-checks/i18n-dev-placeholders.mjs. What stays is
+// about the commit: every protocol code carries a real zh_CN and en message.
 export default async function run() {
-  return validateFile(ERROR_CODES_TS);
+  return validateFiles(ERROR_CODE_SOURCES);
 }

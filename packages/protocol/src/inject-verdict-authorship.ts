@@ -90,7 +90,9 @@ export type InjectVerdictAuthor =
    * **The PC received this frame, but refused it at the admission layer** — it never
    * reached the injection stage.
    *
-   * Today this is only `INJECT_NOT_PRIMARY` (this PC is currently held by another phone).
+   * Today this is `INJECT_NOT_PRIMARY` (this PC is currently held by another
+   * phone) or `INJECT_TARGET_NOT_READY` (the selected web target has not yet
+   * opened its admission gate).
    * ⇒ 🔴 **Still owed**: owner's 2026-08-02 ruling 「被占用时行=待投递，绝不显示未投递」
    * ("while occupied, the row = pending delivery, never show 'not delivered'"), and
    * 15 册 §3.2's 「PC 忙」("PC busy") row likewise states these three codes **are never
@@ -280,6 +282,12 @@ export const INJECT_VERDICT_AUTHORSHIP = {
    * `COMPOSE_OUTPUT_REJECTED` above: it is not on the injection surface.
    */
   STT_NO_ENGINE_REACHED: 'none',
+  /**
+   * card HANGUP-3 — part of a recording never reached an engine. Rides `stt:error`
+   * like every `STT_*` code ⇒ `'none'`: it is not on the injection surface and says
+   * nothing about the phone→PC delivery segment.
+   */
+  STT_SEGMENT_NOT_TRANSCRIBED: 'none',
   /**
    * The platform's engine pool had no route for this request (card C1, 2026-08-17).
    * It rides `stt:error` — emitted by `audio.handler.ts refuseStart` on the
@@ -533,6 +541,11 @@ export const INJECT_VERDICT_AUTHORSHIP = {
    * in `retryableFace` ⇒ the row renders the 重发("resend") button.
    */
   INJECT_NO_ACCESSIBILITY: 'pc-injection',
+  // All are authored after PC admission. Uncertainty ends delivery debt but
+  // never proves input succeeded or failed; clients derive its face from cached.
+  INJECT_WAYLAND_UNSUPPORTED: 'pc-injection',
+  INJECT_DISPLAY_UNAVAILABLE: 'pc-injection',
+  INJECT_SUBMISSION_UNCERTAIN: 'pc-injection',
 
   // ── PC-authored admission refusal ⇒ still owed ────────────────────────────
   /**
@@ -549,6 +562,27 @@ export const INJECT_VERDICT_AUTHORSHIP = {
    * on the PC」 cannot be the delivery-done predicate; **author + layer** is.
    */
   INJECT_NOT_PRIMARY: 'pc-admission',
+  /**
+   * Producer in flowmic-web: `packages/core/src/target/session.ts`:563
+   * (lands with flowmic-web feat/web-mic-choice-embed: exact on that branch,
+   * and on that repository's default branch only once the branch has merged
+   * there; the delivery stage verify:web-target-cached-mode checks this line
+   * number against whichever checkout it reads), TargetSession.onInjectRequest,
+   * `this.admission !== 'open'` arm, the
+   * `this.send('inject:result', buildInjectResultPayload(...))` call carrying
+   * `error: 'INJECT_TARGET_NOT_READY'`. It answers before accepting the frame
+   * into its transcript/injection path. The target itself received and
+   * refused the frame, so this is neither a relay verdict nor an injection-stage
+   * outcome. The existing outbox item remains owed and follows the normal queued
+   * retry path once target admission is restored.
+   * The lead-maintainer ruling (owner may overturn it),
+   * docs/decisions/2026-09-22-inject-target-not-ready-lead-ruling-and-cached-mode-pin.md,
+   * requires mode:'cached' for old phones that do not recognise this code.
+   * verify/delivery-checks/web-target-cached-mode.mjs (delivery gate stage
+   * `verify:web-target-cached-mode`) reads that sibling producer and checks its
+   * emitted payload; a comment here is not the compatibility gate.
+   */
+  INJECT_TARGET_NOT_READY: 'pc-admission',
 
   // ── Relay-authored: no PC ever saw this frame ─────────────────────────────
   // Same anchor discipline as the PC block above: the socket leg is named by its

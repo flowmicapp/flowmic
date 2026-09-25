@@ -25,7 +25,7 @@
 //
 // SPEC-REF:
 //   scripts/package-ids.mjs (the single source)
-//   docs/strategy/2026-08-12-p0-app-flowmic-package-id-migration.md §6.2
+//   docs/archive/strategy/2026-08-12-p0-app-flowmic-package-id-migration.md §6.2
 
 import 'dart:io';
 

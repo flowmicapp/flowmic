@@ -179,7 +179,12 @@ describe('SttEngineOrchestrator', () => {
     const a = new FakeEngine(); const b = new FakeEngine();
     const { orch, clock, session, events } = harness([a, b], { hardLimitMs: 300_000 });
     await orch.start({ language: 'zh', mode: 'realtime' });
-    a.finalOnFlush = 'the whole utterance'; b.finalOnFlush = 'the whole utterance';
+    // ⚠️ 更正（RC-5b，2026-09-24）：this line originally set `b.finalOnFlush = 'the whole utterance'`
+    // too. No chunk is pushed in this row, so every leg after `a` is handed no audio at all, and a
+    // leg that heard nothing cannot restate the bank; the old fixture stayed at one copy only
+    // because every leg seam trimmed a suffix/prefix overlap — the trim that ate a word said twice
+    // in CR-12-E. Such a leg's honest answer is an empty final, which is what `b` gives now.
+    a.finalOnFlush = 'the whole utterance'; b.finalOnFlush = '';
     await clock.advance(300_000); // the ceiling fires on the session
     await drain();
 
@@ -205,7 +210,7 @@ describe('SttEngineOrchestrator', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // 🔴 2026-08-02 (L2): the ladder used to ignore `SttEngineError.retryable`.
 // Found by the first REAL Soniox round-trip, not by reading — see
-// docs/strategy/shots-2026-08-02-l2-soniox/README.md §4 for the live before/after.
+// docs/archive/strategy/shots-2026-08-02-l2-soniox/README.md §4 for the live before/after.
 //
 // REVERSE CONTROL (run 2026-08-02, saw RED): deleting the `isPermanentEngineError`
 // branch from `engine-session.ts handleEngineError` turns the first two tests
@@ -261,6 +266,7 @@ describe('reconnect ladder honours `retryable` (no pointless climb, no false sto
     const { orch, events } = harness([a, b]);
     await orch.start({ language: 'zh', mode: 'realtime' });
     a.flush = async (): Promise<void> => { a.emitPermanentError(); };
+    orch.pushChunk({ seq: 0, ts_ms: 0, payload: Buffer.alloc(6400) }); // card HANGUP-3: a leg handed no audio is not flushed at release
     await orch.stop();
     const err = events.error.at(-1) as { code: string; message: string; retryable: boolean };
     expect(err.code).toBe('STT_ENGINE_AUTH_FAIL');
@@ -273,6 +279,7 @@ describe('reconnect ladder honours `retryable` (no pointless climb, no false sto
     const { orch, events } = harness([a, b]);
     await orch.start({ language: 'zh', mode: 'realtime' });
     a.flush = async (): Promise<void> => { a.emit('error', new Error('socket wobbled')); };
+    orch.pushChunk({ seq: 0, ts_ms: 0, payload: Buffer.alloc(6400) }); // card HANGUP-3: a leg handed no audio is not flushed at release
     await orch.stop();
     const err = events.error.at(-1) as { code: string; retryable: boolean };
     expect(err.code).toBe('STT_ENGINE_TIMEOUT');

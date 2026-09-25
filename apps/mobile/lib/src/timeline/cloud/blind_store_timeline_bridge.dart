@@ -1,6 +1,6 @@
 // E-CL — the timeline side of the blind store, and the pull cursor.
 //
-// SPEC-REF: docs/strategy/2026-08-08-design-e-blindstore-client.md §3.1
+// SPEC-REF: docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §3.1
 //   (only upload the phone's own light records), §3.2 (merge is idempotent by id).
 //
 // ── WHY A BRIDGE INSTEAD OF METHODS ON TimelineStore ────────────────────────

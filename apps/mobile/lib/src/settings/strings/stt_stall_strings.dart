@@ -89,4 +89,23 @@ mixin SttStallStrings on AppStringsLeaves {
   /// a slow link and a stuck adapter is invisible, and all three are answered
   /// by the same action.
   String get sttStallEngineTimeout => _lfSttStallEngineTimeout;
+
+  /// `STT_SEGMENT_NOT_TRANSCRIBED` (card HANGUP-3) — the recording ended and ONE
+  /// STRETCH of it never reached a speech engine: voice the server captured while
+  /// no engine connection was open (a dropped connection being re-dialled, or a
+  /// connection still opening after a segment cut), and the one re-dial made at
+  /// release failed as well. The row above holds every word that WAS transcribed;
+  /// this banner says a part is missing from it and asks for that part again.
+  /// It arrives before the terminal final (the row still appears).
+  ///
+  /// Not [sttStallNetworkDrop] (that says the whole session ended on a dropped
+  /// connection) and not [sttStallNoEngineReached] (that says NOTHING was
+  /// transcribed, which is false here whenever the row has words).
+  ///
+  /// 🔴 ONLY A PHONE THAT DECLARED IT RECEIVES IT. The server sends this code only
+  /// to a client whose admission frame listed the capability
+  /// (`declaredClientCapabilities`, derived from THIS sentence existing — see
+  /// declared_client_capabilities.dart); a build without this getter never sees
+  /// the code and keeps today's behaviour (the missing stretch is silently absent).
+  String get sttStallSegmentNotTranscribed => _lfSttStallSegmentNotTranscribed;
 }

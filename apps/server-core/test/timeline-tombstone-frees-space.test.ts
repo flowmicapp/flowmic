@@ -1,9 +1,9 @@
 // E-B0 — a server-side tombstone must actually free space.
 //
-// owner ruling: docs/strategy/2026-08-01-data-asset-lifecycle-design.md §4-5
+// owner ruling: docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §4-5
 //   "phone deletes history (including images) ⇒ matching cloud light-record content is deleted and **frees space**"
 // restated as the server-side fix in
-//   docs/strategy/2026-08-08-design-e-blindstore-client.md §4 / §0-1.
+//   docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §4 / §0-1.
 //
 // Before this card `tombstone()` only did `SET deleted=1, seq=?` — the stored
 // ciphertext stayed on disk until `purgeOlderThan` came around days later, so

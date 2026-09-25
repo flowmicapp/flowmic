@@ -77,9 +77,9 @@ export function cachedCauseTooltip(
  *  A THIRD function, not a branch of `cachedCauseTooltip`, because the two land on
  *  different surfaces by contract: a cached row's cause rides the HOVER TOOLTIP
  *  (卡 L7 — its badge already says 「· 已缓存」), while a failed row's reason goes
- *  INLINE into statusLine's §C-2 reason slot. One row can satisfy at most one of
- *  them, and folding them together would re-create the one-value-two-questions
- *  shape on the very field that was widened to fix it.
+ *  INLINE into statusLine's §C-2 reason slot. The Linux cached verdicts are an
+ *  explicit exception: uncertainty and unsupported Wayland also expose their
+ *  named cause inline, so the retained text and inability to inject are readable.
  *
  *  Same `reasons` table (`INJECT_FAIL_REASON`) as the capsule's ✗ flash and the
  *  cached tooltip — §2.5c's one-definition rule. An unmapped or absent code yields
@@ -90,7 +90,9 @@ export function failedCauseInline(
   cachedCause: string | null | undefined,
   reasons: Record<string, string>,
 ): string | null {
-  if (status !== 'failed') return null;
+  // 2026-09-22 decision and acceptance R-2: Linux causes remain readable.
+  if (status !== 'failed' && !(status === 'cached' &&
+      (cachedCause === 'INJECT_SUBMISSION_UNCERTAIN' || cachedCause === 'INJECT_WAYLAND_UNSUPPORTED' || cachedCause === 'INJECT_DISPLAY_UNAVAILABLE'))) return null;
   const code = (cachedCause ?? '').trim();
   if (code.length === 0) return null;
   const sentence = reasons[code];

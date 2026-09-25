@@ -15,6 +15,17 @@ mixin _ChatControllerState on ChangeNotifier {
   FlowMode _activeMode = FlowMode.realtime;
   int _utteranceSeq = 0;
 
+  // Card RC-B follow-up — the rows THIS live press has settled so far, and the
+  // `recording_id` of the live attempt they belong to. Written in `_settleSpan`
+  // for live sessions only (a recovery's rows are not the press's); read by the
+  // terminal final's empty-text branch, which hands them to `settleSilentTail`.
+  String? _pressRowsRecordingId;
+  final List<String> _pressRowIds = <String>[];
+
+  // Card RC-P — the wait for a live terminal final that an owed tail's
+  // placement is held for; see `chat_outbox_host.dart` `maybeSweepOwedTailRouted`.
+  Timer? _owedTailGrace;
+
   // Card D-2's `_lastUtteranceEntryId` — 「the row the most recent terminal
   // final built」, the temporal guess a late `stt:refined` used to land on —
   // was DELETED on 2026-09-03 (design D7 ③). Its own doc said it 「must not

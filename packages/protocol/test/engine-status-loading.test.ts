@@ -27,6 +27,7 @@ import { describe, expect, it } from 'vitest';
 import { SttEngineStatusSchema } from '../src/protocol-schemas-audio';
 import { safeParseEvent } from '../src/protocol-schemas';
 import { EVENT_NAMES } from '../src/events';
+import { ERROR_CODE_LIST } from '../src/error-codes';
 
 describe('stt:engine-status — the loading value', () => {
   it('accepts loading', () => {
@@ -61,5 +62,50 @@ describe('stt:engine-status — the loading value', () => {
   it('adds NO event name — the whitelist and its count guard do not move', () => {
     expect(EVENT_NAMES).toHaveLength(57);
     expect(EVENT_NAMES).toContain('stt:engine-status');
+  });
+});
+
+// NR-96 (2026-09-24) — the ladder's retry budget on the same frame. Additive:
+// three optional keys, no event, no error code. The PRODUCER side (only
+// `reconnecting` frames carry them, and with the ladder's real numbers) is
+// pinned in apps/server-core/test/engine-reconnect-progress.test.ts; this file
+// pins the boundary every relay runs frames through.
+describe('stt:engine-status — the NR-96 retry budget fields', () => {
+  const full = { provider: 'soniox', status: 'reconnecting', retry_count: 2, retry_max: 3, retry_in_ms: 2_000, attempt_timeout_ms: 5_000 };
+
+  it('keeps all three through the registry the relay forwards (parsed.data is what goes on)', () => {
+    const r = safeParseEvent('stt:engine-status', full);
+    expect(r.success).toBe(true);
+    expect(r.success && r.data).toEqual(full);
+  });
+
+  it('an old frame without them still parses — nothing refuses a pre-NR-96 producer', () => {
+    const r = SttEngineStatusSchema.safeParse({ provider: 'soniox', status: 'reconnecting', retry_count: 1 });
+    expect(r.success).toBe(true);
+    expect(r.success && 'retry_max' in r.data).toBe(false);
+  });
+
+  it('each field is optional on its own (absent retry_max means unbounded, not invalid)', () => {
+    for (const k of ['retry_max', 'retry_in_ms', 'attempt_timeout_ms'] as const) {
+      const { [k]: _drop, ...rest } = full;
+      expect(SttEngineStatusSchema.safeParse(rest).success, k).toBe(true);
+    }
+  });
+
+  it('rejects values that would make the client lie: fractional, negative, or a zero budget/timeout', () => {
+    for (const bad of [
+      { retry_max: 0 }, { retry_max: 2.5 }, { retry_max: -1 },
+      { retry_in_ms: -1 }, { retry_in_ms: 1.5 },
+      { attempt_timeout_ms: 0 }, { attempt_timeout_ms: '5000' },
+    ]) {
+      expect(SttEngineStatusSchema.safeParse({ ...full, ...bad }).success, JSON.stringify(bad)).toBe(false);
+    }
+    // retry_in_ms = 0 is a real value (retry immediately), not an invalid one.
+    expect(SttEngineStatusSchema.safeParse({ ...full, retry_in_ms: 0 }).success).toBe(true);
+  });
+
+  it('adds no event and no error code — both count guards stay where they were', () => {
+    expect(EVENT_NAMES).toHaveLength(57);
+    expect(ERROR_CODE_LIST).toHaveLength(85);
   });
 });

@@ -2,6 +2,13 @@
 // the **current mode**, then send it to the PC **as a new delivery**; the PC
 // **adds a new row**, does not replace.
 //
+// ⚠️ Correction (NR-89, 2026-09-23): 「under the **current mode**」 is no longer
+// the rule. The user now picks the operation in the long-press menu
+// (re-translate / re-organize) and it reaches the controller as an explicit
+// `FlowMode`; the session mode plays no part. Cases (a)–(d) at the bottom of
+// this file pin that; the F3 half (new row, new delivery, old row untouched)
+// is unchanged.
+//
 // owner 2026-08-04 ruling ③ + confirmation point A (docs/decisions/2026-08-04-owner-ten-rulings-
 // 0.3.0.md:96-107): 「Re-send it as a new delivery to the PC; the PC receives a new
 // row (not a replacement of the old one)」，「手机侧那一行原来已被结算成终态，所以
@@ -130,6 +137,25 @@ class _Rig {
     return store.entries.first;
   }
 
+  /// NR-89: a finished REALTIME utterance — spoken and delivered with no LLM
+  /// stage. It still carries `sourceText` (`buildFromUtterance` writes it), which
+  /// is the whole reason it can be re-translated or re-organized now.
+  Future<TimelineEntry> seedRealtimeRow() async {
+    controller.setMode(FlowMode.realtime);
+    await controller.pttDown();
+    await controller.pttUp();
+    transport.pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
+      'text': '今天下午三点开会',
+      'confidence': 0.95,
+      'language': 'zh',
+      'segment_idx': 0,
+      'is_segment': false,
+      'duration_ms': 1500,
+    });
+    await pumpEventQueue();
+    return store.entries.first;
+  }
+
   /// Answer the LATEST compose:start (whatever its fresh correlation id is).
   Future<void> answerLatestRun(String output) async {
     final Map<String, Object?> start = _payloadOf(starts.last);
@@ -214,7 +240,7 @@ void main() {
     final TimelineEntry old = await rig.seedTranslatedRow();
     expect(rig.injects, hasLength(1), reason: 'setup: the original was delivered');
 
-    expect(rig.controller.reprocessEntry(old), isNull);
+    expect(rig.controller.reprocessEntry(old, FlowMode.translate), isNull);
     // The run re-reads the IMMUTABLE original and correlates on a FRESH id —
     // reusing the utterance's id would make the two runs indistinguishable.
     final Map<String, Object?> start = _payloadOf(rig.starts.last);
@@ -273,23 +299,108 @@ void main() {
     await rig.dispose();
   });
 
-  test('re-run uses the mode captured AT THE PRESS, not the chip as it moved after',
+  // (c) NR-89 — the snapshot. Rewritten from F3's 「re-run uses the mode
+  // captured AT THE PRESS」: that version started in a TRANSLATE session, so a
+  // press that read `c.mode` and a press that honoured the user's choice gave
+  // the same answer and the case could not tell them apart. It now starts in a
+  // REALTIME session, where only the explicit choice can produce a run at all.
+  test('(c) NR-89: the operation chosen AT THE PRESS survives a mid-run mode '
+      'switch — the new row is a translation even after the chip moves to organize',
       () async {
     // The LLM run is seconds wide and the mode chip is one tap away. Re-reading
     // `c.mode` in the terminal would deliver a row whose own `mode` field and
     // whose product disagree — the RV-74 shape, one row answering twice.
     final _Rig rig = await _Rig.paired();
-    final TimelineEntry old = await rig.seedTranslatedRow();
+    final TimelineEntry old = await rig.seedRealtimeRow();
+    expect(rig.controller.mode, FlowMode.realtime, reason: 'setup: realtime session');
 
-    expect(rig.controller.reprocessEntry(old), isNull);
+    expect(rig.controller.reprocessEntry(old, FlowMode.translate), isNull);
     expect(_payloadOf(rig.starts.last)['task'], 'translate');
     rig.controller.setMode(FlowMode.organize); // …mid-flight
-    await rig.answerLatestRun('HELLO WORLD');
+    await rig.answerLatestRun('The meeting is at 3 pm today.');
 
     final TimelineEntry fresh = rig.store.entries.first;
+    expect(fresh.id, isNot(old.id));
     expect(fresh.mode, FlowMode.translate);
     expect(fresh.processMode, 'translate');
     expect(_payloadOf(rig.injects.last)['mode'], 'translate');
+    await rig.dispose();
+  });
+
+  // (a) NR-89 — a realtime row, in a realtime session, re-translated.
+  test('(a) NR-89: re-translate works on a realtime row in a REALTIME session — '
+      'the run is the chosen operation over the original words, aimed at the '
+      'phone\'s own translate target, and lands as a new row + new delivery',
+      () async {
+    final _Rig rig = await _Rig.paired();
+    // A target that is NOT the default, so the assertion below cannot pass on a
+    // constant that happens to coincide.
+    await rig.controller.setTranslateTarget('ja');
+    final TimelineEntry old = await rig.seedRealtimeRow();
+    expect(rig.controller.mode, FlowMode.realtime, reason: 'setup: realtime session');
+    expect(old.sourceText, '今天下午三点开会', reason: 'setup: a realtime row keeps its original');
+    final int injectsBefore = rig.injects.length;
+    final int startsBefore = rig.starts.length;
+
+    expect(rig.controller.reprocessEntry(old, FlowMode.translate), isNull,
+        reason: 'the session being realtime is no longer a reason to refuse');
+
+    expect(rig.starts, hasLength(startsBefore + 1));
+    final Map<String, Object?> start = _payloadOf(rig.starts.last);
+    expect(start['task'], 'translate');
+    expect(start['source_text'], old.sourceText);
+    expect(start['target_lang'], 'ja',
+        reason: 'the persisted target, independent of the session mode');
+    expect(start['request_id'], isNot(old.clientId));
+
+    await rig.answerLatestRun('今日の午後3時に会議');
+
+    expect(rig.store.entries, hasLength(2));
+    final TimelineEntry fresh = rig.store.entries.first;
+    expect(fresh.id, isNot(old.id));
+    expect(fresh.processMode, 'translate');
+    expect(fresh.mode, FlowMode.translate);
+    expect(fresh.sourceText, old.sourceText);
+    expect(fresh.outputText, '今日の午後3時に会議');
+    expect(rig.store.findById(old.id)!.outputText, old.outputText,
+        reason: 'the old row is not touched');
+    expect(rig.injects, hasLength(injectsBefore + 1), reason: 'a NEW delivery');
+    final Map<String, Object?> p = _payloadOf(rig.injects.last);
+    expect(p['request_id'], fresh.clientId);
+    expect(p['mode'], 'translate');
+    expect(p['source'], 'llm');
+    expect(p['target_pc_id'], kRerunPc);
+    expect(rig.controller.mode, FlowMode.realtime,
+        reason: 'choosing an operation on one row does not move the session');
+    await rig.dispose();
+  });
+
+  // (b) NR-89 — never a translation of a translation.
+  test('(b) NR-89: re-organize on an already-TRANSLATED row, in a translate '
+      'session, runs organize over the ORIGINAL words — never over the translation',
+      () async {
+    final _Rig rig = await _Rig.paired();
+    final TimelineEntry old = await rig.seedTranslatedRow();
+    expect(rig.controller.mode, FlowMode.translate, reason: 'setup: translate session');
+    expect(old.outputText, 'hello world', reason: 'setup: the face is the translation');
+
+    expect(rig.controller.reprocessEntry(old, FlowMode.organize), isNull,
+        reason: 'a translate session can re-organize now');
+
+    final Map<String, Object?> start = _payloadOf(rig.starts.last);
+    expect(start['task'], 'organize');
+    expect(start['source_text'], old.sourceText);
+    // 🔴 the property itself: the product the row shows is NOT what is sent.
+    expect(start['source_text'], isNot(old.outputText));
+    expect(start.containsKey('target_lang'), isFalse,
+        reason: 'organize is not aimed at a language');
+
+    await rig.answerLatestRun('你好，世界。');
+    final TimelineEntry fresh = rig.store.entries.first;
+    expect(fresh.id, isNot(old.id));
+    expect(fresh.processMode, 'organize');
+    expect(fresh.sourceText, old.sourceText);
+    expect(_payloadOf(rig.injects.last)['mode'], 'organize');
     await rig.dispose();
   });
 
@@ -315,7 +426,7 @@ void main() {
     final TimelineEntry old = rig.store.entries.first;
     expect(rig.injects, isEmpty, reason: 'setup: 「留在手机」');
 
-    expect(rig.controller.reprocessEntry(old), isNull);
+    expect(rig.controller.reprocessEntry(old, FlowMode.translate), isNull);
     await rig.answerLatestRun('KEPT ON THE PHONE.');
 
     expect(rig.store.entries, hasLength(2));
@@ -326,15 +437,18 @@ void main() {
   });
 
   // ── Defect ① double-press ────────────────────────────────────────────────
-  test('defect ①: a second press is REFUSED (busy) and the first run still lands',
-      () async {
+  // (d) NR-89 kept this F3 case and made the second press the OTHER operation:
+  // a re-organize pressed while a re-translate runs must neither start nor
+  // overwrite the first press's registration (the mode it stored).
+  test('defect ① / (d) NR-89: a second press is REFUSED (busy) and the first run '
+      'still lands with the operation it was pressed with', () async {
     final _Rig rig = await _Rig.paired();
     final TimelineEntry old = await rig.seedTranslatedRow();
     final int startsBefore = rig.starts.length;
 
-    expect(rig.controller.reprocessEntry(old), isNull);
+    expect(rig.controller.reprocessEntry(old, FlowMode.translate), isNull);
     // The double press. Before this card it OVERWROTE the live run.
-    expect(rig.controller.reprocessEntry(old), AiComposeFailure.busy);
+    expect(rig.controller.reprocessEntry(old, FlowMode.organize), AiComposeFailure.busy);
     expect(rig.starts.length, startsBefore + 1,
         reason: 'the refusal happened BEFORE the wire — one frame, not two');
 
@@ -342,6 +456,8 @@ void main() {
     await rig.answerLatestRun('FIRST PRESS RESULT');
     expect(rig.store.entries, hasLength(2));
     expect(rig.store.entries.first.outputText, 'FIRST PRESS RESULT');
+    expect(rig.store.entries.first.processMode, 'translate',
+        reason: 'the refused re-organize did not overwrite the stored operation');
     expect(rig.injects, hasLength(2));
     await rig.dispose();
   });

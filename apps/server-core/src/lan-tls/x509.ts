@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-d2lan-light-encryption.md §3-1 (who mints the
+//   docs/archive/strategy/2026-08-08-design-d2lan-light-encryption.md §3-1 (who mints the
 //     certificate), §3-3 (pin the SPKI, not the certificate), §4 (the four
 //     narrowings), §6 (cryptography face ⇒ line-by-line human audit)
 //   docs/decisions/2026-08-02-owner-b-batch-rulings.md item 3 (owner's direction:

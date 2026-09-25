@@ -2,7 +2,7 @@
 //   docs/rebuild/05-DATA-MODEL.md §7 / error-codes REGISTER_RATE_LIMITED
 //     (F-2327 SB-3: per-IP registration throttle — a throwaway-account farm mints
 //     unbounded free quota)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ② (per-IP 5/10min on
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ② (per-IP 5/10min on
 //     /api/register AND /api/login)
 //   docs/rebuild/13-LESSONS-LEARNED.md §6.4 (XFF/trusted-proxy semantics are
 //     re-validated at the Cloudflare-fronting stage — DEFERRED here; the private

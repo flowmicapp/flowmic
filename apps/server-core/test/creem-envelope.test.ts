@@ -3,7 +3,7 @@
 //   apps/server-core/src/billing/webhook-types.ts (absent vs null, stated once)
 //   https://docs.creem.io/code/webhooks (the sample bodies below are trimmed
 //     copies of Creem's published ones, read 2026-08-29)
-//   docs/strategy/2026-08-29-creem-stage0-findings.md §2b
+//   docs/archive/strategy/2026-08-29-creem-stage0-findings.md §2b
 //
 // 🔴 THE TWO TESTS THAT MATTER MOST HERE ARE THE NESTING ONE AND THE RESUME ONE.
 // Both are failures that produce a CORRECT-LOOKING row: the first reads real ids

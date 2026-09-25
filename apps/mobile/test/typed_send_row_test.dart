@@ -7,7 +7,7 @@
 // exist. It is an ORDINARY entry — no new schema, no new entry type, no new
 // status — whose only distinguishing feature is that the words were typed.
 //
-// SPEC-REF: docs/strategy/R6-BACKLOG-AND-PLAN.md §0 D10 + wave 2 T-3;
+// SPEC-REF: docs/archive/strategy/R6-BACKLOG-AND-PLAN.md §0 D10 + wave 2 T-3;
 //   master-plan §4.0 A (record of truth) / §4.0 D (five-state = delivery truth);
 //   docs/rebuild/08-MOBILE-SPEC.md §5 (inject:result write-back).
 //

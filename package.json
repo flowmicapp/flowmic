@@ -1,6 +1,6 @@
 {
   "name": "flowmic",
-  "version": "0.3.92",
+  "version": "0.3.95",
   "private": true,
   "description": "FlowMic — speak on your phone, type on your PC. Open-source cross-device voice input.",
   "license": "AGPL-3.0-only",
@@ -17,6 +17,8 @@
     "ship:preflight": "node scripts/ship-preflight.mjs",
     "verify:receipt": "node scripts/gate-receipt.mjs --end",
     "verify:lint": "node verify/lint/run-all.mjs",
+    "verify:web-target-cached-mode": "node verify/delivery-checks/web-target-cached-mode.mjs",
+    "verify:i18n-dev-placeholders": "node verify/delivery-checks/i18n-dev-placeholders.mjs",
     "verify:protocol-dist": "pnpm --filter @flowmic/protocol --fail-if-no-match build && node scripts/protocol-dist-stamp.mjs --write",
     "verify:types": "pnpm --filter @flowmic/protocol --fail-if-no-match typecheck && pnpm --filter @flowmic/i18n-web --fail-if-no-match typecheck && pnpm --filter @flowmic/server-core --fail-if-no-match typecheck",
     "verify:sidecar-resources": "node scripts/preflight-sidecar-resources.mjs",
@@ -27,12 +29,13 @@
     "verify:protocol-tests": "pnpm --filter @flowmic/protocol --fail-if-no-match test",
     "verify:i18n-web-tests": "pnpm --filter @flowmic/i18n-web --fail-if-no-match test",
     "verify:desktop-tests": "pnpm --filter @flowmic/desktop --fail-if-no-match test",
+    "verify:linux-copy-render": "node scripts/linux-copy-render.mjs",
     "verify:server-tests": "pnpm --filter @flowmic/server-core --fail-if-no-match test",
     "verify:mobile-tests": "make -C apps/mobile gate-test",
     "golden": "node verify/golden/run-golden.mjs",
     "verify:scripts": "node scripts/run-script-tests.mjs",
     "copy:receipt": "node scripts/copy-scent-receipt.mjs",
-    "verify:delivery": "pnpm verify:preflight && pnpm verify:protocol-dist && pnpm verify:lint && pnpm verify:types && pnpm verify:clippy && pnpm verify:rust-tests && pnpm verify:doctests && pnpm verify:scripts && pnpm golden && pnpm verify:protocol-tests && pnpm verify:i18n-web-tests && pnpm verify:server-tests && pnpm verify:desktop-tests && pnpm verify:types:desktop && pnpm verify:mobile-tests && pnpm verify:receipt",
+    "verify:delivery": "pnpm verify:preflight && pnpm verify:protocol-dist && pnpm verify:lint && pnpm verify:web-target-cached-mode && pnpm verify:i18n-dev-placeholders && pnpm verify:types && pnpm verify:clippy && pnpm verify:rust-tests && pnpm verify:doctests && pnpm verify:scripts && pnpm golden && pnpm verify:protocol-tests && pnpm verify:i18n-web-tests && pnpm verify:server-tests && pnpm verify:desktop-tests && pnpm verify:linux-copy-render && pnpm verify:types:desktop && pnpm verify:mobile-tests && pnpm verify:receipt",
     "verify:delivery:fast": "node verify/run-delivery-fast.mjs",
     "verify:delivery:release": "node verify/run-delivery-release.mjs",
     "verify:lane": "node verify/run-lane-gate.mjs",
@@ -42,6 +45,7 @@
   },
   "packageManager": "pnpm@9.15.9",
   "devDependencies": {
-    "husky": "^9.1.7"
+    "husky": "^9.1.7",
+    "playwright": "1.63.0"
   }
 }

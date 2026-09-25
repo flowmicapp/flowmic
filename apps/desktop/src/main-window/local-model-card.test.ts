@@ -1,6 +1,6 @@
 // Component-level: what the built-in-model card ACTUALLY RENDERS
 // (docs/strategy/2026-08-19-local-model-onboarding-design.md §5-A, as reshaped
-// by LM-CAT — docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md:
+// by LM-CAT — docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md:
 // the card now lists PER-LANGUAGE PACK ROWS from `status.catalog`/`models`,
 // with one global progress block for the busy pack, a licence label rendered
 // from `license_class` DATA, and a movable download folder row).

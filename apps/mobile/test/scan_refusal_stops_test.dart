@@ -1,7 +1,7 @@
 // P1b (0.3.1) — a refused scan STOPS the scanner; 「重新扫描」 re-arms it by hand.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-15-031-fix-batch-design.md §3 (P1b contract)
+//   docs/archive/strategy/2026-08-15-031-fix-batch-design.md §3 (P1b contract)
 //   lib/src/ui/add_pairing_sheet.dart  _onDetect / _submitScanned
 //
 // WHY: `DetectionSpeed.noDuplicates` resets its native dedup on barcode-free

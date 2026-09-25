@@ -1,7 +1,7 @@
 // Cards D2LAN-B3 + B4 — the phone side of LAN TLS pinning and TOFU disclosure.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 / §3-4a /
+//   docs/archive/strategy/2026-08-08-design-d2lan-light-encryption.md §3-3 / §3-4a /
 //     §3-5 / §4-3 / §4-4 / §6-4
 //   apps/server-core/src/lan-tls/fingerprint.ts — the **other implementation**
 //     of the fingerprint

@@ -12,8 +12,8 @@ SenseVoice model — points a downloader at.
 ==============================================================================
 1. Node.js sidecar bundled dependencies (19 packages, all MIT)
 Bundled by apps/desktop/scripts/build-sidecar.mjs (esbuild) into a single
-server.js shipped with both the MSI installer and the FlowMic-portable
-bundle. Resolved from apps/server-core's production dependency graph — see
+server.js shipped with desktop installers and portable bundles. Resolved
+from apps/server-core's production dependency graph — see
 this file's own header for how and why (esbuild legalComments cannot do
 this reliably; zod ships no license banner in its source at all).
 ==============================================================================
@@ -486,8 +486,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-2. Node.js runtime (node.exe, bundled with both the MSI installer and
-the FlowMic-portable one-click bundle)
+2. Node.js runtime (bundled with desktop installers and portable bundles)
 ==============================================================================
 
 Pinned runtime, per platform (owner ruling 2026-08-05: the bundled Node stays
@@ -499,6 +498,9 @@ on the 22 line):
   darwin-arm64: v22.22.3
     sha256 5d9d3872911e2340a43b707962e68143de8a4e8d54628845c0c4f2de1fb7cd5c
     112,915,776 bytes, staged at apps/desktop/src-tauri/resources/node
+  linux-x64: v22.22.3
+    sha256 e6ec2c188d83d813f81f2de8aea084d74dce603ac1abedd0a30ad941b10087b2
+    124,819,136 bytes, staged at apps/desktop/src-tauri/resources/node
 
 Those values are declared in scripts/vendor/bundled-node.mjs and read from
 there. This generator does NOT execute the staged binary: ./NOTICE is a
@@ -515,7 +517,7 @@ llhttp, libuv, undici, corepack, Acorn, LIEF, SWC, Punycode.js, and others) —
 all permissive (MIT/BSD/Apache-2.0/zlib/Unicode-3.0/public-domain), no GPL/
 LGPL component.
 
-Vendored verbatim for v22.22.3 (win32-x64, darwin-arm64) from
+Vendored verbatim for v22.22.3 (win32-x64, darwin-arm64, linux-x64) from
 https://raw.githubusercontent.com/nodejs/node/v22.22.3/LICENSE
 (scripts/vendor/node-LICENSE.txt):
 
@@ -3277,7 +3279,7 @@ LICENSE: Apache-2.0. Neither the sherpa-onnx-node nor the
 sherpa-onnx-win-x64 npm package ships a LICENSE or NOTICE file, and the
 upstream k2-fsa/sherpa-onnx repository has no NOTICE file either (confirmed
 404 by the license audit,
-docs/strategy/2026-08-04-third-party-license-matrix.md §3.3). Apache-2.0
+docs/archive/strategy/2026-08-04-third-party-license-matrix.md §3.3). Apache-2.0
 §4(a) still requires a copy of the license text to travel with any
 distribution of the Work; vendored verbatim below from
 https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/LICENSE
@@ -3652,4 +3654,4 @@ does not embed, ship, or redistribute the WebView2 binary itself, so no
 Microsoft redistribution notice belongs here. If a future change switches
 to `offlineInstaller` or `fixedVersion` (which DO embed the runtime),
 this section must be revisited — see
-docs/strategy/2026-08-04-third-party-license-matrix.md §5.4.
+docs/archive/strategy/2026-08-04-third-party-license-matrix.md §5.4.

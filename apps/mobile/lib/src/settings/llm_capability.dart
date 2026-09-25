@@ -7,7 +7,7 @@
 //     defaults `stt.polish` from (settings.handler.ts withEffectiveDefaults).
 //   apps/desktop/src/main-window/settings-model.ts (card POLISH-CFG) — the
 //     desktop's reader, whose stance this file copies on purpose.
-//   docs/strategy/2026-08-25-owner-rulings-and-execution-plan.md §2-②
+//   docs/archive/strategy/2026-08-25-owner-rulings-and-execution-plan.md §2-②
 //
 // ── WHY THIS IS ON THE WIRE AT ALL, AND WHY THE PHONE MUST NOT INFER IT ──────
 // The server pushes this row on EVERY settings read (unconditional `out.push`),

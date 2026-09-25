@@ -5,7 +5,7 @@
 // G13 (g13-no-crosstalk.mjs) already pins the protocol-level crosstalk gate: two PCs on
 // ONE channel at a time, addressed correctly / tampered / unaddressed. What it
 // does NOT exercise is the shape a QUEUE drain actually produces, which is the
-// gap window B3 left open (docs/strategy/2026-07-31-window-b3-handoff-report.md
+// gap window B3 left open (docs/archive/strategy/2026-07-31-window-b3-handoff-report.md
 // §6.2) and the acceptance the owner's own decision states verbatim
 // (docs/decisions/2026-07-31-queue-destination-is-a-machine-not-a-connection.md
 // §验收): 「两台 PC × 两条通道＝四个 pc_id，队列项交叉，断言每条只落到自己那台

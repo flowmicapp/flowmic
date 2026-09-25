@@ -223,6 +223,10 @@ function stage(src, destDir, destName = null) {
   return { name, hash, dest };
 }
 
+if (process.platform === 'linux') {
+  const { publishLinuxArtifacts } = await import('./publish-linux.mjs');
+  publishLinuxArtifacts({ root: ROOT, outDir: OUT, version: VERSION, log: ok });
+} else {
 // ── preflight: refuse to publish a stale or incomplete build ────────────────
 const exePath = join(RELEASE, 'flowmic-desktop.exe');
 const serverJs = join(TAURI, 'resources', 'server.js');
@@ -250,7 +254,7 @@ if (failed) process.exit(1);
 // That build-time gate only runs on whatever machine ran tauri:build. This
 // repo already has two developer machines whose staged node.exe disagree
 // (v22.22.3 / 86,969,160 B here vs v24.15.0 / 91,694,408 B there — see
-// docs/strategy/2026-08-05-local-crosscheck-of-remote-window.md §4), and
+// docs/archive/strategy/2026-08-05-local-crosscheck-of-remote-window.md §4), and
 // nothing stopped a ./publish run from staging a node.exe that build gate
 // never re-examined — a leftover from an older checkout, a half-finished
 // re-stage, anything that leaves the right FILENAME in place with the wrong
@@ -612,6 +616,7 @@ if (failed) {
 // `if (failed) process.exit(1)` above, so a flag nobody reads again would let a
 // refused artifact upload anyway.
 publishPortableArchive({ root: ROOT, outDir: OUT, version: VERSION, fail, ok });
+}
 
 console.log(`\n✓ published → ${OUT}`);
 
@@ -628,7 +633,7 @@ if (!process.argv.includes('--skip-lan')) {
   // Card IT-33. scripts/publish-download-center.mjs is the internal LAN
   // publisher (site address, how the publish key is fetched, network
   // whitelist) and is DELIBERATELY excluded from the open-source export
-  // (docs/strategy/2026-08-02-opensource-content-list-and-history-audit.md
+  // (docs/archive/strategy/2026-08-02-opensource-content-list-and-history-audit.md
   // §4-③, §5 last row). A tree built from that export will never have this
   // file — that is the tree's permanent shape, not a transient fault.
   //
@@ -701,7 +706,7 @@ if (!process.argv.includes('--skip-lan')) {
     // normal first run ends RED here until the manifest is deployed — that is
     // the ruling's stated shape («不让你以为做完了», not «帮你生成»), not a
     // defect: this script deploys nothing (production deploys belong to the
-    // device line — docs/FLEET.md), so "done" is simply not this script's to
+    // device line — docs/archive/FLEET.md), so "done" is simply not this script's to
     // declare until the public endpoint says so. The message below names what
     // remains; the gate re-runs standalone until green.
     // 🔴 The freeze exit replaces the gate; it never makes the gate pass. Same
@@ -722,7 +727,7 @@ if (!process.argv.includes('--skip-lan')) {
       console.error('  The artifact and LAN-download-center halves are fine; what is missing is the 「更新服务告诉客户端有新版」 half-step:');
       console.error('    1. node scripts/build-update-manifest.mjs   (if this round did not use --with-manifest)');
       console.error('    2. deploy publish/update-manifest.json as live /etc/flowmic-app/updates.json');
-      console.error('       (production deploys belong to the device line — docs/FLEET.md)');
+      console.error('       (production deploys belong to the device line — docs/archive/FLEET.md)');
       console.error('    3. node scripts/verify-live-update-manifest.mjs   (re-run this gate until green)');
       process.exit(1);
     }

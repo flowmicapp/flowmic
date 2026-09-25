@@ -82,6 +82,7 @@ export const SIDECAR_BUILD_COMMAND = 'pnpm --filter @flowmic/desktop build:sidec
  *  and a divergence that is an oversight are the same green line here. */
 const PLATFORM_CONF = {
   darwin: 'tauri.macos.conf.json',
+  linux: 'tauri.linux.conf.json',
 };
 
 function readJson(file) {

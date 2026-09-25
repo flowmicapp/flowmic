@@ -122,9 +122,10 @@ export function terminalFrameWindowMs(relFile, name) {
 // LIVENESS question is not the same move as raising one that decides a RACE;
 // the block above LIVENESS_CEILING_MS is the rule for telling them apart, and
 // every genuinely racy wait in this suite was converted to a fact instead.
-export function connect(url, auth = {}) {
+// W6c: G31 supplies the Origin a real host browser sends; old callers omit it.
+export function connect(url, auth = {}, extraHeaders = {}) {
   const socket = ioClient(url, {
-    transports: ['websocket'], auth, forceNew: true, reconnection: false,
+    transports: ['websocket'], auth, extraHeaders, forceNew: true, reconnection: false,
   });
   return new Promise((resolve, reject) => {
     socket.on('connect', () => resolve(socket));

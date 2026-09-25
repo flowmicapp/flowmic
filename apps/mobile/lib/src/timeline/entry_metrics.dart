@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §4-2 (word-count
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §4-2 (word-count
 //     basis = each mode's final result: original text by its own words,
 //     translate/organize by the post-transform word count), §4b-8 (show
 //     per-row transcription duration + word count; the live window updates

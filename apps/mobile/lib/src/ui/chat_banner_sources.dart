@@ -15,6 +15,8 @@
 // different job from rendering, and the one that grows every time the app gains
 // a thing that can go wrong.
 
+import 'dart:async' show unawaited;
+
 import '../session/chat_controller.dart';
 // CR-3: `continuousCapturingOffline` is an EXTENSION member (ptt_link_loss.dart,
 // part of this library), so the library has to be in scope for it to resolve.
@@ -97,6 +99,18 @@ BannerQueue _liveSources({
   onReconnectNow: controller.session.reconnect.isRunning
       ? () => controller.session.reconnect.kickNow(reason: 'user-banner')
       : null,
+  // 🔴 Card NR-96-E2 — THE PRODUCTION READER of `scheduledAttempt`. Read only
+  // while the ladder is climbing: the number is 「which rung」, and outside a
+  // climb it is the last episode's rung, which says nothing about now.
+  ladderAttempt: controller.session.reconnect.reconnecting.value
+      ? controller.session.reconnect.scheduledAttempt.value
+      : 0,
+  ladderMaxAttempts: controller.session.reconnect.maxAttempts,
+  // 🔴 Card NR-96-E1 — THE PRODUCTION READER of `PttSession.reconnectAckLost`.
+  reconnectAckLost: controller.session.reconnectAckLost.value != 0,
+  onReconnectAckLostRetry: () =>
+      unawaited(controller.session.retryUnansweredReconnect()),
+  onDismissReconnectAckLost: controller.session.dismissReconnectAckLost,
   strings: strings,
   // 🔴 Card CR-3 — THE PRODUCTION READER of `continuousCapturingOffline`.
   // Without this one line the whole chain (link-loss edge → kept-open mic →
@@ -105,7 +119,18 @@ BannerQueue _liveSources({
   // This file is 「where each primitive comes from」, so a primitive nobody
   // reads from here does not exist as far as the user is concerned — the same
   // sentence fix-026 earned one field above.
-  continuousOffline: controller.session.continuousCapturingOffline,
+  // ⚠️ RC-3 — the LINK cause only here: this flag picks the link row's
+  // sentence, which says 「link down」. The engine cause has its own row below.
+  continuousOffline:
+      controller.session.continuousOffline == ContinuousOffline.linkKept,
+  // 🔴 Card RC-3 — THE PRODUCTION READER of the engine arms of
+  // `PttSession.continuousOffline`.
+  continuousEngineDown: switch (controller.session.continuousOffline) {
+    ContinuousOffline.engineKept || ContinuousOffline.engine => true,
+    _ => false,
+  },
+  continuousEngineKept:
+      controller.session.continuousOffline == ContinuousOffline.engineKept,
   // 🔴 Card CR-9 — THE PRODUCTION READER of `ContinuousCapTimer.warningTicket`.
   // Without this line the ceiling still stops the recording on time and the
   // user gets no warning at all: the timer fires, the ticket goes up, and
@@ -120,6 +145,9 @@ BannerQueue _liveSources({
   // GA-01: the LLM leg failed, so what the user just said
   // was NOT delivered — said out loud, never swallowed.
   utteranceFailure: controller.utteranceFailure,
+  // Card RC-I — a light record / record-only utterance was never going to be
+  // sent, so its failure is not framed as 「not sent · long-press to send」.
+  utteranceFailureNeverSent: controller.utteranceFailureNeverSent,
   // T-3a ③: a send that did not happen is loud, never eaten.
   sendFailure: controller.sendFailure,
   controlKeyRefusal: controller.controlKeyRefusal,

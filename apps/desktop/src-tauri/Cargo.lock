@@ -877,10 +877,11 @@ dependencies = [
 
 [[package]]
 name = "flowmic-desktop"
-version = "0.3.92"
+version = "0.3.95"
 dependencies = [
  "block2",
  "flate2",
+ "gtk",
  "objc2",
  "objc2-app-kit",
  "objc2-core-graphics",
@@ -899,6 +900,7 @@ dependencies = [
  "uuid",
  "windows 0.58.0",
  "winreg 0.10.1",
+ "x11-dl",
 ]
 
 [[package]]

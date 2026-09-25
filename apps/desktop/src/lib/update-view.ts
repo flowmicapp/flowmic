@@ -1,7 +1,7 @@
 // UP-3b — the pure view model for the About card's update block.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §3 table / §5.0 / §5.2
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §3 table / §5.0 / §5.2
 //
 // ── WHY A SEPARATE MODULE INSTEAD OF LOGIC IN THE SFC ───────────────────────
 //

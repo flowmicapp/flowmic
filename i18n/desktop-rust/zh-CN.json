@@ -24,5 +24,6 @@
   "AutostartEnabledButOff": "已开启开机自启动，但在系统设置中未生效（可能被任务管理器或安全软件禁用）",
   "AutostartStillEnabled": "已关闭开机自启动，但系统仍显示启用，未能成功取消",
   "AutostartRegOpenFailed": "无法访问系统启动项配置：{detail}",
-  "AutostartRewriteFailed": "更新开机自启动路径配置失败：{detail}"
+  "AutostartRewriteFailed": "更新开机自启动路径配置失败：{detail}",
+  "LinuxCapsuleUnavailable": "当前桌面会话无法显示胶囊，已打开主窗口。"
 }

@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-12-owner-req1215-window-drag-follow-cursor.md
 //     (owner: the window must FOLLOW the cursor, on Windows AND macOS)
-//   docs/strategy/2026-08-12-req1215-window-drag-follow-cursor.md §4
+//   docs/archive/strategy/2026-08-12-req1215-window-drag-follow-cursor.md §4
 //     (candidate 2: native drag region [the OS follows the cursor] replaces the custom chain)
 //   docs/rebuild/07-DESKTOP-SPEC.md §4 (capsule surface is NON-ACTIVATING)
 //   CLAUDE.md red line: ambient surfacing never steals focus by activating / no silent failures

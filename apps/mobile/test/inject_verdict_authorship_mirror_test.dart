@@ -110,7 +110,9 @@ void main() {
           .toSet();
       expect(fromTs, equals(kPcAdmissionRefusalCodes));
       expect(ssot['INJECT_NOT_PRIMARY'], 'pc-admission');
+      expect(ssot['INJECT_TARGET_NOT_READY'], 'pc-admission');
       expect(isPcAdmissionRefusalCode('INJECT_NOT_PRIMARY'), isTrue);
+      expect(isPcAdmissionRefusalCode('INJECT_TARGET_NOT_READY'), isTrue);
       // 🔴 The two sets are disjoint: if one code is both "evidence delivery
       // succeeded" and "still owed", settle and the row's criterion will fight
       // on the spot.

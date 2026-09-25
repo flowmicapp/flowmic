@@ -112,7 +112,7 @@ Future<void> main() async {
     final int injectsBefore = rig.injects.length;
     final int startsBefore = rig.composeStarts.length;
 
-    expect(rig.controller.reprocessEntry(row), isNull);
+    expect(rig.controller.reprocessEntry(row, FlowMode.translate), isNull);
 
     // ② the compose:start carries source_text, NOT the current output — a
     // reprocess of a translation must never be a translation of a translation.
@@ -146,6 +146,9 @@ Future<void> main() async {
     expect(rig.store.findById(row.id)!.outputText, 'hello world');
     expect(rig.injects.length, injectsBefore + 1);
     expect(rig.store.entries.first.outputText, 'HELLO WORLD');
+    // The NEW row must keep the immutable original too. Checking only the
+    // old row missed corruption at the rerun's birth site (Task C control).
+    expect(rig.store.entries.first.sourceText, row.sourceText);
     // …the ORIGINAL is untouched (red line: source_text is immutable)…
     expect(rig.store.findById(row.id)!.sourceText, '你好世界');
     // ① …and NOTHING went up. Until 0.2.27 this asserted a machine
@@ -162,7 +165,7 @@ Future<void> main() async {
   test('GA-13: a FAILED reprocess leaves the row exactly as it was', () async {
     final _Rig rig = _Rig();
     final TimelineEntry row = await rig.seedTranslatedRow();
-    expect(rig.controller.reprocessEntry(row), isNull);
+    expect(rig.controller.reprocessEntry(row, FlowMode.translate), isNull);
     final Map<String, Object?> start =
         Map<String, Object?>.from(rig.composeStarts.last.data! as Map);
 
@@ -181,13 +184,19 @@ Future<void> main() async {
     expect(rig.controller.utteranceFailure, isNotNull);
   });
 
-  test('GA-13: realtime has no processing step, so a reprocess is refused up front', () async {
+  // ⚠️ Correction (NR-89, 2026-09-23): this case used to switch the SESSION to
+  // realtime (`rig.controller.setMode(FlowMode.realtime)`) and expect a refusal,
+  // because the operation came from the session mode. It no longer does — a
+  // realtime session can re-translate or re-organize (entry_rerun_new_delivery_test
+  // (a)). What still holds is the caller contract: an explicit REALTIME
+  // operation has no processing step, and is refused before the wire.
+  test('GA-13 / NR-89: an explicit realtime operation has no processing step, so it '
+      'is refused up front', () async {
     final _Rig rig = _Rig();
     final TimelineEntry row = await rig.seedTranslatedRow();
-    rig.controller.setMode(FlowMode.realtime);
     final int startsBefore = rig.composeStarts.length;
 
-    expect(rig.controller.reprocessEntry(row), isNotNull);
+    expect(rig.controller.reprocessEntry(row, FlowMode.realtime), isNotNull);
     // Refused BEFORE the wire: no compose:start, no update, nothing to undo.
     expect(rig.composeStarts.length, startsBefore);
     expect(rig.updatesSent(), isEmpty);
@@ -201,7 +210,10 @@ Future<void> main() async {
     final TimelineEntry row = await rig.seedTranslatedRow();
     rig.store.applyEdit(row.id, 'hello world');
     rig.transport.emitted.clear();
-    expect(rig.controller.reprocessEntry(rig.store.findById(row.id)!), isNull);
+    expect(
+      rig.controller.reprocessEntry(rig.store.findById(row.id)!, FlowMode.translate),
+      isNull,
+    );
     final Map<String, Object?> start =
         Map<String, Object?>.from(rig.composeStarts.last.data! as Map);
     rig.transport.pushIncoming(FlowMicEvents.composeDone, <String, Object?>{

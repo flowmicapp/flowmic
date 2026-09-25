@@ -152,7 +152,14 @@ void wireAsrHealth(ChatController c) {
   // draws for byte-level signals (byteStall/digitalSilence only make sense
   // while the mic is actually open); PROCESSING is out of scope by the same
   // "ASR leg only" fence that keeps this module off the LLM leg.
-  SessionState prevSess = c.session.fsm.session;
+  //
+  // Card RC4 — a PRESS in RECORDING, not a recovery pass: a recovery feeds no
+  // microphone, so 「no bytes」 would read as a byte stall and buzz the phone
+  // for a recording nobody is making. The flag is written before the FSM edge
+  // (ptt_backfill.dart `openSessionIsRecovery`), so it is already true here.
+  bool liveRecording(SessionState s) =>
+      s == SessionState.recording && !c.session.openSessionIsRecovery;
+  bool prevLive = liveRecording(c.session.fsm.session);
   // AW-1b (b) — "one differentiated haptic on the FIRST transition into any
   // non-normal state per recording": a flag reset on every recordingStarted,
   // so a recording that goes bad twice (e.g. noProgress clears then fires
@@ -161,8 +168,8 @@ void wireAsrHealth(ChatController c) {
   bool warnedThisRecording = false;
   hooks.fsmSub = c.session.fsm.changes.listen((FlowmicStateSnapshot s) {
     final int nowMs = _asrHealthNowMs();
-    final bool wasRecording = prevSess == SessionState.recording;
-    final bool isRecording = s.session == SessionState.recording;
+    final bool wasRecording = prevLive;
+    final bool isRecording = liveRecording(s.session);
     if (!wasRecording && isRecording) {
       h.recordingStarted(nowMs);
       warnedThisRecording = false;
@@ -179,7 +186,7 @@ void wireAsrHealth(ChatController c) {
       hooks.ticker?.cancel();
       hooks.ticker = null;
     }
-    prevSess = s.session;
+    prevLive = isRecording;
   });
 
   // ── bytes: AudioCapture.chunks, read-only (see file header) ─────────────
@@ -229,6 +236,9 @@ void wireAsrHealth(ChatController c) {
   //    observation streams (see file header for why they live there) ──────
   hooks.terminalErrorSub =
       c.session.fsm.sttErrorImmediate.listen((SttStall s) {
+    // Card RC4 — a recovery pass's engine error is not the user's press
+    // failing; the draft row would say 「say it again」 for words nobody said.
+    if (c.session.openSessionIsRecovery) return;
     h.terminalError(_asrHealthNowMs(), code: s.code, message: s.message);
   });
   hooks.retryableSub = c.session.fsm.sttRetryableErrors.listen((SttStall s) {

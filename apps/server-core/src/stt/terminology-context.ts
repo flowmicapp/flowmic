@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-07-rt6-soniox-tradeoff-cards.md (the `context` card —
+//   docs/archive/strategy/2026-08-07-rt6-soniox-tradeoff-cards.md (the `context` card —
 //     ≤10,000 chars, and its warning that this is NOT a one-line reuse of
 //     hotwords.ts: same INPUT data, different OUTPUT wire format per engine)
 //   https://soniox.com/docs/api-reference/stt/websocket-api (`context`)

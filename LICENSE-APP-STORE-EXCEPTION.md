@@ -91,5 +91,5 @@ updated to say so.
   conventions of section 7 additional permissions as commonly published by
   other AGPL/GPL projects. The reasoning behind each clause, and what was
   deliberately left out, is recorded in
-  `docs/strategy/2026-08-04-l1-l3-license-drafts-for-owner.md` §4 (private
+  `docs/archive/strategy/2026-08-04-l1-l3-license-drafts-for-owner.md` §4 (private
   repository).

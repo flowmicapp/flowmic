@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-d / §6 G-23
 //   docs/decisions/2026-08-10-owner-ruling-requests-from-lan-window.md (#5-c)
-//   docs/strategy/2026-08-07-rt3-outage-resilience-ledger.md §1.3
+//   docs/archive/strategy/2026-08-07-rt3-outage-resilience-ledger.md §1.3
 //   CLAUDE.md red line: no silent failure (both directions) / R11 state must be correct
 //
 // What the server OWES the user when a `final` carries no transcript.
@@ -208,7 +208,7 @@ export function noEngineReachedError(
  *
  * 🔴 2026-09-03 — ONE WIRED SITE WAS NOT ENOUGH 〔measured three times on the
  * production relay, 06:50 / 06:54 / 06:57 UTC; trace report
- * docs/strategy/2026-09-03-realtime-utterance-lifecycle-trace.md §4 / §4-1〕.
+ * docs/archive/strategy/2026-09-03-realtime-utterance-lifecycle-trace.md §4 / §4-1〕.
  * This verdict was consulted ONLY by the reconnect ladder's `emitError` hook.
  * But the shape that produces the refusal in production is not a ladder rung:
  * a held button that stays quiet for the first ~3 s ⇒ the VAD gate feeds the

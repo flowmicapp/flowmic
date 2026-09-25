@@ -3,7 +3,7 @@
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md G-17 / RV-96
 //     (phone-side storage only ever grows, never shrinks — owner wants a
 //     clear function he can see and operate)
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §4-4, §5-4/-5/-6
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §4-4, §5-4/-5/-6
 //
 // The clear feature's SELECTOR — a pure function, no I/O.
 //

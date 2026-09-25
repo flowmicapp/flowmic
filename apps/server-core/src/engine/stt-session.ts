@@ -16,7 +16,6 @@ import type { SttOrchestrator } from './orchestrator';
 import { AudioSession } from '../stt/audio/session';
 import { VadGate } from '../stt/vad-gate';
 import type { SttEngineOrchestrator } from '../stt/orchestrator-core';
-import { SttConfigMissingError } from '../stt/engine-router';
 import type { StartInput } from '../stt/orchestrator-types';
 
 // Moved VERBATIM to ./stt-session-pcm.ts (800-line cap — see that file's header).
@@ -38,14 +37,15 @@ import { kickDetachedPolish } from './stt-session-detached-polish';
 import { kickRefine } from './stt-session-refine';
 import { FrameTally } from './stt-session-intake';
 import { CoverageReceiptTally } from './stt-session-receipt';
+import { reportColdOpenRejection } from './stt-session-cold-open';
 
-interface OInterim { text: string; confidence: number; language: string; segment_idx: number }
+interface OInterim { text: string; confidence: number; language: string; segment_idx: number; acked_audio_ms?: number } // acked_audio_ms: card RC-2, `stt/engine-backlog.ts`
 // `empty_reason` (card EMPTY-1): present ONLY on a terminal final that carries no
 // text and whose emptiness nothing else explained. Produced by
 // `stt/empty-final-cause.ts`; forwarded verbatim, never re-derived here.
-interface OFinal extends OInterim { is_segment: boolean; duration_ms: number; empty_reason?: string }
-interface OError { code: string; message: string; retryable: boolean }
-interface OStatus { provider: string; status: 'ready' | 'reconnecting' | 'failed'; retry_count?: number }
+interface OFinal extends OInterim { is_segment: boolean; duration_ms: number; empty_reason?: string; pause_before_ms?: number }
+interface OError { code: string; message: string; retryable: boolean; unheard_from_ms?: number } // unheard_from_ms: card RC4-S5 (owed-voice-verdict.ts)
+import { engineStatusProgress, type EngineStatusPayload as OStatus } from '../stt/engine-session'; // NR-96: the one copy site for the retry fields
 
 const BYTES_PER_MS = 32; // 16 kHz mono s16le
 
@@ -158,52 +158,10 @@ export class SttSessionBridge implements SttOrchestrator {
     this.startPromise = this.orchestrator.start(input).catch((err: unknown) => this.onColdOpenRejection(err));
   }
 
-  /**
-   * 🔴 card K-7 — THE ONE COLD-OPEN FAILURE NOBODY WAS TOLD ABOUT.
-   *
-   * `SttEngineOrchestrator.start()` narrates every spawn failure on its own
-   * 'error' event (→ `stt:error` through [[wireEvents]]) and then rethrows —
-   * every failure but one. The ROUTER's `SttConfigMissingError` is rethrown
-   * BEFORE those two emits (orchestrator-core.ts, `if (err instanceof
-   * SttConfigMissingError) throw err`), on the documented premise that it
-   * "propagates raw (audio.handler maps it)".
-   *
-   * That premise has been false since this constructor started firing `start()`
-   * and forgetting it. Nothing above this line awaits `startPromise`, so the
-   * rejection reaches no handler; `audio.handler` has already called
-   * `safeAck(ack, {ok:true})` by the time it arrives. So the honest description
-   * of the old `.catch(() => undefined)` is: a silent swallow AND a false
-   * success — the two halves of the red line, at once, on the failure whose
-   * whole job is to say "this account has no engine for this language".
-   *
-   * ⚠️ NOT a second copy of the other arms' reporting: this branch is the exact
-   * complement of the `throw err` above (`instanceof` on one side, everything
-   * else on the other), so a code that already spoke never speaks twice. A
-   * non-config rejection returns silently here for that reason and no other.
-   *
-   * ⚠️ There is a SYNCHRONOUS `SttConfigMissingError` path too — `deps.build`
-   * throwing out of this constructor, which reaches `audio.handler`'s engine
-   * catch and is answered there. This is the ASYNC one, at spawn time, and it
-   * had no answer at all.
-   */
-  private onColdOpenRejection(err: unknown): void {
-    if (!(err instanceof SttConfigMissingError)) return;
-    log.error('stt cold open: no engine configured for this session — the phone was never told', {
-      user_id: this.deps.userId,
-      language: this.deps.sourceLang,
-      error: err.message,
-    });
-    // 🔴 card C1 (2026-08-17): the THROWER's code, not a literal. The async arm
-    // has to agree with the synchronous one in audio.handler.ts — the same
-    // failure reaching the phone by a different route must not get a different
-    // sentence, and a pool refusal answered with 「该语言尚未配置识别引擎」 is
-    // false on every relay that has a pool.
-    this.deps.emitter.emit('stt:error', {
-      code: err.code,
-      message: err.message,
-      retryable: false,
-    });
-  }
+  /** 🔴 card K-7 — the async cold-open failure nobody was told about. Rule, account and
+   *  body moved VERBATIM to `stt-session-cold-open.ts` (800-line cap, card RC-1b); this
+   *  wrapper keeps the name the constructor comment above cites. */
+  private onColdOpenRejection(err: unknown): void { reportColdOpenRejection(this.deps, err); }
 
   private wireEvents(): void {
     const o = this.orchestrator;
@@ -212,6 +170,7 @@ export class SttSessionBridge implements SttOrchestrator {
       confidence: clamp01(e.confidence),
       language: nonEmpty(e.language, this.deps.sourceLang),
       segment_idx: nonNegInt(e.segment_idx),
+      ...(typeof e.acked_audio_ms === 'number' ? { acked_audio_ms: nonNegInt(e.acked_audio_ms) } : {}),
     }));
     // FINAL path (06 §5): dictionary replace → normalizer → (opt-in) polish, THEN
     // fan-out. The processed text is what mobile + PC + the mobile-driven
@@ -271,6 +230,10 @@ export class SttSessionBridge implements SttOrchestrator {
         // re-deriving either one from `pure.length` at this seam would be a second
         // opinion about the same question, which is how the two come to disagree.
         ...(emptyReason ? { empty_reason: emptyReason } : {}),
+        // Card CR-12-D — forwarded verbatim, never re-derived: the orchestrator
+        // holds the only clock this number is meaningful in (`stt/segment-pause.ts`).
+        // Absent stays absent — absence is its own answer there, not 0.
+        ...(typeof e.pause_before_ms === 'number' ? { pause_before_ms: nonNegInt(e.pause_before_ms) } : {}),
       };
       // 🔴 RT-1, as ruled by the primary owner 2026-08-07 (option (c)). owner's async
       // ruling "show it immediately after transcribing … directly replace the
@@ -317,6 +280,7 @@ export class SttSessionBridge implements SttOrchestrator {
       code: nonEmpty(e.code, 'STT_NETWORK_DROP'),
       message: nonEmpty(e.message, nonEmpty(e.code, 'STT engine error')),
       retryable: Boolean(e.retryable),
+      ...(typeof e.unheard_from_ms === 'number' ? { unheard_from_ms: e.unheard_from_ms } : {}), // card RC4-S5
     }));
     // Card ENG-4 (2026-08-15) — a refusal we deliberately do NOT put on the wire
     // (the vendor said "no audio received" about a recording our own gate found
@@ -333,7 +297,7 @@ export class SttSessionBridge implements SttOrchestrator {
     o.on('engine-status', (e: OStatus) => this.deps.emitter.emit('stt:engine-status', {
       provider: nonEmpty(e.provider, 'unknown'),
       status: e.status,
-      ...(e.retry_count !== undefined ? { retry_count: e.retry_count } : {}),
+      ...engineStatusProgress(e),
     }));
     // 🔴 W8-4: `limit_origin` is READ, and `reason` on this same payload is
     // deliberately NOT. The driver's `reason` is `AudioSession.autoStop`'s own
@@ -611,6 +575,8 @@ export class SttSessionBridge implements SttOrchestrator {
    *  field `nextCeiling` arms the hard-limit timer from. One production reader:
    *  the while-streaming `billing:budget` tick (socket/handlers/budget-frames). */
   get quotaDeadlineAt(): number | null { return this.session.quotaDeadlineAt; }
+  /** Codex item 4 — the seam's `fedAudioMs` (engine/orchestrator.ts), read straight off the orchestrator. */
+  get fedAudioMs(): number { return this.orchestrator.fedAudioMs; }
 
   pushChunk(seq: number, dataB64: string, tsMs: number): void {
     if (this.disposed) { this.intake.noteBridgeDrop(); return; } // card CV-1: taken off the wire, went nowhere
@@ -665,6 +631,7 @@ export class SttSessionBridge implements SttOrchestrator {
       audioMs: Math.round(this.totalAudioMs),
       gatedMs: Math.round(this.vad.sessionMs),
       voicedMs: Math.round(this.vad.voicedMs),
+      gate_closures: this.vad.closures, // card RC-6 — as of this line; the tail closes at vad.finish()
     });
     await this.startPromise;
     await this.orchestrator.stop();
@@ -683,6 +650,10 @@ export class SttSessionBridge implements SttOrchestrator {
   /** Call the single recordSttUsage seam exactly once. Managed-streaming
    *  sessions bill the GATED session ms (silence excluded); others bill the raw
    *  audio ms. Standalone / BYOK make onComplete a NOOP downstream.
+   *  ⚠️ 更正（RC-1b，2026-09-24）：原为上一句「bill the GATED session ms」——that number is the wall time the
+   *  gate held open, whether or not any engine was there to hear it (CR-12-E A1: billed 5.50 min, 1:57
+   *  transcribed). Managed streaming now bills `min(gate-open ms, audio actually handed to an engine)`:
+   *  no engine ⇒ not billed; a ladder replay that re-feeds heard audio ⇒ not billed twice. Book 22 §4.9.
    *
    *  🔴 A2-5 — it now also hands over the two character counts. They are read at
    *  SETTLE and not accumulated by the meter, because settle is the one moment
@@ -694,7 +665,7 @@ export class SttSessionBridge implements SttOrchestrator {
   private settle(): void {
     if (this.billed) return;
     this.billed = true;
-    const durationMs = this.gated ? this.vad.sessionMs : this.totalAudioMs;
+    const durationMs = this.gated ? Math.min(this.vad.sessionMs, this.orchestrator.uniqueFedAudioMs) : this.totalAudioMs; // card RC-1b; Codex item 5: UNIQUE fed audio (book 22 §4.9 correction)
     this.deps.onComplete(Math.max(0, Math.round(durationMs)), this.isByok, {
       transcript: this.transcriptChars,
       delivered: this.deliveredChars,
@@ -741,7 +712,7 @@ export class SttSessionBridge implements SttOrchestrator {
    * It cannot double-CALL the meter: `settle()` latches on `billed`, so the
    * ordinary `finish()` → `.finally(dispose)` chain settles once.
    * ⚠️ That latch guards CALLS, not MILLISECONDS — see the two accounts in
-   * docs/strategy/2026-08-06-w15-copy-and-artifacts-ledger.md §6: a reconnect
+   * docs/archive/strategy/2026-08-06-w15-copy-and-artifacts-ledger.md §6: a reconnect
    * replays the phone's ring buffer and those ms are counted again, and
    * `totalAudioMs`/`vad.sessionMs` measure what the phone OFFERED us, not what
    * the vendor received. Both predate this change and both are worse on this
@@ -778,6 +749,7 @@ export class SttSessionBridge implements SttOrchestrator {
         audioMs: Math.round(this.totalAudioMs),
         gatedMs: Math.round(this.vad.sessionMs), // same pair, same names as the `finish()` line above
         voicedMs: Math.round(this.vad.voicedMs),
+        gate_closures: this.vad.closures, // card RC-6
       });
     }
     try {

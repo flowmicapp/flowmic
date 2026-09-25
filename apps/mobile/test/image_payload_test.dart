@@ -7,7 +7,7 @@
 // 5_500_000 ceiling the phone's own budget must stay under.
 //
 // SPEC-REF: packages/protocol/src/protocol-schemas-inject.ts;
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ①;
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-4 ①;
 //   CLAUDE.md red line 「没有静默失败」 (over-budget is refused, never truncated).
 
 import 'dart:convert';

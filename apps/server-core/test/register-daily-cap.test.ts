@@ -13,7 +13,7 @@
 //     why the existing 5/10-min brake cannot answer this)
 //   src/http/auth-routes.ts (the two call sites + the file-head enumeration of
 //     what was DELIBERATELY NOT built)
-//   docs/strategy/2026-08-25-unregistered-trial-allowance-design.md §6 — the
+//   docs/archive/strategy/2026-08-25-unregistered-trial-allowance-design.md §6 — the
 //     precedent for the shape: a cheap, greppable record beats an unauditable
 //     mechanism
 //

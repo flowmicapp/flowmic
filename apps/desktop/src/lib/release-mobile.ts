@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (pc:release-mobile { mobile_id?, revoke? })
 //   docs/rebuild/05-DATA-MODEL.md §7 (deleting the row IS the revocation)
-//   docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08
+//   docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-08
 //   *** HUMAN-AUDIT ADJACENT (pairing/auth) ***
 //
 // The device page's 「断开｜撤销」("disconnect | revoke") action core, pure and DOM-free so the three

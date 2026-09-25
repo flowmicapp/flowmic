@@ -2,7 +2,7 @@
 // "idle row 2 must not draw a 38px fake input box").
 //
 // Contract = docs/ui-design/2026-08-13-compose-band-redesign.md §3 S1/S2/S3/S8
-// and §9 ④; task book = docs/strategy/2026-08-13-0263-design-task-book.md
+// and §9 ④; task book = docs/archive/strategy/2026-08-13-0263-design-task-book.md
 // §2-6 T-2.
 //
 // ── Reverse control (measured red, then restored) ─────────────────────────

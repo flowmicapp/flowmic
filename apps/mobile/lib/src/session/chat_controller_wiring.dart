@@ -70,6 +70,11 @@ extension ChatControllerWiring on ChatController {
     // shape as the line above it; the matching removeListener rides the same
     // teardown (chat_transient_banner_timers.dart).
     session.latestBudget.addListener(notifyUi);
+    // NR-96 — three more facts the page is rebuilt from: the engine chip
+    // (B), the unanswered-reconnect notice (E1), the ladder's rung (E2).
+    session.engineReconnect.listenable.addListener(notifyUi);
+    session.reconnectAckLost.addListener(notifyUi);
+    session.reconnect.scheduledAttempt.addListener(notifyUi);
     // 🔴 F-1 — never the socket edge. Since 2026-09-04 「joined the room」 is one
     // of TWO edges of one fact and the drain subscribes to the FACT
     // ([deliveryLink]); this listener keeps only the pairing confirmation.
@@ -127,6 +132,13 @@ extension ChatControllerWiring on ChatController {
     // (chat_link_watch.dart `_stopHeldLadderRouted`). One producer for that
     // edge, two consumers: this and the PC-release exit's re-pull.
     session.captureStopped.addListener(_onCaptureStopped);
+    // Card RC-3 — the owed tail's two conditions: its journal closed (this
+    // one) and the session at rest (chat_outbox_host.dart `onFsmChangeRouted`).
+    // Plus the engine-down fact the offline sentences are rebuilt from.
+    session.audio.retainedAudio?.owedTailReady.addListener(_onOwedTailReady);
+    // Follow-up (MAIN 2026-09-24) — a recovery pass held for a live final.
+    session.articles.attempts.onSweepHeld = () => _onSweepHeldForLive(this);
+    session.engineReconnect.engineDownListenable.addListener(notifyUi);
     // AW-1b — see chat_asr_health_wire.dart for every call site this wires.
     wireAsrHealth(this);
   }

@@ -6,7 +6,7 @@
 //     (存入当前缓冲) / tap-to-send (点选即发))
 //   docs/ui-design/demo/mobile.html frame 5 (.sheet/.grab/.favrow — the frozen
 //     bottom-sheet shape mirrored below)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 (波2) T-3 ②③, wave 2 T-4 ①
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 (波2) T-3 ②③, wave 2 T-4 ①
 //     (album picture / 相册图片)
 //
 // The 「+」 panel. It holds EXACTLY what the app actually implements: favorites
@@ -33,18 +33,21 @@ import 'package:flutter/material.dart';
 import '../favorites/favorites_store.dart';
 import '../session/image_send_controller.dart' show ImageOriginalBlock;
 import '../settings/app_strings.dart';
+import '../settings/local_prefs.dart';
 import '../session/backfill_runner.dart';
 import '../timeline/cloud/light_record_query.dart';
 import '../timeline/timeline_entry.dart';
 import 'confirm_dialog.dart';
 import 'plus_panel_notes_tab.dart';
 import 'plus_panel_selection.dart';
+import 'plus_panel_with_times_chip.dart';
 import 'tokens.dart';
 
 // 800-line cap: the album-picture (相册图片) tile moved VERBATIM to its own `part` file when
 // REQ-12-09 09-D added the tick boxes and the send bar. See its header for why
 // it is a `part` (the class is private) and for the 「nothing changed」 claim.
 part 'plus_panel_image_tile.dart';
+part 'plus_panel_favorites_list.dart';
 
 /// REQ-12-09 09-B — the panel's two halves.
 ///
@@ -121,6 +124,11 @@ Future<void> showPlusPanel(
   /// bytes still there"), asked per picture row.
   /// Required whenever [onSendSelection] is given; see [PlusPanel]'s assert.
   Future<bool> Function(TimelineEntry entry)? imageSendable,
+
+  /// CR-12-F — where the send bar's 「with times」 chip remembers its last
+  /// state. Required whenever [onSendSelection] is given; see [PlusPanel]'s
+  /// assert.
+  LocalPrefs? prefs,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -144,6 +152,7 @@ Future<void> showPlusPanel(
       onSignIn: onSignIn,
       onSendSelection: onSendSelection,
       imageSendable: imageSendable,
+      prefs: prefs,
     ),
   );
 }
@@ -168,6 +177,7 @@ class PlusPanel extends StatefulWidget {
     this.onSignIn,
     this.onSendSelection,
     this.imageSendable,
+    this.prefs,
   }) : assert(
          lightRecords == null || isSignedIn != null,
          'A light-record (轻记录) tab without a signed-in source would have to '
@@ -182,6 +192,12 @@ class PlusPanel extends StatefulWidget {
          'whether a picture row can be sent. Guessing YES offers a tick that can '
          'only fail; guessing NO hides a capability that works. Both are a '
          'wiring mistake dressed as a product statement. Fail here instead.',
+       ),
+       assert(
+         onSendSelection == null || prefs != null,
+         'CR-12-F: a 「with times」 chip with nowhere to remember its state '
+         'would forget the user\'s choice on every opening while looking like '
+         'it kept it. Fail here instead.',
        );
 
   final FavoritesStore favorites;
@@ -215,6 +231,9 @@ class PlusPanel extends StatefulWidget {
 
   /// REQ-12-09 09-G. Non-null whenever [onSendSelection] is (see the assert).
   final Future<bool> Function(TimelineEntry entry)? imageSendable;
+
+  /// CR-12-F. Non-null whenever [onSendSelection] is (see the assert).
+  final LocalPrefs? prefs;
 
   @override
   State<PlusPanel> createState() => _PlusPanelState();
@@ -286,12 +305,34 @@ class _PlusPanelState extends State<PlusPanel> {
   /// possible. If that ever stops being true, this is the line to revisit.
   PlusPanelSelection? _selection;
 
+  /// CR-12-F — the 「with times」 chip. Off until the stored choice is read
+  /// (design §10.3: off is the default), and the chip always draws this value,
+  /// so what is on screen is what a send will use.
+  bool _withTimes = false;
+
+  /// Set by the first tap, so a late read of the stored value cannot undo it.
+  bool _withTimesTouched = false;
+
   @override
   void initState() {
     super.initState();
     if (widget.onSendSelection != null && !widget.noPcTarget) {
       _selection = PlusPanelSelection()..addListener(_onSelectionChanged);
+      unawaited(_loadWithTimes());
     }
+  }
+
+  Future<void> _loadWithTimes() async {
+    final bool stored = await widget.prefs!.sendWithTimes();
+    if (!mounted || _withTimesTouched || stored == _withTimes) return;
+    setState(() => _withTimes = stored);
+  }
+
+  void _toggleWithTimes() {
+    final bool next = !_withTimes;
+    _withTimesTouched = true;
+    setState(() => _withTimes = next);
+    unawaited(widget.prefs!.setSendWithTimes(next));
   }
 
   @override
@@ -323,7 +364,11 @@ class _PlusPanelState extends State<PlusPanel> {
     final PlusPanelSelection? sel = _selection;
     final PlusSelectionSender? send = widget.onSendSelection;
     if (sel == null || send == null || sel.isEmpty) return;
-    final String? text = sel.composedText;
+    // CR-12-F: the chip counts only while it is on screen, i.e. while a
+    // recording is ticked. Otherwise this is `composedText`, byte for byte.
+    final String? text = sel.composeText(
+      withTimes: _withTimes && sel.hasTimedRecording,
+    );
     final List<TimelineEntry> images = sel.images;
     // Read BEFORE the pop (the same rule `_ImageTile` states for its original-image (原图) tick):
     // after this widget is gone its State is disposed and the selection with it.
@@ -469,7 +514,18 @@ class _PlusPanelState extends State<PlusPanel> {
               ],
             ),
           ),
-          const SizedBox(width: 10),
+          // CR-12-F — beside the send button, and only while a recording is
+          // ticked: with none ticked it could change nothing (design §10.2).
+          if (sel.hasTimedRecording) ...<Widget>[
+            const SizedBox(width: 10),
+            SendWithTimesChip(
+              on: _withTimes,
+              label: strings.selectionSendWithTimes,
+              onTap: _toggleWithTimes,
+            ),
+            const SizedBox(width: 8),
+          ] else
+            const SizedBox(width: 10),
           InkWell(
             key: const ValueKey<String>('plus.selection.send'),
             onTap: () => unawaited(_sendSelection()),
@@ -545,256 +601,4 @@ class _PlusPanelState extends State<PlusPanel> {
       ),
     );
   }
-
-  Widget _header(BuildContext context) => Row(
-    children: <Widget>[
-      Icon(Icons.star_rounded, size: 16, color: FlowMicColors.amber),
-      const SizedBox(width: 7),
-      Text(
-        strings.favorites,
-        style: TextStyle(
-          color: FlowMicColors.t1,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      const SizedBox(width: 7),
-      Text(
-        strings.favoritesCounter(favorites.length, kFavoritesMax),
-        style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-      ),
-      const Spacer(),
-      _saveButton(context),
-    ],
-  );
-
-  /// W2.5-E. Rendered only while [aiComposing]; the empty-box case keeps its
-  /// original treatment (the favorites (常用) empty state already tells the
-  /// user to type
-  /// something first — [AppStrings.favoritesEmptyHint]), so this line means
-  /// exactly one thing: 「有内容，但现在不是存它的时候」("there's content, but now
-  /// isn't the time to save it").
-  Widget _saveBlocked() => Padding(
-    key: const ValueKey<String>('plus.fav.save.blocked'),
-    padding: const EdgeInsets.only(top: 7),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Icon(Icons.info_outline, size: 14, color: FlowMicColors.amber),
-        const SizedBox(width: 7),
-        Expanded(
-          child: Text(
-            strings.favoritesSaveBlockedAiComposing,
-            style: TextStyle(color: FlowMicColors.amber, fontSize: 10.5),
-          ),
-        ),
-      ],
-    ),
-  );
-
-  /// Save current buffer (存当前缓冲) (F-5). Disabled with a stated reason when the box is empty —
-  /// never a live-looking button that quietly does nothing.
-  ///
-  /// ── W2.5-E: THE SECOND CRITERION, AND WHY IT IS ON *THIS* HALF ────────────
-  /// [aiComposing] is the live-compose term. It is here because a favourite is
-  /// PERMANENT: `ai_compose_controller.dart` streams `compose:chunk` deltas
-  /// straight into the buffer (`_host.aiBuffer` in `onEvent`), so mid-run the
-  /// buffer holds partial, unvalidated model output — and once that is saved,
-  /// tapping it later goes `ChatController.sendFavorite` →
-  /// `ManualDelivery.deliverText` (chat_explicit_delivery.dart:60), which has
-  /// no compose term at all.
-  ///
-  /// 🔴 THE FIX IS THE SAVE HALF ONLY. `deliverText` is deliberately NOT
-  /// guarded on compose state, and must not be: a favourite is a phrase the
-  /// user wrote, not model output, and gating delivery on 「is some unrelated
-  /// AI run streaming right now」 would answer a question the send path was
-  /// never asking. Keep the partial text OUT of the store; do not re-validate
-  /// it on the way out.
-  ///
-  /// ⚠️ [aiComposing] is a snapshot taken when the sheet opened (same shape as
-  /// [imageSending] / [noPcTarget] / [buffer] — this panel is built once by
-  /// `showPlusPanel` and only rebuilds on [favorites]). Both ways it can go
-  /// stale are stated rather than assumed:
-  ///   · run STARTS while the sheet is open — impossible: the AI action row
-  ///     (操作行) lives
-  ///     behind this modal (`ai_action_row.dart` is on ChatFlowPage), and the
-  ///     one production caller passes `s.controller.isAiComposing` at open time
-  ///     (`chat_flow_composer.dart` `_openPlusPanelRouted`).
-  ///   · run ENDS while the sheet is open — possible, and it leaves the button
-  ///     disabled one sheet too long. That is the direction that refuses a
-  ///     legitimate save instead of storing a half-written one, and it costs
-  ///     the user one reopen. Lifting the whole panel onto a controller
-  ///     listenable to fix it would trade that for a live rebuild path this
-  ///     widget has never had; not done without a ruling.
-  Widget _saveButton(BuildContext context) {
-    final bool on = buffer.trim().isNotEmpty && !aiComposing;
-    return InkWell(
-      key: const ValueKey<String>('plus.fav.save'),
-      onTap: on
-          ? () async {
-              final FavoriteAddOutcome outcome = await favorites.add(buffer);
-              widget.onFeedback(strings.favoriteAddResult(outcome));
-            }
-          : null,
-      borderRadius: BorderRadius.circular(9),
-      child: Container(
-        height: 30,
-        padding: const EdgeInsets.symmetric(horizontal: 11),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: on ? FlowMicColors.brandSoft : FlowMicColors.surface2,
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(
-            // Same alpha over the TOKEN, following settings_widgets.dart:110:
-            // 0x66818CF8 is dark-brand @ .4, so dark stays pixel-identical while
-            // light stops being indigo-400 where brand deepens to indigo-600.
-            color: on ? FlowMicColors.brand.withValues(alpha: 0.4) : FlowMicColors.line,
-          ),
-        ),
-        child: Text(
-          strings.favoritesSaveBuffer,
-          style: TextStyle(
-            color: on ? FlowMicColors.brand : FlowMicColors.t3,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _list(BuildContext context) {
-    if (favorites.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              strings.favoritesEmpty,
-              style: TextStyle(color: FlowMicColors.t2, fontSize: 13),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              strings.favoritesEmptyHint,
-              style: TextStyle(color: FlowMicColors.t3, fontSize: 11),
-            ),
-          ],
-        ),
-      );
-    }
-    final List<String> items = favorites.items;
-    return ListView.builder(
-      shrinkWrap: true,
-      itemCount: items.length,
-      itemBuilder: (BuildContext context, int i) => _row(context, items[i]),
-    );
-  }
-
-  /// 09-D — the tick box for a favorites (常用) phrase.
-  ///
-  /// 🔴 A SEPARATE TAP TARGET, and the row body keeps the meaning it has had
-  /// since F-5: a tap on the phrase is still tap-to-send (点选即发). Making the
-  /// body's meaning
-  /// depend on whether anything else happens to be ticked would be a mode the
-  /// user cannot see — and tap-to-send (点选即发) is a shipped behaviour, not
-  /// something this
-  /// card was asked to replace. Same shape as `_ImageTile._originalTick`, which
-  /// states the same rule for the same reason.
-  Widget _favTick(String text) {
-    final PlusPanelSelection sel = _selection!;
-    final bool on = sel.contains(PlusPick.keyForFavorite(text));
-    return InkWell(
-      key: ValueKey<String>('plus.fav.tick.$text'),
-      onTap: () => sel.toggle(PlusPick.favorite(text)),
-      borderRadius: BorderRadius.circular(9),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(0, 11, 8, 11),
-        child: Icon(
-          on ? Icons.check_box_outlined : Icons.check_box_outline_blank,
-          size: 17,
-          color: on ? FlowMicColors.brand : FlowMicColors.t3,
-        ),
-      ),
-    );
-  }
-
-  Widget _row(BuildContext context, String text) => Container(
-    decoration: BoxDecoration(
-      border: Border(top: BorderSide(color: FlowMicColors.line)),
-    ),
-    child: Row(
-      children: <Widget>[
-        if (_selection != null) _favTick(text),
-        Expanded(
-          child: InkWell(
-            key: ValueKey<String>('plus.fav.send.$text'),
-            // Tap-to-send (点选即发) — inert on a cloud instance, where the caption above
-            // already states there is nothing to inject into.
-            onTap: noPcTarget
-                ? null
-                : () {
-                    Navigator.of(context).pop();
-                    widget.onSend(text);
-                  },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 11),
-              child: Row(
-                children: <Widget>[
-                  Icon(
-                    Icons.star_rounded,
-                    size: 14,
-                    color: noPcTarget
-                        ? FlowMicColors.t3
-                        : FlowMicColors.amber,
-                  ),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      text,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: noPcTarget
-                            ? FlowMicColors.t2
-                            : FlowMicColors.t1,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        InkWell(
-          key: ValueKey<String>('plus.fav.remove.$text'),
-          // owner 2026-07-27: a 14px ✕ sitting beside a tappable phrase is the
-          // easiest thing on this panel to hit by mistake.
-          onTap: () async {
-            final bool sure = await confirmDestructive(
-              context,
-              title: strings.removeFavoriteConfirmTitle(text),
-              message: strings.removeFavoriteConfirmBody,
-              confirmLabel: strings.confirmDelete,
-              cancelLabel: strings.cancel,
-            );
-            if (sure) await favorites.remove(text);
-          },
-          borderRadius: BorderRadius.circular(9),
-          child: Tooltip(
-            message: strings.favoritesRemove,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Icon(
-                Icons.close,
-                size: 14,
-                color: FlowMicColors.t3,
-              ),
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
 }

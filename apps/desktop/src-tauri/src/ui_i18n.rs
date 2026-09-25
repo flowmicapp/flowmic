@@ -124,8 +124,9 @@ pub fn set_current(l: UiLocale) -> bool {
 /// Where the choice lives for Rust: a one-line file beside the DB / secret /
 /// instance.lock in FLOWMIC_HOME (`%APPDATA%\FlowMic\`). localStorage is a
 /// WebView2 store Rust cannot read, so `ui_locale_set` mirrors the value here.
+/// Linux L-1: this choice now lives in XDG config, independently of data and locks.
 pub fn default_locale_path() -> PathBuf {
-    crate::sidecar::io::default_home().join("ui-locale.txt")
+    crate::app_dirs::config_home().join("ui-locale.txt")
 }
 
 /// Read a persisted tag from `path`. Missing file / unreadable / unknown tag
@@ -178,6 +179,8 @@ pub enum Msg {
     TrayShowMain,
     /// Tray menu「显示胶囊」("Show capsule") — shell/tray.rs `setup_tray`.
     TrayShowCapsule,
+    /// Linux tray summon fallback — shell/capsule_style.rs.
+    LinuxCapsuleUnavailable,
     /// Tray menu「退出」("Quit") — shell/tray.rs `setup_tray`.
     TrayQuit,
     /// Tray disabled status row + boot value — socket/pump.rs `tray_state`,

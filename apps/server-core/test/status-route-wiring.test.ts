@@ -1,9 +1,9 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-13-wp5-review-annex.md §4-2 — "`/api/status` wiring has
+//   docs/archive/strategy/2026-08-13-wp5-review-annex.md §4-2 — "`/api/status` wiring has
 //     zero proof: no test hits that path from `startServer` (precedent =
 //     `health-db-probe-wiring.test.ts`); the W-5b status page depends on it being
 //     truly live in production". THIS FILE IS THAT ACCOUNT, closed.
-//   docs/strategy/2026-08-13-0263-design-task-book.md §9 (REQ-13-03 service-availability status page),
+//   docs/archive/strategy/2026-08-13-0263-design-task-book.md §9 (REQ-13-03 service-availability status page),
 //     §9-2.1 (the page only reads the most recent result + timestamp), §9-2.2 (anti-cache ⇒ unknown),
 //     §9-2.5 (no SLA, no percentage anywhere on the page), §9-2.6 (W-5a acceptance)
 //   apps/server-core/src/http/status-routes.ts   (the handler)
@@ -11,8 +11,8 @@
 //     under test)
 //   apps/server-core/src/bootstrap-http-deps.ts (`status: { snapshot: statusSnapshot` — the DEPS
 //     wiring under test)
-//   apps/server-core/src/bootstrap.ts:483 (`makeStatusProbes` — the ONE runner)
-//   apps/server-core/src/bootstrap.ts:736 (`statusProbes.start()` — armed after
+//   apps/server-core/src/bootstrap.ts:486 (`makeStatusProbes` — the ONE runner)
+//   apps/server-core/src/bootstrap.ts:744 (`statusProbes.start()` — armed after
 //     listen, which is why the boot round is already landing)
 //   apps/server-core/test/health-db-probe-wiring.test.ts (the precedent this mirrors)
 //   CLAUDE.md anti-façade ③: "unit tests all green prove nothing about wiring; every real path needs one real-end run"

@@ -9,7 +9,7 @@
 //     these two ② are different
 //     rulings in different numbering schemes and that dropping the date has
 //     already caused one window to fuse them.
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §4.4 (getting back to
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §4.4 (getting back to
 //     a usable state)
 //
 // ── THE ONE PARAGRAPH THAT MATTERS ──────────────────────────────────────────

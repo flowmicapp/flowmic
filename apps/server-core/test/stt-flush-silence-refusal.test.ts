@@ -63,6 +63,28 @@
 //    through `emitEngineError`, so neither control could have moved it.)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 CARD HANGUP-2 (2026-09-23) CHANGED WHAT THE HANG-UP ROWS CAN PROVOKE. The
+// idle hang-up no longer flushes a leg that was handed no audio
+// (`flushAndCloseLegForSilence` in orchestrator-rollover.ts, primary-owner
+// ruling) — the vendor is not asked a question whose answer is known — so the
+// production trace above can no longer happen AT THE HANG-UP at all: the
+// refusal is never provoked there. The rows below were rewritten to say so,
+// and the two whose PURPOSE needs a refused flush (the paired narrowing, the
+// bridge log line) now drive it through the TERMINAL flush, which still asks
+// (a release inside 3 s of silence) and still routes through the same
+// `emitEngineError` suppression. The reverse controls above were run on the
+// pre-HANGUP-2 rows.
+//
+// 🔴 CARD HANGUP-3 (2026-09-23) took the same rule to the TERMINAL flush (primary-owner ruling): a
+// release no longer asks a leg that was handed no audio either. So the three rows below that drove
+// the refusal through a release inside 3 s of silence can no longer provoke it; they now pin that
+// NOTHING is asked there (codes, final and log unchanged in meaning; the refusal count and the log
+// line flip). What they used to pin — the flush-phase suppression is code-specific, and a
+// suppressed refusal does not latch `flushErrored` — is no longer reachable from either exit on an
+// empty gated leg; it is listed as an open account in the card's report, not re-pinned here.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import type { SttEngineId } from '@flowmic/protocol';
@@ -105,6 +127,8 @@ class RefusingEngine extends EventEmitter implements SttEngine {
   private _state: EngineState = 'closed';
   pushes = 0;
   refuseFlushWith: SttEngineError | null = null;
+  /** Set ⇒ declare the engine preview-only (NR-50), the shape whose refused flush `noteFlushRefused` reads. */
+  interimIsPreviewOnly?: boolean;
   /** Set ⇒ open() rejects with this — the cold-open shape. */
   failOpenWith: SttEngineError | null = null;
   constructor(public readonly id: SttEngineId = 'soniox') { super(); }
@@ -141,15 +165,15 @@ interface Rig {
   lastFinal: () => { text: string; is_segment: boolean };
 }
 
-function harness(): Rig {
+function harness(opts: { softSegmentMs?: number; previewOnly?: boolean } = {}): Rig {
   const clock = new FakeClock();
   const session = new AudioSession({ now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout, hardLimitMs: 300_000 });
   session.start();
   const engines: RefusingEngine[] = [];
   let voiced = false;
-  const orch = new SttEngineOrchestrator(session, () => { const e = new RefusingEngine(); engines.push(e); return e; }, {
+  const orch = new SttEngineOrchestrator(session, () => { const e = new RefusingEngine(); if (opts.previewOnly) e.interimIsPreviewOnly = true; engines.push(e); return e; }, {
     now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
-    softSegmentMs: 600_000, engineFlushTimeoutMs: 1_000,
+    softSegmentMs: opts.softSegmentMs ?? 600_000, softSegmentGraceMs: 0, engineFlushTimeoutMs: 1_000,
     // The production pair engine-factory.ts hands a gated managed leg: the gate
     // as a predicate, and the hang-up armed at its real default.
     shouldFeedEngine: (): boolean => voiced,
@@ -178,7 +202,7 @@ function harness(): Rig {
 }
 
 describe('ENG-4 (flush phase): a vendor "no audio" refusal through the idle hang-up is about OUR silence', () => {
-  it('🔴 quiet for >3 s ⇒ the hang-up flush is refused, no stt:error goes out, the refusal is logged, the empty final still does', async () => {
+  it('🔴 quiet for >3 s ⇒ the empty leg is hung up WITHOUT a flush (HANGUP-2), so no refusal and no stt:error; the empty final still goes out', async () => {
     const rig = harness();
     await rig.orch.start({ language: 'en', mode: 'realtime' });
     rig.engines[0]!.refuseFlushWith = noAudio();
@@ -190,10 +214,9 @@ describe('ENG-4 (flush phase): a vendor "no audio" refusal through the idle hang
     expect(rig.engines[0]!.state).toBe('closed');
     // 🔴 The production symptom: this used to be ['STT_NO_ENGINE_REACHED'].
     expect(rig.codes()).toEqual([]);
-    // 🔴 Suppressed ≠ dropped — this is the event the bridge turns into the
-    // `stt.no-voice` log line (the bridge row below asserts the line itself).
-    expect(rig.events['error-suppressed']).toHaveLength(1);
-    expect((rig.events['error-suppressed'][0] as { message: string }).message).toContain('No audio received.');
+    // card HANGUP-2: nothing to suppress — the empty leg was never asked. (Before
+    // that card this was 1: the refusal arrived and ENG-4 suppressed it.)
+    expect(rig.events['error-suppressed']).toHaveLength(0);
 
     await rig.orch.stop();
     // The user is not left with silence: the empty terminal final is what makes
@@ -245,27 +268,34 @@ describe('ENG-4 (flush phase): a vendor "no audio" refusal through the idle hang
     await rig.orch.stop();
   });
 
-  it('PAIRED — a DIFFERENT permanent code in the same phase over the same silence is untouched', async () => {
+  it('card HANGUP-3 — released inside 3 s of silence, the empty leg is not asked, so even a DIFFERENT refusal is never provoked', async () => {
     // Positive control on the narrowing: the condition is not 「we heard
-    // nothing, so say nothing」.
+    // nothing, so say nothing」. card HANGUP-2: driven through the TERMINAL
+    // flush (released inside 3 s), because the hang-up no longer asks an empty
+    // leg anything; same phase (`flushing`), same exit (`emitEngineError`).
     const rig = harness();
     await rig.orch.start({ language: 'en', mode: 'realtime' });
     rig.engines[0]!.refuseFlushWith = new SttEngineError('STT_ENGINE_AUTH_FAIL', '[unauthorized] bad key', false);
-    await rig.quiet(SILENCE_CHUNKS);
-
-    expect(rig.codes()).toEqual(['STT_ENGINE_AUTH_FAIL']);
-    expect(rig.events['error-suppressed']).toHaveLength(0);
+    await rig.quiet(5);
+    expect(rig.engines[0]!.state).toBe('open'); // the hang-up never fired
     await rig.orch.stop();
+
+    // card HANGUP-3: the release no longer asks this empty leg, so not even a DIFFERENT refusal is
+    // provoked (it was ['STT_ENGINE_AUTH_FAIL']). See the header: the narrowing is no longer reachable here.
+    expect(rig.codes()).toEqual([]);
+    expect(rig.events['error-suppressed']).toHaveLength(0);
+    expect(rig.lastFinal()).toMatchObject({ text: '', is_segment: false });
   });
 
-  it('🔴 after a suppressed hang-up flush, speech arriving later still redials a fresh leg and produces interims', async () => {
+  it('🔴 after the empty leg is hung up, speech arriving later still redials a fresh leg and produces interims', async () => {
     // The 「fourth run」 of the trace: the session must survive the suppressed
     // refusal so the user who pauses and then speaks is transcribed.
     const rig = harness();
     await rig.orch.start({ language: 'en', mode: 'realtime' });
     rig.engines[0]!.refuseFlushWith = noAudio();
     await rig.quiet(SILENCE_CHUNKS);
-    expect(rig.events['error-suppressed']).toHaveLength(1);
+    expect(rig.engines[0]!.state).toBe('closed');
+    expect(rig.events['error-suppressed']).toHaveLength(0); // card HANGUP-2: nothing was asked, so nothing refused
     expect(rig.events.interim).toHaveLength(0);
 
     await rig.speak(5);
@@ -280,7 +310,7 @@ describe('ENG-4 (flush phase): a vendor "no audio" refusal through the idle hang
     expect(rig.lastFinal().text).not.toBe('');
   });
 
-  it('🔴 released BEFORE 3 s of silence ⇒ the terminal flush is refused, and the empty final is NOT withheld by the latch', async () => {
+  it('🔴 released BEFORE 3 s of silence ⇒ the empty leg is not asked (HANGUP-3), no refusal, and the empty final still goes out', async () => {
     // Same refusal, terminal path (`stop()` → `flushAndEmitFinal`). This is the
     // row that pins 「a suppressed refusal does not set flushErrored」: with the
     // latch set, `flushAndEmitFinal` returns without any final and the phone gets
@@ -293,11 +323,12 @@ describe('ENG-4 (flush phase): a vendor "no audio" refusal through the idle hang
     await rig.orch.stop();
 
     expect(rig.codes()).toEqual([]);
-    expect(rig.events['error-suppressed']).toHaveLength(1);
+    // card HANGUP-3: the release no longer asks this empty leg, so there is no refusal to suppress (it was 1).
+    expect(rig.events['error-suppressed']).toHaveLength(0);
     expect(rig.lastFinal()).toMatchObject({ text: '', is_segment: false });
   });
 
-  it('🔴 through the bridge: no stt:error on the wire, and the `stt.no-voice` line is what the log carries', async () => {
+  it('🔴 through the bridge: no stt:error on the wire, and no `stt.no-voice` line because nothing was asked (HANGUP-3)', async () => {
     // The wire-level assertion the trace's negative control was built on — the
     // three production runs had `stt.error emitted` and NO `stt.no-voice` line.
     const info = vi.spyOn(log, 'info').mockImplementation(() => undefined);
@@ -328,19 +359,22 @@ describe('ENG-4 (flush phase): a vendor "no audio" refusal through the idle hang
       await drain();
       engines[0]!.refuseFlushWith = noAudio();
       const silence = Buffer.alloc(CHUNK_BYTES).toString('base64');
-      for (let seq = 0; seq < SILENCE_CHUNKS; seq++) {
+      // card HANGUP-2: under 3 s, so the TERMINAL flush is the one refused (the
+      // hang-up no longer asks an empty leg — see the header note).
+      for (let seq = 0; seq < 5; seq++) {
         bridge.pushChunk(seq, silence, clock.now);
         await clock.advance(CHUNK_MS);
       }
       expect(engines[0]!.pushes).toBe(0);
-      expect(engines[0]!.state).toBe('closed');
+      expect(engines[0]!.state).toBe('open');
+      await bridge.finish();
 
       expect(emitted.filter((e) => e.event === 'stt:error')).toEqual([]);
+      // card HANGUP-3: the release no longer asks this empty leg, so the vendor never refuses and the
+      // `stt.no-voice` line has nothing to report (it used to be present).
       const line = info.mock.calls.find((c) => c[0] === 'stt.no-voice: vendor refused an empty session');
-      expect(line).toBeDefined();
-      expect(line![1]).toMatchObject({ code: 'STT_NO_ENGINE_REACHED', message: '[invalid_request] No audio received.' });
+      expect(line).toBeUndefined();
 
-      await bridge.finish();
       expect(emitted.filter((e) => e.event === 'stt:error')).toEqual([]);
       expect(emitted.find((e) => e.event === 'stt:final')?.payload).toMatchObject({ text: '', is_segment: false });
       // The renamed intake pair (trace §4-1's second finding): the billed,
@@ -353,5 +387,59 @@ describe('ENG-4 (flush phase): a vendor "no audio" refusal through the idle hang
       info.mockRestore();
       warn.mockRestore();
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 card HANGUP-3 — THE TWO PROPERTIES RE-PINNED on the one flush that still asks
+// an empty leg: the leg ROTATION (`rolloverSegment`, deliver=false, in
+// orchestrator-rollover.ts). Neither exit (hang-up, release) asks an empty leg any
+// more, so this is the only route left to the flush-phase suppression — reachable
+// whenever the segment cadence is shorter than the 3 s hang-up (1 s here; the
+// production pair is 30 s and 3 s, which is why it is rare, not why it is dead).
+// REVERSE CONTROLS, both run and both SAW RED 〔2026-09-23, lane-c, HANGUP-3〕:
+//   ① `emitEngineError`'s predicate widened to suppress EVERY code ⇒ 2 failed |
+//      7 passed: the narrowing row below (`expected [] to include
+//      'STT_ENGINE_AUTH_FAIL'`) and the older speech-passed PAIRED row above;
+//   ② `handleFlushError` latching `flushErrored` unconditionally ⇒ 1 failed |
+//      8 passed, the latch row: `expected [] to deeply equal [ 'STT_ENGINE_TIMEOUT' ]`.
+//   Each restored from a byte backup (cmp identical); same command green again.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ENG-4 (flush phase) re-pinned on the leg rotation (card HANGUP-3)', () => {
+  it('🔴 the suppression is about ONE code: a DIFFERENT permanent refusal of an empty rotating leg goes out, the no-audio one does not', async () => {
+    const other = harness({ softSegmentMs: 1_000 });
+    await other.orch.start({ language: 'en', mode: 'realtime' });
+    other.engines[0]!.refuseFlushWith = new SttEngineError('STT_ENGINE_AUTH_FAIL', '[unauthorized] bad key', false);
+    await other.quiet(6); // 1.2 s: past the 1 s rotation, well inside the 3 s hang-up
+    // RACE CONTROL — the rotation really ran on a leg that was handed nothing.
+    expect(other.engines.length).toBeGreaterThanOrEqual(2);
+    expect(other.engines[0]!.pushes).toBe(0);
+    expect(other.codes()).toContain('STT_ENGINE_AUTH_FAIL');
+    expect(other.events['error-suppressed']).toHaveLength(0);
+
+    // PAIRED — the same drive with the vendor's no-audio refusal: asked, refused, suppressed.
+    const same = harness({ softSegmentMs: 1_000 });
+    await same.orch.start({ language: 'en', mode: 'realtime' });
+    same.engines[0]!.refuseFlushWith = noAudio();
+    await same.quiet(6);
+    expect(same.engines.length).toBeGreaterThanOrEqual(2);
+    expect(same.codes()).toEqual([]);
+    expect(same.events['error-suppressed']).toHaveLength(1);
+    await other.orch.stop(); await same.orch.stop();
+  });
+
+  it('🔴 a SUPPRESSED refusal does not latch `flushErrored`: the refused-flush reader still speaks', async () => {
+    // The latch's other reader is `noteFlushRefused` (orchestrator-core.ts), which the
+    // rotation calls when a preview-only engine's flush is refused (NR-50). A latch set
+    // by a suppressed refusal would silence it: neither the vendor's refusal nor the
+    // withheld-flush frame would reach the phone, for a leg whose text was banked as ''.
+    const rig = harness({ softSegmentMs: 1_000, previewOnly: true });
+    await rig.orch.start({ language: 'en', mode: 'realtime' });
+    rig.engines[0]!.refuseFlushWith = noAudio();
+    await rig.quiet(6);
+    expect(rig.engines.length).toBeGreaterThanOrEqual(2); // RACE CONTROL: the rotation ran
+    expect(rig.events['error-suppressed']).toHaveLength(1); // the vendor's no-audio refusal was suppressed…
+    expect(rig.codes()).toEqual(['STT_ENGINE_TIMEOUT']); // …and did not latch: the refusal reader said so
+    await rig.orch.stop();
   });
 });

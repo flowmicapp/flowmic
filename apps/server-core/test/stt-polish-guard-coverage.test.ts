@@ -20,7 +20,7 @@
 // guarded (nunca / nada / ningún, not just `no`).
 //
 // Refs docs/decisions/2026-08-29-owner-english-as-auxiliary-language.md (R-2乙)
-//      docs/strategy/2026-08-28-multilingual-chain-audit.md §3 F3
+//      docs/archive/strategy/2026-08-28-multilingual-chain-audit.md §3 F3
 
 import { describe, expect, it } from 'vitest';
 import {

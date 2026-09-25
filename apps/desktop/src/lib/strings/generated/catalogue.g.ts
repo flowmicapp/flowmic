@@ -370,6 +370,8 @@ const S_EN_OWN = {
   cap_stt_loading: 'Loading model…',
   cap_stt_ready: 'Ready',
   cap_stt_reconnecting: 'Reconnecting…',
+  cap_stt_reconnecting_n: 'Reconnecting · try {n}',
+  cap_stt_reconnecting_n_of: 'Reconnecting · try {n}/{max}',
   cap_stt_failed: 'Failed',
   cap_phone_present: 'Phone present',
   cap_online: 'Online',
@@ -700,6 +702,7 @@ const S_EN_OWN = {
   set_prefs_autostart_unrecognised_shape: 'the response had an unrecognized shape',
   injected_into: 'Injected into {title} · {when}',
   dev_paired_default_name: 'Phone',
+  st_uncertain: 'Input uncertain',
 };
 
 const S_EN = {
@@ -710,7 +713,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 676/676 translated;
+// zh-CN (中文) — 679/679 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -1060,6 +1063,8 @@ const S_ZH_CN_OWN = {
   cap_stt_loading: '正在加载模型…',
   cap_stt_ready: '就绪',
   cap_stt_reconnecting: '重连中…',
+  cap_stt_reconnecting_n: '重连第 {n} 次',
+  cap_stt_reconnecting_n_of: '重连第 {n}/{max} 次',
   cap_stt_failed: '失败',
   cap_phone_present: '手机在场',
   cap_online: '在线',
@@ -1390,6 +1395,7 @@ const S_ZH_CN_OWN = {
   set_prefs_autostart_unrecognised_shape: '返回的数据格式无法识别',
   injected_into: '注入到 {title} · {when}',
   dev_paired_default_name: '手机',
+  st_uncertain: '输入结果未知',
 };
 
 const S_ZH_CN = {
@@ -1400,7 +1406,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 676/676 translated;
+// zh-TW (繁體中文) — 679/679 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1750,6 +1756,8 @@ const S_ZH_TW_OWN = {
   cap_stt_loading: '載入模型中…',
   cap_stt_ready: '就緒',
   cap_stt_reconnecting: '重新連線中…',
+  cap_stt_reconnecting_n: '重連第 {n} 次',
+  cap_stt_reconnecting_n_of: '重連第 {n}/{max} 次',
   cap_stt_failed: '失敗',
   cap_phone_present: '手機在場',
   cap_online: '線上',
@@ -2080,6 +2088,7 @@ const S_ZH_TW_OWN = {
   set_prefs_autostart_unrecognised_shape: '返回的資料格式無法識別',
   injected_into: '注入到 {title} · {when}',
   dev_paired_default_name: '手機',
+  st_uncertain: '輸入結果未明',
 };
 
 const S_ZH_TW = {
@@ -2090,7 +2099,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 676/676 translated;
+// fr (Français) — 679/679 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -2440,6 +2449,8 @@ const S_FR_OWN = {
   cap_stt_loading: 'Chargement du modèle…',
   cap_stt_ready: 'Prêt',
   cap_stt_reconnecting: 'Reconnexion…',
+  cap_stt_reconnecting_n: 'Reconnexion · essai {n}',
+  cap_stt_reconnecting_n_of: 'Reconnexion · {n}/{max}',
   cap_stt_failed: 'Échec',
   cap_phone_present: 'Téléphone présent',
   cap_online: 'En ligne',
@@ -2770,6 +2781,7 @@ const S_FR_OWN = {
   set_prefs_autostart_unrecognised_shape: 'la réponse avait un format non reconnu',
   injected_into: 'Injecté dans {title} · {when}',
   dev_paired_default_name: 'Téléphone',
+  st_uncertain: 'Saisie incertaine',
 };
 
 const S_FR = {
@@ -2780,7 +2792,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 676/676 translated;
+// es (Español) — 679/679 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -3130,6 +3142,8 @@ const S_ES_OWN = {
   cap_stt_loading: 'Cargando modelo…',
   cap_stt_ready: 'Listo',
   cap_stt_reconnecting: 'Reconectando…',
+  cap_stt_reconnecting_n: 'Reconectando · intento {n}',
+  cap_stt_reconnecting_n_of: 'Reconectando · intento {n}/{max}',
   cap_stt_failed: 'Error',
   cap_phone_present: 'Teléfono presente',
   cap_online: 'En línea',
@@ -3460,6 +3474,7 @@ const S_ES_OWN = {
   set_prefs_autostart_unrecognised_shape: 'la respuesta tenía un formato no reconocido',
   injected_into: 'Inyectado en {title} · {when}',
   dev_paired_default_name: 'Teléfono',
+  st_uncertain: 'Inserción incierta',
 };
 
 const S_ES = {
@@ -3470,7 +3485,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 676/676 translated;
+// de (Deutsch) — 679/679 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3820,6 +3835,8 @@ const S_DE_OWN = {
   cap_stt_loading: 'Modell wird geladen…',
   cap_stt_ready: 'Bereit',
   cap_stt_reconnecting: 'Verbindet neu…',
+  cap_stt_reconnecting_n: 'Verbindet neu · Versuch {n}',
+  cap_stt_reconnecting_n_of: 'Verbindet neu · Versuch {n}/{max}',
   cap_stt_failed: 'Fehlgeschlagen',
   cap_phone_present: 'Handy anwesend',
   cap_online: 'Online',
@@ -4150,6 +4167,7 @@ const S_DE_OWN = {
   set_prefs_autostart_unrecognised_shape: 'die Antwort hatte ein nicht erkanntes Format',
   injected_into: 'Eingefügt in {title} · {when}',
   dev_paired_default_name: 'Handy',
+  st_uncertain: 'Eingabe ungewiss',
 };
 
 const S_DE = {
@@ -4160,7 +4178,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 676/676 translated;
+// ja (日本語) — 679/679 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -4510,6 +4528,8 @@ const S_JA_OWN = {
   cap_stt_loading: 'モデル読み込み中…',
   cap_stt_ready: '準備完了',
   cap_stt_reconnecting: '再接続中…',
+  cap_stt_reconnecting_n: '再接続 {n} 回目',
+  cap_stt_reconnecting_n_of: '再接続 {n}/{max} 回目',
   cap_stt_failed: '失敗',
   cap_phone_present: 'スマホ検出',
   cap_online: 'オンライン',
@@ -4840,6 +4860,7 @@ const S_JA_OWN = {
   set_prefs_autostart_unrecognised_shape: '応答の形式を認識できませんでした',
   injected_into: '{title} に注入 · {when}',
   dev_paired_default_name: 'スマホ',
+  st_uncertain: '入力結果不明',
 };
 
 const S_JA = {
@@ -4850,7 +4871,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 676/676 translated;
+// ko (한국어) — 679/679 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -5200,6 +5221,8 @@ const S_KO_OWN = {
   cap_stt_loading: '모델 불러오는 중…',
   cap_stt_ready: '준비됨',
   cap_stt_reconnecting: '재연결 중…',
+  cap_stt_reconnecting_n: '재연결 {n}회차',
+  cap_stt_reconnecting_n_of: '재연결 {n}/{max}회차',
   cap_stt_failed: '실패',
   cap_phone_present: '휴대폰 있음',
   cap_online: '온라인',
@@ -5530,6 +5553,7 @@ const S_KO_OWN = {
   set_prefs_autostart_unrecognised_shape: '응답 형식을 인식할 수 없습니다',
   injected_into: '{title}에 삽입됨 · {when}',
   dev_paired_default_name: '휴대폰',
+  st_uncertain: '입력 결과 불확실',
 };
 
 const S_KO = {
@@ -5540,7 +5564,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 676/676 translated;
+// ru (Русский) — 679/679 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -5890,6 +5914,8 @@ const S_RU_OWN = {
   cap_stt_loading: 'Загрузка модели…',
   cap_stt_ready: 'Готов',
   cap_stt_reconnecting: 'Переподключение…',
+  cap_stt_reconnecting_n: 'Переподключение · {n}',
+  cap_stt_reconnecting_n_of: 'Переподключение · {n}/{max}',
   cap_stt_failed: 'Ошибка',
   cap_phone_present: 'Телефон на связи',
   cap_online: 'Онлайн',
@@ -6220,6 +6246,7 @@ const S_RU_OWN = {
   set_prefs_autostart_unrecognised_shape: 'ответ имел нераспознанный формат',
   injected_into: 'Вставлено в {title} · {when}',
   dev_paired_default_name: 'Телефон',
+  st_uncertain: 'Результат ввода неясен',
 };
 
 const S_RU = {
@@ -6258,9 +6285,12 @@ const REASON_EN: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'This window does not accept images',
   INJECT_SECURE_INPUT_ACTIVE: 'The system is in secure input mode (password field / lock screen)',
   INJECT_NO_ACCESSIBILITY: 'FlowMic has no Accessibility permission · System Settings ▸ Privacy & Security ▸ Accessibility',
+  INJECT_WAYLAND_UNSUPPORTED: 'Cannot type into other windows',
+  INJECT_DISPLAY_UNAVAILABLE: 'Cannot type in this display environment',
+  INJECT_SUBMISSION_UNCERTAIN: 'Part of the text may already be typed.',
 };
 
-// zh-CN (中文) — 10/10 translated;
+// zh-CN (中文) — 13/13 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_ZH_CN: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6274,9 +6304,12 @@ const REASON_ZH_CN: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: '当前目标窗口不支持接收图片',
   INJECT_SECURE_INPUT_ACTIVE: '系统处于安全输入状态（密码框或锁屏）',
   INJECT_NO_ACCESSIBILITY: '未授予 FlowMic「辅助功能」权限（系统设置 ▸ 隐私与安全性 ▸ 辅助功能）',
+  INJECT_WAYLAND_UNSUPPORTED: 'Wayland 环境下无法向其他窗口输入',
+  INJECT_DISPLAY_UNAVAILABLE: '当前显示环境下无法输入',
+  INJECT_SUBMISSION_UNCERTAIN: '部分文本可能已输入。',
 };
 
-// zh-TW (繁體中文) — 10/10 translated;
+// zh-TW (繁體中文) — 13/13 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_ZH_TW: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6290,9 +6323,12 @@ const REASON_ZH_TW: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: '這個視窗接不了圖片',
   INJECT_SECURE_INPUT_ACTIVE: '系統正處於安全輸入狀態（密碼欄位 / 鎖定畫面）',
   INJECT_NO_ACCESSIBILITY: '還沒給 FlowMic「輔助使用」權限 · 系統設定 ▸ 隱私權與安全性 ▸ 輔助使用',
+  INJECT_WAYLAND_UNSUPPORTED: 'Wayland 不支援輸入至其他視窗',
+  INJECT_DISPLAY_UNAVAILABLE: '無法在此顯示環境輸入',
+  INJECT_SUBMISSION_UNCERTAIN: '部分文字可能已輸入。',
 };
 
-// fr (Français) — 10/10 translated;
+// fr (Français) — 13/13 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_FR: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6306,9 +6342,12 @@ const REASON_FR: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: "Cette fenêtre n'accepte pas les images",
   INJECT_SECURE_INPUT_ACTIVE: 'Le système est en mode saisie sécurisée (champ de mot de passe / écran de verrouillage)',
   INJECT_NO_ACCESSIBILITY: "FlowMic n'a pas l'autorisation Accessibilité · Réglages Système ▸ Confidentialité et sécurité ▸ Accessibilité",
+  INJECT_WAYLAND_UNSUPPORTED: 'Saisie indisponible sous Wayland',
+  INJECT_DISPLAY_UNAVAILABLE: 'Affichage indisponible pour la saisie',
+  INJECT_SUBMISSION_UNCERTAIN: 'La saisie est peut-être partielle.',
 };
 
-// es (Español) — 10/10 translated;
+// es (Español) — 13/13 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_ES: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6322,9 +6361,12 @@ const REASON_ES: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'Esta ventana no acepta imágenes',
   INJECT_SECURE_INPUT_ACTIVE: 'El sistema está en modo de entrada segura (campo de contraseña / pantalla de bloqueo)',
   INJECT_NO_ACCESSIBILITY: 'FlowMic no tiene el permiso de Accesibilidad · Ajustes del Sistema ▸ Privacidad y seguridad ▸ Accesibilidad',
+  INJECT_WAYLAND_UNSUPPORTED: 'Escritura no disponible en Wayland',
+  INJECT_DISPLAY_UNAVAILABLE: 'Escritura no disponible en este entorno gráfico',
+  INJECT_SUBMISSION_UNCERTAIN: 'La inserción puede ser parcial.',
 };
 
-// de (Deutsch) — 10/10 translated;
+// de (Deutsch) — 13/13 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_DE: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6338,9 +6380,12 @@ const REASON_DE: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'Dieses Fenster nimmt keine Bilder an',
   INJECT_SECURE_INPUT_ACTIVE: 'Das System ist im sicheren Eingabemodus (Passwortfeld / Sperrbildschirm)',
   INJECT_NO_ACCESSIBILITY: 'FlowMic hat keine Bedienungshilfen-Berechtigung · Systemeinstellungen ▸ Datenschutz & Sicherheit ▸ Bedienungshilfen',
+  INJECT_WAYLAND_UNSUPPORTED: 'Texteingabe unter Wayland nicht verfügbar.',
+  INJECT_DISPLAY_UNAVAILABLE: 'Texteingabe in dieser Umgebung nicht möglich',
+  INJECT_SUBMISSION_UNCERTAIN: 'Eventuell nur teilweise eingegeben.',
 };
 
-// ja (日本語) — 10/10 translated;
+// ja (日本語) — 13/13 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_JA: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6354,9 +6399,12 @@ const REASON_JA: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'このウィンドウは画像を受け取れません',
   INJECT_SECURE_INPUT_ACTIVE: 'システムがセキュア入力状態です（パスワード欄 / ロック画面）',
   INJECT_NO_ACCESSIBILITY: 'FlowMic に「アクセシビリティ」の許可がありません · システム設定 ▸ プライバシーとセキュリティ ▸ アクセシビリティ',
+  INJECT_WAYLAND_UNSUPPORTED: '他ウィンドウへの入力に対応していません',
+  INJECT_DISPLAY_UNAVAILABLE: 'ディスプレイが利用できません',
+  INJECT_SUBMISSION_UNCERTAIN: '一部のみ入力された可能性があります。',
 };
 
-// ko (한국어) — 10/10 translated;
+// ko (한국어) — 13/13 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_KO: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6370,9 +6418,12 @@ const REASON_KO: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: '이 창은 이미지를 받을 수 없습니다',
   INJECT_SECURE_INPUT_ACTIVE: '시스템이 보안 입력 상태입니다 (암호 입력란 / 잠금 화면)',
   INJECT_NO_ACCESSIBILITY: 'FlowMic에 「손쉬운 사용」 권한이 없습니다 · 시스템 설정 ▸ 개인정보 보호 및 보안 ▸ 손쉬운 사용',
+  INJECT_WAYLAND_UNSUPPORTED: 'Wayland에서는 다른 창 입력이 지원되지 않습니다.',
+  INJECT_DISPLAY_UNAVAILABLE: '현재 디스플레이 환경에서는 입력할 수 없습니다.',
+  INJECT_SUBMISSION_UNCERTAIN: '텍스트가 일부만 입력되었을 수 있습니다.',
 };
 
-// ru (Русский) — 10/10 translated;
+// ru (Русский) — 13/13 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_RU: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6386,6 +6437,9 @@ const REASON_RU: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'Это окно не принимает изображения',
   INJECT_SECURE_INPUT_ACTIVE: 'Система в режиме защищённого ввода (поле пароля / экран блокировки)',
   INJECT_NO_ACCESSIBILITY: 'У FlowMic нет разрешения «Универсальный доступ» · Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ',
+  INJECT_WAYLAND_UNSUPPORTED: 'Ввод в другие окна недоступен в Wayland',
+  INJECT_DISPLAY_UNAVAILABLE: 'Ввод недоступен в этой графической среде',
+  INJECT_SUBMISSION_UNCERTAIN: 'Возможно, текст введён не полностью.',
 };
 
 export const INJECT_FAIL_REASON_BY_LOCALE: Record<UiLocale, Record<PcInjectionCode, string>> = {

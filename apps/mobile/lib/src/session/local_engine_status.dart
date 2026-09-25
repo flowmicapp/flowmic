@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-06-owner-requirement-p8-engine-status-in-diagnostics.md
 //   docs/decisions/2026-08-06-p-wave-choices-by-first-responsible.md (P-8 question 2/question 3)
-//   docs/strategy/2026-08-07-p8-local-engine-status-design-and-handoff.md
+//   docs/archive/strategy/2026-08-07-p8-local-engine-status-design-and-handoff.md
 //   apps/mobile/lib/src/session/pc_presence_probe.dart (the precedent that
 //     "could not ask IS itself an answer")
 //

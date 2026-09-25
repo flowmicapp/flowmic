@@ -328,7 +328,8 @@ function stageSherpaAddon() {
     );
   }
   // 🔴 SIZE, SAID OUT LOUD. CLAUDE.md keeps a standing account of the download
-  // centre's steady state, and this line is ~22 MB per artifact × every artifact
+  // centre's steady state (D-9; the round it came from is
+  // docs/archive/CLAUDE-HISTORY.md §232-233), and this line is ~22 MB per artifact × every artifact
   // in a round. Printing it here is cheaper than discovering it when a disk fills.
   console.log(
     `[build-sidecar] ⚠️ sherpa addon adds ${fmtBytes(bytes)} per artifact — update the size ledger when this moves.`,

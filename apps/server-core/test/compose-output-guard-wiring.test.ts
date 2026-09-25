@@ -6,7 +6,7 @@
 // bug class, and the previous window shipped exactly that INSIDE the gate meant
 // to catch it: the merge replay imported the fixed fold and drove it directly,
 // so reverting the production call site left the gate fully green
-// (docs/strategy/2026-08-06-w2-transcription-quality-ledger.md §6 item 4,
+// (docs/archive/strategy/2026-08-06-w2-transcription-quality-ledger.md §6 item 4,
 // logged there as A-8 — 🔴 disambiguated 2026-08-07: "ledger §6-4" named
 // neither a file nor a real section number; the account it points to does
 // exist, just not at that address).

@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ④ (`resolveUserId` made
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-1 ④ (`resolveUserId` made
 //     real: HTTP Bearer→sub; standalone stays 'default' unchanged)
 //   docs/decisions/2026-07-31-owner-nine-rulings-batch.md A3 (owner: do it
 //     immediately, as Paddle's first card)

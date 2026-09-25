@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
+//   docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
 //     §7 (the routes grow on the existing three paths; download/cancel carry
 //     `model_id`; a body-less download must fail loud, never silently fetch
 //     SenseVoice; machine-wide single flight), owner addition 2026-08-22

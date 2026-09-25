@@ -3,7 +3,7 @@
 // SPEC-REF: docs/rebuild/05-DATA-MODEL.md §2 (`逐条目 AES-256-GCM(nonce12B
 //   random, aad=entry.id, tag128)` — "per-entry AES-256-GCM(nonce 12B random,
 //   aad=entry.id, tag 128)"; wire form `e2e:v1:` + base64);
-//   docs/strategy/2026-08-08-design-e-blindstore-client.md §2, §3, §7-2.
+//   docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §2, §3, §7-2.
 //
 // Wire format:
 //     e2e:v1:<base64( nonce(12) ‖ tag(16) ‖ ciphertext )>

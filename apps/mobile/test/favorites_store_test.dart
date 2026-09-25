@@ -3,7 +3,7 @@
 // SPEC-REF: docs/ui-design/REDESIGN-PLAN.md §2 F-5 (local ≤50 「最老裁剪」 /
 //   save current buffer / history row → favorite / tap-to-send / exact match
 //   with history shows ⭐), §6.4 (F-5's 50 and custom-terms' 100 are two
-//   separate caps); docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-3 ③.
+//   separate caps); docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-3 ③.
 //
 // Storage is shared_preferences (the repo's existing device-local pref family),
 // NOT Hive as F-5's prose says — see local_prefs.dart kFavoritesKey for why.

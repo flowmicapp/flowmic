@@ -45,6 +45,8 @@ import { PC_PRESENCE_PATH } from './presence-routes';
 // integrator's page sees an opaque network failure instead of「ask the writer」.
 // Closing that is a decision about the replica guard's own response, not about
 // this list, and it is registered rather than taken here.
+// W6a correction (2026-09-22): router.ts now grants this path's POST 421 too.
+// The browser can read the refusal and writer URL; the replica still cannot mint.
 export const WEB_CORS_PREFLIGHT_PATHS = new Set<string>([
   PC_PRESENCE_PATH,
   '/api/node/list',

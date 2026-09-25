@@ -2115,6 +2115,18 @@
       "name": "cap_stt_reconnecting"
     },
     {
+      "key": "cap_stt_reconnecting_n",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_stt_reconnecting_n"
+    },
+    {
+      "key": "cap_stt_reconnecting_n_of",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "cap_stt_reconnecting_n_of"
+    },
+    {
       "key": "cap_stt_failed",
       "shard": "capsule",
       "kind": "string",
@@ -4284,6 +4296,30 @@
       "shard": "devices",
       "kind": "string",
       "name": "dev_paired_default_name"
+    },
+    {
+      "key": "st_uncertain",
+      "shard": "timeline",
+      "kind": "string",
+      "name": "st_uncertain"
+    },
+    {
+      "key": "injectFailReason.INJECT_WAYLAND_UNSUPPORTED",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_WAYLAND_UNSUPPORTED"
+    },
+    {
+      "key": "injectFailReason.INJECT_DISPLAY_UNAVAILABLE",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_DISPLAY_UNAVAILABLE"
+    },
+    {
+      "key": "injectFailReason.INJECT_SUBMISSION_UNCERTAIN",
+      "shard": "capsule",
+      "kind": "string",
+      "name": "INJECT_SUBMISSION_UNCERTAIN"
     }
   ]
 }

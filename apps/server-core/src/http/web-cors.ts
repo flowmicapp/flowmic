@@ -118,6 +118,11 @@ export function handleWebCorsPreflight(
 //  ③ SCOPE IS ONE PATH. These helpers are exported, but the only caller is the
 //     room route; nothing else on this server reflects an origin, and the
 //     allow-list above stays the answer everywhere else.
+// W6a correction (2026-09-22): router.ts also calls the reflection for this
+// SAME path's replica POST refusal, before the room handler can run. It only
+// exposes NODE_IS_REPLICA and the writer URL, never room credentials. The key
+// is publishable, not secret (integrator-quota.ts); registered Origins and the
+// per-key quota bound its use, and Origin can still be forged outside browsers.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The methods and headers the room route's preflight announces. Named here,

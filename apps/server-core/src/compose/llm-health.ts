@@ -3,7 +3,7 @@
 //     liveness primitive this mirrors ONE FOR ONE: open the REAL production
 //     adapter path, let the provider's own error channel speak, classify a verdict
 //     fatal-vs-transient, and send NOTHING that would be billed)
-//   docs/strategy/2026-08-06-w1-engine-switch-ledger.md §5 (FB-11: production
+//   docs/archive/strategy/2026-08-06-w1-engine-switch-ledger.md §5 (FB-11: production
 //     deliberately does not configure the STT pool ⇒ health probing/auto-failover
 //     belongs to a later window; "the switchable half of the two lines" = the env
 //     0/1 toggle-back)

@@ -2,7 +2,7 @@
 //
 // SPEC-REF:
 //   docs/decisions/2026-08-02-in-app-update-both-ends.md (owner 2026-08-02)
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md  (the implementation design)
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md  (the implementation design)
 //   apps/server-core/src/http/update-routes.ts           (the contract consumed)
 //
 // ── WHAT IS HERE AND WHAT IS NOT ────────────────────────────────────────────

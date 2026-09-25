@@ -31,6 +31,7 @@ Future<void> _createSchema(Database d) async {
   await _createOutboxSchema(d);
   await _createInstanceMachineMapSchema(d);
   await _createBlindStoreCloudStateSchema(d);
+  await installMcpSchemaV8(d);
 }
 
 /// v6 (card E-CL) — the blind store's local ledger, FINAL shape. `onCreate` only.

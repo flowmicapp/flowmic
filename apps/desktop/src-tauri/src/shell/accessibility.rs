@@ -30,7 +30,7 @@
 // grant to the application's code signature, so a fresh install or a change of
 // signing identity is exactly when this state is most likely and most confusing.
 //
-// ⚠️ CLAUDE.md carries a standing note that `inject:result` codes are 「只有手机
+// ⚠️ CLAUDE.md carries a standing note (D-34) that `inject:result` codes are 「只有手机
 // 看得到…别给桌面补文案」 ("only the phone sees these — do not add desktop copy
 // for them"). ⚠️ That note is itself out of date for this code — the capsule DOES
 // render it (above) — but its intent still applies and this module is still the

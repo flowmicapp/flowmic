@@ -1,7 +1,7 @@
 // FlowMic → GitHub Releases publisher (S7, 0.3.0).
 //
 // STATUS: this is new tooling written for the S1/S7 gap "GitHub Releases upload
-// has zero tooling" (docs/strategy/2026-08-04-0.3.0-task-book-cn.md S1/S7). It
+// has zero tooling" (docs/archive/strategy/2026-08-04-0.3.0-task-book-cn.md S1/S7). It
 // has been syntax-checked and dry-run tested against THIS repo's real
 // CHANGELOG.md and git remote, but has never made a real network call — there
 // is no GitHub Releases entry anywhere that this script produced. The owner

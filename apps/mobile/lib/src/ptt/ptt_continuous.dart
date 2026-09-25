@@ -52,6 +52,18 @@
 // which the server enforces. Hard server enforcement would cost a new
 // `audio:start` field and a new closed-enum stop reason — a protocol gate, and
 // a relay-before-APK deployment.
+//
+// ⚠️ 更正（RC-1，2026-09-24）: the first half of the sentence above — 「would
+// cost a new `audio:start` field」 — is no longer true. The field exists:
+// `continuous: true` (card RC-1, additive optional on `AudioStartSchema`),
+// written by `AudioStartPayload.continuous` (signaling/wire_payloads.dart) and
+// set by `pttDown` (ptt_edges.dart) whenever `continuous.isActive`. It answers
+// a different question from this paragraph's: the relay reads it to give a
+// long recording the unbounded engine-reconnect ladder (root-cause §5 RC-1),
+// NOT to enforce the ceiling. The other half — a closed-enum stop reason and
+// the server stopping a recording at the ceiling — is still not built, so this
+// is still a client-side ceiling. The original sentence stays: it was true
+// when it was written.
 
 part of 'ptt_session.dart';
 
@@ -79,7 +91,14 @@ extension PttSessionContinuous on PttSession {
   /// treating this as 「a long recording ended」: this says only 「the answer may
   /// have changed」.
   void wireCaptureEndedEdge() {
+    RecorderState? was; // NR-96-B, read by the two lines below only
     _recorderStateSub = audio.state.listen((RecorderState s) {
+      // NR-96-B — the engine chip describes ONE capture: it ends with it, and
+      // a fresh capture (not a resume from pause) starts without it — a frame
+      // that landed between two presses was about a session already closed.
+      final bool fresh = s == RecorderState.recording && was != RecorderState.paused;
+      was = s;
+      if (fresh || s == RecorderState.stopped) engineReconnect.noteCaptureBoundary();
       if (s != RecorderState.stopped) return;
       captureStopped.value += 1;
       // The PC-release exit rides `releaseCooldown.tick` and nothing else, so
@@ -174,6 +193,46 @@ extension PttSessionContinuous on PttSession {
     return articleId;
   }
 
+  /// Card RC-3 — a TERMINAL `stt:error` ends a long recording's capture.
+  ///
+  /// 🔴 THE HOLE (root-cause 2026-09-24 §1.2): `FlowmicStateMachine
+  /// .onSttTerminalError` LATCHES a terminal error while RECORDING and lets
+  /// capture go on until the press ends — right for a press, which ends seconds
+  /// later. A long recording has no release, and nothing here listened, so the
+  /// microphone ran on for 4:41 after the relay said the session was over,
+  /// with the timer and 「recording」 on screen and not one word coming back.
+  ///
+  /// ⇒ on a terminal error in a continuous session, stop through [pttUp] —
+  /// the user's own stop: the continuous verbs go off (C8), the tail and
+  /// `audio:stop` go out, the latch is consumed into the stall that carries
+  /// the engine's named code (so the banner says WHICH refusal), and rows and
+  /// retention settle the way they always do on a stop.
+  ///
+  /// ⚠️ TERMINAL ONLY. A retryable error / a `reconnecting` frame is the relay
+  /// still trying; the recording carries on and the audio is kept (RC-3's
+  /// `ContinuousOffline.engineKept`). `sttErrorImmediate` carries only the
+  /// `retryable:false` arm (ptt_inbound.dart filters the other one).
+  ///
+  /// ⚠️ A MICROTASK LATER, NOT INSIDE THE EVENT. The event fires from inside
+  /// `onSttTerminalError` BEFORE the latch is written; stopping synchronously
+  /// would move the FSM under its own feet. One turn later the latch is there
+  /// and [pttUp] consumes it the ordinary way.
+  void wireContinuousTerminalErrorStop() {
+    fsm.sttErrorImmediate.listen((SttStall s) {
+      if (!continuous.isActive) return;
+      scheduleMicrotask(() {
+        if (!continuous.isActive || fsm.session != SessionState.recording) {
+          return;
+        }
+        diag('audio.continuous.stopped_terminal_error', <String, Object?>{
+          'code': s.code,
+          'article': articles.liveArticleId,
+        });
+        unawaited(pttUp());
+      });
+    });
+  }
+
   /// Turn all three back off. Idempotent, cheap, and safe on a capture that was
   /// never continuous — see the header for why that matters more than it looks.
   /// 🔴 AND IT DELIBERATELY DOES **NOT** CLOSE THE SCRIBE. Read this before
@@ -196,6 +255,12 @@ extension PttSessionContinuous on PttSession {
   /// resources — a wake lock, a timer, a flag the link-loss edge reads — and
   /// every one of them must be off on every exit. The scribe holds a string.
   void endContinuous() {
+    // Card RC-3 — FIRST, while the flag and the journal are both still open:
+    // a recording that ends with the link or the engine down owes its tail,
+    // and this is the last moment it can be measured and written onto the
+    // manifest (ptt_capture_pump.dart `_accountOutageForArticle`). A no-op on
+    // every healthy ending and on every call after the first.
+    _accountOutageForArticle(recordingEnding: true);
     capTimer.disarm();
     continuous.end();
     audio.retainedAudio?.endSession();
@@ -292,6 +357,7 @@ extension PttSessionContinuous on PttSession {
     // session that no longer exists the moment the socket returns.
     _stopHeartbeat();
     endContinuous();
+    articles.attempts.liveSettled(); // follow-up: no stop reached the relay
     diag('audio.continuous.cap_reached_offline', <String, Object?>{
       'kept': kept,
       'recorder_was': was.name,

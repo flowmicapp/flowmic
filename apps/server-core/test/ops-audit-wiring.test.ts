@@ -2,7 +2,7 @@
 //
 // SPEC-REF: src/http/ops-audit-trail.ts (the gate's trail, and its failure policy)
 //           src/db/repos/ops-audit.repo.ts (the file header this test discharges)
-//           docs/strategy/2026-08-02-o2-usage-route-contract.md §1.3
+//           docs/archive/strategy/2026-08-02-o2-usage-route-contract.md §1.3
 //           CLAUDE.md anti-façade ①③④ / red line: no silent failure
 //
 // WHY THIS FILE EXISTS, in one sentence: `ops-audit.repo.ts`'s header says

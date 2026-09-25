@@ -6,7 +6,7 @@
 //     verification and password recovery live on the web only.)
 //   docs/decisions/2026-08-11-owner-mobile-register-removed-guide-to-website.md
 //     (the earlier half of the same movement: no in-app registration)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R3-3 (fail-loud when the server login
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R3-3 (fail-loud when the server login
 //     handler is a stub — never fabricate success)
 //
 // The cloud-instance sign-in sheet. TWO entries and nothing else.

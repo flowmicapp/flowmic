@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS users (
   plan            TEXT NOT NULL DEFAULT 'free',
   locale          TEXT NOT NULL DEFAULT 'zh-CN',
   is_admin        INTEGER NOT NULL DEFAULT 0,
-  -- Window D1 §3.1 (docs/strategy/2026-08-01-d1-paddle-sandbox-design.md):
+  -- Window D1 §3.1 (docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md):
   -- owner's private-domain account marker bit. owner ruled 2026-07-31
   -- (docs/decisions/2026-07-31-owner-window-a-four-rulings.md §4) "no trial —
   -- owner goes through a real permanent_free marker bit" — it is a real,
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS users (
   -- reconcileSchema and BACKFILLS NOTHING. The one place it becomes a verdict is
   -- auth/verification-grace.ts "verificationGrace"; nothing else may decide.
   verify_grace_until INTEGER,
-  -- A2-3 "restricted use" (docs/strategy/2026-08-12-a2-3-restricted-use-design.md §8-1;
+  -- A2-3 "restricted use" (docs/archive/strategy/2026-08-12-a2-3-restricted-use-design.md §8-1;
   -- owner ruling docs/decisions/owner-web-rulings/latest.md:71): ms-since-epoch
   -- when an operator RESTRICTED this account; NULL = not restricted.
   --
@@ -453,7 +453,7 @@ ${OPS_SQL}
 
 -- 11. timeline_keymeta (card SALT-1, 2026-08-11 -- per-account blind-store key
 --     metadata: the Argon2id KDF salt + the passphrase-verification sentinel.
---     Design: docs/strategy/2026-08-11-design-e-multidevice-salt.md, section 3.1)
+--     Design: docs/archive/strategy/2026-08-11-design-e-multidevice-salt.md, section 3.1)
 --
 -- PLAINTEXT COLUMNS, DELIBERATELY. This row is what a second device reads
 -- BEFORE it has any key, so it cannot ride the 「e2e:v1:」 envelope it exists to

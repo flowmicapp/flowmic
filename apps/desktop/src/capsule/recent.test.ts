@@ -18,6 +18,8 @@ import type { WireHistoryItem } from '../lib/types';
 import {
   deriveSessionTitle,
   onConnection,
+  onHistoryItem,
+  onInjectResult,
   resetDirectoryEdgeForTest,
   setDirectoryFetcher,
   state,
@@ -28,6 +30,17 @@ import {
 
 const capsuleVue = readFileSync(fileURLToPath(new URL('./CapsuleApp.vue', import.meta.url)), 'utf8');
 const capsuleCss = readFileSync(fileURLToPath(new URL('../styles/capsule.css', import.meta.url)), 'utf8');
+
+it('keeps the local uncertain verdict on a cached recent row after a history replay', () => {
+  state.channel = 'lan';
+  state.recent = [];
+  const item = wire({ status: 'cached' });
+  onHistoryItem({ item, channel: 'lan' });
+  onInjectResult({ ok: false, mode: 'clipboard', error: 'INJECT_SUBMISSION_UNCERTAIN',
+    row_id: item.id, channel: 'lan' });
+  onHistoryItem({ item: { ...item, status: 'failed' }, channel: 'lan' });
+  expect(state.recent[0]).toMatchObject({ status: 'cached', cachedCause: 'INJECT_SUBMISSION_UNCERTAIN' });
+});
 
 const wire = (over: Partial<WireHistoryItem>): WireHistoryItem => ({
   id: 'r1',

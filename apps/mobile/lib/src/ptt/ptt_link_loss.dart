@@ -155,11 +155,42 @@ extension PttSessionLinkLoss on PttSession {
   ///     banner the recorder has already resumed.
   /// Accepting `paused` in both would put a true-looking sentence on screen
   /// during the one window in which it is false.
+  ///
+  /// ⚠️ 更正（RC-3，2026-09-24）：原为「链路断」一种成因——the getter read
+  /// `spill != null && !spill.uplinkUp` and nothing else. Card RC-3 (NR-96
+  /// card F's phone half, root-cause §1.2) widens it to 「link down OR speech
+  /// engine down」: when the relay loses its engine leg the socket is healthy,
+  /// the old conjunct stayed false, and the sentence 「audio kept on this
+  /// phone」 never appeared although every byte was going into the journal. The
+  /// licence rule above is unchanged; [continuousOffline] says WHICH cause, so
+  /// no reader can print 「link down」 about an engine outage.
   bool get continuousCapturingOffline {
-    if (!continuous.isActive) return false;
-    if (audio.currentState != RecorderState.recording) return false;
+    final ContinuousOffline o = continuousOffline;
+    return o == ContinuousOffline.linkKept || o == ContinuousOffline.engineKept;
+  }
+
+  /// Card RC-3 — the cause behind [continuousCapturingOffline], plus the one
+  /// state that getter must stay false for: the engine is down and the audio
+  /// is NOT being kept here ([ContinuousOffline.engine], the SEG-2 「plain」
+  /// sentence).
+  ///
+  /// 🔴 THE ENGINE ARM ASKS FOR THE JOURNAL FACE, NOT FOR 「a spill exists」.
+  /// The legacy face writes only while the UPLINK is down (spill header, E7);
+  /// during an engine outage the socket is up, so on that face nothing reaches
+  /// the disk and 「kept on this phone」 would be the unbacked promise 15 册
+  /// §2.0-b bans. The journal face writes from the first frame whatever either
+  /// link is doing (card LS-2), which is what licenses the kept sentence here.
+  ContinuousOffline get continuousOffline {
+    if (!continuous.isActive) return ContinuousOffline.none;
+    if (audio.currentState != RecorderState.recording) {
+      return ContinuousOffline.none;
+    }
     final RetainedAudioSpill? spill = audio.retainedAudio;
-    return spill != null && !spill.uplinkUp;
+    if (spill != null && !spill.uplinkUp) return ContinuousOffline.linkKept;
+    if (!engineReconnect.engineDown) return ContinuousOffline.none;
+    return spill != null && spill.retainFromFirstFrame
+        ? ContinuousOffline.engineKept
+        : ContinuousOffline.engine;
   }
 
   /// Card CR-3 — end a continuous recording that has outlived its link.
@@ -197,7 +228,12 @@ extension PttSessionLinkLoss on PttSession {
   /// than a gap. If cancel is ever added it needs its own answer for the audio
   /// already on disk, which is card CR-4's subject, not this one's.
   bool stopContinuousOffline() {
-    if (!continuousCapturingOffline) return false;
+    // RC-3 — the LINK cause only. An engine outage leaves the socket up, so the
+    // ordinary release (`audio:stop`, the terminal final) is still true there.
+    if (continuousOffline != ContinuousOffline.linkKept) return false;
+    // RC-3 — the owed tail is measured while the journal is still open; the
+    // stop below closes it (see `_accountOutageForArticle`).
+    _accountOutageForArticle(recordingEnding: true);
     final bool kept = audio.stopForLinkLoss();
     _stopHeartbeat();
     // CR-9 (C8, exit 1 of 5 — this is the offline half of the user's stop).
@@ -205,6 +241,10 @@ extension PttSessionLinkLoss on PttSession {
     // recording turned on. The screen hold and the ceiling's clock came with
     // it, and a recording that ends here used to leave both running.
     endContinuous();
+    // Follow-up (MAIN 2026-09-24) — no `audio:stop` reached the relay, so no
+    // live final is owed on this socket: the wire is free for recovery (an
+    // owed tail keeps its own hold, `ArticleScribe.owedTailPendingFor`).
+    articles.attempts.liveSettled();
     diag('audio.continuous.stopped_offline', <String, Object?>{'kept': kept});
     final String reason =
         kept ? kLocalStopReasonLinkLossKept : kLocalStopReasonLinkLoss;
@@ -226,4 +266,24 @@ extension PttSessionLinkLoss on PttSession {
     });
     return true;
   }
+}
+
+/// Card RC-3 — why a continuous recording is capturing without a transcript
+/// coming back, and whether its audio is being kept on this phone. See
+/// [PttSessionLinkLoss.continuousOffline].
+enum ContinuousOffline {
+  /// Nothing is wrong, or this is not a continuous recording.
+  none,
+
+  /// The phone's link is down and the retention layer is catching the audio
+  /// (the CR-3 sentence, `bannerContinuousOffline`).
+  linkKept,
+
+  /// The relay lost its speech-engine leg; the audio is going into the
+  /// journal on this phone.
+  engineKept,
+
+  /// The relay lost its speech-engine leg and nothing on this phone is
+  /// keeping the audio (legacy storage face). The SEG-2 plain sentence.
+  engine,
 }

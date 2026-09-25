@@ -1,5 +1,5 @@
 // REQ-12-10 — identity lane helpers (notes vs PC) + machine-uid stability.
-// Design: docs/strategy/2026-08-12-req1210-connection-list-identity-design.md
+// Design: docs/archive/strategy/2026-08-12-req1210-connection-list-identity-design.md
 
 import 'package:flowmic/src/ui/connection_card_identity.dart';
 import 'package:flutter_test/flutter_test.dart';

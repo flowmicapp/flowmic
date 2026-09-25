@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md
+//   docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md
 //     §2.2 US-3/US-4 (a simple mechanism to stop recurring charges), §3.3 (the
 //     route table and the gate ruling), §4 B2
 //   apps/server-core/src/billing/paddle/client.ts (the only outbound writer)

@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/spikes/sherpa-onnx-spike.md §6.1 (maps onto SttEngine: open=ensure
+//   docs/archive/strategy/spikes/sherpa-onnx-spike.md §6.1 (maps onto SttEngine: open=ensure
 //     model + load recognizer; push=accumulate; flush=offline decode→final;
 //     state open/closed/failed no reconnecting; only emits final/error/state), §6.2
 //     (recommendation A: batch final-only, no interim), §2.1 (#3059: prepend

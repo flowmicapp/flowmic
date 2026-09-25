@@ -111,6 +111,7 @@ extension PttSessionPair on PttSession {
           deviceUid: cachedDeviceUid(),
           client: kClientKind,
           clientVersion: cachedClientVersion(),
+          clientCaps: declaredClientCapabilities(), // card HANGUP-3
         ),
         timeout: const Duration(seconds: 5),
       );

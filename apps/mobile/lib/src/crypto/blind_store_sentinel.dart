@@ -6,7 +6,7 @@
 //   — "cross-device key activation: re-enter the same passphrase (the main
 //   path, verified locally via blob `AES-GCM(MasterKey,'flowmic-e2ee-v1')`;
 //   the server takes no part in the verdict)");
-//   docs/strategy/2026-08-08-design-e-blindstore-client.md §2.1 (owner ruling
+//   docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §2.1 (owner ruling
 //   E-①: one account's devices share ONE key, so a second device must be able to
 //   check a re-entered passphrase before it starts writing).
 //

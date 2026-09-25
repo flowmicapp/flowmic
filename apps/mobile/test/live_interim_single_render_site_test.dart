@@ -17,6 +17,14 @@
 // scrim separates them). The next person adding a "might as well also show the words being spoken"
 // spot is exactly who this stays red for.
 //
+// ── CR-12-C (2026-09-23): a THIRD named site, by the same rule ──────────────
+// Design 2026-09-22-cr12 §4.4 puts `LiveDraftTile` under the open paragraph of
+// the in-progress article page (`_ArticleLiveHost._draft`,
+// article_page_live.dart). That page is a route pushed OVER the light-record
+// screen, so it and site ① are never both visible — the same property that
+// admitted site ②. Pinned like the other two: its file and its expression.
+// A fourth site, or this one moving, still fails.
+//
 // Shape: scan lib/, strip line comments first (a comment is not a render
 // site). Same family as ka_chat_controller_no_subtype_gate_test.dart.
 
@@ -39,7 +47,7 @@ Iterable<File> _dartFiles(String root) => Directory(root)
     .where((File f) => f.path.endsWith('.dart'));
 
 void main() {
-  test('🔴 PA-5: lib/src/ui has exactly two liveText render sites — the live draft row + the edit-sheet append highlight', () {
+  test('🔴 PA-5 + CR-12-C: lib/src/ui has exactly three liveText render sites — the live draft row, the edit-sheet append highlight, the live article page\'s draft', () {
     final List<String> hits = <String>[];
     for (final File f in _dartFiles('lib/src/ui')) {
       final List<String> lines =
@@ -52,10 +60,10 @@ void main() {
     }
     expect(
       hits,
-      hasLength(2),
+      hasLength(3),
       reason: '🔴 `liveText` has ${hits.length} render sites in the UI layer; '
-          'the Plan A′ contract (§7 gate rewrite) allows **exactly two named '
-          'sites**. Hits:\n${hits.join('\n')}\n'
+          'the Plan A′ contract (§7 gate rewrite) plus CR-12-C allow **exactly '
+          'three named sites**. Hits:\n${hits.join('\n')}\n'
           '⚠️ If the new one is "might as well also show the words being '
           'spoken somewhere else", that is exactly the face T-4 deleted: '
           'one fact, two faces, and one of them is worse.',
@@ -84,6 +92,18 @@ void main() {
       contains('s.controller.liveText'),
       reason: 'the edit-sheet site no longer reads the controller\'s liveText ⇒ '
           'the append highlight is painting something else',
+    );
+    // Named site ③ (CR-12-C): the in-progress article page's draft — a route
+    // over the light-record screen, so never visible together with site ①.
+    final String livePage = hits.firstWhere(
+      (String h) => h.contains('article_page_live.dart'),
+      orElse: () => '',
+    );
+    expect(
+      livePage,
+      contains('text: c.liveText'),
+      reason: 'the live article page site is no longer LiveDraftTile\'s body ⇒ '
+          '"three named sites" is no longer talking about the same thing',
     );
   });
 

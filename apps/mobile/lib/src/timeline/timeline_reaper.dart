@@ -47,6 +47,7 @@ import '../session/outbox_blob_store.dart';
 import 'cloud/blind_store_cloud_state.dart';
 import 'timeline_entry.dart';
 import 'timeline_persistence.dart';
+import 'local_record_persistence.dart';
 import 'timeline_purge.dart';
 
 /// What one delete pass **actually** accomplished. Always what was
@@ -241,6 +242,11 @@ class TimelineReaper {
       }
     }
     // ③ The side table. One write, not one per row — it is a single JSON blob.
+    final TimelinePersistence persistence = _persistence;
+    if (persistence is LocalRecordPersistence) {
+      await (persistence as LocalRecordPersistence).forgetSubmissionRecords(
+        doomed.map((TimelineEntry e) => e.id));
+    }
     await _vault.forget(doomed.map((TimelineEntry e) => e.id));
     final Cutoffs next = advanceCutoffs(cutoffs, doomed, advance);
     if (advance != null) await _cutoffStore.write(next);

@@ -1,7 +1,7 @@
 // Card DR-0 — the TEST-ONLY fault hook `FLOWMIC_FAULT_STT_STALL_MS`
 // (src/stt/fault-stall.ts), which makes the speech engine look dead while the
 // socket stays alive so the real-device drill can reproduce scenario B-1 of
-// docs/strategy/2026-09-06-audio-durability-device-drill.md (defect E7,
+// docs/archive/strategy/2026-09-06-audio-durability-device-drill.md (defect E7,
 // docs/strategy/2026-08-27-project-status-log.md §A2-2).
 //
 // 🔴 WHAT THIS FILE HAS TO PROVE, AND WHY EACH HALF IS HERE.

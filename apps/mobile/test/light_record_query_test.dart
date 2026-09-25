@@ -1,6 +1,6 @@
 // REQ-12-09 09-A — `LightRecordQuery`, the 「search ∩ light record」 read.
 //
-// SPEC-REF: docs/strategy/2026-08-12-req1209-plus-panel-design.md §5-3, §9 (09-A).
+// SPEC-REF: docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md §5-3, §9 (09-A).
 //
 // These run against a REAL database (sqflite_common_ffi on the host VM), and
 // that is load-bearing rather than thorough: the defect this card exists to
@@ -15,6 +15,7 @@
 
 import 'package:flowmic/src/signaling/wire_payloads.dart' show Delivery, FlowMode;
 import 'package:flowmic/src/timeline/cloud/light_record_query.dart';
+import 'package:flowmic/src/timeline/search_hits.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_persistence.dart';
 import 'package:flowmic/src/timeline/timeline_sqlite.dart';
@@ -171,7 +172,27 @@ void main() {
         deleted: true));
 
     final LightRecordQuery q = LightRecordQuery(persistence: p);
-    expect(_ids(await q.search('会议')), <String>['cloud-hit']);
+    expect(_ids((await q.search('会议')).rows), <String>['cloud-hit']);
+  });
+
+  test('⟲ Card CR-12-G: a word inside a FINISHED recording is found, and the '
+      'recording is one result', () async {
+    final TimelinePersistence p = await _open();
+    await p.upsert(_articleEntry('rec-head',
+        origin: 'cloud', text: '周会', at: DateTime.utc(2026, 8, 1),
+        articleId: 'art-rec', entryType: TimelineEntry.kArticle));
+    await p.upsert(_articleEntry('rec-1',
+        origin: 'cloud', text: '先说账期', at: DateTime.utc(2026, 8, 1, 0, 1),
+        articleId: 'art-rec'));
+    await p.upsert(_articleEntry('rec-2',
+        origin: 'cloud', text: '账期还没回', at: DateTime.utc(2026, 8, 1, 0, 2),
+        articleId: 'art-rec'));
+
+    final LightRecordQuery q = LightRecordQuery(persistence: p);
+    // Before CR-12-G the match ran after the collapse and this was empty.
+    final SearchResults r = await q.search('账期');
+    expect(_ids(r.rows), <String>['rec-head']);
+    expect(r.articleOf(r.rows.single)!.hitCount, 2);
   });
 
   test('a blank query answers with nothing, not with everything', () async {
@@ -180,8 +201,8 @@ void main() {
         origin: 'cloud', text: '随手记', at: DateTime.utc(2026, 8, 1)));
 
     final LightRecordQuery q = LightRecordQuery(persistence: p);
-    expect(await q.search(''), isEmpty);
-    expect(await q.search('   '), isEmpty);
+    expect((await q.search('')).rows, isEmpty);
+    expect((await q.search('   ')).rows, isEmpty);
     // …and the tab's non-searching face is still populated, so "empty in, empty out" is a
     // statement about the METHOD and never about what the user sees.
     expect(await q.all(), hasLength(1));
@@ -205,7 +226,7 @@ void main() {
 
     final LightRecordQuery q = LightRecordQuery(persistence: p);
     expect(
-      _ids(await q.search('密码')),
+      _ids((await q.search('密码')).rows),
       <String>['cloud-buried'],
       reason: 'the paired rows are not light records, and the light record is '
           'below the 200-row search limit — narrowing first is what finds it',
@@ -225,7 +246,7 @@ void main() {
     }
 
     final LightRecordQuery q = LightRecordQuery(persistence: p);
-    expect(_ids(await q.search('很久以前')), <String>['cloud-ancient']);
+    expect(_ids((await q.search('很久以前')).rows), <String>['cloud-ancient']);
   });
 
   test('the match is case-insensitive and treats % and _ as literals, exactly '
@@ -237,10 +258,10 @@ void main() {
         origin: 'cloud', text: 'battery at 90% now', at: DateTime.utc(2026, 8, 2)));
 
     final LightRecordQuery q = LightRecordQuery(persistence: p);
-    expect(_ids(await q.search('server')), <String>['cloud-en']);
-    expect(_ids(await q.search('SERVER')), <String>['cloud-en']);
-    expect(_ids(await q.search('90%')), <String>['cloud-pct']);
+    expect(_ids((await q.search('server')).rows), <String>['cloud-en']);
+    expect(_ids((await q.search('SERVER')).rows), <String>['cloud-en']);
+    expect(_ids((await q.search('90%')).rows), <String>['cloud-pct']);
     // A bare '%' is a literal, never match-all.
-    expect(_ids(await q.search('%')), <String>['cloud-pct']);
+    expect(_ids((await q.search('%')).rows), <String>['cloud-pct']);
   });
 }

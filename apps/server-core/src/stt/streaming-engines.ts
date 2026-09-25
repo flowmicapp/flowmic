@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §4a
+//   docs/archive/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §4a
 //     (🔴 STREAMING_ENGINES is this card's #1 trap — one value drives three things at once)
 //   docs/strategy/2026-07-23-relaunch-master-plan.md §2.3 (VAD billing gate)
 //

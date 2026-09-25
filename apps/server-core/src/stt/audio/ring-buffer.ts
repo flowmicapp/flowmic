@@ -70,6 +70,9 @@ export class RingBuffer {
    * possibly take before it either succeeds or gives up. Past that point the
    * audio is owed to nobody, so it is evicted unconditionally. Worst case the
    * ring therefore holds `windowMs + graceMs` of audio instead of `windowMs`.
+   * ⚠️ 更正（NR-96，2026-09-24）：「total backoff budget」 is now waits + spawn caps
+   * (`engineReconnectWorstCaseMs`), since each rung's spawn is capped; the
+   * caller is orchestrator-core.ts `unfedGraceMs`.
    *
    * 📌 THE DEFAULT (+∞ / 0) IS EXACTLY THE PRE-RT-3 BEHAVIOUR, so any holder
    * that never calls this — including every existing test — is unaffected.

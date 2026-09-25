@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md §5.5
+//   docs/archive/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md §5.5
 //     (the TWO read APIs — this is the ops-side twin), §2.2 ("what operations cannot
 //     answer today: this one account's usage-over-time curve")
 //   src/http/usage-events-routes.ts (the ACCOUNT-side twin — read it beside this)

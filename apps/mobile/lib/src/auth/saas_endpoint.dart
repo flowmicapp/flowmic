@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-2 ③ (endpoint seam:
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-2 ③ (endpoint seam:
 //     --dart-define FLOWMIC_SAAS_ENDPOINT overrides; fallback the protocol
 //     default constant; the private line may point this at the owner LAN model
 //     service at build time — never hardcoded in a widget)

@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §2 (Stage 3 clipboard fallback — snapshot →
 //     write → paste → unconditionally restore the original clipboard)
-//   docs/strategy/2026-08-06-mac-usable-work-breakdown.md §A MAC-05 / MAC-06
+//   docs/archive/strategy/2026-08-06-mac-usable-work-breakdown.md §A MAC-05 / MAC-06
 //   master-plan §4 / CLAUDE.md red line: no silent failures / status only records
 //     the delivery truth
 //   *** HUMAN-AUDIT SENSITIVE (injection path) ***

@@ -116,10 +116,33 @@ extension PttSessionHoldOutRecheck on PttSession {
       return;
     }
     if (code == null) {
-      _holdOut.noteLostAck(retry: _recheckHoldOut);
+      // NR-96-E1 — the bound is spent: say so instead of stopping in silence.
+      if (!_holdOut.noteLostAck(retry: _recheckHoldOut)) {
+        diag('holdout.lost_ack.exhausted', <String, Object?>{
+          'asks': HoldOutRetry.lostAckWaits.length + 1,
+        });
+        reconnectAckLost.value += 1;
+      }
       return;
     }
     _holdOut.note(retryAfterMs: retryAfterMs, retry: _recheckHoldOut);
+  }
+
+  /// NR-96-E1 — the notice's ✕, and its auto-hide (the same callback).
+  void dismissReconnectAckLost() => reconnectAckLost.value = 0;
+
+  /// NR-96-E1 — the notice's 「reconnect」 button. A NEW episode: the streak is
+  /// forgotten (so the bounded re-asks are available again) and one ask goes
+  /// out now. A dead link is the ladder's (see [_recheckHoldOut]), so there the
+  /// button kicks the ladder instead of asking on a socket that is not up.
+  Future<void> retryUnansweredReconnect() async {
+    reconnectAckLost.value = 0;
+    _holdOut.cancel();
+    if (transport.currentStatus != SocketStatus.connected) {
+      reconnect.kickNow(reason: 'user-ack-lost');
+      return;
+    }
+    await _recheckHoldOut();
   }
 
   Future<void> _recheckHoldOut() async {
@@ -159,6 +182,7 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
         // poll, no new event and **no protocol change** is needed to notice.
         s._notePcBusy(false);
         s._holdOut.cancel();
+        s.reconnectAckLost.value = 0; // NR-96-E1: we are in; the notice is stale.
         // owner 2026-08-20 — same fact, third holder: being back in the room
         // means the release MOMENT has passed (the deadline half is untouched;
         // getting in early — PC restarted, capsule freed — must not leave a

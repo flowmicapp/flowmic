@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   🔴 docs/rebuild/16-PORTABLE-RECORD-FORMAT-FPR-V1.md §6 (the inventory layer —— this document's
 //      most important constraint on the implementation)
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §1 (「导出 = 遍历 +
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §1 (「导出 = 遍历 +
 //      序列化; 统计 = 遍历 + 聚合; 清空 = 遍历 + 删除。一次遍历实现, 三个动词消费。」
 //      ("export = walk + serialize; statistics = walk + aggregate; clear = walk + delete.
 //      One walk implementation, consumed by three verbs."))

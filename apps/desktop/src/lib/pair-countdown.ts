@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (pairing short code, 5-min TTL)
-//   docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-18
+//   docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-18
 //
 // Pure, Tauri-free, DOM-free countdown logic for the「添加手机」("Add phone") modal,
 // extracted so the two rules that are easy to get wrong are unit-testable:

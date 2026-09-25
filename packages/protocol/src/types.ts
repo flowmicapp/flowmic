@@ -19,12 +19,16 @@ export type SendPolicy = 'manual' | 'direct';
  *  surfaces, and by default the entry does not join room sync). */
 export type Delivery = 'inject' | 'none';
 /** Delivery-truth states ONLY (WP-R1-1, master-plan §4.0 D). `noted` = the
- *  record-only fifth state; the legacy 'edited' VALUE moved to the separate
+ *  record-only state; the legacy 'edited' VALUE moved to the separate
  *  `TranscriptHistoryItem.edited` boolean overlay. */
+// Partial native input is cached + INJECT_SUBMISSION_UNCERTAIN, never a fifth
+// state (lead decision 2026-09-22-linux-inject-verdict-codes-and-no-new-history-status.md).
 export type HistoryStatus = 'injected' | 'cached' | 'failed' | 'noted';
 /** Billing tiers. THREE values since 0.2.38 (owner 2026-08-01,
  *  docs/decisions/2026-08-01-owner-three-tier-pricing-usd-monthly.md):
- *  free $0 / pro $6 / max $20 per month.
+ *  free $0 / pro $12 / max $28 per month (pro/max prices re-set by owner
+ *  2026-09-23, docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-
+ *  token-caps.md; were $6 / $20).
  *
  *  🔴 「云端卖便利，永不卖能力」— the tiers may differ ONLY in managed STT
  *  minutes, managed LLM tokens and PC INSTANCE COUNT. Phone count and cloud

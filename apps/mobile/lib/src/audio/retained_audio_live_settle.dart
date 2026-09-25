@@ -116,9 +116,13 @@ Future<void> _endRecordingLocked(
 ) async {
   final String? liveId = s._liveAttempt?.recordingId;
   final RetainedAudioJournal? j = s._journal;
+  // Card RC-3 — NOT for a recording that owes its tail: the live settle stands
+  // aside for it (`RetainedAudioSpill.noteOwedTail`), so no settle is coming
+  // and the stamp would only hold the recovery that IS coming for 30 s.
   if (j != null &&
       interruptReason == null &&
-      s._liveAttempt?.recordingId == s._recordingId) {
+      s._liveAttempt?.recordingId == s._recordingId &&
+      !(liveId != null && s.owesTail(liveId))) {
     // 🔴 NOT `s._clock()`, AND THIS IS THE SECOND TIME THIS REPO HAS PAID FOR
     // THAT ASSUMPTION (the first: the pending-recovery card that showed a date
     // ~56,000 years out). `RetainedAudioSpill._wallClock` is
@@ -143,6 +147,8 @@ Future<void> _endRecordingLocked(
     await j.commit();
   }
   await s._closeJournalLocked(interruptReason);
+  // Card RC-3 — the journal is closed: its owed tail may be swept now.
+  if (liveId != null && s.owesTail(liveId)) s.owedTailReady.value = liveId;
   // ── CARD LK-4 — A PRESS THAT SAID NOTHING LEAVES NOTHING BEHIND ─────────
   //
   // A press too short to fill one 200 ms chunk, with no residual tail, closes

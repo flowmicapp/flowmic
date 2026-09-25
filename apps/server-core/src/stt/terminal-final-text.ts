@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md §2.0-d
 //     (card RT3-B — the terminal final's `text: ''` is an assertion, not a default value)
-//   docs/strategy/2026-08-07-rt3-outage-resilience-ledger.md §1.3 (two measured facts) / §5 RT3-B
+//   docs/archive/strategy/2026-08-07-rt3-outage-resilience-ledger.md §1.3 (two measured facts) / §5 RT3-B
 //   CLAUDE.md red line: no silent failure (both directions) / R11 state must be correct
 //
 // What a TERMINAL final says when there is no engine left to flush.

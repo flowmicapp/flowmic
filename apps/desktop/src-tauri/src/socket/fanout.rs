@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §4 (capsule surface data) / §9 (timeline
 //     fan-out + refresh), §6 (dual channels resident: primary + presence)
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-28
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-28
 //
 // The SERVER→FRONTEND fan-out seam: which inbound frames reach the Vue windows,
 // which session is allowed to send them, and what has to be stamped on the way.

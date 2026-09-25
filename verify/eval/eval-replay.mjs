@@ -47,7 +47,7 @@ import { loadProductionPrompts } from './eval-prod-bundle.mjs';
  * lint's ±3-line window; the lint only checks that the word is nearby, not
  * that the sentence containing it agrees with the claim being made here.
  * Already logged as item A-8 in
- * docs/strategy/2026-08-06-w2-transcription-quality-ledger.md.
+ * docs/archive/strategy/2026-08-06-w2-transcription-quality-ledger.md.
  */
 function simulateAccumulators(frames, prod) {
   let offlineAccum = '';

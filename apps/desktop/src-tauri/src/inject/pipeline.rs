@@ -9,7 +9,7 @@
 //     is reported failed.
 //   *** HUMAN-AUDIT SENSITIVE (injection path) ***
 //
-//   docs/strategy/2026-07-30-inject-state-narrowing-design.md §1/§3
+//   docs/archive/strategy/2026-07-30-inject-state-narrowing-design.md §1/§3
 //   docs/decisions/2026-07-30-injected-means-delivered-to-keyboard-focus.md
 //
 // Stage 1  — switch focus: `focus_switcher(target_hwnd)` BEFORE any keystroke.
@@ -113,10 +113,12 @@ use crate::inject::app_learning::AppLearningStore;
 use crate::inject::clipboard_confirm::ConfirmOutcome;
 #[cfg(test)]
 use crate::inject::clipboard_outcome::map_clipboard_outcome;
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "linux")))]
 use crate::inject::clipboard_outcome::receipt_phrase;
 #[cfg(test)]
-use crate::inject::clipboard_paste::{PasteOutcome, PASTE_HOLD};
+use crate::inject::clipboard_paste::PasteOutcome;
+#[cfg(all(test, not(target_os = "linux")))]
+use crate::inject::clipboard_paste::PASTE_HOLD;
 #[cfg(test)]
 use crate::inject::sendinput::InjectError;
 
@@ -315,14 +317,15 @@ pub fn inject_text_with_probe(
     }
 
     // ── Stage 0: is the window in front of the user OURS? (owner 2026-08-02) ──
-    let self_window = match self_window_stage0(locked_hwnd, self_probe) {
+    let self_target = match self_window_stage0(locked_hwnd, self_probe) {
         // Our window, no editable focus — the answer, already truthful and named.
         Some(Err(cached)) => return cached,
         // Our window, an editable focus. Type into it.
-        Some(Ok(_hwnd)) => true,
+        Some(Ok(hwnd)) => Some(hwnd),
         // Not our window: this card changes nothing about the frame.
-        None => false,
+        None => None,
     };
+    let self_window = self_target.is_some();
 
     // ── Stage 1: focus ────────────────────────────────────────────────
     //
@@ -332,11 +335,14 @@ pub fn inject_text_with_probe(
     // `SetForegroundWindow` on the window that is already in front would be an act
     // with no effect whose only possible outcome is a spurious `FALSE` → a
     // fabricated INJECT_FOCUS_LOST for a delivery we just proved can land.
-    if !self_window {
-        if let Err(cached) = stage1_focus(locked_hwnd, focus_switcher) {
-            return cached;
+    let expected_target = if let Some(hwnd) = self_target {
+        hwnd
+    } else {
+        match stage1_focus(locked_hwnd, focus_switcher) {
+            Ok(hwnd) => hwnd,
+            Err(cached) => return cached,
         }
-    }
+    };
 
     // ── Stage 1b: is the keyboard focus in an input state? ────────────
     //
@@ -475,7 +481,7 @@ pub fn inject_text_with_probe(
             state
         }
     };
-    crate::inject::text_dispatch::type_or_paste(text, app_id).with_evidence(evidence)
+    crate::inject::text_dispatch::type_or_paste(text, app_id, expected_target).with_evidence(evidence)
 }
 
 
@@ -636,4 +642,3 @@ pub fn inject_image_with_probe(
 #[cfg(test)]
 #[path = "pipeline_tests.rs"]
 mod tests;
-

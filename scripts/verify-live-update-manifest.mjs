@@ -3,7 +3,7 @@
 //
 // SPEC-REF:
 //   docs/decisions/2026-08-10-owner-seven-rulings-after-0261.md ① (companion gate)
-//   docs/strategy/2026-08-10-device-line-window-handoff-report.md §8-1 (measured confirmation)
+//   docs/archive/strategy/2026-08-10-device-line-window-handoff-report.md §8-1 (measured confirmation)
 //
 // WHAT THIS GATE IS FOR. On 2026-08-10, 0.2.61 shipped with every gate green —
 // relay /api/health, three APK byte gates, download-center /latest, artifact
@@ -16,7 +16,7 @@
 // So this gate asks exactly that one question, and its shape — per the ruling —
 // is "you may not believe you are done", NOT "we generate it for you":
 //   · it READS the public endpoint and compares; it writes and deploys NOTHING
-//     (production deploys belong to the device line — docs/FLEET.md);
+//     (production deploys belong to the device line — docs/archive/FLEET.md);
 //   · for every platform that shipped an artifact this round (./publish is the
 //     evidence), the live manifest must advertise exactly this round's version;
 //   · any other answer — stale, missing platform, no manifest at all, or an

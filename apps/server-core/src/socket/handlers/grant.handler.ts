@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-11-design-e-grant-web-preview.md §2 (the four-step
+//   docs/archive/strategy/2026-08-11-design-e-grant-web-preview.md §2 (the four-step
 //     flow: web requests → phone confirms with a chosen duration → server
 //     stores the authorization row and BLINDLY forwards the wrap → web unwraps
 //     in a Worker), §3.1 (absent gid/origin/expires_at_ms = malformed AT THE

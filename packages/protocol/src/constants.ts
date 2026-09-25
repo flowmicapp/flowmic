@@ -143,7 +143,7 @@ export const DEMO_PAIR_HTTPS_PATH = '/go/demo';
 
 // Relay addresses this product HAS served from and has since RETIRED as the
 // address it hands out. Not a decommission notice: per card C7's own measurement
-// (docs/strategy/2026-08-17-lan-cc-agent-work-package-2.md §1 C7 — restated here,
+// (docs/archive/strategy/2026-08-17-lan-cc-agent-work-package-2.md §1 C7 — restated here,
 // NOT re-measured by this change), the one entry below still answers
 // `/api/health` byte-identically to the canonical host and still completes a
 // socket.io handshake, because it IS the same box. What is retired is the address
@@ -416,7 +416,52 @@ export const AUDIO_DEFAULTS = {
   heartbeat_timeout_ms: 15_000,
   engine_reconnect_backoff_ms: [1000, 2000, 4000] as const,
   engine_reconnect_max_retries: 3,
+  // NR-96 (2026-09-24): the cap on ONE engine spawn — cold open, silence redial,
+  // rollover and (since NR-96-A) each reconnect rung. Moved here from
+  // server-core `orchestrator-types.ts DEFAULT_ENGINE_SPAWN_TIMEOUT_MS`, which
+  // now reads it, so the ladder's worst case below has one source for all
+  // three of its inputs. Local model engines get a longer cap from
+  // `engine-factory.ts spawnTimeoutForEngine`; this is the dialled default.
+  engine_spawn_timeout_ms: 5_000,
+  // RC4-S5 follow-up (2026-09-25): the relay's two FIXED flush caps, moved here
+  // from server-core (`orchestrator-types.ts DEFAULT_ENGINE_FLUSH_TIMEOUT_MS`,
+  // `flush-final.ts FUNASR_FLUSH_HARD_CAP_MS`, which now read them; values
+  // unchanged). The first is a network engine that reports no processed position
+  // (book 06 §3, RC-2 block); the second the FunASR family's hard cap. A local
+  // decode engine's cap grows with its audio and is not one of them.
+  // ⚠️ 更正（RC6，2026-09-25）：they also fed a derived 「relay stop worst case」
+  // for the phone's long-stop wait; that wait now waits for the final (book 08
+  // §2, RC6 correction), and the derived value was removed with its reader.
+  engine_flush_timeout_ms: 3_000,
+  engine_flush_hard_cap_ms: 15_000,
 } as const;
+
+/** NR-96 — the wait before reconnect attempt `attemptIndex` (0-based) STARTS:
+ *  the schedule's own entry, the last entry once the schedule runs out, 1 s if
+ *  the schedule is empty. The relay ladder (`engine-session.ts`) arms its timer
+ *  with exactly this, and puts it on the frame as `retry_in_ms`. */
+export function engineReconnectDelayMs(backoffMs: readonly number[], attemptIndex: number): number {
+  return backoffMs[Math.min(attemptIndex, backoffMs.length - 1)] ?? 1000;
+}
+
+/** NR-96 — the longest the relay's engine reconnect ladder can take before it
+ *  either recovers or gives up: every attempt's wait plus every attempt's spawn
+ *  cap. One derivation, two readers: the relay's audio retention window
+ *  (`orchestrator-core.ts unfedGraceMs`, with that session's real options) and
+ *  the desktop capsule's fallback watchdog for a frame that carries no timing
+ *  facts ({@link ENGINE_RECONNECT_WORST_CASE_MS}). */
+export function engineReconnectWorstCaseMs(backoffMs: readonly number[], maxRetries: number, attemptTimeoutMs: number): number {
+  let total = 0;
+  for (let i = 0; i < maxRetries; i++) total += engineReconnectDelayMs(backoffMs, i) + attemptTimeoutMs;
+  return total;
+}
+
+/** The ladder's worst case with the defaults above (1+2+4 s + 3 × 5 s = 22 s). */
+export const ENGINE_RECONNECT_WORST_CASE_MS = engineReconnectWorstCaseMs(
+  AUDIO_DEFAULTS.engine_reconnect_backoff_ms,
+  AUDIO_DEFAULTS.engine_reconnect_max_retries,
+  AUDIO_DEFAULTS.engine_spawn_timeout_ms,
+);
 
 // ─── Password policy (card PW-1, 2026-09-08) ────────────────────────────────
 // These two numbers used to be declared once in `apps/server-core/src/auth/

@@ -7,7 +7,7 @@
 // scripts/build-update-manifest.mjs writes one manifest row per file with a
 // sha256. So for as long as the portable bundle was only ever a directory, it
 // was the one product this repo builds and never distributes — the S8 audit
-// (2026-08-05, docs/strategy/2026-08-05-s8-release-script-defects-cn.md §2)
+// (2026-08-05, docs/archive/strategy/2026-08-05-s8-release-script-defects-cn.md §2)
 // measured that it had never once reached the download center, and all the
 // release chain did about it was print a warning naming the gap.
 //
@@ -102,6 +102,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizeLinuxPortableModes } from './linux-portable-modes.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -109,6 +110,10 @@ const ROOT = join(HERE, '..');
 /** The staged bundle's directory name, and therefore the archive's single
  *  top-level entry. Same literal as scripts/publish.mjs's `PORTABLE`. */
 export const PORTABLE_DIR_NAME = 'FlowMic-portable';
+
+/** Linux keeps an additive top-level name so extracting Windows and Linux
+ * portable archives into one directory cannot overwrite either tree. */
+export const LINUX_PORTABLE_DIR_NAME = 'FlowMic-linux-x64';
 
 /** Spelled exactly as the manifest platform key (`platforms['windows-x64']`).
  *  One fact, one spelling. */
@@ -357,7 +362,7 @@ export function describeStaleManifest(outDir, zipName, freshHash) {
   return null;
 }
 
-/** Pack `<outDir>/FlowMic-portable/` into `<outDir>/<portableZipName(...)>`
+/** Pack `<outDir>/<dirName>/` into `<outDir>/<portableZipName(...)>`
  *  plus its `.sha256` sidecar.
  *
  *  `outDir` and `version` are parameters, not module reads, so tests can drive
@@ -367,9 +372,19 @@ export function describeStaleManifest(outDir, zipName, freshHash) {
  *
  *  With `check: true` it verifies every precondition, reports what it WOULD
  *  write, and touches nothing. */
-export function packPortable({ outDir, version, platform = DEFAULT_PORTABLE_PLATFORM, check = false, log = () => {} }) {
+export function packPortable({
+  outDir,
+  version,
+  platform = DEFAULT_PORTABLE_PLATFORM,
+  dirName = PORTABLE_DIR_NAME,
+  check = false,
+  log = () => {},
+}) {
   const started = Date.now();
-  const dirPath = join(outDir, PORTABLE_DIR_NAME);
+  if (!dirName || dirName === '.' || dirName === '..' || /[\\/]/.test(dirName)) {
+    throw new Error(`portable top-level name must be one directory segment, got ${JSON.stringify(dirName)}`);
+  }
+  const dirPath = join(outDir, dirName);
   if (!existsSync(dirPath) || !statSync(dirPath).isDirectory()) {
     throw new Error(`no ${dirPath} — nothing to pack (run \`node scripts/publish.mjs\` first, it stages the bundle)`);
   }
@@ -386,7 +401,7 @@ export function packPortable({ outDir, version, platform = DEFAULT_PORTABLE_PLAT
 
   if (check) {
     log(`· would write ${zipName} + ${zipName}.sha256 into ${outDir} (--check: nothing written)`);
-    return { check: true, zipName, zipPath, sourceFiles: sourceFiles.length, sourceBytes, archiver };
+    return { check: true, zipName, zipPath, dirName, sourceFiles: sourceFiles.length, sourceBytes, archiver };
   }
 
   // Pack to a temp name FIRST, then rename. Two reasons: a killed or failed run
@@ -402,7 +417,7 @@ export function packPortable({ outDir, version, platform = DEFAULT_PORTABLE_PLAT
   try {
     const r = spawnSync(
       archiver.path,
-      ['-c', '--format', 'zip', '--options', 'zip:hdrcharset=UTF-8', '-f', tmpPath, '-C', outDir, PORTABLE_DIR_NAME],
+      ['-c', '--format', 'zip', '--options', 'zip:hdrcharset=UTF-8', '-f', tmpPath, '-C', outDir, dirName],
       { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
     );
     // Judged on the exit code — and, because the header's measurement showed the
@@ -413,8 +428,14 @@ export function packPortable({ outDir, version, platform = DEFAULT_PORTABLE_PLAT
     }
     if (!existsSync(tmpPath)) throw new Error(`${archiver.path} exited 0 but wrote no archive`);
 
-    const buf = readFileSync(tmpPath);
-    const shape = verifyPortableArchive(buf, sourceFiles);
+    const raw = readFileSync(tmpPath);
+    // L8: DrvFS reports 0777 even after chmod(0755). Shipping that metadata
+    // makes extraction permissions depend on the pack host. Normalize the
+    // Linux ZIP itself, before verifying, hashing or publishing its local name.
+    // Windows/macOS retain their existing archive bytes and mode policy.
+    const buf = platform === 'linux-x64' ? normalizeLinuxPortableModes(raw, dirName) : raw;
+    if (platform === 'linux-x64') writeFileSync(tmpPath, buf);
+    const shape = verifyPortableArchive(buf, sourceFiles, dirName);
     const hash = createHash('sha256').update(buf).digest('hex');
 
     renameSync(tmpPath, zipPath);
@@ -427,6 +448,7 @@ export function packPortable({ outDir, version, platform = DEFAULT_PORTABLE_PLAT
       check: false,
       zipName,
       zipPath,
+      dirName,
       hash,
       size: buf.length,
       sourceFiles: sourceFiles.length,

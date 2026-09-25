@@ -1,9 +1,9 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md §3.4
+//   docs/archive/strategy/2026-08-05-d2-secret-domain-separation-design-cn.md §3.4
 //     (startup self-check — "turn a silent failure into a loud failure", the design doc's own "the single
 //     highest-value line of this design") + §1.3 (the silent-disaster mechanism this check exists to make
 //     audible) + §7 decision 3 (refuse-to-boot vs. warn-only — OWNER HAS NOT RULED)
-//   docs/strategy/2026-08-05-d2-stage0-delivery-cn.md (this card's delivery doc
+//   docs/archive/strategy/2026-08-05-d2-stage0-delivery-cn.md (this card's delivery doc
 //     — §4/§5 carry the red-before-green proof this file is required to pass)
 //   src/db/enc-inventory.ts (the read-only count this check layers exactly one
 //     decrypt attempt on top of)

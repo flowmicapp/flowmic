@@ -84,8 +84,31 @@ extension ChatPttLifecycle on ChatController {
   bool get isProcessingUtterance => utteranceCompose.isRunning;
 
   /// The active row is visible while an utterance is live.
+  ///
+  /// Card RC4 — the user's own utterance: a recovery pass drives the same FSM
+  /// states and is not one (ptt_backfill.dart `openSessionIsRecovery`). This
+  /// also keeps its interims out of [liveText] and the segment readout
+  /// (`onInterimRouted` opens with this check).
   bool get hasLiveDraft =>
-      _sess == SessionState.recording || _sess == SessionState.processing;
+      (_sess == SessionState.recording || _sess == SessionState.processing) &&
+      !session.recoveryOwnsSession;
+
+  /// Card RC4 — the session state as the USER's press sees it: a recovery
+  /// pass on the wire reads as rest, because nobody is holding anything.
+  /// [sessionState] keeps answering what the wire is doing; every surface
+  /// that draws a press reads this one (chat_flow_composer.dart
+  /// `_pttVisualRouted`, chat_flow_selection.dart, chat_flow_edit_sheet_sync.dart).
+  SessionState get pressSessionState =>
+      session.recoveryOwnsSession ? SessionState.idle : _sess;
+
+  /// Card RC4 — a recovery pass holds the session and a press would be
+  /// refused (the legacy segment leg cannot yield; ptt_backfill.dart
+  /// `recoveryHoldsWire`). The button shows its busy face rather than a
+  /// resting face that silently refuses the finger.
+  bool get recoveryRefusesPress =>
+      session.recoveryOwnsSession &&
+      !sessionAcceptsPttDown(_sess) &&
+      !session.recoveryHoldsWire;
 
   /// PTT down gate mirror for the UI (08 §2): active role + connected, and
   /// — GA-01 ruling 6 — no utterance still being transformed. Holding the button
@@ -100,9 +123,13 @@ extension ChatPttLifecycle on ChatController {
   /// spells its own rule is a second author. The JUST_DONE window is now
   /// pressable; PROCESSING is not, and the reason it stays shut lives on that
   /// predicate.
+  ///
+  /// Follow-up (MAIN 2026-09-24): a recovery attempt holding the session does
+  /// not close the button — it yields to the press (ptt_backfill.dart
+  /// `yieldRecoveryForLive`).
   bool get canPtt =>
       _conn == ConnectionState.connected &&
-      sessionAcceptsPttDown(_sess) &&
+      (sessionAcceptsPttDown(_sess) || session.recoveryHoldsWire) &&
       !utteranceCompose.isRunning;
 
   // ── recording panel truth (R6 T-5d) ──────────────────────────────────
@@ -121,7 +148,11 @@ extension ChatPttLifecycle on ChatController {
 
   /// True while the recording panel should be up (§6.3: it opens on PTT-down
   /// and collapses on release).
-  bool get isRecording => _sess == SessionState.recording;
+  ///
+  /// Card RC4 — a PRESS, not a recovery pass in RECORDING: Back must not
+  /// stop it as the user's recording, and no panel opens for it.
+  bool get isRecording =>
+      _sess == SessionState.recording && !session.recoveryOwnsSession;
 
   /// Card CR-9 — the ceiling's one-minute reminder just fired.
   ///
@@ -182,6 +213,10 @@ extension ChatPttLifecycle on ChatController {
     _activeSendPolicy = foldIntoBuffer ? SendPolicy.manual : _sendPolicy;
     _liveText = '';
     recording.reset();
+    // Follow-up — a grace still running for the previous live final must not
+    // fire into this press's hold (it would let go of the wire for it).
+    _owedTailGrace?.cancel();
+    _owedTailGrace = null;
     final bool ok = await session.pttDown(
       mode: _activeMode,
       // Reading the value in place IS the snapshot (the one read point);
@@ -198,6 +233,13 @@ extension ChatPttLifecycle on ChatController {
     );
     if (!ok) {
       _activeClientId = null;
+      // Follow-up — no press: whatever waited for the wire (a yielded
+      // recovery, an owed tail's placement) gets it back.
+      if (session.articles.hasPendingOwedTail) {
+        _armLiveGrace(this);
+      } else {
+        _resumeHeldRecovery(this);
+      }
     } else {
       // ⏱ starts at audio:start — the same edge the server times the 5-min cap
       // from (R6 T-5d).
@@ -205,6 +247,81 @@ extension ChatPttLifecycle on ChatController {
     }
     notifyUi();
     return ok;
+  }
+
+  /// Card RC-S follow-up (MAIN, 2026-09-24) — the signed-in account is about to
+  /// change (`LoginController.onBeforeAccountChange`; its one production
+  /// caller is main.dart).
+  ///
+  /// 🔴 THE USER'S OWN STOP, NOT A CANCEL: [pttUp] keeps what was said and
+  /// settles it like any release. It is started, not awaited, because sign-out
+  /// must never wait on anything (login_controller.dart `logout`, step 1) — and
+  /// it does not need to: everything that makes the recording END happens in
+  /// `PttSessionEdges.pttUp` before its first await (the residual chunk and
+  /// `audio:stop` leave, the FSM leaves RECORDING), i.e. before this call
+  /// returns and before the caller clears the account. The terminal final then
+  /// arrives on the same socket, whose authentication a sign-out does not
+  /// change (only a reconnect does), and with the recorder no longer running
+  /// the ring replay refuses to send without a server session
+  /// (`replayRefusalFor`).
+  ///
+  /// ⚠️ Codex r3 #3 — NOT ONLY `isRecording`. A continuous recording that has
+  /// outlived its link keeps the microphone open with the FSM `disconnected`
+  /// ([PttSession.continuousCapturingOffline]); [pttUp] is still the user's
+  /// stop for it (its offline branch, `stopContinuousOffline`), so it is asked
+  /// here too, or the microphone would outlive the account.
+  ///
+  /// 🔴 Card RC4 follow-up (MAIN 2026-09-25) — A RECOVERY PASS ON THE WIRE IS
+  /// THROWN AWAY, NOT STOPPED. [isRecording] no longer answers yes for one
+  /// (RC4), and a recovery left running across the change would keep feeding
+  /// the outgoing account's audio into whatever session comes next — the RC-S
+  /// cross-account hole. It leaves through the live-speech yield, the one
+  /// existing way off the wire for an attempt (ptt_backfill.dart
+  /// `yieldRecoveryForLive`): `audio:stop {discard}` goes out synchronously,
+  /// before this returns and so before the caller clears the account; frames
+  /// until its ack are dropped (`discardingYieldedFrames`); the leg returns
+  /// the yield as a refusal, so no failure and no backoff are written and the
+  /// range stays owed. Whether it runs again, and under whom, is the RC-S gate's
+  /// answer (recovery_journal_leg.dart `_heldForAnotherAccount`), read when the
+  /// next pass opens. The legacy segment leg cannot yield and carries no
+  /// account, so ruling 4 already lets it run under whoever is signed in.
+  ///
+  /// 🔴 Card RC5 (Codex rc4 item 3) — AND ONE STILL PREPARING. An attempt that
+  /// passed its account check and is awaiting its journal commit does not hold
+  /// the wire yet, so there is nothing to yield; it is cancelled instead, by
+  /// moving the ledger's account-change count it read when it began
+  /// (`RecoveryAttemptLedger.accountChanges`). `_runOnWire` compares it, and
+  /// asks the RC-S gate again, right before `audio:start`
+  /// (recovery_leg_wire.dart).
+  ///
+  /// 🔴 Card RC6 (device rerun 5, criterion 3) — ANY ATTEMPT STILL IN FLIGHT,
+  /// NOT ONLY ONE HOLDING THE WIRE, and the returned future is the discard
+  /// stop's acknowledgement, which `LoginController` waits for (bounded)
+  /// before it clears the account; null when nothing needs acknowledging.
+  /// See `yieldRecoveryForAccountChange`.
+  Future<void>? stopRecordingForAccountChange() {
+    session.articles.attempts.accountChanging();
+    final RecoveryAttemptLedger attempts = session.articles.attempts;
+    if (attempts.wireAttemptInFlight) {
+      diag('audio.backfill.yield_for_account_change', <String, Object?>{
+        'attempt_id': attempts.wireAttemptId,
+        'holds_wire': session.recoveryHoldsWire,
+      });
+      // While the caller waits for the acknowledgement the outgoing account is
+      // still signed in: no attempt opens (RecoveryAttemptLedger
+      // .accountChangeOpen). Lifted on the NEXT event-loop turn after the
+      // acknowledgement, i.e. after the caller's continuation has cleared or
+      // replaced the account; a timed-out wait leaves it up until the stop's
+      // own timeout, which only delays a pass the RC-S gate decides anyway.
+      attempts.accountChangeOpened();
+      final Future<void> acked = session.yieldRecoveryForAccountChange();
+      unawaited(acked.whenComplete(() => Timer.run(attempts.accountChangeSettled)));
+      return acked;
+    }
+    if (!isRecording && !session.continuousCapturingOffline) return null;
+    diag('ptt.stop_for_account_change', const <String, Object?>{});
+    unawaited(pttUp());
+    return null;
   }
 
   Future<void> pttUp() async {

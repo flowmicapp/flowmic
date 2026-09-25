@@ -1,7 +1,7 @@
 // Card M3-4b · The server replay ring buffer compared two clocks against each other — reverse control
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-card-m3-4b-ring-buffer-clock-mixing.md
+//   docs/archive/strategy/2026-08-02-card-m3-4b-ring-buffer-clock-mixing.md
 //     §1.2 (write side session.ts / read side orchestrator-core.ts both mixed),
 //     §1.3 (the threshold is 5 seconds, not minutes), §2.2 (three reverse controls), §3 (do not touch the phone)
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §1 (server_replay_buffer_ms 5000),

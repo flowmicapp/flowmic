@@ -18,7 +18,7 @@
 // one LoginController.logout() (never a second logout implementation — the
 // ruling's 「勿从零造第二套」).
 //
-// SPEC-REF: docs/strategy/2026-08-11-a2-cloud-logout-gap-audit.md (gap M-1/M-2);
+// SPEC-REF: docs/archive/strategy/2026-08-11-a2-cloud-logout-gap-audit.md (gap M-1/M-2);
 //           CLAUDE.md red line 没有静默失败 / 绝不许串号 (identity must not leak
 //           across accounts).
 

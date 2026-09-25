@@ -109,6 +109,21 @@ export const TargetCapsSchema = z.object({
 });
 export type TargetCaps = z.infer<typeof TargetCapsSchema>;
 
+// ── card HANGUP-3 · WHAT THE CLIENT UNDERSTANDS (docs/rebuild/04 §3.3-a (c′)) ─
+// `client_caps` is the client-to-server half: names of server behaviours this
+// build can render. The `capabilities` array on the pair/reconnect ACK is the
+// other direction (what the SERVER can do, recovery-protocol.ts); two questions,
+// two fields. ABSENT means 「did not declare」 and the server keeps the behaviour
+// it had before the capability existed, so an old client is never worse off.
+// 🔴 Never inferred from `client_version` (diagnostic only, see above).
+/** The client renders `STT_SEGMENT_NOT_TRANSCRIBED` with a sentence of its own. */
+export const CLIENT_CAPABILITY_STT_SEGMENT_NOT_TRANSCRIBED = 'stt.segment_not_transcribed';
+export const CLIENT_CAPS_MAX_ITEMS = 32;
+export const CLIENT_CAP_MAX_LENGTH = 64;
+const ClientCapsField = {
+  client_caps: z.array(NonEmpty.max(CLIENT_CAP_MAX_LENGTH)).max(CLIENT_CAPS_MAX_ITEMS).optional(),
+};
+
 export const PC_DEVICE_NAME_MAX_LENGTH = 80;
 export const PcDeviceNameSchema = z.string().trim().min(1).max(PC_DEVICE_NAME_MAX_LENGTH);
 export const PcNameValueSchema = z.object({ pc_name: PcDeviceNameSchema });
@@ -297,13 +312,14 @@ const PcidField = { pcid: z.string().regex(/^\d{9}$/).optional() };
 // would otherwise never declare anything; a browser that pairs has no such
 // history — the field lands on the row the first time it is used.
 export const MobilePairSchema       = z.union([
-  z.object({ short_code: z.string().regex(/^\d{4}$/), ...PcidField, ...MobileNameField, ...ClientOriginFields }),
-  z.object({ qr_payload: NonEmpty, ...MobileNameField, ...ClientOriginFields }),
-  z.object({ cloud_instance: z.literal(true), ...MobileNameField, ...ClientOriginFields }),
+  z.object({ short_code: z.string().regex(/^\d{4}$/), ...PcidField, ...MobileNameField, ...ClientOriginFields, ...ClientCapsField }),
+  z.object({ qr_payload: NonEmpty, ...MobileNameField, ...ClientOriginFields, ...ClientCapsField }),
+  z.object({ cloud_instance: z.literal(true), ...MobileNameField, ...ClientOriginFields, ...ClientCapsField }),
 ]);
 // The uid on RECONNECT is how a pairing made by an older build gets stamped:
 // the row already exists and is found by token, so this only ever fills a NULL.
-export const MobileReconnectSchema  = z.object({ token: Token, device_uid: DeviceUid });
+// card HANGUP-3 — `client_caps` rides reconnect too: an installed phone never pairs again.
+export const MobileReconnectSchema  = z.object({ token: Token, device_uid: DeviceUid, ...ClientCapsField });
 // ── SEG-1 · the audio half of the `mobile:reconnect` ACK ─────────────────────
 // (docs/strategy/2026-08-11-unified-transcription-session-design.md §2-R5)
 //

@@ -1,5 +1,5 @@
 // Window D1 §3 —— the billing data model's contract tests.
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.1/§3.2/§3.3/§3.4
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.1/§3.2/§3.3/§3.4
 //
 // What these pin, and why each one is here rather than "for coverage":
 //   ① claimEvent is the idempotency gate. If it ever admits the same event_id

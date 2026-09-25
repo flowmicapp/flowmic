@@ -285,7 +285,7 @@ class AsrHealthSnapshot {
 /// threshold-based signals age even between events.
 ///
 /// Exposed as a [ValueListenable] to match the
-/// `ValueNotifier<BackfillProgress>` at `session/backfill_runner.dart:273` —
+/// `ValueNotifier<BackfillProgress>` at `session/backfill_runner.dart:353` —
 /// a future UI binds to both the same way.
 class AsrHealthTracker implements ValueListenable<AsrHealthSnapshot> {
   /// Sliding window (§A8 "新增滑动窗"): recording is live and this many ms

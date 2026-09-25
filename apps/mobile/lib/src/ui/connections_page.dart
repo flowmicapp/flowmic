@@ -3,7 +3,7 @@
 //     profiles + cloud instance + add device; no auto-connect on launch)
 //   docs/rebuild/08-MOBILE-SPEC.md §1 (when paired → ConnectionsPage; Option B no
 //     auto-connect), §4 (pairing / reconnect)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (the instance list = the launch
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (the instance list = the launch
 //     home page; the cloud-instance entry migrated in, reusing the login
 //     sheet; pair by typing a code)
 //

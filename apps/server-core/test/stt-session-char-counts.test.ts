@@ -3,7 +3,7 @@
 // SPEC-REF: src/engine/stt-session-deps.ts `SttCharCounts` (why the seam grew a
 //             third argument instead of the table growing two zero columns)
 //           src/engine/stt-session.ts `emitFinal` / `settle`
-//           docs/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md
+//           docs/archive/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md
 //           CLAUDE.md red line: R11 (does the layer making the judgement have the fact it needs)
 //
 // 🔴 WHY THESE ARE BRIDGE TESTS AND NOT METER TESTS. The meter cannot be wrong

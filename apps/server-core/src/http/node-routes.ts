@@ -2,7 +2,7 @@
 //   docs/strategy/2026-08-29-multi-node-relay-design-srvny-srvjp.md §1 (nodes),
 //     §2-2 (why the probe must be application-level), §4-2/§4-3 (home_node +
 //     authoritative read)
-//   docs/strategy/2026-08-28-soniox-geo-latency-findings.md §8/§9 (the regional
+//   docs/archive/strategy/2026-08-28-soniox-geo-latency-findings.md §8/§9 (the regional
 //     endpoint measurements this whole design rests on)
 //   CLAUDE.md red lines: no silent failure; one value answers one question only
 //

@@ -27,6 +27,7 @@
 
 import 'dart:async';
 
+import '../audio/recording_account.dart';
 import '../audio/retained_audio_journal.dart';
 import '../audio/retained_audio_spill.dart';
 import '../audio/retained_audio_store.dart';
@@ -212,14 +213,32 @@ class PendingRecoveryStore implements PendingRecoverySource {
         }
         continue;
       }
-      out.add(PendingRecoveryItem(
+      final PendingRecoveryItem item = PendingRecoveryItem(
         id: s.recordingId,
         legacy: false,
         state: _stateOf(scan: s, manifest: m, tier: tier),
         durationMs: _journalMs(s, m),
         recordedAtMs: recordedAtMsFromId(s.recordingId),
         partlySaved: _partlySaved(m),
-      ));
+      );
+      // Card RC-S — the same question the recovery leg asks before it opens
+      // an attempt, through the same function, so the card and the queue
+      // cannot disagree about this recording.
+      final bool otherAccount = item.awaitingTranscription &&
+          recordingOwnerOf(m.configSnapshot,
+                  spill.recordingAccount.currentDigest()) ==
+              RecordingOwner.other;
+      out.add(otherAccount
+          ? PendingRecoveryItem(
+              id: item.id,
+              legacy: false,
+              state: item.state,
+              durationMs: item.durationMs,
+              recordedAtMs: item.recordedAtMs,
+              partlySaved: item.partlySaved,
+              otherAccount: true,
+            )
+          : item);
     }
   }
 
@@ -283,6 +302,10 @@ class PendingRecoveryStore implements PendingRecoverySource {
       // delete is the only offer either way.
       return PendingRecoveryState.settledUnverified;
     }
+    // RC-3 — words owed, user action only (owner ruling 2026-09-06 §3).
+    if (status.state == RecoveryQueueState.shortfall) {
+      return PendingRecoveryState.shortfall;
+    }
     if (status.state == RecoveryQueueState.needsManual ||
         status.budgetExhausted) {
       return PendingRecoveryState.needsManual;
@@ -325,7 +348,8 @@ class PendingRecoveryStore implements PendingRecoverySource {
   int _journalMs(RecordingScan s, RecordingManifest m) {
     final AudioJournalFormat f = m.format;
     if (f.bytesPerFrame <= 0 || f.sampleRate <= 0) return 0;
-    final int samples = s.verifiedRecoverableRange.length ~/ f.bytesPerFrame;
+    // RC-K — every stretch still owed, not only the next one.
+    final int samples = s.recoverableBytes ~/ f.bytesPerFrame;
     return samples * 1000 ~/ f.sampleRate;
   }
 

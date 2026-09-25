@@ -1,7 +1,7 @@
 // GA-21 — which LAN address the phone is told to dial.
 //
 // SPEC-REF: REDESIGN §5.2 (multi-NIC dropdown, 多网卡下拉); 07 §5 (LAN IP selection, LAN IP 选择);
-//   docs/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-21.
+//   docs/archive/strategy/2026-07-25-full-gap-audit/02-DESKTOP.md GA-21.
 //
 // The server ranks this host's addresses and calls the first one `primary`. That
 // ranking is a GUESS about which NIC the phone shares, and on the owner's network

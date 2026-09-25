@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
+//   docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
 //     §5 (typed loading, phase A = offline kinds only; streaming rows must
 //     fail LOUD AND NAMED, never be fed to an OfflineRecognizer)
 //   CLAUDE.md red line: no silent failure

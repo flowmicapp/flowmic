@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
+//   docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
 //     §6 (spoken language → the ready model, one value one question)
 //   CLAUDE.md red line: 绝不许串号 in model form — task §3-3: a language the
 //     user never downloaded a model for must REFUSE, never silently borrow a

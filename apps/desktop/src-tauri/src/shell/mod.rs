@@ -5,7 +5,7 @@
 //     §7 (tray is the only quit path; close→hide to tray)
 //   docs/rebuild/13-LESSONS-LEARNED.md §1 W1/W2 (occlusion arg already in
 //     tauri.conf; never activate on ambient surface)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-2 (ruling 1: capsule created
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-2 (ruling 1: capsule created
 //     focus:false + WS_EX_NOACTIVATE semantics; just_injected click-through)
 //
 // The Tauri window shell — built only under the `app` feature so the audited
@@ -500,6 +500,9 @@ pub fn capsule_click_through(app: AppHandle, ignore: bool) {
     if let Some(w) = app.get_webview_window(CAPSULE) {
         #[cfg(windows)]
         capsule_watch::observe_window(&w, "click_through");
+        #[cfg(target_os = "linux")]
+        capsule_style::click_through_linux(&w, ignore);
+        #[cfg(not(target_os = "linux"))]
         let _ = w.set_ignore_cursor_events(ignore);
     }
 }
@@ -690,7 +693,9 @@ pub fn surface_capsule(app: &AppHandle, user_gesture: bool) {
             let _ = w.set_focus();
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    capsule_style::surface_linux(&w, user_gesture);
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     {
         // MAC-D1 (docs/rebuild/07-DESKTOP-SPEC.md §13): "deliberately not
         // enabled" was the doc's framing, but until this fix nothing in this
@@ -729,9 +734,9 @@ pub fn surface_capsule(app: &AppHandle, user_gesture: bool) {
 /// ⚠️ On a Windows build this function is real dead code outside `#[cfg(test)]`
 /// — its only production call site is inside the `#[cfg(not(windows))]` arm
 /// above, which does not exist in a Windows binary. `allow(dead_code)` is
-/// scoped to `cfg(windows)` only, not blanket: on macOS/Linux the compiler
-/// must keep proving it is actually called.
-#[cfg_attr(windows, allow(dead_code))]
+/// scoped to Windows and Linux: macOS uses this policy; Linux has its own
+/// surface policy in capsule_style::surface_linux.
+#[cfg_attr(any(windows, target_os = "linux"), allow(dead_code))]
 fn ambient_surface_may_show(user_gesture: bool) -> bool {
     user_gesture
 }
@@ -791,4 +796,3 @@ fn surface_capsule_native(w: &tauri::WebviewWindow) {
         }
     }
 }
-

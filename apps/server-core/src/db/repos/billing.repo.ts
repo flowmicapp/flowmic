@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.2 (paddle_subscriptions),
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §3.2 (paddle_subscriptions),
 //     §3.3 (billing_events — the idempotency ledger), §3.4 (this interface, verbatim)
 //   docs/decisions/2026-08-01-owner-three-tier-pricing-usd-monthly.md (tier table)
 //   CLAUDE.md red line: no silent failure / one value answers only one question
@@ -23,7 +23,7 @@
 // that says "the handler will…" is an OBLIGATION ON LANE C, not a description
 // of code that exists — `billing/paddle/webhook-handler.ts` is not written yet,
 // so grepping for it today returns nothing. What IS greppable today is the
-// source of the obligation: docs/strategy/2026-08-01-d1-paddle-sandbox-design.md
+// source of the obligation: docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md
 // §5.3. Anyone reading this file after lane C lands should re-check that each of
 // those sentences became true; if one did not, this repo is UNPROTECTED in
 // exactly the way the comment claims it is protected.

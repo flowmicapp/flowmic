@@ -211,6 +211,9 @@ export function rowToEntry(
   // written only by `onInjectResult`) — §5.4.
   ext.focus_process = row.focus_process ?? carried.focus_process ?? null;
   ext.focus_evidence = row.focus_evidence ?? carried.focus_evidence ?? null;
+  // Desktop-local verdict code (doc 16 §4.2), restored through FPR metadata only.
+  // An explicit null is authoritative: a later success cleared this old cause.
+  ext.cached_cause = row.cached_cause !== undefined ? row.cached_cause : carried.cached_cause ?? null;
   // §4.2 ②: the key is `inject_target` on BOTH ends — and 🔴 it is ALWAYS
   // WRITTEN, as an explicit `null` when this row has no delivery target.
   //

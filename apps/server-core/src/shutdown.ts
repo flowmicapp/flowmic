@@ -4,7 +4,7 @@
 // and when it hangs, which step is it stuck in".
 //
 // SPEC-REF: docs/rebuild/13-LESSONS-LEARNED.md §4 (deploy: bind fail-loud);
-//   RV-65 (docs/strategy/2026-07-30-task-package-v1.md).
+//   RV-65 (docs/archive/strategy/2026-07-30-task-package-v1.md).
 
 import type { Server as HttpServer } from 'node:http';
 import { log } from './log';

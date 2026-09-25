@@ -17,6 +17,7 @@
 // the new branch must change ONLY the mid-string-revision shape.
 
 import { describe, expect, it } from 'vitest';
+import { LegFacts } from '../src/stt/leg-facts';
 import {
   commonPrefixLen,
   commonSuffixLen,
@@ -24,6 +25,7 @@ import {
   mergeCumulativeDraft,
   mergeOnlineDraft,
   mergeOverlap,
+  mergeOverlapWithin,
   overlapLen,
 } from '../src/stt/text-merge';
 
@@ -279,5 +281,103 @@ describe('foldConfirmedWithDraft (terminal transcript — confirmed text folded 
   it('🔴 a correction between two nouns: both must survive', () => {
     const merged = foldConfirmedWithDraft('请把门关上', '请把窗关上');
     expect(merged).toBe('请把门关上请把窗关上');
+  });
+});
+
+// ── card RC-5b (2026-09-24) — WHICH seam gets the overlap merge ─────────────
+// CR-12-E: 「没有投票。投票会在」 came out with one 「投票」 — a leg-rotation seam
+// (SEG-4 keeps the bank) ran the 2-character overlap trim on a word said twice.
+// The merge now runs only on a leg that was replayed audio an earlier leg heard.
+describe('RC-5b LegFacts.foldFinal — the merge reads the replay fact', () => {
+  const leg = (heardReplay: boolean): LegFacts => {
+    const f = new LegFacts();
+    f.reset();
+    if (heardReplay) f.noteHeardReplay();
+    return f;
+  };
+
+  it('🔴 no heard audio replayed (overlapBytes 0): a word said twice at the seam stays twice', () => {
+    expect(leg(false).foldFinal('上周没有投票', '投票会在周五')).toBe('上周没有投票投票会在周五');
+  });
+
+  it('a replay of heard audio (overlapBytes > 0, or any ladder reconnect) still de-duplicates, exactly as mergeOverlap', () => {
+    expect(leg(true).foldFinal('上周没有投票', '投票会在周五')).toBe('上周没有投票会在周五');
+  });
+
+  it('only the FIRST final of a leg meets the seam; later finals keep mergeOverlap', () => {
+    const f = leg(false);
+    const once = f.foldFinal('上周', '没有投票');
+    expect(once).toBe('上周没有投票');
+    expect(f.foldFinal(once, '没有投票会在周五')).toBe('上周没有投票会在周五');
+  });
+
+  it('an empty final does not use up the seam', () => {
+    const f = leg(false);
+    expect(f.foldFinal('没有投票', '')).toBe('没有投票');
+    expect(f.foldFinal('没有投票', '投票会在')).toBe('没有投票投票会在');
+  });
+});
+
+// card RC-5c — book 06 §3 RC-5c block: the seam is trimmed only within the leading
+// tokens that started inside audio the previous leg's final had covered.
+describe('RC-5c mergeOverlapWithin — the trim is bounded by the measured overlap', () => {
+  it('bound 0 is a plain join', () => {
+    expect(mergeOverlapWithin('上周没有投票', '投票会在周五', 0)).toBe('上周没有投票投票会在周五');
+  });
+  it('bound covering the restated characters trims them once', () => {
+    expect(mergeOverlapWithin('上周没有投票', '投票会在周五', 2)).toBe('上周没有投票会在周五');
+  });
+  it('a longer shared suffix/prefix is matched only up to the bound', () => {
+    expect(mergeOverlapWithin('我说没有投票', '没有投票会在', 2)).toBe('我说没有投票没有投票会在'); // 「投票」 ≠ prefix 「没有」
+    expect(mergeOverlapWithin('我说没有投票', '没有投票会在', 4)).toBe('我说没有投票会在');
+  });
+  it('OVERLAP_MIN_CHARS still holds under a bound', () => {
+    expect(mergeOverlapWithin('他说了算', '算了吧', 1)).toBe('他说了算算了吧');
+    expect(mergeOverlapWithin('他说了算', '算了吧', 3)).toBe('他说了算算了吧');
+  });
+  it('an unbounded call agrees with mergeOverlap on a ≥2-character overlap', () => {
+    expect(mergeOverlapWithin('上周没有投票', '投票会在周五', Infinity)).toBe(mergeOverlap('上周没有投票', '投票会在周五'));
+  });
+});
+
+describe("RC-5c LegFacts — the overlap is measured from the closed leg's processed floor", () => {
+  // Old leg: chunks 0..4 of 200 ms (0–1000 ms of its clock); new leg replayed chunks 3, 4.
+  const rotate = (floorMs: number | undefined, cutoffMs: number | null = null): LegFacts => {
+    const f = new LegFacts();
+    f.reset();
+    for (let seq = 0; seq < 5; seq++) f.noteLegChunk(seq, (seq + 1) * 200);
+    f.foldFinal('', '今天没有投票', floorMs === undefined ? {} : { audio_proc_floor_ms: floorMs });
+    f.closeLeg(cutoffMs);
+    f.reset(); // the next leg is born
+    f.noteHeardReplay();
+    f.beginReplay(true);
+    f.noteLegChunk(3, 200); f.noteLegChunk(4, 400);
+    f.endReplay();
+    return f;
+  };
+  const B = { token_spans: [{ text: '投', start_ms: 100 }, { text: '票', start_ms: 250 }, { text: '会在', start_ms: 500 }] };
+
+  it('floor at the end-of-stream (600 ms) ⇒ overlap 0 ⇒ both 「投票」 stay', () => {
+    expect(rotate(600).foldFinal('今天没有投票', '投票会在', B)).toBe('今天没有投票投票会在');
+  });
+  it('floor past the replayed chunks (1000 ms) ⇒ overlap 400 ms covers 「投票」 ⇒ merged once', () => {
+    expect(rotate(1_000).foldFinal('今天没有投票', '投票会在', B)).toBe('今天没有投票会在');
+  });
+  it('floor mid-chunk (720 ms) ⇒ overlap 120 ms covers 「投」 only ⇒ below 2 characters, both stay', () => {
+    expect(rotate(720).foldFinal('今天没有投票', '投票会在', B)).toBe('今天没有投票投票会在');
+  });
+  it('the overdue cut caps the floor: cut at 600 ms ⇒ overlap 0 even though the vendor processed more', () => {
+    expect(rotate(1_000, 600).foldFinal('今天没有投票', '投票会在', B)).toBe('今天没有投票投票会在');
+  });
+  it('no floor ⇒ fact absent ⇒ RC-5b (heard replay merges)', () => {
+    expect(rotate(undefined).foldFinal('今天没有投票', '投票会在', B)).toBe('今天没有投票会在');
+  });
+  it('no token times on the new final ⇒ fact absent ⇒ RC-5b', () => {
+    expect(rotate(600).foldFinal('今天没有投票', '投票会在', {})).toBe('今天没有投票会在');
+  });
+  it('a LADDER replay un-measures the leg ⇒ RC-5b', () => {
+    const f = rotate(600);
+    f.beginReplay(false);
+    expect(f.foldFinal('今天没有投票', '投票会在', B)).toBe('今天没有投票会在');
   });
 });

@@ -4,7 +4,7 @@
 //   src/billing/integrator-quota.ts (what a key is, and why `Origin` is not a
 //     security boundary)
 //   src/db/repos/integrator-key.repo.ts (the store)
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §2 / §5
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §2 / §5
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';

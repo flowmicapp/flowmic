@@ -46,10 +46,16 @@ class ChatArticleTile extends StatelessWidget {
     required this.strings,
     this.onOpen,
     this.onLongPress,
+    this.footer,
   });
 
   final TimelineEntry entry;
   final AppStrings strings;
+
+  /// Card CR-12-G — extra lines under the meta line, inside the card. A search
+  /// result puts its match count and snippet here; every other surface passes
+  /// nothing and the card is unchanged.
+  final Widget? footer;
 
   /// Opens the piece. Null in surfaces that cannot navigate (the full-history
   /// page renders the same tile), and then the card is still a card — it just
@@ -174,6 +180,10 @@ class ChatArticleTile extends StatelessWidget {
                             style: TextStyle(
                                 color: FlowMicColors.t2, fontSize: 10.5),
                           ),
+                          if (footer != null) ...<Widget>[
+                            const SizedBox(height: 5),
+                            footer!,
+                          ],
                         ],
                       ),
                     ),

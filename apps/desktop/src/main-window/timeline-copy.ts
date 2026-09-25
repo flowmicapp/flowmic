@@ -2,7 +2,7 @@
 // copies, decided in one pure place.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-25-owner-rulings-and-execution-plan.md §1.2 / §2-③
+//   docs/archive/strategy/2026-08-25-owner-rulings-and-execution-plan.md §1.2 / §2-③
 //   TimelinePage.vue `copy()` — the one caller; the clipboard write stays there.
 //   src-tauri/src/socket/row_image.rs — where the DELIVERED picture lives.
 //

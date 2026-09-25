@@ -9,7 +9,7 @@
 //   docs/decisions/2026-07-31-owner-b2-outbox-rulings.md ② (RV-72 "one re-delivery
 //     = one new row on the PC" — the row's address is now answered by `request_id`,
 //     and `entry_id` reverts to a pure receipt correlation)
-//   docs/strategy/2026-07-31-b3-protocol-round-plan.md (RV-68: `entry_caption` —
+//   docs/archive/strategy/2026-07-31-b3-protocol-round-plan.md (RV-68: `entry_caption` —
 //     an image row's WORDS. The PC renders them and never types them: [`row_face`])
 //   docs/rebuild/07-DESKTOP-SPEC.md §9 (timeline)
 //   CLAUDE.md red line: status only records the delivery truth / no silent failures / three modes locked, never a fourth mode
@@ -284,6 +284,13 @@ pub(in crate::socket) fn row_id(req: &InjectRequest) -> (String, RowIdOrigin) {
 /// red line "status only records the delivery truth": there is no branch here that can produce a status
 /// from anything other than the verdict.
 pub(in crate::socket) fn row_status(result: &Value) -> &'static str {
+    // Lead ruling: 2026-09-22-linux-inject-verdict-codes-and-no-new-history-status.md.
+    // Preserve text as cached; the verdict code carries submission uncertainty.
+    if result.get("error").and_then(Value::as_str)
+        == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN)
+    {
+        return "cached";
+    }
     if result.get("ok").and_then(Value::as_bool) == Some(true) {
         return "injected";
     }

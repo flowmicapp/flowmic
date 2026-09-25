@@ -2,11 +2,11 @@
 // suite: gated on `FLOWMIC_LIVE_STT=1` AND on `.local/soniox.env` existing.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-m2-window-handoff-report.md §5 M2-3
+//   docs/archive/strategy/2026-08-02-m2-window-handoff-report.md §5 M2-3
 //     (🔴 Soniox has never actually been run — adapter layer fully tested, real link unproven)
-//   docs/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0b
+//   docs/archive/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md §-0b
 //     (🔴 failover counts as delivered only after an [active drill] —「not drilled = not done」), §7 B half
-//   docs/strategy/shots-2026-08-02-l9-soniox-output/README.md (this round's raw
+//   docs/archive/strategy/shots-2026-08-02-l9-soniox-output/README.md (this round's raw
 //     evidence: what Soniox actually puts on the wire, and the two defects it
 //     exposed)
 //   CLAUDE.md rule: unit tests all green prove nothing about 「wiring」; every real path needs one real-end run

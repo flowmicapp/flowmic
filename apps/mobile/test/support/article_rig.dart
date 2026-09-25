@@ -59,7 +59,7 @@ class ArticleRig {
     transport = FakeSocketTransport();
     session = newTestSession(
       transport: transport,
-      audio: AudioCapture(recorder: FakeAudioRecorder()),
+      audio: AudioCapture(recorder: recorder),
       stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
     );
     giveSessionAPairedIdentity(session);
@@ -83,6 +83,10 @@ class ArticleRig {
   /// The disk this rig's [store] reads and writes. Exposed so a SECOND rig
   /// can be built over the same one (card A-1's "restart").
   final TimelinePersistence persistence;
+
+  /// Card CR-12-C — exposed so a case that runs past the capture watchdog's
+  /// 1.5 s (`DEAD CAPTURE`) can feed real PCM instead of being aborted by it.
+  final FakeAudioRecorder recorder = FakeAudioRecorder();
   late final FakeSocketTransport transport;
   late final PttSession session;
   late final TimelineStore store;
@@ -97,14 +101,19 @@ class ArticleRig {
     return id;
   }
 
-  Future<void> say(String text, int idx, {required bool isSegment}) async {
+  Future<void> say(
+    String text,
+    int idx, {
+    required bool isSegment,
+    int durationMs = 30000,
+  }) async {
     transport.pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
       'text': text,
       'confidence': 0.95,
       'language': 'zh',
       'segment_idx': idx,
       'is_segment': isSegment,
-      'duration_ms': 30000,
+      'duration_ms': durationMs,
     });
     await pumpEventQueue();
   }

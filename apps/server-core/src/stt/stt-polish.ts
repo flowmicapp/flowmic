@@ -2,7 +2,7 @@
 //   docs/rebuild/06-STT-ENGINE-LAYER.md §5 (final pipeline last stage — the
 //     opt-in, meaning-preserving LLM polish applied to the TERMINAL final only;
 //     ≤800 ms budget; reuses the shared llm.config, no new model identity)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 ④⑤ (failure semantics: deliver
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 ④⑤ (failure semantics: deliver
 //     the pure two-stage text + wire polish:'skipped'+reason + forensic; never
 //     block delivery, never
 //     deliver an LLM output that bypassed the guard, never go silent)
@@ -423,7 +423,7 @@ export interface PolishDeps {
    *  compose/prompt.ts's `sourceLanguageNote` had to write four sentences to
    *  avoid; feeding it to the guard needs a per-language corpus that does not
    *  exist yet (P1-2). Both are deliberate non-goals of this change, not oversights.
-   *  Full account: docs/strategy/2026-08-28-multilingual-chain-audit.md §2 hop 7. */
+   *  Full account: docs/archive/strategy/2026-08-28-multilingual-chain-audit.md §2 hop 7. */
   language?: string;
 }
 

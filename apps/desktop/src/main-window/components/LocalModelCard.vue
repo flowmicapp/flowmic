@@ -1,5 +1,5 @@
 <!-- Settings ▸ Speech recognition ▸ local speech model packs, per speaking
-     language (LM-CAT, docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md;
+     language (LM-CAT, docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md;
      design book 2026-08-19-local-model-onboarding-design.md §5-A).
 
      ── WHAT CHANGED FROM THE SINGLE-MODEL CARD ──────────────────────────────

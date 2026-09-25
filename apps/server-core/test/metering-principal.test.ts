@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §1 (the matrix),
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §1 (the matrix),
 //     §2 (the single ordered rule), §3 (D1/D3), §6 (the reverse controls)
 //   docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md
 //     §9 (「谁说扣谁」) and §9-1 (a third-party page's owner pays, FREE tier included)

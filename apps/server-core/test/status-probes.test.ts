@@ -1,6 +1,6 @@
 // W-5a (REQ-13-03) — the status probe timer, its two probes, and GET /api/status.
 //
-// SPEC-REF: docs/strategy/2026-08-13-0263-design-task-book.md §9-2 (every ruling carries its reason;
+// SPEC-REF: docs/archive/strategy/2026-08-13-0263-design-task-book.md §9-2 (every ruling carries its reason;
 //             §9-2.2 is this file's lead), §9-2.6 (W-5a acceptance: when the probe dies the endpoint answers
 //             unknown-with-timestamp; the probe does not hit real session quota)
 //           src/status/status-probes.ts / src/status/managed-stt-health.ts

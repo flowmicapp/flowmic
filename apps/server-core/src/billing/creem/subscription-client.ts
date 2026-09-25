@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   apps/server-core/src/billing/subscription-writer.ts (the contract)
 //   apps/server-core/src/billing/creem/client.ts (the checkout half + transport)
-//   docs/strategy/2026-08-29-creem-stage0-findings.md §2b (the live probes every
+//   docs/archive/strategy/2026-08-29-creem-stage0-findings.md §2b (the live probes every
 //     endpoint and enum value below was measured with)
 //   *** HUMAN-AUDIT SENSITIVE (billing) — reviewable in isolation ***
 //

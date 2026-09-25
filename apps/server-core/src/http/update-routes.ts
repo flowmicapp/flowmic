@@ -2,7 +2,7 @@
 //   docs/decisions/2026-08-02-in-app-update-both-ends.md (owner 2026-08-02:
 //     "the official site is the authoritative place to get the update URL, but
 //     the download link may be some other URL")
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §1 (manifest contract) /
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §1 (manifest contract) /
 //     §2 (hash gate)
 //   CLAUDE.md red line "no silent failure" — both directions forbidden
 //

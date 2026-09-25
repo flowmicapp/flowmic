@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §10-1 step 3
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §10-1 step 3
 //     (the site demo's per-browser cap) · §10-4 (two ceilings, both real)
 //   ./budget-push.ts (the frame a page is shown) · ../engine/stt-factory.ts
 //     (the deadline a recording is cut off at) · ./trial-ledger.ts (the grant)

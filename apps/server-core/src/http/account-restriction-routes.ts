@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-12-a2-3-restricted-use-design.md §3.2 (route shape),
+//   docs/archive/strategy/2026-08-12-a2-3-restricted-use-design.md §3.2 (route shape),
 //     §3.3 (C1/C2/C3 guards), §8.1 (the three warnings this route detonates)
 //   docs/decisions/owner-web-rulings/latest.md:71 (owner's wording)
 //   src/auth/account-restriction.ts (what a restriction IS — read that first)

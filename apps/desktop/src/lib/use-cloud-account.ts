@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l3-account-card-design.md §2.4 (four states) / §3 (pathway)
+//   docs/archive/strategy/2026-08-02-l3-account-card-design.md §2.4 (four states) / §3 (pathway)
 //
 // The ONE piece of fetch orchestration behind the account card. Both surfaces that
 // render the account (Settings page → Account, Devices page → cloud-card collapsed

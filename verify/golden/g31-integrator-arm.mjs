@@ -4,7 +4,7 @@
 //   docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md
 //     §9-1 and the §11 追认 (「已登录用户默认也是扣对端」 — the third-party far end
 //     outranks a signed-in speaker; `INTEGRATOR_QUOTA_EXCEEDED` approved)
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §4 (what may be
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §4 (what may be
 //     on the wire), §5 (failure directions), §6 (the reverse controls), §10-6
 //
 // ── WHY A SEPARATE FILE RATHER THAN FIVE MORE SECTIONS IN G30 ───────────────
@@ -420,7 +420,10 @@ export const G31 = {
       // the test, it is the gap the test then failed to see — MP-2 measured a
       // site whose own interface did not move while the phone showed the
       // refusal, and this golden was green throughout.
-      const host = track(await connect(url, { token: room.room_token }));
+      // W6c: the production SDK runs in the host DOM, so its browser sends
+      // HOST_ORIGIN. Keep the no-Origin refusal above and the Socket negative
+      // in integrator-socket-origin.test.ts; this is a corrected probe input.
+      const host = track(await connect(url, { token: room.room_token }, { Origin: HOST_ORIGIN }));
       const hostRec = recordAll(host);
       const hostAck = await ack(host, 'pc:reconnect', {
         token: room.room_token,

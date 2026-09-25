@@ -134,7 +134,7 @@ describe('applyConnectionRows — the seed the race made necessary', () => {
 //     kept a stale copy forever. Measured consequence of the OLDER rule, and the
 //     reason owner changed it: a personal dictionary, AI polish and two-pass
 //     refine were INERT on the cloud relay
-//     (docs/strategy/2026-08-24-settings-pipeline-effectiveness-audit.md §2-3/§2-6);
+//     (docs/archive/strategy/2026-08-24-settings-pipeline-effectiveness-audit.md §2-3/§2-6);
 //   · from 2026-09-03: those four keys are the PHONE's. They ride the
 //     transcription request, no server stores them, and the server refuses them
 //     from a PC by name — so the desktop has no key left that the relay would

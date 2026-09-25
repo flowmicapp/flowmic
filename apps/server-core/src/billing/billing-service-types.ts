@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (single source of truth
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (single source of truth
 //     PlanView + PlanSource's four values + four-step priority), §6.1-bis (permanent_free
 //     is an exemption, not a tier; effectiveLimits is the sole source of quota)
 //   docs/decisions/2026-08-01-owner-three-tier-pricing-usd-monthly.md (three-tier table)

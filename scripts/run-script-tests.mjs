@@ -90,7 +90,7 @@ if (files.length === 0) {
 // Each file was already its own child process (it must be — these are scripts
 // that call `process.exit()`), so the only thing the old `for … spawnSync`
 // loop added was the waiting. Measured 2026-09-12
-// (docs/strategy/2026-09-12-verify-delivery-speedup-plan.md §1.2): the 65
+// (docs/archive/strategy/2026-09-12-verify-delivery-speedup-plan.md §1.2): the 65
 // children's own reported times summed to 153.9 s and the stage's wall clock
 // was 158.6 s — the two numbers agreeing IS the proof it was strictly serial.
 // Three files account for 66 s of that; everything else waits behind them for

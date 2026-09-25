@@ -24,6 +24,7 @@ import noCloudKeys from './no-cloud-keys.mjs';
 import settingsKeyDrift from './settings-key-drift.mjs';
 import moduleReachability from './module-reachability.mjs';
 import i18nErrorKeys from './i18n-error-keys.mjs';
+import i18nWebErrorCoverage from './i18n-web-error-coverage.mjs';
 import i18nAddLocaleCost from './i18n-add-locale-cost.mjs';
 import i18nGeneratedFresh from './i18n-generated-fresh.mjs';
 import circular from './circular.mjs';
@@ -58,6 +59,7 @@ import pairLinkSingleSource from './pair-link-single-source.mjs';
 import protocolGeneratedFresh from './protocol-generated-fresh.mjs';
 import spokenLangsMirror from './spoken-langs-mirror.mjs';
 import mobileWebTokensMirror from './mobile-web-tokens-mirror.mjs';
+import sitePathAllowlistMirror from './site-path-allowlist-mirror.mjs';
 
 const LINTS = [
   { name: 'protocol-whitelist', run: protocolWhitelist },
@@ -65,6 +67,7 @@ const LINTS = [
   { name: 'settings-key-drift', run: settingsKeyDrift },
   { name: 'module-reachability', run: moduleReachability },
   { name: 'i18n-error-keys', run: i18nErrorKeys },
+  { name: 'i18n-web-error-coverage', run: i18nWebErrorCoverage },
   { name: 'i18n-add-locale-cost', run: i18nAddLocaleCost },
   { name: 'i18n-generated-fresh', run: i18nGeneratedFresh },
   { name: 'circular', run: circular },
@@ -99,6 +102,7 @@ const LINTS = [
   { name: 'protocol-generated-fresh', run: protocolGeneratedFresh },
   { name: 'spoken-langs-mirror', run: spokenLangsMirror },
   { name: 'mobile-web-tokens-mirror', run: mobileWebTokensMirror },
+  { name: 'site-path-allowlist-mirror', run: sitePathAllowlistMirror },
 ];
 
 const COLOR = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -118,7 +122,7 @@ const tag = (status) =>
 // thread time-slicing 40 sweeps. `UV_THREADPOOL_SIZE=32` moved nothing, which
 // rules out fs-queue starvation. The full measurement, both directions, is in
 // verify/lint/lint-worker.mjs's header and in
-// docs/strategy/2026-09-12-verify-delivery-speedup-plan.md §3.1.
+// docs/archive/strategy/2026-09-12-verify-delivery-speedup-plan.md §3.1.
 //
 // THE STATIC IMPORTS ABOVE STAY, and not out of habit:
 //   · they are the reachability proof for the suite — several drills

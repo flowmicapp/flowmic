@@ -1,7 +1,7 @@
 // Card N1-B4 — the 5-minute wall becomes an ENGINE-SESSION rollover.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-08-design-n1-long-recording.md §2.3 (M3:「keep a ceiling,
+//   docs/archive/strategy/2026-08-08-design-n1-long-recording.md §2.3 (M3:「keep a ceiling,
 //     but let it act on the engine session rather than this user utterance: at the mark, roll over to a new engine session (close old, open new,
 //     segment indices stay consecutive); the user feels nothing, no banner, FSM does not leave RECORDING」), §1.2 (the already-
 //     written invariant 「one segment_idx may have only one server final」 and the dropped-characters

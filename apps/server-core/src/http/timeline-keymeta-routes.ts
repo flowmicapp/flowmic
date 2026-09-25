@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-11-design-e-multidevice-salt.md §3.1 (HTTP surface:
+//   docs/archive/strategy/2026-08-11-design-e-multidevice-salt.md §3.1 (HTTP surface:
 //     GET/PUT /api/timeline/keymeta, Bearer account JWT, saas-only mount,
 //     first-writer-wins PUT), §2 (why serving the sentinel discloses nothing new)
 //   CLAUDE.md human-audit four sensitive paths: the cryptography surface

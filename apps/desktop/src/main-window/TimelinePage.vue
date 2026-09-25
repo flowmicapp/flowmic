@@ -246,11 +246,12 @@ const CONTROL_KEY_LABEL: Record<string, () => string> = {
   tab: () => S.ck_tab,
   space: () => S.ck_space,
 };
-const CONTROL_OUTCOME_NOTE: Record<string, () => string> = {
+const CONTROL_OUTCOME_NOTE: Record<string, () => string | undefined> = {
   no_target: () => S.co_no_target,
   foreground_refused: () => S.co_foreground_refused,
   os_refused: () => S.co_os_refused,
   send_failed: () => S.co_send_failed,
+  submission_uncertain: () => INJECT_FAIL_REASON.INJECT_SUBMISSION_UNCERTAIN,
   not_primary: () => S.co_not_primary,
 };
 function controlFace(e: TimelineRow): string {
@@ -621,16 +622,16 @@ const view = ref<'rows' | 'data'>('rows');
         <div class="meta">
           <span>{{ formatTimelineLabel(e.created_at) }}</span>
           <span>·</span>
-          <span class="dot" :class="statusBadge(e.status, e.focus_evidence).dot"></span>
+          <span class="dot" :class="statusBadge(e.status, e.focus_evidence, e.control_outcome === 'submission_uncertain' ? 'INJECT_SUBMISSION_UNCERTAIN' : e.cached_cause).dot"></span>
           <!-- owner 2026-07-27: WHICH PHONE sent this. Before the status chip so
                the row reads left-to-right as phone → status → target, i.e. the actual
                path the utterance took. -->
           <span v-if="senderLabel(e)" class="sender-chip" :title="S.tl_sender_tip">{{ senderLabel(e) }} →</span>
           <span
             class="st-tag"
-            :class="statusBadge(e.status, e.focus_evidence).cls"
+            :class="statusBadge(e.status, e.focus_evidence, e.control_outcome === 'submission_uncertain' ? 'INJECT_SUBMISSION_UNCERTAIN' : e.cached_cause).cls"
             :title="provenanceTip(e) ?? undefined"
-          >{{ statusLine(e.status, targetLabel(e), e.focus_evidence, failedCauseInline(e.status, e.cached_cause, INJECT_FAIL_REASON)) }}</span>
+          >{{ statusLine(e.status, targetLabel(e), e.focus_evidence, failedCauseInline(e.status, e.cached_cause, INJECT_FAIL_REASON), e.control_outcome === 'submission_uncertain' ? 'INJECT_SUBMISSION_UNCERTAIN' : e.cached_cause) }}</span>
           <!-- owner 2026-07-30 ①: WHICH CHANNEL delivered this row. The page lists
                both servers now, and a row whose channel is invisible cannot be told
                apart from the other server's — the same address every op travels.

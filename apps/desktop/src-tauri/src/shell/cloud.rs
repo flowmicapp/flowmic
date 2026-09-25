@@ -5,7 +5,7 @@
 //     "7-day TTL" — true until owner ruling 2026-08-27 §R1 made the default 100
 //     years: docs/decisions/2026-08-27-owner-persistent-login-and-routing-order.md)
 //   docs/ui-design/REDESIGN-PLAN.md §5.2 (device page dual channel cards: local LAN / cloud relay)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md T-2
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md T-2
 //   *** HUMAN-AUDIT SENSITIVE (pairing/auth) ***
 //
 // The `app`-feature control layer for the CLOUD RELAY channel: the managed
@@ -352,7 +352,7 @@ fn publish_config_change(app: &AppHandle, cfg: CloudConfig) -> CloudStatusDto {
 
 // ── L3 account card: the LIVE account read ─────────────────────────────────────────
 //
-// Design doc: docs/strategy/2026-08-02-l3-account-card-design.md §3.
+// Design doc: docs/archive/strategy/2026-08-02-l3-account-card-design.md §3.
 //
 // Everything the account card used to show (plan / expiry / account id) came out
 // of `dto()` above — i.e. out of the JWT's own claims, frozen at the moment the

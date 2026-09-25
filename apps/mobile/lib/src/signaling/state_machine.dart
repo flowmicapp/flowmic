@@ -338,7 +338,9 @@ class FlowmicStateMachine {
         // RE-ARMED on restore below: a 30 s outage must not let a net armed
         // before the drop expire mid-hold (the session is held, not stalled),
         // nor leave the restored PROCESSING with no net at all.
-        _cancelProcessingWatchdog();
+        // RC7 — the idle net only: a long stop's deadline keeps running through a hold.
+        _processingTimer?.cancel();
+        _processingTimer = null;
         if (!alreadyHeld) {
           _dropGraceTimer = Timer(_sessionDropGrace, _onDropGraceFired);
         }
@@ -433,12 +435,30 @@ class FlowmicStateMachine {
   /// PTT up — only valid while RECORDING. Also the entry the server-side
   /// auto-stop path takes (ptt_session audio:auto-stopped → onPttUp), so the
   /// watchdog covers that route too.
-  void onPttUp() {
+  ///
+  /// Card RC-M (MAIN ruling 1, 2026-09-24) — [armNet] false is the recovery
+  /// session's release (`PttSession.endBackfill`): its wait belongs to the
+  /// recovery leg's own clocks (`RecoveryTimeouts`), which end it through
+  /// [releaseProcessing]. A 15 s net here cut every recovery whose relay was
+  /// still flushing a backlog (root cause §3.2: final at 26.7 s, phone gave up
+  /// at 15.3 s).
+  ///
+  /// Card RC4-S5 follow-up (MAIN ruling) — [netAtLeast]: a long recording's
+  /// stop waits for the relay's closing work, which sends no frame (book 08 §2,
+  /// RC4-S5 follow-up block); the net for THIS processing is the longer of the
+  /// two. Null (every push-to-talk press) ⇒ the RC-M idle net, unchanged.
+  void onPttUp({bool armNet = true, Duration? netAtLeast}) {
     if (_sess != SessionState.recording) {
       _refuse('pttUp', 'requires session=recording');
       return;
     }
     _sess = SessionState.processing;
+    // ⚠️ 更正（RC7，Codex rc6 ③，2026-09-25）：原为 [netAtLeast] raising the IDLE
+    // net for this processing — which every stt frame restarts and a restored
+    // link re-arms from zero, so the 5 minute cap never capped anything. A long
+    // stop now arms no idle net at all, and [_armLongStopDeadline] instead: a
+    // deadline from THIS instant that frames and holds do not move.
+    _netless = !armNet || netAtLeast != null;
     _emit();
     // ENG-3: the server already told us — mid-press — that this run is dead
     // (terminal stt:error latched in [onSttTerminalError]). No final is coming,
@@ -451,6 +471,7 @@ class FlowmicStateMachine {
       _stallProcessing(pending);
       return;
     }
+    if (netAtLeast != null) _armLongStopDeadline(netAtLeast);
     _startProcessingWatchdog();
   }
 
@@ -527,14 +548,76 @@ class FlowmicStateMachine {
   // No handoff API is pre-declared here on purpose: an uncalled seam is exactly
   // the façade this repo bans. GA-01 introduces it together with its caller.
 
+  // ⚠️ 更正（RC-M，2026-09-24）: the net above is no longer a fixed deadline.
+  // It is an IDLE clock — [onSttActivity] restarts it on every stt frame of
+  // the utterance — and a recovery session does not arm it at all
+  // ([onPttUp]'s `armNet`). Book 08 §2 carries the same correction.
   void _startProcessingWatchdog() {
     _processingTimer?.cancel();
+    _processingTimer = null;
+    if (_netless) return;
     _processingTimer = Timer(_processingTimeout, _onProcessingTimeout);
+  }
+
+  /// Card RC7 (Codex rc6 ③) — the long-recording stop's absolute deadline,
+  /// armed once by [onPttUp] and cancelled only when PROCESSING ends
+  /// ([_cancelProcessingWatchdog]); a link hold leaves it running.
+  Timer? _longStopTimer;
+
+  void _armLongStopDeadline(Duration wait) {
+    final Duration? ceiling = _longStopCeiling;
+    _longStopTimer?.cancel();
+    _longStopTimer = Timer(
+        ceiling != null && wait > ceiling ? ceiling : wait, _onLongStopDeadline);
+  }
+
+  void _onLongStopDeadline() {
+    _longStopTimer = null;
+    // Inside a link hold the session is restored from [_heldSession]: it must
+    // come back at rest, or the deadline would be undone by the reconnect.
+    if (_heldSession == SessionState.processing) _heldSession = SessionState.idle;
+    _stallProcessing(const SttStall(SttStallReason.timeout));
+  }
+
+  /// Card RC6 (F2) — a test's ceiling on [onPttUp]'s `netAtLeast` (the
+  /// long-recording stop wait is minutes in production). Null in production.
+  Duration? _longStopCeiling;
+
+  @visibleForTesting
+  set longStopCeiling(Duration? d) => _longStopCeiling = d;
+
+  /// Set by [onPttUp] for the PROCESSING it opens: true ⇒ no net (RC-M).
+  bool _netless = false;
+
+  /// Card RC-M — an stt frame of this utterance arrived (interim, segment
+  /// final, engine-status; `ptt_inbound.dart` is the one caller). The relay is
+  /// still working on it, so 「no response」 restarts from now. A no-op outside
+  /// an armed PROCESSING net.
+  void onSttActivity() {
+    if (_sess == SessionState.processing && _processingTimer != null) {
+      _startProcessingWatchdog();
+    }
+  }
+
+  /// Card RC-M — the recovery leg stopped waiting on its own clocks
+  /// (`recovery_leg_wire.dart` `_awaitTerminal`): PROCESSING → IDLE with no
+  /// stall event. The leg records the failure in the journal and the
+  /// pending-recovery screen says it; a banner here would be a second voice.
+  void releaseProcessing() {
+    if (_sess != SessionState.processing) return;
+    _cancelProcessingWatchdog();
+    _sess = SessionState.idle;
+    // A held link restores what it holds; restoring a net-less PROCESSING
+    // would be a state with no exit.
+    if (_heldSession != null) _heldSession = SessionState.idle;
+    _emit();
   }
 
   void _cancelProcessingWatchdog() {
     _processingTimer?.cancel();
     _processingTimer = null;
+    _longStopTimer?.cancel(); // RC7 — every exit from PROCESSING, never a hold
+    _longStopTimer = null;
   }
 
   void _onProcessingTimeout() {

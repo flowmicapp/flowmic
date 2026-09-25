@@ -22,6 +22,11 @@
 // question 「does touching a row re-deliver it?」 must get ONE answer per file,
 // which is why these are not in the delivery file: there, the answer is always
 // yes; here, always no.
+// ⚠️ Correction (NR-89, 2026-09-23): 「here, always no」 stopped being true for
+// `reprocessEntry` with card F3 — a re-run births a NEW row and sends it as a
+// NEW delivery (`_deliverRerun`, chat_utterance_processing.dart). The member
+// was not moved when that changed; this paragraph is kept as the record of why
+// the split was drawn where it is.
 //
 // ⚠️ ALL FOUR BODIES LIVE IN OLDER PART FILES ALREADY (chat_row_uplink.dart for
 // the edit/delete family, chat_utterance.dart for `_applyRefined` and
@@ -53,14 +58,25 @@ extension ChatRowRewrite on ChatController {
   // The server no longer holds this phone's rows, so an edit has nobody to report
   // to and no peer that could overrule it — see chat_row_uplink.dart.
 
-  /// GA-13 — re-translate/re-organize an existing row with the CURRENT mode.
+  /// GA-13 / card F3 / card NR-89 — re-translate ([FlowMode.translate]) or
+  /// re-organize ([FlowMode.organize]) an existing row; [mode] is the operation
+  /// the user picked in the long-press menu, NOT the session's current mode.
   ///
   /// Re-runs over the immutable `source_text`, so this is never a translation of
-  /// a translation. The result is written as a MACHINE update: the row's text
-  /// moves, the `edited` bit does not (that bit means 「a human edited it」).
-  /// Nothing is re-delivered — long-press resend remains the deliberate way to
-  /// send it.
-  AiComposeFailure? reprocessEntry(TimelineEntry entry) => _reprocessEntry(this, entry);
+  /// a translation. The product becomes a NEW row and goes out as a NEW delivery
+  /// (`_deliverRerun` in chat_utterance_processing.dart); the long-pressed row
+  /// is left exactly as it was.
+  ///
+  /// ⚠️ Correction (NR-89, 2026-09-23): this comment used to read 「with the
+  /// CURRENT mode」 and 「The result is written as a MACHINE update: the row's
+  /// text moves, the `edited` bit does not … Nothing is re-delivered —
+  /// long-press resend remains the deliberate way to send it.」 Both halves were
+  /// already false after card F3 (a new row and a new delivery, owner
+  /// 2026-08-04 ruling ③); the first half became false with NR-89 (the user
+  /// picks the operation). The file header above still quotes the old sentence
+  /// as its reason for this split — read it as history.
+  AiComposeFailure? reprocessEntry(TimelineEntry entry, FlowMode mode) =>
+      _reprocessEntry(this, entry, mode);
 
   /// GA-14 — adopt a second-pass transcript (body in chat_utterance.dart, the
   /// same-library part file the utterance terminals already live in).

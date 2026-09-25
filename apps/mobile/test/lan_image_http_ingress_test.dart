@@ -50,7 +50,7 @@
 //   apps/mobile/lib/src/session/image_send_controller.dart;
 //   apps/mobile/lib/src/diag/diag_upload.dart;
 //   apps/server-core/src/http/inject-routes.ts;
-//   docs/strategy/2026-08-01-real-device-session-findings.md RV-97.
+//   docs/archive/strategy/2026-08-01-real-device-session-findings.md RV-97.
 
 import 'dart:async';
 import 'dart:convert';

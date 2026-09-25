@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §4 (what the
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §4 (what the
 //     wire must carry and what the far end may learn) + §3 D5 (「PC 屏幕不许把
 //     「别人在扣」画成自己的表」) + §8 Q3 (the adopted answer: say it, without an
 //     amount)

@@ -227,7 +227,7 @@ describe('A1 — FLOWMIC_PLAN_LIMITS reaches planLimits() by the time loadConfig
   it('an unconfigured boot leaves the defaults in force', () => {
     loadConfig(SAAS);
     expect(planLimits('free').stt_minutes).toBe(20);
-    expect(planLimits('pro').stt_minutes).toBe(900);
+    expect(planLimits('pro').stt_minutes).toBe(1000);
     expect(planLimits('max').stt_minutes).toBe(3_000);
   });
 

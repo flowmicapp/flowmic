@@ -14,6 +14,11 @@
 // ⚠️ These cases cannot be run red against the pre-fix tree: they name symbols
 // the fix introduces. The red evidence for this defect is the two screen
 // files, which drive the product through its menus and read the clipboard.
+//
+// CR-12-F (2026-09-22): the renderer went from one line per SEGMENT to one line
+// per PARAGRAPH (the CR-12-B grouping the recording page draws). The fixture
+// below — three back-to-back 30 s segments, no sentence end — is therefore ONE
+// paragraph; the multi-paragraph shape is pinned by the 45/30/40 case.
 
 import 'package:flowmic/src/session/image_clipboard.dart'
     show ImageCopyOutcome;
@@ -22,7 +27,9 @@ import 'package:flowmic/src/signaling/wire_payloads.dart'
     show Delivery, FlowMode;
 import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/ui/article_copy.dart';
-import 'package:flowmic/src/ui/article_page.dart' show formatArticleRange;
+import 'package:flowmic/src/timeline/article_paragraphs.dart'
+    show ArticleParagraph, paragraphText, paragraphsOf;
+import 'package:flowmic/src/ui/article_page.dart' show formatParagraphRange;
 import 'package:flowmic/src/ui/chat_article_tile.dart';
 import 'package:flowmic/src/ui/selection/batch_actions.dart';
 import 'package:flutter/material.dart';
@@ -89,25 +96,34 @@ final List<TimelineEntry> _members = <TimelineEntry>[
 
 /// The format, written out once so the assertions below read as the owner's
 /// expectation and not as the implementation echoed back.
-const String kPiece = '00:00–00:30 今天先过两件事\n'
-    '00:30–01:00 第一件是库存口径\n'
-    '01:00–01:30 第二件是采购节奏';
+const String kPiece = '00:00–01:30 今天先过两件事第一件是库存口径第二件是采购节奏';
 
 void main() {
   group('the one renderer', () {
-    test('🔴 every segment, in timeline order, each with the page\'s label',
+    test('🔴 every paragraph, in timeline order, each with the page\'s label',
         () {
       expect(articleCopyText(_members), kPiece);
     });
 
+    test('🔴 45/30/40 with sentence ends: exactly two paragraph lines', () {
+      final List<TimelineEntry> rows = <TimelineEntry>[
+        _member('a', '先说库存。', 0, ms: 45_000),
+        _member('b', '再说采购。', 45_000, ms: 30_000),
+        _member('c', '最后排期', 75_000, ms: 40_000),
+      ];
+      expect(articleCopyText(rows),
+          '00:00–00:45 先说库存。\n00:45–01:55 再说采购。最后排期');
+    });
+
     test('the label IS the article page\'s label, not a second format', () {
-      // `formatArticleRange` is what ArticlePage draws above each row. If
-      // someone re-implements the prefix here the two will drift apart and
+      // `formatParagraphRange` / `paragraphText` are what ArticlePage draws.
+      // If someone re-implements either here the two will drift apart and
       // nothing on any screen will say which one is right.
-      for (final TimelineEntry m in _members) {
-        expect(articleCopyText(<TimelineEntry>[m]),
-            '${formatArticleRange(m)} ${m.displayText}');
-      }
+      final List<ArticleParagraph> ps = paragraphsOf(_members);
+      expect(articleCopyText(_members), <String>[
+        for (final ArticleParagraph p in ps)
+          '${formatParagraphRange(p)} ${paragraphText(p)}',
+      ].join('\n'));
     });
 
     test('a segment with no known length gets a START, like the page', () {
@@ -115,11 +131,32 @@ void main() {
       expect(articleCopyText(<TimelineEntry>[m]), '01:30 不知道多长');
     });
 
+    test('a paragraph whose START is unknown prints its words, no label', () {
+      // Null is null, not 00:00 (the page draws no label either).
+      final TimelineEntry m = TimelineEntry(
+        id: 'u',
+        clientId: 'u',
+        mode: FlowMode.realtime,
+        delivery: Delivery.none,
+        sourceText: '不知道从哪开始',
+        outputText: '不知道从哪开始',
+        status: EntryStatus.noted,
+        origin: 'cloud',
+        articleId: kArt,
+        durationMs: 30_000,
+        createdAt: _t0,
+        updatedAt: _t0,
+      );
+      expect(articleCopyText(<TimelineEntry>[m]), '不知道从哪开始');
+    });
+
     test('a segment with no words prints no line; an empty piece is empty',
         () {
       expect(
         articleCopyText(<TimelineEntry>[_members[0], _member('e', '  ', 30_000)]),
-        '00:00–00:30 今天先过两件事',
+        // The blank segment still belongs to the paragraph (its time does),
+        // it just contributes no words.
+        '00:00–01:00 今天先过两件事',
       );
       expect(articleCopyText(const <TimelineEntry>[]), '');
     });

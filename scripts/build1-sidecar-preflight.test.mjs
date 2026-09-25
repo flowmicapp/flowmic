@@ -82,12 +82,13 @@ function assertEqual(actual, expected, label) {
   assertTrue(a === e, `${label}${a === e ? '' : `  (got ${a}, want ${e})`}`);
 }
 
-/** A synthetic src-tauri dir: base conf + optional macOS overlay + whichever
+/** A synthetic src-tauri dir: base conf + optional platform overlays + whichever
  *  resources the case wants actually present on disk. */
-function makeTauriFixture({ base, macos, present = [] }) {
+function makeTauriFixture({ base, macos, linux, present = [] }) {
   const dir = mkdtempSync(join(tmpdir(), 'flowmic-build1-'));
   writeFileSync(join(dir, 'tauri.conf.json'), JSON.stringify(base));
   if (macos !== undefined) writeFileSync(join(dir, 'tauri.macos.conf.json'), JSON.stringify(macos));
+  if (linux !== undefined) writeFileSync(join(dir, 'tauri.linux.conf.json'), JSON.stringify(linux));
   for (const rel of present) {
     const full = join(dir, rel);
     mkdirSync(dirname(full), { recursive: true });
@@ -161,6 +162,8 @@ try {
   );
   const winList = declaredResources('win32', fixture({ base: WIN_BASE, macos: SYNTHETIC_OVERLAY }));
   assertEqual(winList, WIN_BASE.bundle.resources, 'win32 ignores the macOS overlay');
+  const linuxList = declaredResources('linux', fixture({ base: WIN_BASE, linux: SYNTHETIC_OVERLAY }));
+  assertEqual(linuxList, SYNTHETIC_OVERLAY.bundle.resources, 'linux takes its overlay list wholesale');
 
   // ── §3b ───────────────────────────────────────────────────────────────────
   section('§3b every REAL overlay carries every payload the base declares');
@@ -175,13 +178,18 @@ try {
   // by editing this list rather than by being silently absent.
   const RUNTIME_ALIASES = new Set(['resources/node', 'resources/node.exe']);
   const baseList = declaredResources('win32', REAL_TAURI_DIR);
-  for (const platform of ['darwin']) {
+  for (const platform of ['darwin', 'linux']) {
     const overlayList = declaredResources(platform, REAL_TAURI_DIR);
     const lost = baseList.filter((r) => !RUNTIME_ALIASES.has(r) && !overlayList.includes(r));
     assertEqual(lost, [], `${platform} overlay loses nothing the base declares`);
     const runtimes = overlayList.filter((r) => RUNTIME_ALIASES.has(r));
     assertTrue(runtimes.length === 1, `${platform} overlay names exactly one runtime (got ${JSON.stringify(runtimes)})`);
   }
+  const linuxConf = JSON.parse(readFileSync(join(REAL_TAURI_DIR, 'tauri.linux.conf.json'), 'utf8'));
+  const linuxCapsule = linuxConf.app?.windows?.find((window) => window.label === 'capsule');
+  assertTrue(!!linuxCapsule, 'linux overlay keeps the capsule window after array replacement');
+  assertTrue(linuxCapsule?.focus === false, 'linux capsule preserves focus:false at first draw');
+  assertTrue(linuxCapsule?.focusable === false, 'linux capsule is non-focusable before tao first draw');
 
   // ── §4 ────────────────────────────────────────────────────────────────────
   section('§4 missingResources reports exactly what is absent');
@@ -210,7 +218,7 @@ try {
   // worktree (the four paths are gitignored), not a defect in the preflight.
   // `existsSync` here is a SEPARATE ruler from `missingResources`: the skip
   // decision must not share a probe with the function under test.
-  const realPlatform = process.platform === 'darwin' ? 'darwin' : 'win32';
+  const realPlatform = ['darwin', 'linux'].includes(process.platform) ? process.platform : 'win32';
   const realDeclared = declaredResources(realPlatform, REAL_TAURI_DIR);
   const realAbsent = realDeclared.filter((rel) => !existsSync(join(REAL_TAURI_DIR, rel)));
   if (realAbsent.length === realDeclared.length) {

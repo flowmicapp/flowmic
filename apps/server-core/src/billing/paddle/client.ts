@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.2
+//   docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.2
 //   https://developer.paddle.com/build/subscriptions/cancel-subscriptions/
 //   apps/server-core/src/billing/paddle/webhook-handler.ts (the INBOUND half —
 //     this file is the first outbound call this repo has ever made to Paddle)

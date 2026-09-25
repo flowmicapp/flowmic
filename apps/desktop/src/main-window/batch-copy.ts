@@ -58,7 +58,7 @@ export interface BatchCopyPlan {
 /** Build the copy plan for the selected rows, reordered to CHRONOLOGICAL
  *  ASCENDING before anything else happens.
  *
- *  🔴 owner 2026-08-01, docs/strategy/2026-08-01-data-asset-lifecycle-design.md
+ *  🔴 owner 2026-08-01, docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md
  *  §4b-6, verbatim: "concatenation order has been ruled: chronological ascending
  *  — earlier ones first, newer ones after, so what gets pasted naturally comes out
  *  in the order things happened (regardless of the order the user checked them

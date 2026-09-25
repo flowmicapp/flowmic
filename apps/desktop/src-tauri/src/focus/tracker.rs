@@ -487,7 +487,13 @@ pub use crate::focus::macos::{
 // false` both send the pipeline down its truthful cached path; they never claim a
 // target that does not exist.
 
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+#[cfg(target_os = "linux")]
+pub use crate::focus::linux::{
+    current_app_name, current_foreground_hwnd, current_foreground_target, current_window_title,
+    set_foreground_window, WindowsWinEventSource,
+};
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
 mod noop_nonwin {
     use super::*;
 
@@ -521,7 +527,7 @@ mod noop_nonwin {
     }
 }
 
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos"), not(target_os = "linux")))]
 pub use noop_nonwin::{
     current_app_name, current_foreground_hwnd, current_foreground_target, current_window_title,
     set_foreground_window, WindowsWinEventSource,

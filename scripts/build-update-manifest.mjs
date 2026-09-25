@@ -2,7 +2,7 @@
 //
 // SPEC-REF:
 //   docs/decisions/2026-08-02-in-app-update-both-ends.md
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §1 (contract) / §2.2 ① (hash gate, first stage)
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §1 (contract) / §2.2 ① (hash gate, first stage)
 //   apps/server-core/src/http/update-routes.ts (endpoint, the second stage of the same shape rules)
 //   docs/decisions/2026-08-10-owner-seven-rulings-after-0261.md ① (manifest semantics)
 //

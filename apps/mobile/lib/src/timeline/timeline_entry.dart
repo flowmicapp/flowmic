@@ -21,8 +21,9 @@ import '../signaling/wire_payloads.dart' show FlowMode, Delivery;
 // header for the cut and the one mechanical edit it carries.
 part 'timeline_entry_codec.dart';
 
-/// master-plan §4.0 D: status records DELIVERY TRUTH ONLY. Five badges in the
-/// UI = these four statuses plus the orthogonal [TimelineEntry.edited] overlay.
+/// History retains four states. Submission uncertainty uses cached plus its
+/// verdict code (2026-09-22-linux-inject-verdict-codes-and-no-new-history-status).
+/// The edited bit remains an orthogonal overlay.
 ///
 /// N2 / RV-43 §1 re-defined what each WORD means (the SET is unchanged, and the
 /// protocol is untouched):
@@ -142,6 +143,7 @@ class TimelineEntry {
     this.lastResentAt,
     this.articleId,
     this.articleOffsetMs,
+    this.pauseBeforeMs,
     this.utteranceId,
   });
 
@@ -388,6 +390,38 @@ class TimelineEntry {
   /// has no position inside itself).
   final int? articleOffsetMs;
 
+  /// 🔴 CR-12-D — how long it was silent BEFORE this row's first word, in ms of
+  /// recorded audio.
+  ///
+  /// **THE WALL-CLOCK PAUSE**, measured on the server as two disjoint parts: the
+  /// silence the engine heard between the two words (its own word timestamps)
+  /// plus the silence the VAD gate withheld from it. Each chunk of audio is
+  /// counted on exactly one side, so the sum neither drops the quiet-room half
+  /// nor counts a noisy room's silence twice
+  /// (`apps/server-core/src/stt/segment-pause.ts`).
+  ///
+  /// 🔴 NULL IS 「我不知道」, NOT 「没有停顿」, and the two need opposite handling.
+  /// Null on the first row of a recording, on every engine without word
+  /// timestamps, across an engine reconnect, on rows that cover more than one
+  /// engine segment (the number then describes a moment INSIDE the row, not
+  /// before it), and on every row written before this card. Readers degrade;
+  /// nobody substitutes 0.
+  ///
+  /// Written once at build time and never revised (no [copyWith] parameter),
+  /// for the same reason [articleOffsetMs] is not: an edit changes the words,
+  /// it does not change how long the speaker waited before saying them.
+  ///
+  /// 🔴 WHO READS THIS: the paragraph rule of card CR-12-A, through its one
+  /// seam `articlePauseBeforeMs` (`article_paragraphs.dart`), which returns
+  /// this field; a value >= `kStrongPauseMs` qualifies the edge in front of
+  /// this row as a paragraph break. (Until the CR-12 integration on 2026-09-23
+  /// this comment said "nobody" — true then, stated plainly because a stored
+  /// field with no reader is this repo's #1 historical bug class.)
+  /// Since card CR-12-B the read-back `ArticlePage` renders `paragraphsOf`,
+  /// so the chain is wire → row → rule → pixels on that page; the live page
+  /// (CR-12-C) has not landed.
+  final int? pauseBeforeMs;
+
   /// 🔴 REQ-12-13 — WHICH remote key this row records (`clear` / `backspace` /
   /// `undo` / `enter`). Non-null **if and only if** [entryType] is [kControl];
   /// null on every other row. Contract: docs/rebuild/15 §2.0-e.
@@ -399,21 +433,14 @@ class TimelineEntry {
   /// resend (重发)/deferred delivery (补投)
   /// re-delivers — a row with no text is a row nothing can accidentally re-send.
   ///
-  /// 🔴 **[status] IS NOT THIS ROW'S ANSWER, AND MUST NOT BE READ AS ONE.** The ⌨
-  /// segment has exactly one thing this phone can prove — 「帧离开了本机」("the
-  /// frame left this device") — and the
-  /// row's EXISTENCE is that statement (it is only ever minted after
-  /// `sendControlKey` returned true; a key that never left the device raises the
-  /// compose banner instead, and mints nothing). `EntryStatus` answers 「投递真相」
-  /// ("delivery truth"),
-  /// a different question, and this end can never answer it here: `control:key` has
-  /// no receipt frame, so 「电脑收到了吗」("did the computer receive it") has no
-  /// evidence on this side at all
-  /// (docs/rebuild/15 §6 G-24).
+  /// The row's EXISTENCE says the frame left this device. Most receipts do not
+  /// rewrite that narrow claim. The one exception is `reason:'uncertain'`:
+  /// [status] remains [EntryStatus.cached] with the uncertainty reason because repeating the press could
+  /// duplicate an action that may already have happened.
   ///
   /// ⚠️ **One honest deviation, stated explicitly (一处诚实偏差，明写)**: the
   /// column is non-null, so a control row still
-  /// carries a status — [EntryStatus.noted]. It is chosen because it is the only
+  /// starts with [EntryStatus.noted]. It is chosen because it is the only
   /// value whose failure mode is a LOW claim rather than a high one: if some future
   /// caller renders it despite the guards, the user reads 「留在手机」("stays on
   /// the phone") rather than
@@ -517,8 +544,7 @@ class TimelineEntry {
   /// a receipt") means now, so every
   /// caller that used to ask the status gets the narrower question it actually
   /// wanted (see `TimelineStore.lastAwaitingInject` / `markNoted`).
-  bool get awaitingDelivery =>
-      status == EntryStatus.cached && !cachedByVerdict;
+  bool get awaitingDelivery => status == EntryStatus.cached && !cachedByVerdict;
 
   /// A verdict said it was NOT delivered and can be re-sent (📥 未投递 / "not
   /// delivered").
@@ -534,7 +560,8 @@ class TimelineEntry {
   /// 「这一行是特殊的」("this row is special"): the row has no
   /// [sourceText], its [outputText] is empty (the face is composed at render time
   /// from [controlKind], so nothing on the row can be re-delivered or re-typed),
-  /// and its [status] is NOT the delivery truth of anything — see [controlKind].
+  /// and its [status] is only read for the independent uncertain receipt — see
+  /// [controlKind].
   bool get isControl => entryType == kControl;
 
   /// CR-7 — true for an ARTICLE HEAD row. See [kArticle].
@@ -589,6 +616,7 @@ class TimelineEntry {
     String? failureReason,
     bool? cachedByVerdict,
     DateTime? lastResentAt,
+    int? articleOffsetMs,
   }) => TimelineEntry(
     id: id,
     clientId: clientId,
@@ -623,7 +651,13 @@ class TimelineEntry {
     // from, and where inside it, are facts about the audio that produced the
     // row. An edit changes the words; it does not move the row in time.
     articleId: articleId,
-    articleOffsetMs: articleOffsetMs,
+    // ⚠️ 更正（RC-3b，2026-09-24）：原为 no parameter for the offset either. It
+    // has ONE caller, and it is not an edit: `TimelineStore.applyArticleSpan`,
+    // which puts back the time a live row lent to an owed stretch whose
+    // recovery came back empty (session/recovery_leg_settle.dart). An edit
+    // still never moves a row in time.
+    articleOffsetMs: articleOffsetMs ?? this.articleOffsetMs,
+    pauseBeforeMs: pauseBeforeMs,
     // Same rule: which utterance settled this row is its identity.
     utteranceId: utteranceId,
     // Null cannot clear — see [failureReason] field comment.
@@ -651,7 +685,6 @@ class TimelineEntry {
 
   static TimelineEntry? fromJson(Map<String, Object?> j) =>
       timelineEntryFromJson(j);
-
 
   /// HistoryItemSchema wire shape for `history:create` / room sync. `status`
   /// records delivery truth only; `edited` is the additive overlay bit.
@@ -697,5 +730,4 @@ class TimelineEntry {
     'created_at': createdAt.toUtc().toIso8601String(),
     'updated_at': updatedAt.toUtc().toIso8601String(),
   };
-
 }

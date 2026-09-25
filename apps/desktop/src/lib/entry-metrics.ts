@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §4 owner's already-ruled criteria (owner 已裁的口径) ②⑧
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §4 owner's already-ruled criteria (owner 已裁的口径) ②⑧
 //     ("word-count criterion = each mode's final result" (字数口径 = 各模式最终结果); "show per-entry transcription duration + word count" (逐条显示转录时长 + 字数))
 //
 // owner 2026-08-01 ruled "show per-entry transcription duration + word count"

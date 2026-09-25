@@ -7,14 +7,12 @@
 part of '../app_strings.dart';
 
 mixin ComposeStrings on AppStringsLeaves {
-
   // ── ComposeBand: toolbar + editable buffer box + send button (R6 T-3a / §6.2 ⑤) ─────────
   /// Placeholder inside the editable buffer. zh is byte-identical to the frozen
   /// demo copy (.buf); while an utterance streams, the live interim text takes
   /// this slot instead (§6.2 「空时叠加 interim 流字」 — "when empty, overlay the
   /// streaming interim text").
-  String get composeHint =>
-      _lfComposeHint;
+  String get composeHint => _lfComposeHint;
 
   /// Buffer placeholder while the link is down — the whole input row is inert,
   /// and it says why rather than looking merely idle.
@@ -56,15 +54,12 @@ mixin ComposeStrings on AppStringsLeaves {
   /// would turn that debt into a three-way one. And this one's consequence
   /// differs from both of those: **it changes not a single character**, it only
   /// folds the face back up.
-  String get composeCollapse =>
-      _lfComposeCollapse;
+  String get composeCollapse => _lfComposeCollapse;
 
   /// The two send policies (08 §5). The send button's face IS the switch, so
   /// these label the toggle confirmation, not a settings row (D4).
-  String get sendPolicyDirect =>
-      _lfSendPolicyDirect;
-  String get sendPolicyManual =>
-      _lfSendPolicyManual;
+  String get sendPolicyDirect => _lfSendPolicyDirect;
+  String get sendPolicyManual => _lfSendPolicyManual;
 
   /// One-line explanation shown when the policy flips, so the change is never
   /// silent. direct = speech goes straight to the PC; manual = it waits in the
@@ -90,7 +85,6 @@ mixin ComposeStrings on AppStringsLeaves {
   /// 「不可用」 ("unavailable"): the keys act on a focused window, and this destination has none.
   String get pcKeysUnavailableNoted => _lfPcKeysUnavailableNoted;
 
-
   // The two toolbar group labels (toolsLocalGroup / toolsRemoteGroup) were
   // removed in the M1/M3 pass: neither had a caller, and M3 gave the four
   // remote keys per-key hints that say what each does ON THE PC — strictly more
@@ -106,8 +100,7 @@ mixin ComposeStrings on AppStringsLeaves {
   // producer rather than waiting for somebody to answer a different question
   // with it.
   String get keyEnter => _lfKeyEnter;
-  String get keyBackspace =>
-      _lfKeyBackspace;
+  String get keyBackspace => _lfKeyBackspace;
   String get keyUndo => _lfKeyUndo;
   String get keyClear => _lfKeyClear;
 
@@ -118,6 +111,7 @@ mixin ComposeStrings on AppStringsLeaves {
   String get keyEnterHint => _lfKeyEnterHint;
   String get keyBackspaceHint => _lfKeyBackspaceHint;
   String get keyUndoHint => _lfKeyUndoHint;
+
   /// 🔴 REWRITTEN BY T-1 — the SECOND user-visible sentence the decoupling made
   /// false, and the second one the design doc's §4-4 four-spot checklist did
   /// not list.
@@ -156,14 +150,10 @@ mixin ComposeStrings on AppStringsLeaves {
 
   /// 🔴 The ONLY status word this row can honestly say, **must never be
   /// changed to 「已投递」 ("delivered")**.
-  /// `control:key` has no receipt frame ⇒ all this end can prove is 「帧离开了
-  /// 本机」 ("the frame left this device"); the answer to 「电脑收到了吗 / 执行
-  /// 了吗」 ("did the PC receive it / did it execute it") lives on **the PC's
-  /// OWN timeline row** (15 册 §2.0-e). 「已投递」 is stage ①'s word, and its
-  /// success criterion is 「拿到 PC 的回执」 ("received the PC's receipt") —
-  /// there is none on this path.
-  String get controlRowSent =>
-      _lfControlRowSent;
+  /// This word is stamped when the frame leaves the phone, before any receipt.
+  /// A later uncertain receipt gets its own independent label; it never turns
+  /// this birth-time word into 「已投递」 ("delivered").
+  String get controlRowSent => _lfControlRowSent;
 
   /// 🔴 REWRITTEN BY T-1, AND THIS ONE WAS ALMOST MISSED (2026-08-13).
   ///
@@ -201,8 +191,7 @@ mixin ComposeStrings on AppStringsLeaves {
 
   /// M2: the retry affordance on a failed delivery — the send-failure banner's
   /// action button and the failed row's inline entry share the ONE word.
-  String get resendAction =>
-      _lfResendAction;
+  String get resendAction => _lfResendAction;
 
   /// owner 2026-07-31, real device: 「在原消息上显示一个最后的重发时间」 ("show a
   /// last-resend time on the original message") — the meta-row label
@@ -345,8 +334,7 @@ mixin ComposeStrings on AppStringsLeaves {
   String get composeSheetHeaderAppending => _lfComposeSheetHeaderAppending;
 
   /// PA-5 (Plan A′ §5-2) — the in-sheet hold-to-append button's resting face.
-  String get appendHold =>
-      _lfAppendHold;
+  String get appendHold => _lfAppendHold;
 
   /// PA-5 — the same button while the append hold is live. Mirrors the PTT
   /// bar's release wording family (● + release verb).
@@ -398,8 +386,7 @@ mixin ComposeStrings on AppStringsLeaves {
 
   /// The card's primary button (sheet footer). The wording follows whichever
   /// face it lives on; the action is the same `ChatController.sendBuffer`.
-  String get composeCardDeliver =>
-      _lfComposeCardDeliver;
+  String get composeCardDeliver => _lfComposeCardDeliver;
 
   /// P4 (0.3.1) — the same primary button when the destination is fixed
   /// (light-record / cloud instance): the action commits the typed draft as a
@@ -415,8 +402,7 @@ mixin ComposeStrings on AppStringsLeaves {
   /// (`ControlKeyKind.clear`, which clears the content of the PC's focus
   /// window). The two things have similar names and completely different
   /// consequences.
-  String get composeCardDiscard =>
-      _lfComposeCardDiscard;
+  String get composeCardDiscard => _lfComposeCardDiscard;
 
   /// FB-3 Plan A buffer hint strip: after the confirmation dialog was
   /// cancelled, the protection 「切模式会清空缓冲」 ("switching modes clears
@@ -498,8 +484,7 @@ mixin ComposeStrings on AppStringsLeaves {
   /// gives back the **very first** version, not the previous one
   /// (`AiComposeController._restorable`'s `??=` is the implementation of this
   /// rule).
-  String get aiRestoreOriginal =>
-      _lfAiRestoreOriginal;
+  String get aiRestoreOriginal => _lfAiRestoreOriginal;
 
   /// The affordance's tooltip / a11y sentence — it names WHICH text comes back,
   /// because after two transforms 「原文」 ("original text") has two plausible
@@ -540,7 +525,16 @@ mixin ComposeStrings on AppStringsLeaves {
   /// and the original was NOT sent in its place (red line: an LLM failure must
   /// never look like a successful translation). A long-press deferred-delivery
   /// (长按补投) is the way out, so it is named.
-  String utteranceComposeError(AiComposeOutcome outcome) {
+  ///
+  /// Card RC-I — [neverSent]: the failed utterance was a light record or a
+  /// record-only row (`EntryNeverSent.neverSent`). Nothing was ever going to be
+  /// sent, so 「nothing was sent · long-press to send it」 is two false
+  /// statements there; it gets its own frame, and `LLM_INVALID_MODEL` its own
+  /// reason that names no PC ([aiErrorCodeFor]).
+  String utteranceComposeError(
+    AiComposeOutcome outcome, {
+    required bool neverSent,
+  }) {
     final String why = switch (outcome.reason) {
       AiComposeFailure.notConnected => _lfUtteranceComposeError__1,
       AiComposeFailure.emptyBuffer => _lfUtteranceComposeError__2,
@@ -548,10 +542,22 @@ mixin ComposeStrings on AppStringsLeaves {
       AiComposeFailure.timeout => _lfUtteranceComposeError__4,
       AiComposeFailure.aborted => _lfUtteranceComposeError__5,
       AiComposeFailure.busy => _lfUtteranceComposeError__6,
-      AiComposeFailure.serverError => aiErrorCode(outcome.code),
+      AiComposeFailure.serverError =>
+        aiErrorCodeFor(outcome.code, neverSent: neverSent),
     };
-    return _lfUtteranceComposeError__7(why);
+    return neverSent
+        ? _lfUtteranceComposeErrorRecord__7(why)
+        : _lfUtteranceComposeError__7(why);
   }
+
+  /// Card RC-I — [aiErrorCode], except that for an utterance that is never
+  /// sent `LLM_INVALID_MODEL` does not say 「on the PC」: a light record has no
+  /// PC, and the model it lacks is the relay's. Every other code's sentence
+  /// names no PC and is reused as it is.
+  String aiErrorCodeFor(String? code, {required bool neverSent}) =>
+      neverSent && code == 'LLM_INVALID_MODEL'
+          ? _lfAiErrorCodeRecord__2
+          : aiErrorCode(code);
 
   /// Readable text for the compose error codes the server can return. An
   /// UNKNOWN code is surfaced VERBATIM rather than swallowed into a generic

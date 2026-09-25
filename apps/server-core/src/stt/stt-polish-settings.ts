@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 ①⑥ (stt.polish {enabled};
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 ①⑥ (stt.polish {enabled};
 //     default OFF; present-but-malformed → SETTINGS_SCHEMA_INVALID at audio:start)
 //   @flowmic/protocol SttPolishSchema / SETTINGS_KEY_STT_POLISH
 //   docs/decisions/2026-07-23-settings-key-drift-literal-anchors.md

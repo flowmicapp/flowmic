@@ -217,7 +217,7 @@ export const STT_PRESETS: readonly SttPreset[] = [
   // (sherpa-onnx SenseVoice-small int8) — the zero-config / offline safety net.
   // No network endpoint (`endpoint` intentionally omitted). The ~228 MB model is
   // NOT bundled; it is downloaded on demand at first use (see
-  // docs/strategy/spikes/sherpa-onnx-spike.md §6.3).
+  // docs/archive/strategy/spikes/sherpa-onnx-spike.md §6.3).
   {
     id: 'builtin-sherpa-local',
     label: '内置本地（离线）/ Built-in Local (offline)',

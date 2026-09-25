@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-11-design-e-grant-web-preview.md §3.2 (timeline_grants
+//   docs/archive/strategy/2026-08-11-design-e-grant-web-preview.md §3.2 (timeline_grants
 //     — durable authorization rows, wrap NEVER stored, supersede-on-new-grant),
 //     §2-4 (expiry/revocation judged from this table, fail-closed), §3.4 (this
 //     table is the REST list/revoke data source)

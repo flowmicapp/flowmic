@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.3 (the ordered
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.3 (the ordered
 //     pipeline and the event table below are from there), §5.2 (signature),
 //     §3.2/§3.3 (the two tables), §3.3-bis (outcome vocabulary)
 //   apps/server-core/src/db/repos/billing.repo.ts (the obligations its rule-④

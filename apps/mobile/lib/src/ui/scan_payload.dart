@@ -11,7 +11,7 @@
 //     ships — S1-02 recognises that prefix here too, otherwise the camera path
 //     would show 「foreign QR」 for the new code before `PairEntry.parse` ever
 //     saw it)
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-30
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-30
 //   CLAUDE.md red line: no silent failures
 //
 // What a camera frame MEANS — the pure half of QR pairing.

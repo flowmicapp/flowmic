@@ -1,7 +1,7 @@
 // Card F4 — over-length text must be refused **on this device**, right there,
 // not die at the protocol boundary.
 //
-// Source: `docs/strategy/2026-08-12-req1209-plus-panel-design.md` §9-3 item 1
+// Source: `docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md` §9-3 item 1
 // (the debt REQ-12-09's multi-select card itself reported): `ManualDelivery.deliverText`
 // has only three gates (`canCompose` / non-empty / `noPcTarget`) and **no length
 // check** ⇒ over-length walks all the way to `InjectRequestSchema`, gets zod-rejected,

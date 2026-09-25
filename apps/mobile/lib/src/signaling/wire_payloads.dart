@@ -55,6 +55,18 @@ class AudioStartPayload {
   /// server's own defaults, i.e. to the product as it was — the safe direction.
   final Map<String, Object?>? prefs;
 
+  /// Card RC-1 — this `audio:start` opens a LONG (continuous) recording
+  /// (`AudioStartSchema.continuous`, additive optional). The relay reads it to
+  /// give the session the unbounded engine-reconnect ladder instead of the
+  /// push-to-talk one (root-cause 2026-09-24 §5 RC-1).
+  ///
+  /// false ⇒ the key is OMITTED, never sent as `false`: push-to-talk and every
+  /// recovery leg (`beginBackfill`) go out byte for byte as before, and an old
+  /// relay that strips the key degrades to push-to-talk behaviour — today's.
+  /// The one writer of `true` is `pttDown` (ptt/ptt_edges.dart), on
+  /// `continuous.isActive`.
+  final bool continuous;
+
   const AudioStartPayload({
     required this.mode,
     required this.sourceLang,
@@ -62,6 +74,7 @@ class AudioStartPayload {
     this.sendPolicy = SendPolicy.direct,
     this.delivery = Delivery.inject,
     this.prefs,
+    this.continuous = false,
   });
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -74,6 +87,7 @@ class AudioStartPayload {
     'source_lang': sourceLang,
     if (targetLang != null) 'target_lang': targetLang,
     if (prefs != null && prefs!.isNotEmpty) 'prefs': prefs,
+    if (continuous) 'continuous': true,
   };
 }
 
@@ -502,10 +516,13 @@ String controlKeyWireName(ControlKeyKind kind) => switch (kind) {
 class ControlKeyPayload {
   final ControlKeyKind kind;
   final String? deviceLabel;
-  const ControlKeyPayload(this.kind, {this.deviceLabel});
+  final String? requestId;
+  const ControlKeyPayload(this.kind, {this.deviceLabel, this.requestId});
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': controlKeyWireName(kind),
-    if (deviceLabel != null && deviceLabel!.isNotEmpty) 'device_label': deviceLabel,
+    if (deviceLabel != null && deviceLabel!.isNotEmpty)
+      'device_label': deviceLabel,
+    if (requestId != null && requestId!.isNotEmpty) 'request_id': requestId,
   };
 }
 
@@ -554,10 +571,15 @@ class MobileReconnectPayload {
   /// pre-0.2.4 build learns which phone it belongs to, and it can never move
   /// the connection to a different row.
   final String? deviceUid;
-  const MobileReconnectPayload(this.token, {this.deviceUid});
+
+  /// card HANGUP-3 — `client_caps` (04 §3.3-a (c′)); omitted when empty, like the
+  /// fields above. Callers pass `declaredClientCapabilities()`.
+  final List<String> clientCaps;
+  const MobileReconnectPayload(this.token, {this.deviceUid, this.clientCaps = const <String>[]});
   Map<String, Object?> toJson() => <String, Object?>{
     'token': token,
     if (deviceUid != null && deviceUid!.isNotEmpty) 'device_uid': deviceUid,
+    if (clientCaps.isNotEmpty) 'client_caps': clientCaps,
   };
 }
 
@@ -620,14 +642,19 @@ class MobilePairPayload {
     String? deviceUid,
     String? client,
     String? clientVersion,
+    List<String> clientCaps = const <String>[], // card HANGUP-3, omitted when empty
   }) {
     final Map<String, Object?> named = <String, Object?>{
-      if (mobileName != null && mobileName.isNotEmpty) 'mobile_name': mobileName,
+      if (mobileName != null && mobileName.isNotEmpty)
+        'mobile_name': mobileName,
       if (deviceUid != null && deviceUid.isNotEmpty) 'device_uid': deviceUid,
       if (client != null && client.isNotEmpty) 'client': client,
-      if (clientVersion != null && clientVersion.isNotEmpty) 'client_version': clientVersion,
+      if (clientVersion != null && clientVersion.isNotEmpty)
+        'client_version': clientVersion,
+      if (clientCaps.isNotEmpty) 'client_caps': clientCaps,
     };
-    if (cloudInstance) return <String, Object?>{'cloud_instance': true, ...named};
+    if (cloudInstance)
+      return <String, Object?>{'cloud_instance': true, ...named};
     if (shortCode != null) {
       return <String, Object?>{
         'short_code': shortCode,

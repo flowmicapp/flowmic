@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   🔴 docs/rebuild/16-PORTABLE-RECORD-FORMAT-FPR-V1.md §6.1 (stats), §6.2 (clear)
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §4, §5-1..-6
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §4, §5-1..-6
 //   docs/rebuild/15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md G-17 / RV-96
 //
 // Settings → Data → "Stats & clear". owner's RV-96 — the clear function he can

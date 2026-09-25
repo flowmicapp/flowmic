@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.1 (the path and the
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §5.1 (the path and the
 //     reason it is NOT under /api/billing/ — that paragraph is quoted below
 //     because §5.1 explicitly requires it to live in the code), §5.3 step 1
 //   apps/server-core/src/billing/paddle/webhook-handler.ts (steps 2-7)

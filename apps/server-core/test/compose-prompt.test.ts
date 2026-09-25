@@ -183,7 +183,7 @@ describe('system prompt = stable scenario prefix + task template', () => {
 // 🔴 THE NOTE IS SUBORDINATE TO THE TRANSCRIPT ON PURPOSE — see the third test.
 // A bare "write in German" would convert a caller's HINT into a silent
 // translation, and no organize rule would catch it (the guard's script rules run
-// on translate only). Refs docs/strategy/2026-08-28-multilingual-chain-audit.md F4.
+// on translate only). Refs docs/archive/strategy/2026-08-28-multilingual-chain-audit.md F4.
 // ─────────────────────────────────────────────────────────────────────────────
 describe('renderTaskTemplate — organize carries a known source language', () => {
   it('names the language when the tag is known', () => {

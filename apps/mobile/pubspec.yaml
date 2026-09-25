@@ -6,7 +6,7 @@ publish_to: 'none'
 # root package.json version. The Android versionCode governance formula
 # (08-MOBILE-SPEC §8: major*1e6+minor*1e4+patch) is applied at release packaging
 # (a later R3 card), not here — this card does not build a signed APK.
-version: 0.3.92
+version: 0.3.95
 
 environment:
   sdk: ^3.11.5
@@ -183,7 +183,7 @@ dependencies:
   # bugs live. sqflite already has both, tested by everyone.
   sqflite: ^2.4.1
   # E-B1 blind-store client-side crypto layer (docs/rebuild/05-DATA-MODEL.md §2, design
-  # docs/strategy/2026-08-08-design-e-blindstore-client.md §2) — Argon2id for the
+  # docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §2) — Argon2id for the
   # passphrase→MasterKey step and AES-256-GCM for the per-entry `e2e:v1:`
   # envelope. Only lib/src/crypto/** imports it.
   #

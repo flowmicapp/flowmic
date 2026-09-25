@@ -6,16 +6,16 @@
 part of '../app_strings.dart';
 
 mixin ChatStrings on AppStringsLeaves {
-
   // ── chat-flow back / stick-to-bottom (T-6b) ─────────────────────────────
   String get discardUnsentConfirm => _lfDiscardUnsentConfirm;
   String get discardUnsentAction => _lfDiscardUnsentAction;
+
   /// Back during PTT: stop via pttUp (keep path), stay on page — never silent drop.
   String get recordingStoppedKept => _lfRecordingStoppedKept;
+
   /// Floating affordance when the reversed chat list is scrolled away from
   /// offset 0 (visual bottom). Explicit locale only — never OS locale.
-  String get backToBottom =>
-      _lfBackToBottom;
+  String get backToBottom => _lfBackToBottom;
 
   // ── banner slot (R6 T-5 / REDESIGN P-3 single slot + priority queue) ────────────────────
   /// Blocking: the transport is down, the PTT gate is closed. Buffered content
@@ -72,8 +72,7 @@ mixin ChatStrings on AppStringsLeaves {
 
   /// The 「N more」affordance on the single slot (P-3: at most one banner on
   /// screen, the rest stay ONE tap away — never dropped).
-  String bannerMore(int n) =>
-      _lfBannerMore(n);
+  String bannerMore(int n) => _lfBannerMore(n);
 
   /// Title of the expanded all-banners sheet.
   String get bannerAllTitle => _lfBannerAllTitle;
@@ -94,7 +93,7 @@ mixin ChatStrings on AppStringsLeaves {
   // never render is a façade on the copy face, and it is worse than dead code
   // because a translator will keep maintaining it. The two-facts-two-sentences
   // reasoning they were written for is preserved as design in
-  // docs/strategy/2026-07-30-c5-conflict-criteria-design.md, which is where the
+  // docs/archive/strategy/2026-07-30-c5-conflict-criteria-design.md, which is where the
   // lightweight-record multi-device case will pick it up again.
 
   // ── mode names (V2-17) ────────────────────────────────────────────────────
@@ -219,8 +218,7 @@ mixin ChatStrings on AppStringsLeaves {
   /// reached the PC」, so it is always true.
   /// The truth of the injection lives on the **PC's timeline** (only that end
   /// can say it, and only that end does).
-  String get statusInjected =>
-      _lfStatusInjected;
+  String get statusInjected => _lfStatusInjected;
 
   /// ⏳ The row's own delivery is still in flight: it was handed to the link and
   /// no verdict has come back. **Not** interchangeable with
@@ -458,6 +456,10 @@ mixin ChatStrings on AppStringsLeaves {
   /// covering both can only say less.
   String get statusDeliveredNotInjected => _lfStatusDeliveredNotInjected;
 
+  /// The PC received the request but could not prove whether injection
+  /// completed. It is neither a failure nor confirmed delivery.
+  String get injectionUncertain => _lfInjectionUncertain;
+
   // ── the queue's observable surface (Window B3-2b) ──────────────────────────────────────────────
 
   /// 「N still pending delivery」 — owner's NON-BLOCKING observability.
@@ -587,8 +589,7 @@ mixin ChatStrings on AppStringsLeaves {
 
   // ── the live draft row (LiveDraftTile) ─────────────────────────────────────────────
   String get liveNow => _lfLiveNow;
-  String get liveTranscribing =>
-      _lfLiveTranscribing;
+  String get liveTranscribing => _lfLiveTranscribing;
 
   // ── AW-1b ASR-leg health sentences (asr_health.dart) ────────────────────
   // Each names a signal `AsrHealthTracker` classifies, never a cause: first-frame
@@ -640,28 +641,41 @@ mixin ChatStrings on AppStringsLeaves {
   /// interpolated here: `entry_metrics.dart` `formatEntryDuration` returns an
   /// already-numeric, locale-free label (same posture as time_label.dart), so
   /// there is nothing for this catalogue to translate about it.
-  String entryWordCountLabel(int n) =>
-      _lfEntryWordCountLabel(n);
+  String entryWordCountLabel(int n) => _lfEntryWordCountLabel(n);
 
   /// The original-text source line under a transformed row. The colon lives INSIDE the
   /// pattern (zh fullwidth, en halfwidth) so no caller hardcodes punctuation.
-  String sourceLine(String source) =>
-      _lfSourceLine(source);
+  String sourceLine(String source) => _lfSourceLine(source);
 
   // ── entry long-press menu (entry_context_menu) ─────────────────────────────────────
   /// Deferred redelivery is offered only for PC-bound, non-image entries (the menu widget owns
   /// that gate; an image's stored text is a descriptor, not deliverable text).
   String get entryReInject => _lfEntryReInject;
   String get entryReInjectSub => _lfEntryReInjectSub;
-  String get entryReprocess => _lfEntryReprocess;
-  String get entryReprocessSub => _lfEntryReprocessSub;
+
+  /// NR-89 — the two explicit re-run choices that replace the one mode-bound
+  /// item (`entryReprocess` / `entryReprocessSub`, retired by NR-89W once the
+  /// web row menu stopped rendering them). Both run over the row's immutable
+  /// original words and land as a new row plus a new delivery. [target] is the ALREADY-RENDERED translate-target
+  /// label (`translateTargetLabel`, e.g. 「→ English」), so the sub-line says
+  /// where the re-translation is aimed without this catalogue naming languages.
+  String get entryRetranslate => _lfEntryRetranslate;
+  String entryRetranslateSub(String target) => _lfEntryRetranslateSub(target);
+  String get entryReorganize => _lfEntryReorganize;
+  String get entryReorganizeSub => _lfEntryReorganizeSub;
+
+  /// Card RC-I — the same two sub-lines for a row that is never sent (a light
+  /// record or a record-only row; `EntryNeverSent.neverSent`): the re-run is
+  /// KEPT as a new entry on this phone, and no PC is involved.
+  String entryRetranslateSubRecord(String target) =>
+      _lfEntryRetranslateSubRecord(target);
+  String get entryReorganizeSubRecord => _lfEntryReorganizeSubRecord;
   String get entryEdit => _lfEntryEdit;
   String get entryCopy => _lfEntryCopy;
 
   /// An image row copies the PICTURE — and says WHICH picture: only the
   /// bounded preview survives on this phone (see [ImageStrings.imagePreviewNote]).
-  String get entryCopyPreview =>
-      _lfEntryCopyPreview;
+  String get entryCopyPreview => _lfEntryCopyPreview;
 
   /// WP3 C15 (owner 2026-08-17): 「copy the original text」 behind a
   /// translated/organized row. Offered only when the row has a source that
@@ -679,8 +693,7 @@ mixin ChatStrings on AppStringsLeaves {
   /// The note quotes [editedMark] by interpolation so the mark and the
   /// sentence that explains it can never drift into two different words.
   String get editEntryNote => _lfEditEntryNote(editedMark);
-  String get saveAndReInject =>
-      _lfSaveAndReInject;
+  String get saveAndReInject => _lfSaveAndReInject;
 
   // ⚠️ `injectVerdictNote` / `deliveryRefusalNote` LIVED HERE and were moved
   // VERBATIM to `inject_note_strings.dart` (file-size split, zero behaviour

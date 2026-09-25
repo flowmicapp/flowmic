@@ -23,6 +23,8 @@
     "cap_stt_loading": "'Загрузка модели…'",
     "cap_stt_ready": "'Готов'",
     "cap_stt_reconnecting": "'Переподключение…'",
+    "cap_stt_reconnecting_n": "'Переподключение · {n}'",
+    "cap_stt_reconnecting_n_of": "'Переподключение · {n}/{max}'",
     "cap_stt_unknown": "'Не проверялся'",
     "cap_target_dash": "'—'",
     "cap_target_none": "'Цель не зафиксирована'",
@@ -713,6 +715,10 @@
     "win_close": "'Закрыть'",
     "win_maximize": "'Развернуть'",
     "win_minimize": "'Свернуть'",
-    "win_restore": "'Восстановить'"
+    "win_restore": "'Восстановить'",
+    "st_uncertain": "'Результат ввода неясен'",
+    "injectFailReason.INJECT_WAYLAND_UNSUPPORTED": "'Ввод в другие окна недоступен в Wayland'",
+    "injectFailReason.INJECT_DISPLAY_UNAVAILABLE": "'Ввод недоступен в этой графической среде'",
+    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'Возможно, текст введён не полностью.'"
   }
 }

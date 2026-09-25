@@ -50,10 +50,11 @@ describe('default plan limits = owner 2026-08-02 table', () => {
   });
 
   // 2026-08-27: 20M → 5M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-  it('pro: 900 min / 5M token / 3 PC / ∞ phone / 365 days', () => {
+  // 2026-09-23: 5M → 10M, 900 → 1000 min (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md).
+  it('pro: 1000 min / 10M token / 3 PC / ∞ phone / 365 days', () => {
     expect(PLAN_LIMITS.pro).toEqual({
-      stt_minutes: 900,
-      llm_tokens: 5_000_000,
+      stt_minutes: 1000,
+      llm_tokens: 10_000_000,
       pcs: 3,
       mobiles: Number.POSITIVE_INFINITY,
       history_days: 365,
@@ -62,10 +63,11 @@ describe('default plan limits = owner 2026-08-02 table', () => {
   });
 
   // 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-  it('max: 3,000 min / 15M token / 10 PC / ∞ phone / 365 days', () => {
+  // 2026-09-23: 15M → 50M; minutes stay 3,000 (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md).
+  it('max: 3,000 min / 50M token / 10 PC / ∞ phone / 365 days', () => {
     expect(PLAN_LIMITS.max).toEqual({
       stt_minutes: 3_000,
-      llm_tokens: 15_000_000,
+      llm_tokens: 50_000_000,
       pcs: 10,
       mobiles: Number.POSITIVE_INFINITY,
       history_days: 365,
@@ -80,12 +82,12 @@ describe('default plan limits = owner 2026-08-02 table', () => {
   // the resolution path pointing somewhere stale would fail HERE and not there.
   it('🔴 the EFFECTIVE numbers (planLimits(), not the constant) carry the 2026-08-02 re-cut', () => {
     expect(planLimits('free').stt_minutes).toBe(20);
-    expect(planLimits('pro').stt_minutes).toBe(900);
+    expect(planLimits('pro').stt_minutes).toBe(1000);
     expect(planLimits('max').stt_minutes).toBe(3_000);
     // Reverse control: install a table that keeps every tier NAME and every other
     // cell identical while moving only the minute numbers. If this suite were
     // asserting labels rather than the enforced values, the next three lines would
-    // still read 20/900/3000 and the test would pass on a broken resolution path.
+    // still read 20/1000/3000 and the test would pass on a broken resolution path.
     installPlanLimits(resolvePlanLimits({
       free: { stt_minutes: 1 }, pro: { stt_minutes: 2 }, max: { stt_minutes: 3 },
     }));
@@ -93,7 +95,29 @@ describe('default plan limits = owner 2026-08-02 table', () => {
     expect(planLimits('pro').stt_minutes).toBe(2);
     expect(planLimits('max').stt_minutes).toBe(3);
     resetPlanLimits();
-    expect(planLimits('pro').stt_minutes).toBe(900);
+    expect(planLimits('pro').stt_minutes).toBe(1000);
+  });
+
+  // 🔴 D-21 for NR-90 (owner 2026-09-23, docs/decisions/2026-09-23-owner-nr89-
+  // nr90-unshelve-price-and-token-caps.md §1-3/§1-5). The `PLAN_LIMITS.*` cases
+  // above are the "name" half. This is the "number that actually takes effect"
+  // half for the two cells NR-90 moved, read through BOTH resolution doors the
+  // enforcement sites use: resolvePlanLimits() (what loadConfig installs) and
+  // planLimits() (what quota-guard.ts / billing-service.ts call).
+  it('🔴 the EFFECTIVE NR-90 numbers: pro 10M / max 50M tokens, pro 1000 / max 3000 min', () => {
+    const resolved = resolvePlanLimits();
+    expect(resolved.pro.llm_tokens).toBe(10_000_000);
+    expect(resolved.max.llm_tokens).toBe(50_000_000);
+    expect(resolved.pro.stt_minutes).toBe(1000);
+    expect(resolved.max.stt_minutes).toBe(3_000);
+    installPlanLimits(resolved);
+    expect(planLimits('pro').llm_tokens).toBe(10_000_000);
+    expect(planLimits('max').llm_tokens).toBe(50_000_000);
+    expect(planLimits('pro').stt_minutes).toBe(1000);
+    expect(planLimits('max').stt_minutes).toBe(3_000);
+    // free did not move in this ruling.
+    expect(planLimits('free').llm_tokens).toBe(1_000_000);
+    expect(planLimits('free').stt_minutes).toBe(20);
   });
 
   // 🔴 D1 rule again, for the number THIS card moved. The three `PLAN_LIMITS.*`
@@ -266,7 +290,7 @@ describe('resolvePlanLimits — every malformed override FAILS THE BOOT', () => 
 
 describe('the installed table is what planLimits() answers with', () => {
   it('defaults until something is installed', () => {
-    expect(planLimits('pro').stt_minutes).toBe(900);
+    expect(planLimits('pro').stt_minutes).toBe(1000);
   });
 
   it('installPlanLimits changes every downstream reader in one move', () => {

@@ -9,7 +9,8 @@
 //      into this row」 is the shape that has bitten this top bar **three
 //      times** (the CLAUDE.md 0.2.51
 //      line: the first two fixes both reallocated width inside the same row,
-//      so the third time it came back).
+//      so the third time it came back — that line now lives in
+//      docs/archive/CLAUDE-HISTORY.md §241-281).
 //      ⇒ the criterion must be **the difference between two measurements**,
 //      not a sentence that says 「it used a Stack so it is fine」.
 //   ③ a single true source: it follows `UpdateController.hasUpdate`, and

@@ -72,6 +72,7 @@ class PendingRecoveryCard extends StatelessWidget {
       switch (state) {
         PendingRecoveryState.waitingAuto => s.pendingRecoveryStateWaiting,
         PendingRecoveryState.needsManual => s.pendingRecoveryStateNeedsManual,
+        PendingRecoveryState.shortfall => s.pendingRecoveryStateShortfall,
         PendingRecoveryState.settledUnverified =>
           s.pendingRecoveryStateUnverified,
         PendingRecoveryState.settledServerKeepsAudio =>
@@ -107,7 +108,12 @@ class PendingRecoveryCard extends StatelessWidget {
           _meta(context),
           const SizedBox(height: 5),
           Text(
-            sentenceFor(item.state, strings),
+            // Card RC-S — in place of the state sentence, not under it: see
+            // [PendingRecoveryItem.otherAccount] for why the state's own
+            // sentence would be false here.
+            item.otherAccount
+                ? strings.pendingRecoveryOtherAccount
+                : sentenceFor(item.state, strings),
             key: ValueKey<String>('pendingRecovery.sentence.${item.id}'),
             style: TextStyle(
               color: FlowMicColors.t1,

@@ -2,7 +2,7 @@
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.1 (mobile:pair short_code union)
 //   docs/rebuild/13-LESSONS-LEARNED.md §3 D1 (no silent failure — a throttled
 //     attempt returns an explicit whitelisted code, PAIR_RATE_LIMITED)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (ruling 4: executor proposes the
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R23-1 (ruling 4: executor proposes the
 //     thresholds; state is IN-MEMORY ONLY — 0.1.0 single instance, no DB/schema)
 //   *** HUMAN-AUDIT SENSITIVE (pairing/auth) — reviewable in isolation ***
 //

@@ -1,7 +1,7 @@
 // EXPERIMENT (A) for card F-3 — WHICH SESSION OWNS THE ROOM after a second
 // registration arrives on the SAME device token?
 //
-// WHY THIS EXISTS. `docs/strategy/2026-08-07-w9-legacy-fixes-and-oss-ledger.md`
+// WHY THIS EXISTS. `docs/archive/strategy/2026-08-07-w9-legacy-fixes-and-oss-ledger.md`
 // section 4.1-bis records that F-3 has to be kept as two halves. The MECHANISM half
 // is settled from vendored source: `rust_socketio` 0.6's `disconnect()` cannot kill
 // the cloned poll thread, the crate has no shutdown flag, and its reconnect arm

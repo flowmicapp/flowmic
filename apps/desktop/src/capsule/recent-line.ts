@@ -93,6 +93,7 @@ export interface RecentLine {
    *  is not in the literal is never seen by the caller — guessing one is
    *  fabricating data. */
   status: RecentStatus | null;
+  cachedCause?: string | null;
 }
 
 /** The four delivery truths a row can carry (protocol `HistoryStatus`). Narrowed
@@ -164,6 +165,7 @@ export function toRecentLine(item: WireHistoryItem, channel: ChannelTag): Recent
     fullImage: item.full_image === true,
     // 卡 L7 — see [[RecentLine.status]]. An unknown/absent value stays null and the
     // view draws the baseline style; it is never guessed into 'injected'.
+    cachedCause: item.control_outcome === 'submission_uncertain' ? 'INJECT_SUBMISSION_UNCERTAIN' : null,
     status: (typeof item.status === 'string' && KNOWN_STATUSES.has(item.status)
       ? item.status
       : null) as RecentStatus | null,
@@ -184,7 +186,11 @@ export function upsertRecentLine(list: RecentLine[], line: RecentLine, cap = 5):
   const i = list.findIndex((r) => r.id === line.id);
   if (i >= 0) {
     const next = [...list];
-    next[i] = line;
+    // A later history frame does not overrule this PC's injection verdict.
+    const previous = list[i]!;
+    next[i] = previous.cachedCause === 'INJECT_SUBMISSION_UNCERTAIN'
+      ? { ...line, status: 'cached', cachedCause: previous.cachedCause }
+      : line;
     return next;
   }
   return [line, ...list].slice(0, cap);

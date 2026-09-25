@@ -1,4 +1,4 @@
-// §4b-8 (docs/strategy/2026-08-01-data-asset-lifecycle-design.md) — pins the
+// §4b-8 (docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md) — pins the
 // ONE word-count algorithm and the duration formatter behind the per-row
 // 「时长 + 字数」 display. See entry_metrics.dart's header for the judgement
 // calls this file locks down (mixed CJK/Latin counting rule; duration

@@ -1,6 +1,6 @@
 // SPEC-REF:
 //   docs/decisions/2026-07-27-owner-0.2.0-request-batch.md requirement ⑥ (overall transcription latency)
-//   docs/strategy/R7-V2-TASK-CARDS.md V2-05 (clock design)
+//   docs/archive/strategy/R7-V2-TASK-CARDS.md V2-05 (clock design)
 //   docs/strategy/2026-07-23-relaunch-master-plan.md §3.2 (on-screen latency timer +
 //     a reproducible benchmark script), §3.4 (the external promise "LAN ≤300ms, reproducible")
 //
@@ -164,7 +164,7 @@ export function markInjectRequest(room: string, entryId: string | null, now: Now
  *
  *  So: the metric has a reader on the DESKTOP leg and no reader on the
  *  PRODUCTION leg — and no alerting on either. That gap is card D10; full audit
- *  in docs/strategy/2026-08-05-d10-monitoring-and-alerting-cn.md §1.3.
+ *  in docs/archive/strategy/2026-08-05-d10-monitoring-and-alerting-cn.md §1.3.
  *
  *  ✅ WP2-6b (2026-08-31) — the PRODUCTION-leg reader that this process can
  *  carry is now `latency.summary` below (`startLatencyReader`). Same stderr
@@ -176,7 +176,7 @@ export function markInjectRequest(room: string, entryId: string | null, now: Now
  *  ⚠️ Related gap, same audit: `dropped` below is published ONLY inside the line
  *  this SUCCESS path emits. If no utterance ever completes — precisely the
  *  incident the counter exists to describe — the count is never printed at all.
- *  See docs/strategy/2026-08-05-d10-monitoring-and-alerting-cn.md §4.2 ①-c.
+ *  See docs/archive/strategy/2026-08-05-d10-monitoring-and-alerting-cn.md §4.2 ①-c.
  *  6b's summary line prints `dropped_so_far` on its own cadence, including
  *  when n=0 but dropped moved, which is the half of ①-c this process can
  *  close without a journald scrape. */

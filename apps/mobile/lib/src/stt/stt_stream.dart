@@ -20,22 +20,33 @@ class SttInterim {
   final double confidence;
   final String language;
   final int segmentIdx;
+
+  /// Card RC-2 — `stt:interim.acked_audio_ms`: how far the relay has taken this
+  /// recording's audio off our hands, in OUR chunk clock (the `ts_ms` we
+  /// stamped). Sent end minus this = audio still in transit or unprocessed at
+  /// the vendor. Null when absent (an engine that reports nothing, or a relay
+  /// older than the card) — never 0, which would read as 「nothing processed」.
+  /// One reader: the recovery feed's pacing (`recovery_leg_wire.dart`).
+  final int? ackedAudioMs;
   const SttInterim({
     required this.text,
     required this.confidence,
     required this.language,
     required this.segmentIdx,
+    this.ackedAudioMs,
   });
 
   static SttInterim? tryFromJson(Map<String, Object?> j) {
     final Object? text = j['text'];
     final Object? idx = j['segment_idx'];
     if (text is! String || idx is! int) return null;
+    final Object? acked = j['acked_audio_ms'];
     return SttInterim(
       text: text,
       confidence: (j['confidence'] as num?)?.toDouble() ?? 0.0,
       language: j['language'] is String ? j['language'] as String : '',
       segmentIdx: idx,
+      ackedAudioMs: acked is int && acked >= 0 ? acked : null,
     );
   }
 }
@@ -88,6 +99,23 @@ class SttFinal {
   /// token rather than a sentence invented for it.
   final String? emptyReason;
 
+  /// Card CR-12-D (2026-09-22) — how long it was silent before the first word
+  /// of the segment this final closes (`stt:final.pause_before_ms`).
+  ///
+  /// 🔴 NULL IS A THIRD ANSWER, NOT 「没有停顿」. It reads null on segment 0
+  /// (nothing came before it), on every engine that reports no word timestamps
+  /// (today everything but Soniox), on a segment that crossed an engine
+  /// reconnect, on every server that predates the card, and on every relay that
+  /// strips unknown keys. A reader that treats null as 0 has turned 「我不知道」
+  /// into a claim — the paragraph rule degrades to sentence terminators plus row
+  /// duration instead, which splits FEWER paragraphs and never invents one.
+  ///
+  /// It is the WALL-CLOCK pause: the silence the engine heard between the two
+  /// words plus the silence the server's VAD gate withheld from it, each chunk
+  /// counted on exactly one side (`apps/server-core/src/stt/segment-pause.ts`
+  /// carries the arithmetic and the two corners it still cannot measure).
+  final int? pauseBeforeMs;
+
   /// Card CV-1 (04 SPEC §3.3-a (b)) — the coverage receipt this TERMINAL final
   /// carried, or null.
   ///
@@ -112,6 +140,7 @@ class SttFinal {
     this.polishReason,
     this.utteranceId,
     this.emptyReason,
+    this.pauseBeforeMs,
     this.coverage,
   });
 
@@ -142,6 +171,13 @@ class SttFinal {
       utteranceId: utt is String && utt.isNotEmpty ? utt : null,
       emptyReason: switch (j['empty_reason']) {
         final String r when r.isNotEmpty => r,
+        _ => null,
+      },
+      // Read key by key, like every field above: an unknown key is ignored and
+      // a missing one is null. That is what makes a NEW relay talking to an OLD
+      // phone a non-event, and an OLD relay talking to a new phone a degrade.
+      pauseBeforeMs: switch (j['pause_before_ms']) {
+        final num n when n >= 0 => n.toInt(),
         _ => null,
       },
       coverage: CoverageReceipt.tryFromJson(j),

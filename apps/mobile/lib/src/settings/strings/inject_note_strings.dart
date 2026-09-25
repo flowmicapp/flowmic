@@ -1,38 +1,39 @@
-// AppStrings copy-catalogue shard: the two PER-ERROR-CODE note tables that turn
+// AppStrings copy-catalogue shard: the three PER-ERROR-CODE note tables that turn
 // an `inject:result` verdict into one human sentence.
 // The only public entry point is still ../app_strings.dart (AppStrings composes
 // this mixin with `with`; `_t` is declared here as a signature only and
 // implemented by AppStrings — not one character of copy changed).
 //
-// 🔴 WHY THESE TWO LIVE TOGETHER IN THEIR OWN SHARD (structural split only,
-// zero behaviour change — the 0.2.52 `chat_transient_banner_timers.dart`
-// precedent: move a cohesive family VERBATIM rather than delete evidence).
+// 🔴 WHY THIS FAMILY LIVES TOGETHER IN ITS OWN SHARD: the original two were a
+// structural split with zero behaviour change (the 0.2.52
+// `chat_transient_banner_timers.dart` precedent); target admission later joined
+// as a genuinely separate segment rather than being folded into either one.
 //
-// They are two of the THREE tables `chat_message_tile.dart` `_humanNoteFor`
-// composes, and the third — `cloudImageRelayErrorNote` — has always lived in a
-// different shard (`image_strings.dart`). So this file does not invent an
-// arrangement; it makes the family's home consistent with where a third of it
-// already was.
+// They are three of the FOUR tables `chat_message_tile.dart` `_humanNoteFor`
+// composes; `cloudImageRelayErrorNote` has always lived in a different shard
+// (`image_strings.dart`).
 //
-// 🔴 THE TWO MUST STAY TWO FUNCTIONS, and that is a red line rather than a
+// 🔴 THE SEGMENTS MUST STAY SEPARATE FUNCTIONS, and that is a red line rather than a
 // style choice — the full argument is in `deliveryRefusalNote`'s own doc below
 // (「named as split from injectVerdictNote into two separate functions, not
 // merged into one」): one covers
 // PC-authored INJECTION-segment verdicts (the frame reached the PC and it tried),
-// the other covers relay-authored DELIVERY-segment refusals (no PC ever saw it).
+// the second covers target-authored ADMISSION refusals (the frame reached the
+// target but the target was not ready to try), and the other covers
+// relay-authored DELIVERY-segment refusals (no PC ever saw it).
 // delivery ≠ injection (docs/rebuild/15 §2.0). Merging them would let one code produce
 // two answers.
 //
 // ⚠️ WHICH TABLE A NEW CODE BELONGS IN IS NOT A JUDGEMENT CALL ANY MORE:
 // `test/error_code_copy_binding_test.dart` derives it from
 // `packages/protocol/src/inject-verdict-authorship.ts`
-// (`pc-injection` ⇒ injectVerdictNote, `relay` ⇒ deliveryRefusalNote /
+// (`pc-injection` ⇒ injectVerdictNote, `pc-admission` ⇒
+// pcAdmissionRefusalNote, `relay` ⇒ deliveryRefusalNote /
 // cloudImageRelayErrorNote) and fails, naming the code AND the table, when a
 // reachable code has no copy or has it in the wrong segment's table.
 part of '../app_strings.dart';
 
 mixin InjectNoteStrings on AppStringsLeaves {
-
   /// 🔴 卡 M6-1 (0.2.53) —— verdicts the PC answered in its own words on the
   /// **injection segment**, one human sentence per code.
   ///
@@ -136,6 +137,29 @@ mixin InjectNoteStrings on AppStringsLeaves {
       // in full, rather than just saying 「no permission」 — stating only the cause turns a solvable problem into an unsolvable one.
       case 'INJECT_NO_ACCESSIBILITY':
         return _lfInjectVerdictNote_INJECT_NO_ACCESSIBILITY;
+      case 'INJECT_WAYLAND_UNSUPPORTED':
+        return _lfInjectVerdictNote_INJECT_WAYLAND_UNSUPPORTED;
+      case 'INJECT_DISPLAY_UNAVAILABLE':
+        return _lfInjectVerdictNote_INJECT_DISPLAY_UNAVAILABLE;
+      case 'INJECT_SUBMISSION_UNCERTAIN':
+        return _lfInjectVerdictNote_INJECT_SUBMISSION_UNCERTAIN;
+      default:
+        return null;
+    }
+  }
+
+  /// Target-authored **admission** refusals: the selected target received the
+  /// frame, but refused it before transcript/injection work began.
+  ///
+  /// This is its own table because neither neighbouring sentence family is
+  /// truthful: [injectVerdictNote] means the target tried to inject, while
+  /// [deliveryRefusalNote] means no target received the frame. The queue still
+  /// owes this item, so the note may name the existing queued retry mechanism.
+  /// Unknown codes return `null`; no admission fact is invented.
+  String? pcAdmissionRefusalNote(String code) {
+    switch (code) {
+      case 'INJECT_TARGET_NOT_READY':
+        return _lfPcAdmissionRefusalNote_INJECT_TARGET_NOT_READY;
       default:
         return null;
     }

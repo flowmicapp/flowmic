@@ -89,6 +89,9 @@ async function rig(shape: InterimShape | undefined): Promise<Rig> {
   orch.on('final', (f: { text: string; is_segment: boolean }) => { if (!f.is_segment) finals.push(f.text); });
   orch.on('error', () => { /* asserted through the finals, not needed here */ });
   await orch.start({ language: 'zh', mode: 'realtime' });
+  // card HANGUP-3 — the scripted frames stand for speech, so the leg is handed audio: a leg handed
+  // none is not asked at release, and its terminal would then be the folded preview, not the vendor final.
+  orch.pushChunk({ seq: 0, ts_ms: clock.now, payload: Buffer.alloc(6_400) });
   return { eng, interims, finals, stop: () => orch.stop() };
 }
 

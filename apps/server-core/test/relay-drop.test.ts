@@ -5,7 +5,7 @@
 // with the offending event name — never the raw payload.
 //
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.5 (mirror relay);
-//           docs/strategy/R2-R3-TASK-CARDS.md WP-R3.5 (relay parse failure, add a log).
+//           docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R3.5 (relay parse failure, add a log).
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Socket } from 'socket.io';

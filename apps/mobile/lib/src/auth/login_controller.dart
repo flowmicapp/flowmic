@@ -1,10 +1,10 @@
 // SPEC-REF:
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-2 ① (real mobile:login ack:
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-2 ① (real mobile:login ack:
 //     persist JWT + public user in flutter_secure_storage, password NEVER
 //     stored; account area shows email/plan; logout clears state; auth:expired /
 //     AUTH_TOKEN_EXPIRED / AUTH_TOKEN_INVALID → clear JWT + fail-loud re-login;
 //     REGISTER_RATE_LIMITED → distinct honest copy)
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md frozen wire contract (login SUCCESS =
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md frozen wire contract (login SUCCESS =
 //     {ok:true, token:<JWT>, user:{id,email,display_name,plan}, mode:'saas'};
 //     FAILURE = {error:'AUTH_LOGIN_FAILED'} | {error:'REGISTER_RATE_LIMITED',
 //     retryable:true}; standalone = {ok:true, mode:'standalone'} no token)
@@ -86,15 +86,56 @@ class LoginController extends ChangeNotifier {
     // the outgoing account can never be used for whatever comes next. Null in
     // tests that do not exercise the blind-store leg.
     VoidCallback? onSignedOut,
+    // Card RC-S follow-up (MAIN, 2026-09-24): fires FIRST — before `_account`
+    // changes and before any await — whenever the account this phone is signed
+    // in as is about to go away or be replaced: logout, the auth-expired
+    // watchdog, and a sign-in started while an account is still signed in.
+    // main.dart wires it to `ChatController.stopRecordingForAccountChange`, so a
+    // recording in progress is stopped through the user's own stop path while
+    // its account is still the signed-in one, and neither its live audio nor a
+    // reconnect ring replay can continue into the next account's session.
+    //
+    // Card RC6 (device rerun 5, criterion 3) — it returns the acknowledgement
+    // of whatever it had to send (a recovery attempt's discard stop), and
+    // sign-out and sign-in WAIT for it, bounded by [kAccountChangeAckWait],
+    // before the account is cleared or the socket is dialled again. Measured:
+    // a recovery left to end on the socket's teardown was written as a failure
+    // with a backoff. Its synchronous part (the stop leaving, the FSM leaving
+    // RECORDING) still runs before this call returns, as before.
+    Future<void>? Function()? onBeforeAccountChange,
   }) : _transport = transport,
        _accountStore = accountStore,
        _saasEndpoint = saasEndpoint ?? resolveSaasEndpoint(),
-       _onSignedOut = onSignedOut;
+       _onSignedOut = onSignedOut,
+       _onBeforeAccountChange = onBeforeAccountChange;
 
   final SocketTransport _transport;
   final AccountStore _accountStore;
   final String _saasEndpoint;
   final VoidCallback? _onSignedOut;
+  final Future<void>? Function()? _onBeforeAccountChange;
+
+  /// Card RC6 — how long an account change waits for the hook's
+  /// acknowledgement. A bound, not a promise: a relay that never answers must
+  /// not keep the old account signed in.
+  static const Duration kAccountChangeAckWait = Duration(seconds: 2);
+
+  /// See `onBeforeAccountChange`. Only while an account is signed in: a
+  /// sign-in from signed-out replaces nobody (a recording made signed out is
+  /// 「unknown」 to the recovery gate, recording_account.dart).
+  ///
+  /// The hook is CALLED synchronously (whatever it sends leaves before this
+  /// returns); the returned future is its acknowledgement, bounded by
+  /// [kAccountChangeAckWait] and never an error — or null when it sent
+  /// nothing, so a caller has nothing to wait for and stays synchronous.
+  Future<void>? _beforeAccountChange() {
+    if (_account == null) return null;
+    final Future<void>? ack = _onBeforeAccountChange?.call();
+    if (ack == null) return null;
+    return ack
+        .timeout(kAccountChangeAckWait)
+        .then<void>((_) {}, onError: (Object _) {});
+  }
 
   LoginPhase _phase = LoginPhase.idle;
   LoginPhase get phase => _phase;
@@ -174,6 +215,12 @@ class LoginController extends ChangeNotifier {
   Future<void> login({required String email, required String password}) async {
     if (_phase == LoginPhase.submitting) return;
     final String trimmed = email.trim();
+    // Card RC6 — called here, as before; its acknowledgement is waited for
+    // just before the socket is dialled below.
+    final Future<void>? beforeChange =
+        _looksLikeEmail(trimmed) && password.isNotEmpty
+            ? _beforeAccountChange()
+            : null;
     if (!_looksLikeEmail(trimmed)) {
       _fail(LoginErrorCodes.invalidEmail);
       return;
@@ -188,6 +235,7 @@ class LoginController extends ChangeNotifier {
     // A new sign-in attempt retires whatever the PREVIOUS sign-out could claim.
     _logoutNotice = null;
     notifyListeners();
+    if (beforeChange != null) await beforeChange; // Card RC6
 
     try {
       // Unauthenticated handshake — we do not have a JWT yet; the credentials
@@ -236,10 +284,12 @@ class LoginController extends ChangeNotifier {
       _fail(LoginErrorCodes.authLoginFailed);
       return;
     }
+    final Future<void>? beforeChange = _beforeAccountChange();
     _phase = LoginPhase.submitting;
     _errorCode = null;
     _logoutNotice = null;
     notifyListeners();
+    if (beforeChange != null) await beforeChange; // Card RC6
 
     final String url = (endpoint ?? '').trim().isEmpty ? _saasEndpoint : endpoint!.trim();
     try {
@@ -315,7 +365,14 @@ class LoginController extends ChangeNotifier {
   /// prerequisite for the paid-launch / public-release gates. The copy says
   /// exactly that and nothing more.
   Future<void> logout() async {
-    // ── 1. local, unconditional, and BEFORE any await ──────────────────────
+    // ── 0. a recording in progress ends under THIS account (RC-S follow-up) ─
+    // Card RC6 — and a recovery attempt's discard stop is acknowledged while
+    // the account and its socket still exist. The ONE await allowed ahead of
+    // step 1, bounded by [kAccountChangeAckWait] and unable to fail; a
+    // sign-out without anything to acknowledge stays synchronous.
+    final Future<void>? ack = _beforeAccountChange();
+    if (ack != null) await ack;
+    // ── 1. local, unconditional, and BEFORE any other await ────────────────
     // In-memory first so nothing — not a wedged secure store, not a dead
     // socket — can leave the session alive behind a pending future. `jwt` (the
     // bearer cloud admission would present) is null from this line on.
@@ -369,6 +426,11 @@ class LoginController extends ChangeNotifier {
   /// AUTH_TOKEN_INVALID ack from a cloud op): clear the stored JWT and surface a
   /// fail-loud re-login prompt. NEVER a silent retry (red line).
   void handleAuthExpired({String code = LoginErrorCodes.tokenExpired}) {
+    // RC-S follow-up — see `onBeforeAccountChange`. Card RC6: this entry is
+    // synchronous and the authority is already gone, so the acknowledgement
+    // is not waited for; the stop still leaves before the account is cleared.
+    final Future<void>? ack = _beforeAccountChange();
+    if (ack != null) unawaited(ack);
     unawaited(
       _accountStore.clear().then((bool cleared) {
         // Same second-half truth as logout(): a refused delete leaves a dead

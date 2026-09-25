@@ -37,6 +37,7 @@ import 'article_view.dart' show articleMembersIn;
 import 'entry_metrics.dart' show textWordCount;
 import 'timeline_entry.dart';
 import 'timeline_persistence.dart';
+import 'local_record_persistence.dart';
 import 'timeline_purge.dart';
 import 'timeline_reaper.dart';
 
@@ -301,10 +302,11 @@ class TimelineStore extends ChangeNotifier {
   /// [_entries], and nothing else in this class calls it.
   Future<List<TimelineEntry>> readAllRowsForInventory() async {
     final List<TimelineEntry> all = await _persistence.loadAll();
-    return all
-        .where((TimelineEntry e) => !e.deleted)
-        .toList(growable: false)
-      ..sort((TimelineEntry a, TimelineEntry b) => b.createdAt.compareTo(a.createdAt));
+    return all.where((TimelineEntry e) => !e.deleted).toList(growable: false)
+      ..sort(
+        (TimelineEntry a, TimelineEntry b) =>
+            b.createdAt.compareTo(a.createdAt),
+      );
   }
 
   TimelineEntry? findById(String id) {
@@ -359,9 +361,16 @@ class TimelineStore extends ChangeNotifier {
     // Null for every row outside an article, which is almost all of them.
     String? articleId,
     int? articleOffsetMs,
+    // CR-12-D — the measured silence before this row's first word, or null for
+    // 「我不知道」. Null for every non-speech caller and for every row that covers
+    // more than one engine segment.
+    int? pauseBeforeMs,
     // D7 ③ — the server-minted utterance id off the terminal final, so a
     // late `stt:refined` can name this row. Null for every non-speech caller.
     String? utteranceId,
+    // Callers that have finished composition say so explicitly. Unspecified
+    // readiness is conservative and never dispatches unfinished content.
+    bool mcpContentReady = false,
   }) {
     final TimelineEntry? existing = findByClientId(clientId);
     if (existing != null) return existing;
@@ -385,6 +394,7 @@ class TimelineStore extends ChangeNotifier {
       thumbB64: thumbB64,
       articleId: articleId,
       articleOffsetMs: articleOffsetMs,
+      pauseBeforeMs: pauseBeforeMs,
       utteranceId: utteranceId,
       // V2-06a-1: snapshot 「这条是对谁说的」("who this entry was spoken to") at
       // BIRTH, not at delivery. Doing it
@@ -396,7 +406,10 @@ class TimelineStore extends ChangeNotifier {
       createdAt: now,
       updatedAt: now,
     );
-    _insertNew(entry);
+    // An image row is final at birth: its producer stores a selected image,
+    // never starts text composition. Transcript readiness comes from its caller.
+    _insertNew(entry, source: (mcpContentReady || entryType == TimelineEntry.kImage)
+        ? LocalRecordSource.birthReady : LocalRecordSource.birthAwaitingContent);
     return entry;
   }
 
@@ -413,10 +426,10 @@ class TimelineStore extends ChangeNotifier {
   /// builder that lives outside this class has to reach the notify through an
   /// instance member. Same constraint, same resolution, as `notifyUi` in
   /// chat_explicit_delivery.dart.
-  void _insertNew(TimelineEntry entry) {
+  void _insertNew(TimelineEntry entry, {LocalRecordSource source = LocalRecordSource.birthAwaitingContent}) {
     _entries.insert(0, entry);
     _sort();
-    _persistOne(entry);
+    _persistOne(entry, source: source);
     notifyListeners();
   }
 
@@ -424,8 +437,22 @@ class TimelineStore extends ChangeNotifier {
   /// timeline_store_control_rows.dart (this file is at the 800-line cap); the
   /// delegate stays here so the store's public surface still says out loud that it
   /// can mint one, and so no caller or test double had to be edited.
-  TimelineEntry buildControlRow({required String clientId, required String kind}) =>
-      buildControlRowOf(this, clientId: clientId, kind: kind);
+  TimelineEntry buildControlRow({
+    required String clientId,
+    required String kind,
+  }) => buildControlRowOf(this, clientId: clientId, kind: kind);
+
+  /// Apply the one control receipt whose honest outcome is neither success nor
+  /// failure. A missing request id degrades to kind + recency for compatibility
+  /// with older relays; a present but unknown id never guesses another row.
+  bool applyControlSubmissionUncertain({
+    String? requestId,
+    required String kind,
+  }) => timelineApplyControlSubmissionUncertain(
+    this,
+    requestId: requestId,
+    kind: kind,
+  );
 
   /// The `mode` an inject:result carries when the verdict is 「没有投递，留着可以
   /// 补投」("not delivered, kept so it can be backfilled")
@@ -477,6 +504,12 @@ class TimelineStore extends ChangeNotifier {
   /// (800-line cap); same library, one-line delegate, no caller edited.
   TimelineEntry? applyEdit(String id, String newText) =>
       _applyEdit(this, id, newText);
+
+  /// Card RC-3b — move a row's place in its recording; body and its one caller
+  /// in timeline_store_edit_family.dart.
+  TimelineEntry? applyArticleSpan(String id,
+          {required int offsetMs, required int durationMs}) =>
+      _applyArticleSpan(this, id, offsetMs: offsetMs, durationMs: durationMs);
 
   /// GA-01 / GA-14 compose + refine write-back. Body moved to
   /// timeline_store_edit_family.dart alongside applyEdit; see that file's
@@ -559,12 +592,12 @@ class TimelineStore extends ChangeNotifier {
   /// restart (persisted in [TimelineReaper]'s CutoffStore).
   Cutoffs get cutoffs => _reaper.cutoffs;
 
-  void _replace(TimelineEntry oldE, TimelineEntry newE) {
+  void _replace(TimelineEntry oldE, TimelineEntry newE, {LocalRecordSource source = LocalRecordSource.edit}) {
     final int i = _entries.indexWhere((TimelineEntry e) => e.id == oldE.id);
     if (i < 0) return;
     _entries[i] = newE;
     _sort();
-    _persistOne(newE);
+    _persistOne(newE, source: source);
     notifyListeners();
   }
 
@@ -611,8 +644,8 @@ class TimelineStore extends ChangeNotifier {
   //
   // Pinned by timeline_persist_failure_test.dart (throwing persistence ⇒ the
   // diag line MUST appear; the old path shows nothing).
-  void _persistOne(TimelineEntry entry) {
-    final Future<void> write = _persistence.upsert(entry).then<void>(
+  void _persistOne(TimelineEntry entry, {required LocalRecordSource source}) {
+    final Future<void> write = _persistence.saveLocalRecord(entry, source: source).then<void>(
       (_) {},
       onError: (Object e) => diag('timeline.persist_failed', <String, Object?>{
         'entry_id': entry.id,
@@ -669,13 +702,27 @@ class TimelineStore extends ChangeNotifier {
       // A read that threw is not a read that said 「absent」. Report false (the
       // direction that KEEPS the audio) and name it, rather than letting an
       // unreadable store license a delete.
-      diag('timeline.readback_failed',
-          <String, Object?>{'entry_id': entryId, 'error': e});
+      diag('timeline.readback_failed', <String, Object?>{
+        'entry_id': entryId,
+        'error': e,
+      });
+      return false;
+    }
+  }
+
+  /// Codex rc2 ⑤ — [isPersisted], and the stored row passes [test]. For a
+  /// caller that changed a persisted row and must know the CHANGE is on disk
+  /// (the recovery settle, before it deletes audio). False on a read failure.
+  Future<bool> isPersistedAs(
+      String entryId, bool Function(TimelineEntry stored) test) async {
+    try {
+      final TimelineEntry? e = await _persistence.loadById(entryId);
+      return e != null && test(e);
+    } on Object {
       return false;
     }
   }
 
   /// In-flight writes by row id. See [awaitPersisted].
   final Map<String, Future<void>> _inFlightWrites = <String, Future<void>>{};
-
 }

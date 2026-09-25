@@ -19,7 +19,7 @@
 // the zombie path fires the deadline on demand.
 //
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.1/§3.2;
-//           docs/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-07/GA-26
+//           docs/archive/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-07/GA-26
 
 import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';

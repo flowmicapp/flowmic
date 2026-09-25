@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-06-w2-transcription-quality-ledger.md §7 W2-2
+//   docs/archive/strategy/2026-08-06-w2-transcription-quality-ledger.md §7 W2-2
 //     (compose output has zero validation — polish has three gates,
 //     translate/organize had none)
 //   docs/decisions/2026-08-06-owner-feedback-batch-fb1-12.md FB-5
@@ -453,7 +453,7 @@ const reject = (
  * task does not have before they could be trusted not to false-reject), and
  * `over_compressed` (its floor is calibrated on organize's retention, not on a
  * polish's). Those are candidates for after P1-1 supplies a corpus, not before.
- * Full account: docs/strategy/2026-08-28-multilingual-chain-audit.md §3 F1.
+ * Full account: docs/archive/strategy/2026-08-28-multilingual-chain-audit.md §3 F1.
  */
 export function guardComposeOutput(input: ComposeGuardInput): ComposeGuardVerdict {
   const repairs: ComposeGuardRepair[] = [];

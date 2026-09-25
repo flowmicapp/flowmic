@@ -5,7 +5,7 @@
 // POLICY (when a decode happens, what span it covers, when a span freezes, when
 // previews stand down). What they CANNOT prove is that a phone shows growing
 // characters — that seam crosses a socket and a Flutter build, and it belongs to
-// device-line's retest sheet (docs/strategy/2026-08-12-req1205-retest-sheet.md).
+// device-line's retest sheet (docs/archive/strategy/2026-08-12-req1205-retest-sheet.md).
 // unit tests all green prove nothing about wiring — stated here so the next reader does not mistake a
 // green file for a delivered requirement.
 //

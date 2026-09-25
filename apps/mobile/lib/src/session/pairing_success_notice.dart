@@ -2,7 +2,7 @@
 // connected」 fact, raised ONLY by a user action.
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-25-owner-rulings-and-execution-plan.md §3-4 ⑤-b
+//   docs/archive/strategy/2026-08-25-owner-rulings-and-execution-plan.md §3-4 ⑤-b
 //     (owner: the phone lands on the transcription page — fine — and MUST show
 //     a floating confirmation there; 「这非常重要」)
 //   ui/connections_page.dart `_enterChat(pairingJustEstablished: true)` —

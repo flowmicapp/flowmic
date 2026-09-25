@@ -147,6 +147,34 @@ void main() {
       }
     });
 
+    test('uncertain delivery truth and its named reason survive export and import',
+        () async {
+      final TimelineEntry before = testRow(
+        id: 'loc_d_uncertain-1',
+        clientId: 'uncertain-1',
+        text: '可能已经输入',
+        status: EntryStatus.cached,
+      ).copyWith(failureReason: 'INJECT_SUBMISSION_UNCERTAIN');
+
+      final String archive = (await w.export(<TimelineEntry>[before]))!;
+      final Map<String, Object?> line =
+          jsonDecode((await _recordLines(archive))[1])
+              as Map<String, Object?>;
+      expect(line['status'], 'cached');
+      expect(
+        (line['source_ext']! as Map<String, Object?>)['failure_reason'],
+        'INJECT_SUBMISSION_UNCERTAIN',
+      );
+
+      final MapImportSink sink = MapImportSink();
+      final ImportReport report = await w.import(archive, sink);
+      expect(report.refusedCount, 0);
+      expect(report.added, 1);
+      final TimelineEntry after = sink.rows[before.id]!;
+      expect(after.status, EntryStatus.cached);
+      expect(after.failureReason, 'INJECT_SUBMISSION_UNCERTAIN');
+    });
+
     test('🔴 the ONE documented one-way collapse: an empty source_text comes '
         'back as null (16 册 §4.2 empty-string normalisation) — pinned so nobody reads the '
         'field-by-field test above as "every row is byte-identical"', () async {

@@ -611,6 +611,8 @@ mixin RecordingStrings on AppStringsLeaves {
       if (code == 'STT_ENGINE_AUTH_FAIL') return sttStallEngineAuthFail;
       if (code == 'STT_ENGINE_RATE_LIMITED') return sttStallEngineRateLimited;
       if (code == 'STT_ENGINE_TIMEOUT') return sttStallEngineTimeout;
+      // card HANGUP-3 — only a phone that declared it at admission is ever sent this code.
+      if (code == 'STT_SEGMENT_NOT_TRANSCRIBED') return sttStallSegmentNotTranscribed;
       if (code != null && code.isNotEmpty) {
         // WP-8 (2026-09-02, F1-b) — a code with no BESPOKE sentence above may
         // still be one the protocol registry has real copy for
@@ -635,6 +637,7 @@ mixin RecordingStrings on AppStringsLeaves {
     }
     return sttStallMessage(stall.reason);
   }
+  String get sttStallSegmentNotTranscribed;
 
   // ── card U2: mic-permission flow (ptt/mic_permission.dart, four faces) ────
   // Mirrors the camera/gallery denial pattern (pairScanDenied /

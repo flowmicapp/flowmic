@@ -110,16 +110,18 @@ describe('TimelineStore — 补投 runs the local pipeline with the row it owns'
     expect(v.ran && v.status).toBe(store.entries()[0]!.status);
   });
 
-  it('🔴 a run that lands NOWHERE still says ran:true — and says `cached`, not success', async () => {
+  it.each([['cached', 'INJECT_FOCUS_LOST'], ['clipboard', 'INJECT_SUBMISSION_UNCERTAIN']] as const)(
+    'returns cached plus the PC verdict for %s / %s', async (mode, error) => {
     // The distinction the capsule's third icon face exists for: the pipeline
-    // ran to completion, and the utterance reached no window. A caller that
+    // ran to completion without confirmed input: absent target or partial input. A caller that
     // renders `ran: true` as a success without reading `status` commits R11,
     // and this is the case where it would be wrong.
     const { store, t } = fresh();
     seed(store, [item('1', { status: 'failed' })]);
-    t.result = { ok: false, mode: 'cached', error: 'INJECT_FOCUS_LOST' };
+    t.result = { ok: false, mode, error };
     const v = await store.reInject('1', 'lan');
-    expect(v).toEqual({ ran: true, status: 'cached' });
+    expect(v).toEqual({ ran: true, status: 'cached', errorCode: error });
+    expect(store.entries()[0]!.cached_cause).toBe(error);
   });
 
   it('🔴 a re-inject that lands nowhere DOES move an injected row back to cached — and the caller is told the truth', async () => {
@@ -141,7 +143,7 @@ describe('TimelineStore — 补投 runs the local pipeline with the row it owns'
     t.result = { ok: false, mode: 'cached', error: 'INJECT_FOCUS_LOST' };
     const v = await store.reInject('1', 'lan');
     expect(store.entries()[0]!.status).toBe('cached');
-    expect(v).toEqual({ ran: true, status: 'cached' });
+    expect(v).toEqual({ ran: true, status: 'cached', errorCode: 'INJECT_FOCUS_LOST' });
   });
 
   it('the three ways nothing was typed each answer with their own reason', async () => {

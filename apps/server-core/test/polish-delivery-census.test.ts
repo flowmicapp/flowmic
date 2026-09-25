@@ -66,7 +66,7 @@ import { SRC, TESTS, deliverySelections, selectors } from './polish-delivery-sca
 //         OWNER's call; neither this test nor the card that flips it may invent
 //         a number.
 //
-// Ledger row: docs/strategy/2026-08-07-rt-realtime-correction-ledger.md.
+// Ledger row: docs/archive/strategy/2026-08-07-rt-realtime-correction-ledger.md.
 describe('🔴 RT-1 ACTIVATION TRIPWIRE — detached polish delivery stays out of production', () => {
   it('NO file under src/ selects the detached delivery — there is still no carrier', () => {
     // 🔴 TURNED BACK, not deleted, and not re-inverted (POLISH-1). The 0.3.0 L2

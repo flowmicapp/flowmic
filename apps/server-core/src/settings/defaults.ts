@@ -61,7 +61,7 @@ import { reclassifyUnmarked, stampProvenance } from './provenance';
  * ⚠️ THIS COMMENT USED TO SAY the stock install therefore 「fails LOUD
  * (STT_CONFIG_MISSING)」. That sentence was true of one layer and false of the
  * product, measured on the shipped 0.2.61 artifact (ENG cards, 2026-08-11,
- * docs/strategy/2026-08-11-eng-local-stt-cards.md): the shipped resources tree
+ * docs/archive/strategy/2026-08-11-eng-local-stt-cards.md): the shipped resources tree
  * had no addon so open() failed, the engine DID throw the named code, the
  * orchestrator re-coded it to STT_NETWORK_DROP, and the phone dropped
  * code+message and painted "no speech heard" — a QUIET failure blaming the room.

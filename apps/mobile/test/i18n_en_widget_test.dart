@@ -75,7 +75,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Inject to PC'), findsOneWidget);
     expect(find.text('Re-deliver to the focused window'), findsOneWidget);
-    expect(find.text('Re-translate / re-organize'), findsOneWidget);
+    // NR-89: the one 「Re-translate / re-organize」 row became two. Read from
+    // the catalogue rather than quoted: the English sentences are written by
+    // the copy pipeline, and this case is about the sheet speaking the EN
+    // catalogue at all. The opener passes no translate target, so only
+    // re-organize is offered (the target gate is pinned in
+    // rerun_copy_render_test.dart (e)).
+    expect(find.text(_en.entryReorganize), findsOneWidget);
+    expect(find.text(_en.entryRetranslate), findsNothing);
     expect(find.text('Edit'), findsOneWidget);
     expect(find.text('Copy'), findsOneWidget);
     expect(find.text('Add to Favorites'), findsOneWidget);

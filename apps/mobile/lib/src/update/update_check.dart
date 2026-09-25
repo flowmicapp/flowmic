@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   apps/server-core/src/http/update-routes.ts (GET /api/updates/latest —
 //     200/405/503, not mounted ⇒ the router's 404)
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §3 (the failure-
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §3 (the failure-
 //     direction table — every row
 //     is a behaviour that MUST be met, not decoration)
 //   apps/mobile/lib/src/diag/diag_upload.dart (this file copies two things

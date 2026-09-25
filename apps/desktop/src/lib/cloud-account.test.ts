@@ -1,4 +1,4 @@
-// L3 account card (L3 账号卡) —— the decision core's acceptance criteria. Design doc = docs/strategy/2026-08-02-l3-account-card-design.md §6.
+// L3 account card (L3 账号卡) —— the decision core's acceptance criteria. Design doc = docs/archive/strategy/2026-08-02-l3-account-card-design.md §6.
 //
 // The four things this file must prove, each corresponding to one of this repo's written rules:
 //   ① unreachable ⇒ neutral state, and **the previous value must never be treated as this time's answer** (unknown ≠ error ≠ stale value);

@@ -46,6 +46,12 @@ export interface SttStartArgs {
    *  terminal final. Lifted by `recoveryEchoOf`; undefined when the frame
    *  carried none. Never parsed or validated here. */
   recovery?: RecoveryEcho;
+  /** card HANGUP-3 — the `client_caps` the starting socket declared at admission
+   *  (wire.ts `getClientCaps`); absent/empty ⇒ nothing declared, keep the old behaviour. */
+  clientCaps?: readonly string[];
+  /** card RC-1 — `audio:start.continuous === true`: a LONG RECORDING, not a held button (book 04).
+   *  Present only when true; the engine factory turns it into the unbounded reconnect ladder. */
+  continuous?: true;
   /** GA-04: the stt:* emitter must follow the session across a reconnect, so the
    *  mobile leg is resolved PER FRAME instead of closing over the socket that
    *  happened to send audio:start. Absent → the factory falls back to that

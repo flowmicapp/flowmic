@@ -293,7 +293,7 @@ section('§5 manifest classifier — build-update-manifest.mjs on a fixture tree
     // ERR_MODULE_NOT_FOUND before any section runs (2026-08-09, seen live).
     // update-manifest-lib.mjs + module-entrypoint-guard.mjs joined for the same
     // reason with ruling ① (2026-08-10) — and failed exactly as predicted first.
-    for (const f of ['build-update-manifest.mjs', 'pack-portable.mjs', 'verify-remote-artifact.mjs', 'update-manifest-lib.mjs', 'module-entrypoint-guard.mjs']) {
+    for (const f of ['build-update-manifest.mjs', 'pack-portable.mjs', 'linux-portable-modes.mjs', 'verify-remote-artifact.mjs', 'update-manifest-lib.mjs', 'module-entrypoint-guard.mjs']) {
       writeFileSync(join(root, 'scripts', f), readFileSync(join(ROOT, 'scripts', f)));
     }
     const out = join(root, 'publish');

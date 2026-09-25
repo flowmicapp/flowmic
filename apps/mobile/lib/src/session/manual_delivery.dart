@@ -425,10 +425,13 @@ class ManualDelivery {
       // ONE delivery covering N rows, and naming only the representative would
       // leave the other N-1 judged as a deferred re-delivery (补投) inside the
       // very press that sent them.
-      final OutboxDrainReport report =
-          await _host.outbox.drain(userRequestedEntryIds: snapCovered.toSet());
-      if (report.busy) return null; // Card F2: merged into running drain, not failed.
-      if (report.linkOk == false) return failSettled(settle, ComposeSendFailure.linkDown);
+      final OutboxDrainReport report = await _host.outbox.drain(
+        userRequestedEntryIds: snapCovered.toSet(),
+      );
+      if (report.busy)
+        return null; // Card F2: merged into running drain, not failed.
+      if (report.linkOk == false)
+        return failSettled(settle, ComposeSendFailure.linkDown);
       // ── card B2-M — SAME SHAPE AS chat_utterance.dart's `_deliverDirect`
       // (card B2-H) ────────────────────────────────────────────────────────
       //
@@ -623,7 +626,7 @@ class ManualDelivery {
   /// device, and that is the WHOLE of what a press does now: owner 2026-08-13
   /// supplement #3 struck the `clear`-also-wipes-the-local-buffer half that the
   /// caller used to own (08 §5 correction block; contract §4).
-  bool sendControlKey(ControlKeyKind kind) {
+  bool sendControlKey(ControlKeyKind kind, {required String requestId}) {
     if (!_host.canCompose) {
       raise(ComposeSendFailure.notConnected);
       return false;
@@ -632,7 +635,11 @@ class ManualDelivery {
     // delivery frame already stamps (`cachedDeviceLabel()`), not a second source:
     // one answer to 「我是哪台手机」("which phone am I"), or the PC's rows would
     // disagree about it depending on which frame they were built from.
-    if (!_gate.emitControlKey(kind, deviceLabel: cachedDeviceLabel())) {
+    if (!_gate.emitControlKey(
+      kind,
+      deviceLabel: cachedDeviceLabel(),
+      requestId: requestId,
+    )) {
       raise(ComposeSendFailure.wireFailed);
       return false;
     }

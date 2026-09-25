@@ -279,6 +279,13 @@ pub fn run() {
         return;
     }
 
+    // Validate/freeze Linux XDG roles before any file consumer or worker exists.
+    // The updater intercepts above retain their independent startup contract.
+    if let Err(e) = app_dirs::validate_environment() {
+        eprintln!("[flowmic] REFUSING to launch: {e}");
+        std::process::exit(1);
+    }
+
     // From here down this process IS the application, so its lifetime becomes a
     // fact worth carrying to the exit line ("it had been up 3d02h" is the
     // difference between 「the user quit」 and 「it just died on its own」).
@@ -405,6 +412,13 @@ pub fn run() {
     // copy of the scope rather than borrowing the one `run()` owns. Two owners
     // of one VALUE, not two answers to one question — `resolve_scope` ran once.
     let setup_scope = scope.clone();
+
+    // Xlib requires this before GTK opens any display; our focus and clipboard
+    // connections are owned by their worker threads after the toolkit starts.
+    #[cfg(target_os = "linux")]
+    if let Err(error) = focus::linux_x11::initialize_threads() {
+        forensic::record("linux-session", &format!("X11 initialization failed: {error}"));
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -535,6 +549,9 @@ pub fn run() {
             // Forensics first (07 §10) so the sidecar bring-up + socket lifecycle
             // are captured from the very first line.
             forensic::init_default();
+
+            #[cfg(target_os = "linux")]
+            focus::linux_session::capture_gtk_backend();
 
             // ── The taskbar button had no icon (owner, 2026-08-22) ───────────
             // Windows declared in `tauri.conf.json` get no icon: WindowConfig has

@@ -558,7 +558,7 @@ describe('compose output guard — the interim wire code', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // 2026-08-28 — draft_polish had NO output validation, and the comment saying it
 // did not need any was describing a different code path.
-// Refs docs/strategy/2026-08-28-multilingual-chain-audit.md §3 F1.
+// Refs docs/archive/strategy/2026-08-28-multilingual-chain-audit.md §3 F1.
 // ─────────────────────────────────────────────────────────────────────────────
 describe('guardComposeOutput — draft_polish must not change writing system', () => {
   const polish = (source: string, output: string) =>

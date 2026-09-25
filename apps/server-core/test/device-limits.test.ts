@@ -12,8 +12,8 @@
 //      device, which must never be blocked by its own slot;
 //   ③ the F-3140 virtual cloud-instance row does not eat a user slot.
 //
-// SPEC-REF: docs/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-16;
-//           docs/strategy/2026-07-23-mock-billing-design.md §1 (entitlement matrix), §8.4
+// SPEC-REF: docs/archive/strategy/2026-07-25-full-gap-audit/01-SERVER-PROTOCOL.md GA-16;
+//           docs/archive/strategy/2026-07-23-mock-billing-design.md §1 (entitlement matrix), §8.4
 //           (PLAN_LIMITS single source, one place)
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';

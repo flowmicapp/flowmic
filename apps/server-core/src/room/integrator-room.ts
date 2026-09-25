@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §2 / §10-6
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §2 / §10-6
 //   docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md §9-1
 //   ./web-room.ts (the account's ONE browser target room — the shape this is NOT)
 //   ../db/schema-integrator.ts (why the key edge is its own table)

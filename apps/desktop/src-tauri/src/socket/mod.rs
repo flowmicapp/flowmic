@@ -16,6 +16,7 @@ pub mod admission;
 pub mod blocking;
 pub mod bridge;
 pub mod channel;
+pub(in crate::socket) mod chord_exit;
 pub mod client;
 /// The `control:key` subscription — one remote keypress in, one local act, one
 /// row, and (card MP-14) one `control:key-result` back to the phone that pressed

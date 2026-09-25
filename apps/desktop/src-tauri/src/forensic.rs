@@ -4,7 +4,7 @@
 //     append-only, 2 MiB cap → keep tail 512 KiB; startup snapshot, socket
 //     lifecycle, SPEAKING-lock events, inject resolve truth, dual-perspective
 //     window state, and a `fe.<domain>#<seq>` frontend mirror.
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-3 deliverable A.
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-3 deliverable A.
 //   CLAUDE.md red line: no silent failures — EXCEPT the observation layer itself (a forensic
 //     write failure must never backfire onto the main flow; init failure eprintln's once).
 //
@@ -156,11 +156,19 @@ impl ForensicSink {
 /// exclusively by `crate::app_dirs::local_home()`; the temp-dir fallback still
 /// exists, it just is no longer macOS's default answer. Windows behaviour is
 /// unchanged, byte for byte.
-fn resolve_path() -> PathBuf {
+/// Linux L-1: diagnostics use XDG state. The fallible resolver keeps the observer
+/// non-panicking even when called before startup rejects an invalid environment.
+fn try_resolve_path() -> std::io::Result<PathBuf> {
     if let Some(p) = std::env::var_os("FLOWMIC_FORENSIC_PATH") {
-        return PathBuf::from(p);
+        return Ok(PathBuf::from(p));
     }
-    crate::app_dirs::local_home().join("window-forensics.log")
+    Ok(crate::app_dirs::state_home()?.join("window-forensics.log"))
+}
+
+// File consumers (sibling_path) run after the application's storage preflight;
+// unlike observer initialization, these callers require a usable file location.
+fn resolve_path() -> PathBuf {
+    try_resolve_path().expect("application storage must be validated before diagnostic file consumers")
 }
 
 /// A path beside the forensic log, so every diagnostic file this product writes
@@ -179,7 +187,13 @@ pub fn sibling_path(file_name: &str) -> PathBuf {
 /// forensics file is exactly what forensics exists to catch) — never panics.
 pub fn init_default() {
     let _ = SINK.get_or_init(|| {
-        let path = resolve_path();
+        let path = match try_resolve_path() {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("[flowmic] forensic init failed (state directory): {e}");
+                return None;
+            }
+        };
         if let Some(dir) = path.parent() {
             if let Err(e) = std::fs::create_dir_all(dir) {
                 eprintln!("[flowmic] forensic init failed (mkdir {}): {e}", dir.display());

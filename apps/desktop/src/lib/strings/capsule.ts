@@ -155,6 +155,13 @@ export const CAPSULE_KEYS = [
   'cap_stt_unknown',
   'cap_stt_ready',
   'cap_stt_reconnecting',
+  // NR-96 (book 15 §2.7 law 1) — the same face with the attempt number: `{n}`
+  // alone when the relay's frame carries no `retry_max` (unbounded, or an old
+  // relay), `{n}` + `{max}` when it does. Rendered by CapsuleApp.vue through
+  // capsule/engine-retry.ts `reconnectingLabel`; `cap_stt_reconnecting` above
+  // stays the face for a frame with no usable count.
+  'cap_stt_reconnecting_n',
+  'cap_stt_reconnecting_n_of',
   // NR-38 — the cold open of a LOCAL pack, which is neither a verdict nor a
   // failure: the engine is here and is reading its model off disk. It gets its
   // own sentence rather than borrowing `cap_stt_unknown` ("Not checked"), which
@@ -227,17 +234,23 @@ export const CAPSULE_MSG_CATALOGUES = CAPSULE_MSG_BY_LOCALE;
 // file that imports the generated catalogue (the `circular` lint counts a
 // type-only import as an edge). Nothing about the guard changed.
 
-/** 🔴 THE CAUSES OF `cached`, AS A SET THE UI CAN ASK ABOUT (docs/rebuild/15
- *  §2.5e-4). `cached` now has THREE of them and they mean different things to the
- *  user, so 「未注入 · 已缓存」 alone is a correct-but-silent status — exactly what
- *  owner hit on 2026-08-02 and asked to have explained.
- *
- *  ⚠️ THIS IS A LIST OF CAUSES, NOT A LIST OF FAILURES. The reason line these unlock
- *  rides the 📥 amber face, never the ✗ red one; nothing here went wrong, the
- *  delivery succeeded and only the injection had nowhere to land. `INJECT_FOCUS_LOST`
- *  is deliberately absent: 「未注入 · 已缓存」 + 「未找到输入焦点」 is the same sentence
- *  twice, which is the state 卡 L7 removed the reason line for in the first place. */
+/** Named PC injection verdicts that have a reason when received as cached
+ *  (book 15 §2.5e-4). This set controls visibility, not the producer's mode or
+ *  the verdict's certainty. Delivery succeeded; the named reason explains why
+ *  injection was not completed or could not be confirmed. FOCUS_LOST alone is
+ *  omitted under L7: its explanation repeats the cached badge. */
+// Bound to PC_INJECTION_VERDICT_CODES minus the named FOCUS_LOST exception by
+// cached-cause-face.test.ts. The consumer first checks mode=cached; these entries
+// do not change which mode any producer returns.
 export const CACHED_CAUSE_CODES = new Set<string>([
+  'INJECT_TARGET_INVALID',
+  'INJECT_NO_TEXT_TARGET',
+  'INJECT_SENDINPUT_FAIL',
+  'INJECT_CLIPBOARD_FAIL',
+  'INJECT_IMAGE_UNSUPPORTED',
+  'INJECT_WAYLAND_UNSUPPORTED',
+  'INJECT_DISPLAY_UNAVAILABLE',
+  'INJECT_SUBMISSION_UNCERTAIN',
   'INJECT_DEFERRED_NOT_AUTOINJECTED',
   'INJECT_SELF_WINDOW_NO_INPUT',
   // 🔴 The two macOS preflight codes (registered as 63/64). `inject/preflight.rs`
@@ -260,6 +273,9 @@ export const CACHED_CAUSE_CODES = new Set<string>([
  *  the CURRENT locale — controller.ts's `INJECT_FAIL_REASON[code] ?? …` keeps
  *  working untouched and resolves at event time. */
 export const INJECT_FAIL_REASON: Record<string, string> = {
+  get INJECT_WAYLAND_UNSUPPORTED() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_WAYLAND_UNSUPPORTED!; },
+  get INJECT_DISPLAY_UNAVAILABLE() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_DISPLAY_UNAVAILABLE!; },
+  get INJECT_SUBMISSION_UNCERTAIN() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_SUBMISSION_UNCERTAIN!; },
   get INJECT_FOCUS_LOST() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_FOCUS_LOST!; },
   get INJECT_TARGET_INVALID() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_TARGET_INVALID!; },
   get INJECT_CLIPBOARD_FAIL() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_CLIPBOARD_FAIL!; },

@@ -6,11 +6,11 @@
 //     recording), §5 (target-aware inject:result write-back; source_text
 //     immutable) — §5's history:update / history:inject halves were retired in
 //     0.2.27, see chat_row_uplink.dart
-//   docs/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 ⑦ (polish:skipped →
+//   docs/archive/strategy/R4-PRIVATE-TASK-CARDS.md WP-R4-6 ⑦ (polish:skipped →
 //     session-persistent bubble corner mark, in-memory only — the lead's integration
 //     ruling refined "transient" to "not persisted", NOT "auto-dismissing"; never
 //     touches timeline schema / status five-state)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-3 ② (send policy full chain),
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 2 T-3 ② (send policy full chain),
 //   docs/rebuild/08-MOBILE-SPEC.md §5 + its 2026-08-13 correction block
 //     (direct-send vs hold-then-send; the final-lands-in-buffer append/replace
 //     rule; 🔴 「clear wipes the local buffer」 was STRUCK by owner supplement #3
@@ -29,9 +29,12 @@ import 'package:clock/clock.dart' show clock;
 import 'package:flutter/foundation.dart';
 
 import '../audio/audio_capture.dart' show CapturedChunk;
+import '../audio/recovery_attempt_ledger.dart'
+    show AttemptRoute, RecoveryAttemptLedger;
 import '../audio/retained_audio_manifest.dart' show AudioJournalFormat;
 import 'recovery_identity.dart' show RecoverySampleRange;
-import '../audio/retained_audio_spill.dart' show LiveAudioAttempt;
+import '../audio/retained_audio_spill.dart'
+    show LiveAudioAttempt, RetainedAudioSpill;
 import '../audio/retained_audio_store.dart' show RetainedAudioNotice;
 import '../destination/destination_controller.dart';
 import '../diag/diag_log.dart';
@@ -49,6 +52,7 @@ import '../signaling/wire_payloads.dart';
 import '../stt/segment_buffer.dart';
 import '../stt/stt_stream.dart';
 import '../stt/utterance_view.dart';
+import '../timeline/entry_never_sent.dart';
 import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart';
 import '../timeline/timeline_sync.dart';
@@ -81,13 +85,16 @@ import 'manual_delivery.dart';
 import 'platform_device_info.dart';
 import 'platform_image_picker.dart';
 import 'recording_telemetry.dart';
+import 'recovery_leg_policy.dart' show RecoveryTimeouts;
 import 'utterance_compose.dart';
 
 // The utterance lifecycle (terminal final → row → transform → delivery) lives
 // in a part file so this one stays under the source cap while the logic keeps
 // direct access to the per-utterance snapshot state it is about.
 part 'chat_utterance.dart';
+part 'chat_utterance_processing.dart';
 part 'chat_utterance_settle.dart';
+part 'chat_utterance_owner.dart'; // RC-N / RC-P / ruling 5 — whose final this is
 // The link watch: the window, the retry budget, the exit. Its own header says why.
 part 'chat_link_watch.dart';
 // The remote-key half (⏎⌫↶✕). A part file because this one is at the source
@@ -186,7 +193,17 @@ class ChatController extends ChangeNotifier
     // page gives up and returns to the connections list. Injectable so tests
     // run on a collapsed window instead of sleeping through the real one.
     this.sessionLostAfter = kSessionLostAfter,
-  }) : favorites = FavoritesStore(prefs: localPrefs),
+    // Card RC-M — the recovery leg's clocks now end a recovery's wait (no
+    // GA-03 net behind it); injectable so a test does not sit out 45 s.
+    @visibleForTesting RecoveryTimeouts recoveryTimeouts = const RecoveryTimeouts(),
+    // Card RC6 — the recovery queue's clock and its due-time retry (RC-O), so a
+    // test can run a backoff of minutes in milliseconds.
+    @visibleForTesting int Function()? recoveryClock,
+    @visibleForTesting Timer Function(Duration, void Function())? recoveryRetryTimer,
+  }) : _recoveryTimeouts = recoveryTimeouts,
+       _recoveryClock = recoveryClock,
+       _recoveryRetryTimer = recoveryRetryTimer,
+       favorites = FavoritesStore(prefs: localPrefs),
        composeGate =
            composeGate ??
            ComposeGate(transport: session.transport, phonePrefs: phonePrefs) {
@@ -211,6 +228,10 @@ class ChatController extends ChangeNotifier
   /// the queue can actually deliver. See F-1. Body: chat_outbox_host.dart.
   void _onRoomJoined() => onRoomJoinedRouted(this);
   void _onDeliveryLinkUp() => onDeliveryLinkUpRouted(this);
+
+  /// Card RC-3 — a recording that owed its tail closed its journal. Body:
+  /// chat_outbox_host.dart `maybeSweepOwedTailRouted`.
+  void _onOwedTailReady() => maybeSweepOwedTailRouted(this);
 
   /// AUD-D F6 / P1-6 — a segment was dropped/evicted/expired out of local
   /// retention. Body: chat_notices.dart (same family as the other page-level
@@ -241,8 +262,16 @@ class ChatController extends ChangeNotifier
   /// and the rows (`store`). Swept on two edges only — the link coming back,
   /// and a recording ending — because those are the only two moments at which
   /// the answer to 「is anything owed」 can have changed.
-  late final BackfillRunner backfill =
-      BackfillRunner(session: session, store: store, phonePrefs: phonePrefs);
+  late final BackfillRunner backfill = BackfillRunner(
+      session: session,
+      store: store,
+      phonePrefs: phonePrefs,
+      recoveryTimeouts: _recoveryTimeouts,
+      clock: _recoveryClock,
+      retryTimer: _recoveryRetryTimer);
+  final RecoveryTimeouts _recoveryTimeouts;
+  final int Function()? _recoveryClock;
+  final Timer Function(Duration, void Function())? _recoveryRetryTimer;
 
   final DestinationController destination;
   @override
@@ -491,6 +520,11 @@ class ChatController extends ChangeNotifier
   /// 🔴 G-20 ③ — WHICH INSTANCE'S SCREEN [_utteranceFailure] is news for.
   /// Written only through [_raiseUtteranceFailure]; see [_autoStoppedInstanceId].
   String? _utteranceFailureInstanceId;
+
+  /// Card RC-I — was the utterance behind [_utteranceFailure] one that is never
+  /// sent (`EntryNeverSent.neverSent`)? Picks the banner's frame; written only
+  /// through [_raiseUtteranceFailure], in the same statement as the outcome.
+  bool _utteranceFailureNeverSent = false;
 
   // [_raiseUtteranceFailure] — G-20 ③'s ONE writer — moved VERBATIM to
   // chat_notice_scope.dart, the file about the scope it stamps.

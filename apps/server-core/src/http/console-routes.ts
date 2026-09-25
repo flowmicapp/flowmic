@@ -1,10 +1,10 @@
 // SPEC-REF:
-//   docs/strategy/R5-WEB-TASK-CARDS.md WP-W1 ①-⑤ (server-core console support surface:
+//   docs/archive/strategy/R5-WEB-TASK-CARDS.md WP-W1 ①-⑤ (server-core console support surface:
 //     logout / password reset / cloud summary+subscription / device+pairing mgmt)
 //   docs/rebuild/05-DATA-MODEL.md §5 (account.password_reset {reset_token,
 //     expires_at} 30-min TTL; account.* broadcast deny-list — these keys never
 //     fan out to a mobile), §1 (pc_devices / mobile_pairings)
-//   docs/strategy/2026-07-23-mock-billing-design.md §3/§4 (getPlan/getQuota reads)
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §3/§4 (getPlan/getQuota reads)
 //   docs/rebuild/13-LESSONS-LEARNED.md §3 D1 (no silent failure — explicit codes)
 //   0.3.0 P4: docs/legal/privacy-policy.md 「Your rights」 (export / delete) —
 //     the two routes at the bottom of this file, with their whole argument in

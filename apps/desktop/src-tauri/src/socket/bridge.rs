@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/07-DESKTOP-SPEC.md §4 (capsule state consumes stt:level /
 //     interim / final + inject:result), §9 (timeline four ops + refresh triggers)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-2 deliverable C (stt:*/inject:result
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-2 deliverable C (stt:*/inject:result
 //     forwarded to the frontend via Tauri emit)
 //
 // The seam between the AUDITED, tauri-free socket core (client.rs) and the Tauri

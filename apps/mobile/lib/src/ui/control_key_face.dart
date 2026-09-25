@@ -55,11 +55,13 @@ class ControlKeyRefusal {
   /// The wire `reason`, verbatim, or null when the frame did not carry one.
   /// Coarsened into a sentence by [controlKeyRefusalText] and nowhere else.
   final String? reason;
+  final String? errorCode;
 
   const ControlKeyRefusal({
     required this.ticket,
     required this.kind,
     this.reason,
+    this.errorCode,
   });
 }
 
@@ -88,6 +90,8 @@ class ControlKeyRefusal {
 /// ever really pairs with a page, this is one of the strings that has to change
 /// — registered here rather than discovered then.
 String controlKeyRefusalText(AppStrings strings, ControlKeyRefusal refusal) {
+  final String? named = refusal.errorCode == null ? null : strings.injectVerdictNote(refusal.errorCode!);
+  if (named != null) return named;
   final String key = controlKeyLabel(strings, refusal.kind);
   return switch (refusal.reason) {
     'unsupported_here' => strings.controlKeyRefusedUnsupported(key),

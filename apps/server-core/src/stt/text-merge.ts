@@ -82,7 +82,18 @@ export function overlapLen(left: string, right: string): number {
  *  above, and after review it **still holds**: owner's automatic veto on losing
  *  characters and the content-loss criterion `no_duplication` are both real,
  *  running mechanisms (`verify/eval/judges/index.mjs`), unrelated to "whether the
- *  replay comes from rollover or reconnect" — so it is kept as written. */
+ *  replay comes from rollover or reconnect" — so it is kept as written.
+ *  ⚠️ 更正（RC-5b，2026-09-24）：the premise 「A REAL overlap here only arises from
+ *  rollover replay」 (and its corrected subject, reconnect) was an argument, and
+ *  since card SEG-4 a leg ROTATION keeps the bank, so a genuinely repeated word at
+ *  a rotation seam (「没有投票。投票会在」, CR-12-E) was trimmed as if it were replay.
+ *  The orchestrator now READS the fact instead of arguing it: a leg's first final
+ *  goes through this function only when that leg was replayed audio an earlier leg
+ *  had heard (`leg-facts.ts` `foldFinal` / `noteReplay`); otherwise it is joined.
+ *  ⚠️ 更正（RC-5c，2026-09-24）：「that leg was replayed audio an earlier leg had heard」
+ *  is still how a leg with no vendor position is judged; a leg whose previous leg
+ *  reported one is merged by {@link mergeOverlapWithin}, bounded by the audio that
+ *  final really covered (book 06 §3 RC-5c block). */
 const OVERLAP_MIN_CHARS = 2;
 
 export function mergeOverlap(accum: string, next: string): string {
@@ -92,6 +103,25 @@ export function mergeOverlap(accum: string, next: string): string {
   if (accum.startsWith(next)) return accum;
   const k = overlapLen(accum, next);
   return accum + next.slice(k >= OVERLAP_MIN_CHARS ? k : 0);
+}
+
+/**
+ * card RC-5c — {@link mergeOverlap} for a seam whose overlap was MEASURED: at most
+ * the first [maxChars] characters of `next` may be dropped, because only those were
+ * transcribed from audio the previous leg's final had already covered (book 06 §3
+ * RC-5c block). A shared suffix/prefix longer than that is the speaker repeating
+ * themselves, so it is matched only up to the bound; `OVERLAP_MIN_CHARS` still holds.
+ * [maxChars] = 0 is a plain join.
+ */
+export function mergeOverlapWithin(accum: string, next: string, maxChars: number): string {
+  if (accum.length === 0) return next;
+  if (next.length === 0) return accum;
+  const cap = Math.min(maxChars, next.length, accum.length);
+  if (next.length <= maxChars && accum.startsWith(next)) return accum; // all of `next` was re-heard
+  for (let k = cap; k >= OVERLAP_MIN_CHARS; k--) {
+    if (accum.endsWith(next.slice(0, k))) return accum + next.slice(k);
+  }
+  return accum + next;
 }
 
 /** Minimum shared prefix, in characters, before {@link mergeOnlineDraft} will

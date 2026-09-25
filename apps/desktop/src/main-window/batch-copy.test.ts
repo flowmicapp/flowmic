@@ -101,7 +101,7 @@ describe('V2-18 batch copy', () => {
     expect(preCopyHint([])).toBeNull();
   });
 
-  // owner 2026-08-01, docs/strategy/2026-08-01-data-asset-lifecycle-design.md §4b-6:
+  // owner 2026-08-01, docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §4b-6:
   // concatenation order is chronological ascending, regardless of the order the user
   // checked things in. These three pin that ruling in
   // planBatchCopy itself (not in the caller), including the tie-break answer.

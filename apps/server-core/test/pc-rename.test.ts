@@ -13,7 +13,7 @@
 //     not have one rename relabel the other in every phone's list.
 //
 // SPEC-REF: docs/rebuild/04-PROTOCOL-SPEC.md §3.7;
-//           docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-10
+//           docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-10
 
 import { NODE_CAN_WRITE } from '../src/node/writer-only';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';

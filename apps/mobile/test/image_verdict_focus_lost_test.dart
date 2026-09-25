@@ -1,7 +1,7 @@
 // 🔴 The fix-015 follow-up — a PICTURE row that settles on `INJECT_FOCUS_LOST`.
 //
 // ⚠️ NO CARD NUMBER ON PURPOSE. This is the open account recorded as item ④ of
-// `docs/strategy/2026-08-10-lan-window-task-book.md` §9 收尾清单 (「`INJECT_FOCUS_LOST`
+// `docs/archive/strategy/2026-08-10-lan-window-task-book.md` §9 收尾清单 (「`INJECT_FOCUS_LOST`
 // 在图片行上与 63/64 同形（`fix-015` 明账、行为未动、边界有测试钉住）」), not a numbered
 // card. `fix-021` was drafted into these comments and taken back out: that number
 // already belongs to `fix-021-img1-store-failure-code` in the same task book, and

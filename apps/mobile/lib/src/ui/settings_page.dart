@@ -22,6 +22,9 @@ import '../auth/account_mask.dart';
 import '../auth/cloud_summary_controller.dart';
 import '../auth/login_controller.dart';
 import '../destination/destination_controller.dart';
+import '../mcp/mcp_copy.dart';
+import '../mcp/mcp_page.dart';
+import '../mcp/mcp_scope.dart';
 import '../portable/asset_inventory.dart';
 import '../timeline/timeline_store.dart';
 import '../portable/export_sheet.dart';
@@ -175,6 +178,12 @@ class SettingsPage extends StatelessWidget {
                       _generalPrefsCard(s),
                       settingsSection(s.secData),
                       _dataCard(context, s),
+                      ListTile(key: const ValueKey<String>('settings.mcp'),
+                        title: Text(s.mcp(McpText.title)), onTap: () {
+                          final McpScope scope = McpScope.of(context);
+                          Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) =>
+                            McpPage(service: scope.service, settings: scope.settings)));
+                        }),
                       settingsSection(s.secPreferences),
                       _preferencesCard(s),
                       // owner 2026-08-30 — the relay-node panel. Draws NOTHING

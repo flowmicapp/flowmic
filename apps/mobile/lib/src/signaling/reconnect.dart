@@ -4,7 +4,7 @@
 //     edge that FOLLOWS a drop: re-emit mobile:reconnect once per span and,
 //     once its ack lands, replay the 30 s ring buffer; AUTH_TOKEN_INVALID →
 //     stop the storm)
-//   docs/strategy/2026-07-25-full-gap-audit/03-MOBILE.md GA-04M (replay order)
+//   docs/archive/strategy/2026-07-25-full-gap-audit/03-MOBILE.md GA-04M (replay order)
 //   packages/protocol/src/constants.ts AUDIO_DEFAULTS (backoff / grace)
 //   13-LESSONS-LEARNED §2 (F-2130 flap guard, F-2124 rejoin-once)
 //
@@ -164,6 +164,12 @@ class ReconnectCoordinator {
   /// (a reconnect attempt is pending or in flight). The network-status
   /// indicator reads this for the yellow "reconnecting" state.
   final ValueNotifier<bool> reconnecting = ValueNotifier<bool>(false);
+
+  /// NR-96-E2 — the number of the rung most recently scheduled, for the link
+  /// banner's 「attempt n」. Written in ONE place ([_scheduleReconnect]). It
+  /// answers 「which attempt」 only, never 「is the link up」 — that is
+  /// [reconnecting]; a reader shows it only while [reconnecting] is true.
+  final ValueNotifier<int> scheduledAttempt = ValueNotifier<int>(0);
 
   int get attempts => _attempt;
   bool get isRunning => _running;
@@ -629,6 +635,7 @@ class ReconnectCoordinator {
       return;
     }
     _attempt += 1;
+    scheduledAttempt.value = _attempt; // NR-96-E2
     reconnecting.value = true;
     final delay = delayOverride ?? _backoffFor(_attempt);
     debugPrint(

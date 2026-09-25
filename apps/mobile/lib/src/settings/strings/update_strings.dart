@@ -4,7 +4,7 @@
 // composes this mixin with `with`).
 //
 // SPEC-REF:
-//   docs/strategy/2026-08-02-l4-in-app-update-design.md §3 (failure-direction
+//   docs/archive/strategy/2026-08-02-l4-in-app-update-design.md §3 (failure-direction
 //     table) / §5.1
 //   apps/mobile/lib/src/update/update_check.dart (UpdateCheckOutcome — this
 //     file writes one sentence for **each of its cells**, which is where

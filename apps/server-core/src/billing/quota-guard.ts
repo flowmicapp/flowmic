@@ -1,9 +1,9 @@
 // SPEC-REF:
-//   docs/strategy/2026-07-23-mock-billing-design.md §3 (STT/LLM interception: exactly
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §3 (STT/LLM interception: exactly
 //     1 each at the audio:start / compose:start entries; standalone NOOP; BYOK exempt
 //     from checks), §8 (Pro-tier STT is also intercepted now, no longer escaping via
 //     Infinity)
-//   docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1-bis (quota comes from
+//   docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1-bis (quota comes from
 //     BillingService.effectiveLimits, no longer back-derived from plan)
 //   CLAUDE.md red line: over-quota only fails loud with an upgrade prompt
 //     (QUOTA_EXCEEDED), silent downgrade is forbidden

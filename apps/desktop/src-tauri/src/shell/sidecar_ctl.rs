@@ -2,7 +2,7 @@
 //   docs/rebuild/07-DESKTOP-SPEC.md §5 (sidecar lifecycle → connect at its
 //     endpoint; LAN-IP poll for the pairing endpoint), §6 (connect layer; the
 //     FLOWMIC_SERVER_URL dev override), §10 (forensics)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #4 (connection
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #4 (connection
 //     order: app starts → sidecar reaches Healthy/Adopted → connect using its
 //     endpoint; FLOWMIC_SERVER_URL explicit override = dev mode, highest priority)
 //     + #5 (pairing modal endpoint = sidecar endpoint + /api/network

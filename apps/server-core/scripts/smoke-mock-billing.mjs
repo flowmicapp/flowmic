@@ -116,11 +116,13 @@ async function main() {
     const qPro = await get(port, '/quota');
     log('quota after confirm', { stt_limit: qPro.stt.limit_min, llm_limit: qPro.llm.limit });
     // 2026-08-02: pro 900 min; 2026-08-27 tokens 20M → 5M (docs/decisions/
-    // 2026-08-27-owner-quota-gauge-and-token-caps.md). ⚠️ The mock gateway only
+    // 2026-08-27-owner-quota-gauge-and-token-caps.md); 2026-09-23 pro 900 → 1000 min,
+    // tokens 5M → 10M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-
+    // and-token-caps.md). ⚠️ The mock gateway only
     // ever confirms to 'pro' — 'max' has no mock trigger, so this script cannot
     // cover the third tier and does not pretend to.
-    assert(cf.plan === 'pro' && qPro.stt.limit_min === 900, `confirmed → pro @ 900min, got ${qPro.stt.limit_min}`);
-    assert(qPro.llm.limit === 5_000_000, `pro llm limit 5M, got ${qPro.llm.limit}`);
+    assert(cf.plan === 'pro' && qPro.stt.limit_min === 1000, `confirmed → pro @ 1000min, got ${qPro.stt.limit_min}`);
+    assert(qPro.llm.limit === 10_000_000, `pro llm limit 10M, got ${qPro.llm.limit}`);
 
     const ex = await post(port, '/expire', {});
     log('mockExpire', ex);

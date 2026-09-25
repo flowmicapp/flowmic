@@ -75,6 +75,7 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../generated/flowmic_settings.g.dart';
+import '../mcp/mcp_settings_backup.dart';
 import '../settings/app_settings.dart';
 import '../settings/local_prefs.dart';
 import '../settings/prefs_controller.dart';
@@ -174,13 +175,15 @@ class SettingsBackup implements SettingsBackupPort {
     required String workDir,
     required String? deviceName,
     required Future<void> Function() onImported,
+    required McpSettingsPort mcp,
   }) : _prefs = prefs,
        _destination = destination,
        _source = source,
        _version = version,
        _workDir = workDir,
        _deviceName = deviceName,
-       _onImported = onImported;
+       _onImported = onImported,
+       _mcp = mcp;
 
   final SharedPreferences _prefs;
   final ExportDestinationPort _destination;
@@ -189,6 +192,7 @@ class SettingsBackup implements SettingsBackupPort {
   final String _workDir;
   final String? _deviceName;
   final Future<void> Function() _onImported;
+  final McpSettingsPort _mcp;
 
   /// Device-local key holding the unknown keys of the last imported file.
   static const String unknownKeysKey = 'flowmic.prefs.backup_unknown';
@@ -210,6 +214,7 @@ class SettingsBackup implements SettingsBackupPort {
     final DateTime at = (exportedAt ?? DateTime.now()).toUtc();
     final ScenarioCard card = await SharedPrefsScenarioCardCache(_prefs).load();
     final PhonePrefs rows = await SharedPrefsPrefsStore(_prefs).load();
+    final List<Map<String, Object?>> mcp = await _mcp.exportChannels();
     final Map<String, Object?> prefs = <String, Object?>{
       // ids, not labels (2026-09-04). `migratedToIds` is applied on the way
       // OUT as well as on the way in, because a phone that has not opened the
@@ -226,6 +231,7 @@ class SettingsBackup implements SettingsBackupPort {
         _spokenLangPrefKey: _prefs.getString(AppSettingsController.kSpokenLangKey),
     };
     final Map<String, Object?> local = <String, Object?>{
+      if (mcp.isNotEmpty) 'mcp_channels': mcp,
       if (_prefs.getString(AppSettingsController.kLocaleKey) != null)
         'locale': _prefs.getString(AppSettingsController.kLocaleKey),
       if (_prefs.getString(AppSettingsController.kThemeModeKey) != null)
@@ -250,7 +256,7 @@ class SettingsBackup implements SettingsBackupPort {
     }
     if (unknownLocal is Map) {
       for (final MapEntry<Object?, Object?> e in unknownLocal.entries) {
-        if (e.key is String && !local.containsKey(e.key)) local[e.key! as String] = e.value;
+        if (e.key is String && e.key != 'mcp_channels' && !local.containsKey(e.key)) local[e.key! as String] = e.value;
       }
     }
     return <String, Object?>{
@@ -343,6 +349,13 @@ class SettingsBackup implements SettingsBackupPort {
     }
 
     int written = 0;
+    // MCP is a known sensitive key now. Never retain a rejected raw document in
+    // the unknown-key vault where endpoint/credential fields could re-export.
+    final Object? mcpLocal = decoded['local'];
+    if (mcpLocal is Map && mcpLocal.containsKey('mcp_channels')) {
+      try { await _mcp.importChannels(mcpLocal['mcp_channels']); written++; }
+      on Object { return const SettingsRestoreOutcome.failed('mcp_configuration_invalid'); }
+    }
     final Map<String, Object?> unknown = <String, Object?>{};
     final Map<String, Object?> unknownPrefs = <String, Object?>{};
     final Map<String, Object?> unknownLocal = <String, Object?>{};
@@ -364,6 +377,7 @@ class SettingsBackup implements SettingsBackupPort {
       for (final MapEntry<Object?, Object?> e in local.entries) {
         final Object? k = e.key;
         if (k is! String) continue;
+        if (k == 'mcp_channels') continue;
         if (await _restoreLocal(k, e.value)) {
           written++;
         } else {

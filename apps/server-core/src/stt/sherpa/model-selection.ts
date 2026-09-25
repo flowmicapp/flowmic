@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
+//   docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
 //     §6 (the per-language selection is LOCAL state: sidecar-side, never in
 //     the protocol, never on the phone — the phone keeps sending only
 //     `source_lang`)

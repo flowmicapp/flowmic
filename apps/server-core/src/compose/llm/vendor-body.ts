@@ -3,11 +3,11 @@
 //     OpenAI/Azure/DeepSeek/Qwen/Ollama/vLLM/LM Studio/LocalAI/Moonshot — which
 //     is exactly why a vendor-specific body field cannot simply be hardcoded),
 //     §7 (the SEEDED default config is a LAN vLLM Qwen3.5-4B)
-//   docs/strategy/2026-08-06-engine-switch-execution-brief.md §5-1 ("thinking
+//   docs/archive/strategy/2026-08-06-engine-switch-execution-brief.md §5-1 ("thinking
 //     off passes through (openai-compatible.ts request body gains a controlled
 //     field) — the only code that must change; zero protocol changes
 //     (openai-compatible enum already covers it)")
-//   docs/strategy/2026-07-31-qwen35-vs-deepseek-v4-flash-eval.md §3.6 【measured】
+//   docs/archive/strategy/2026-07-31-qwen35-vs-deepseek-v4-flash-eval.md §3.6 【measured】
 //     DeepSeek defaults thinking=ON; one thinking turn burns 2k–3k reasoning
 //     tokens against a few dozen completion tokens non-thinking, and its p50
 //     already sits at ~700 ms against the 800 ms compose/polish budget floor.

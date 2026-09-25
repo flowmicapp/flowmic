@@ -5,7 +5,7 @@
 //   docs/decisions/2026-08-12-owner-req1209-multiselect-and-image-rulings.md
 //     §1 (rulings 3 and 4 — ruling 4 is SUPERSEDED, see below), §2-1 (text
 //     composes into one message; each picture is its own delivery), §3 criteria 1/2/3
-//   docs/strategy/2026-08-12-req1209-plus-panel-design.md §4-1 (read-only
+//   docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md §4-1 (read-only
 //     projection + kind prefix + the selection set is never persisted), §6 tables 1/2/3
 //
 // 🔴🔴 SUPERSEDED (owner report, 2026-08-27, verbatim intent): picking several
@@ -95,6 +95,7 @@ class PlusPick {
     required this.kind,
     this.text,
     this.entry,
+    this.timedText,
   });
 
   /// A favorite (常用) phrase.
@@ -136,11 +137,23 @@ class PlusPick {
   /// members — this class never reads storage, and the composition rule is
   /// [joinSelectedTexts], the same one a multi-row tick uses. One rule for
   /// 「how do several things become one message」, not two.
-  factory PlusPick.article(TimelineEntry head, String transcript) => PlusPick._(
+  ///
+  /// [timedText] is the same piece as `articleCopyText` renders it (CR-12-F:
+  /// one paragraph per line, each after its `mm:ss–mm:ss`), also composed by
+  /// the caller. It is what goes out when the send bar's 「with times」 chip is
+  /// on; null means the caller did not render it, and then the chip is not
+  /// offered for this pick at all (see [PlusPanelSelection.hasTimedRecording])
+  /// rather than offered and quietly ignored.
+  factory PlusPick.article(
+    TimelineEntry head,
+    String transcript, {
+    String? timedText,
+  }) => PlusPick._(
     key: keyForNote(head),
     kind: PlusPickKind.note,
     text: transcript,
     entry: head,
+    timedText: timedText,
   );
 
   /// The key for a light-record row, without building a pick. Used by the list
@@ -160,6 +173,10 @@ class PlusPick {
   /// The row behind a light record; null for a favourite (there is no row —
   /// a favourite lives in `shared_preferences`).
   final TimelineEntry? entry;
+
+  /// A recording's words with each paragraph's time range in front, or null
+  /// for anything that is not a recording (see [PlusPick.article]).
+  final String? timedText;
 }
 
 /// The "+" panel's tick set for one opening of the sheet.
@@ -256,8 +273,32 @@ class PlusPanelSelection extends ChangeNotifier {
   ];
 
   /// The one message the ticked text becomes, or null when no text is ticked.
+  /// Always the ruling-3 default: no timestamps anywhere.
   String? get composedText {
     final List<String> parts = texts;
+    if (parts.isEmpty) return null;
+    return joinSelectedTexts(parts);
+  }
+
+  /// CR-12-F — does the tick set hold a recording that can go out with times?
+  /// The send bar draws its 「with times」 chip only while this is true: with
+  /// no recording ticked the chip could change nothing, and a control that
+  /// changes nothing is worse than none (CR-12 design §10.2).
+  bool get hasTimedRecording =>
+      _ticks.any((PlusPick p) => p.timedText != null);
+
+  /// The one message, with or without times.
+  ///
+  /// [withTimes] false is [composedText], byte for byte. True swaps ONLY the
+  /// recordings for their [PlusPick.timedText]; notes and favourites are
+  /// unchanged, the order is still [inChronologicalOrder], and the join is
+  /// still [joinSelectedTexts] — one '\n' between picks, whatever they are.
+  String? composeText({required bool withTimes}) {
+    if (!withTimes) return composedText;
+    final List<String> parts = <String>[
+      for (final PlusPick p in inChronologicalOrder)
+        if (p.text != null) p.timedText ?? p.text!,
+    ];
     if (parts.isEmpty) return null;
     return joinSelectedTexts(parts);
   }

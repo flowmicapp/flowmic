@@ -131,7 +131,7 @@ String formatQuotaAmount(double value) {
 }
 
 /// Tokens expressed in millions, which is the unit the plans are sold in
-/// (1M / 5M / 15M). Same ≤1-decimal rule as [formatQuotaAmount].
+/// (1M / 10M / 50M). Same ≤1-decimal rule as [formatQuotaAmount].
 String formatQuotaTokensInMillions(double tokens) =>
     formatQuotaAmount(tokens / 1000000);
 

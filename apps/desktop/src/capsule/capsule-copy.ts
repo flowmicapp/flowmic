@@ -1,5 +1,5 @@
 // V2-19 — capsule strip per-row COPY (owner 2026-08-01,
-// `docs/strategy/2026-08-01-data-asset-lifecycle-design.md` §4b-7):
+// `docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md` §4b-7):
 // "each row in the capsule's history list gets a 'copy' button — when
 // injection doesn't succeed, the user copies it directly for themselves".
 //

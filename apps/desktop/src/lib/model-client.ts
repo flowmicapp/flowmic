@@ -3,7 +3,7 @@
 // SPEC-REF:
 //   docs/strategy/2026-08-19-local-model-onboarding-design.md §4 (the routes),
 //     §5-A/§5-B (the two surfaces that read this store)
-//   docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT):
+//   docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT):
 //     downloads are per-pack ({model_id}), pressing a pack's button under a
 //     language records the selection ({lang}), the models root is movable
 //     (owner 2026-08-22), one download machine-wide.

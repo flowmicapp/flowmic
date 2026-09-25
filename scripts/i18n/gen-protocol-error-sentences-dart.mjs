@@ -41,15 +41,13 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseErrorCodes } from '../../verify/lint/i18n-error-keys.mjs';
+import { ERROR_CODE_SOURCE_RELS, parseErrorCodes } from '../../verify/lint/i18n-error-keys.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
-const SOURCE_REL = 'packages/protocol/src/error-codes.ts';
 const OUT_REL = 'apps/mobile/lib/generated/protocol_error_sentences.g.dart';
 const SELF_REL = 'scripts/i18n/gen-protocol-error-sentences-dart.mjs';
 
-const SOURCE_ABS = join(ROOT, SOURCE_REL);
 const OUT_ABS = join(ROOT, OUT_REL);
 
 /** `parseErrorCodes`'s regex captures the QUOTED SOURCE TEXT verbatim,
@@ -77,11 +75,18 @@ function dartLiteral(s) {
 }
 
 function loadEntries() {
-  if (!existsSync(SOURCE_ABS)) return { entries: null, error: `source not found: ${SOURCE_REL}` };
-  const src = readFileSync(SOURCE_ABS, 'utf8');
-  const { entries, error } = parseErrorCodes(src);
-  if (error) return { entries: null, error };
+  const entries = [];
+  for (const sourceRel of ERROR_CODE_SOURCE_RELS) {
+    const sourceAbs = join(ROOT, ...sourceRel.split('/'));
+    if (!existsSync(sourceAbs)) return { entries: null, error: `source not found: ${sourceRel}` };
+    const parsed = parseErrorCodes(readFileSync(sourceAbs, 'utf8'));
+    if (parsed.error) return { entries: null, error: `${sourceRel}: ${parsed.error}` };
+    entries.push(...parsed.entries);
+  }
   if (entries.length === 0) return { entries: null, error: 'parsed 0 error codes (parser drift?)' };
+  const names = entries.map((entry) => entry.code);
+  const duplicate = names.find((name, index) => names.indexOf(name) !== index);
+  if (duplicate) return { entries: null, error: `duplicate error code across registry shards: ${duplicate}` };
   const bad = entries.filter((e) => !e.zh_CN || !e.en);
   if (bad.length > 0) {
     // i18n-error-keys already refuses a missing half at commit time; this is a
@@ -97,7 +102,7 @@ function render(entries) {
     .map((e) => `  ${dartLiteral(e.code)}: (zhCN: ${dartLiteral(e.zh_CN)}, en: ${dartLiteral(e.en)}),`)
     .join('\n');
   return `// GENERATED — DO NOT EDIT BY HAND.
-// Source: ${SOURCE_REL} (ERROR_CODES)
+// Source: ${ERROR_CODE_SOURCE_RELS.join(', ')} (ERROR_CODES registry shards)
 // Regenerate: node ${SELF_REL} (wired into \`pnpm i18n:gen\` and \`make -C apps/mobile gen\`)
 //
 // The bilingual FALLBACK sentence for a wire error code that has no bespoke
@@ -106,7 +111,7 @@ function render(entries) {
 //
 // ignore_for_file: constant_identifier_names
 
-/// \`code\` (an \`ErrorCode\` from packages/protocol/src/error-codes.ts) ->
+/// \`code\` (an \`ErrorCode\` from the protocol error-code registry) ->
 /// its registered zh_CN/en pair. ${sorted.length} entries as of the last
 /// \`pnpm i18n:gen\`.
 const Map<String, ({String zhCN, String en})> kProtocolErrorSentences = {
@@ -160,7 +165,7 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    console.log(`gen-protocol-error-sentences-dart: ${OUT_REL} matches ${SOURCE_REL} (${entries.length} codes)`);
+    console.log(`gen-protocol-error-sentences-dart: ${OUT_REL} matches registry shards (${entries.length} codes)`);
     return;
   }
 

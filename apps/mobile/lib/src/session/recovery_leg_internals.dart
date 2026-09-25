@@ -52,15 +52,33 @@ class _Candidate {
 }
 
 /// Three timestamps, so the four deadlines each measure their own thing.
+///
+/// Card RC-2 added the engine's reported position beside them ([ackedAudioMs]
+/// and when it came); [RecoveryPacing] turns those facts into an allowance.
 class _ProgressClocks {
   _ProgressClocks(this._clock)
       : lastUploadMs = _clock(),
-        lastEngineMs = _clock();
+        lastEngineMs = _clock(),
+        startedAtMs = _clock(),
+        ackedReportedAtMs = _clock();
 
   final int Function() _clock;
   int lastUploadMs;
   int lastEngineMs;
   bool sawEngine = false;
+
+  /// Card RC-2 — when this attempt began; the pacing allowance's zero while no
+  /// position has been reported.
+  final int startedAtMs;
+
+  /// Card RC-2 — the highest `acked_audio_ms` any interim of this attempt
+  /// carried, or null while none has (a relay that reports nothing stays null).
+  int? ackedAudioMs;
+
+  /// Card RC-2 — when the last report came, advancing or not: a report that
+  /// repeats the same position is the engine saying it is stuck, and re-anchors
+  /// the allowance to where it is.
+  int ackedReportedAtMs;
 
   int get lastAnyMs => math.max(lastUploadMs, lastEngineMs);
 
@@ -70,6 +88,18 @@ class _ProgressClocks {
     sawEngine = true;
     lastEngineMs = _clock();
   }
+
+  void noteAcked(int ms) {
+    ackedAudioMs = math.max(ackedAudioMs ?? 0, ms);
+    ackedReportedAtMs = _clock();
+  }
+
+  int paceLimitMs(RecoveryPacing p) => p.limitMs(
+        ackedMs: ackedAudioMs,
+        reportedAtMs: ackedReportedAtMs,
+        startedAtMs: startedAtMs,
+        nowMs: _clock(),
+      );
 }
 
 @immutable
@@ -105,7 +135,12 @@ class _AttemptResult {
     this.refusedByGate = false,
     this.refusedNoLink = false,
     this.linkLost = false,
+    this.fedWholeRange = true,
+    this.resultEmptyReason,
   });
+
+  /// Card RC6 (F3) — `empty_reason` off the terminal final, when the relay put one.
+  final String? resultEmptyReason;
 
   final int framesEmitted;
   final bool endedOnTerminalFinal;
@@ -136,4 +171,7 @@ class _AttemptResult {
   final bool refusedNoLink;
 
   final bool linkLost;
+
+  /// Codex review ① — the whole requested range went out (see _streamRange).
+  final bool fedWholeRange;
 }

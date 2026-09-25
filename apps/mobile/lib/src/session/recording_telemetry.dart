@@ -2,7 +2,7 @@
 //   docs/ui-design/REDESIGN-PLAN.md §2 F-7 (the 4 recording-state indicators:
 //     ⏱ elapsed time / 📊 amplitude /
 //     📡 network / 📍 segment count), §6.3 (the recording panel)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md wave 1 T-5d
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md wave 1 T-5d
 //
 // The recording panel's numbers, split out of ChatController so the file-size
 // cap holds and so this contract is testable without a session.

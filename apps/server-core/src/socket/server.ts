@@ -9,7 +9,7 @@
 // stays domain-free.
 
 import { createServer, type Server as HttpServer } from 'node:http';
-import { Server as SocketIOServer, type Socket } from 'socket.io';
+import { Server as SocketIOServer, type Socket, type ServerOptions } from 'socket.io';
 
 // N5: pingTimeout relaxed to 20s (socket.io default) — a single-Dart-loop
 // mobile can stall past a 5s window under recording bursts.
@@ -41,7 +41,7 @@ export interface CreateSocketServerOpts {
    * entirely untouched by a per-network ceiling.
    */
   connectionGuard?: (socket: unknown, next: (err?: Error) => void) => void;
-  cors?: { origin: string | string[] };
+  cors?: ServerOptions['cors'];
 }
 
 export interface SocketServerHandle {
@@ -56,7 +56,7 @@ export function createSocketServer(opts: CreateSocketServerOpts): SocketServerHa
     maxHttpBufferSize: MAX_HTTP_BUFFER_BYTES,
     // LAN standalone: polling→websocket upgrade retained (N4 cloud lesson).
     transports: ['polling', 'websocket'],
-    cors: { origin: opts.cors?.origin ?? '*' },
+    cors: opts.cors ?? { origin: '*' },
   });
   io.use(opts.authMiddleware);
   if (opts.connectionGuard) io.use(opts.connectionGuard);

@@ -150,6 +150,11 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
   String get pendingRecoveryStateEmptyConfirmed =>
       _lfPendingRecoveryStateEmptyConfirmed;
 
+  /// Card RC-3 — `PendingRecoveryState.shortfall`: only part of this
+  /// recording came back as text, the audio is kept on this phone, and the
+  /// user may try again (nothing will on its own).
+  String get pendingRecoveryStateShortfall => _lfPendingRecoveryStateShortfall;
+
   /// A7-3 tier C.
   ///
   /// 🔴 IT NAMES THE SERVER, NOT THE USER AND NOT THE RECORDING. Nothing here
@@ -208,6 +213,18 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
   /// nothing anywhere said the rest was gone.
   String get pendingRecoveryPartlySaved => _lfPendingRecoveryPartlySaved;
 
+  /// Card RC-S (ruling 4, 2026-09-24) — shown IN PLACE OF the state sentence
+  /// on a card whose recording was made under another account than the one
+  /// signed in now (`PendingRecoveryItem.otherAccount`). Meaning: this
+  /// recording belongs to another account; sign in with that account and its
+  /// transcription continues. No retry button beside it — recovery will not
+  /// run it under this account.
+  ///
+  /// ⚠️ IT MAY NOT NAME THE ACCOUNT. The phone keeps only a digest of it
+  /// (recording_account.dart), and naming the email would put an address on a
+  /// screen somebody else may be signed in on.
+  String get pendingRecoveryOtherAccount => _lfPendingRecoveryOtherAccount;
+
   /// [PendingDeleteOutcome.failed] — the file would not go.
   ///
   /// 🔴 IT SAYS WHERE THE AUDIO IS, like every other sentence on this screen.
@@ -251,7 +268,7 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
   /// to `emptyResult`, so the card came back identical and silence was the
   /// product's entire answer — 「it does nothing」 is what owner concluded, and
   /// he was right about the answer if not about the machinery
-  /// (docs/strategy/2026-09-12-phone-pending-transcription-retry-rca.md §0).
+  /// (docs/archive/strategy/2026-09-12-phone-pending-transcription-retry-rca.md §0).
   ///
   /// ⚠️ 「Still」 is doing the work: it says this is the SECOND identical answer,
   /// which is what distinguishes it from the card's own sentence above it.

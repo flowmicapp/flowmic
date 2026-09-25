@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
+//   docs/archive/strategy/2026-08-22-per-language-stt-model-catalog-task.md (LM-CAT)
 //     §3 (product rules: per-spoken-language index, tiers, license classes as
 //     DATA, streaming as its own column), §4 (this contract: field names are
 //     pinned by test), §8 (the seed table)

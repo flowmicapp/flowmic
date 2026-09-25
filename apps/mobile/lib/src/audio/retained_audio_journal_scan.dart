@@ -100,6 +100,21 @@ class RecordingScan {
   /// here, exactly like [cancelled]: this class reads, the leg decides.
   final bool liveSettlePending;
 
+  /// Card RC-K — the owed stretch [verifiedRecoverableRange] feeds (the first
+  /// one still owed), or null when the manifest records none (the whole
+  /// recording is owed, as before RC-3).
+  final OwedRange? owedRange;
+
+  /// Card RC-K — how many stretches are still owed, [owedRange] included. At
+  /// most 1 is 「this is the last one」: the recovery leg settles it as the
+  /// single range it used to be.
+  final int owedStretches;
+
+  /// Card RC-K — bytes still owed across EVERY owed stretch (on disk). What a
+  /// screen or a tally counts; [verifiedRecoverableRange] is only the next one.
+  int get recoverableBytes => _recoverableBytes ?? verifiedRecoverableRange.length;
+  final int? _recoverableBytes;
+
   final String? note;
 
   const RecordingScan({
@@ -117,8 +132,11 @@ class RecordingScan {
     this.formatMismatch = false,
     this.cancelled = false,
     this.liveSettlePending = false,
+    this.owedRange,
+    this.owedStretches = 0,
+    int? recoverableBytes,
     this.note,
-  });
+  }) : _recoverableBytes = recoverableBytes;
 
   @override
   String toString() => 'RecordingScan($recordingId claim=$committedClaim '
@@ -315,13 +333,16 @@ class RetainedAudioJournalScan {
         offset: claim,
         bytes: observed,
       ));
+      final _Owed o = _Owed.of(marked, _floorEven(observed, frame));
       return RecordingScan(
         recordingId: id,
         manifest: marked,
         committedClaim: claim,
         observedLength: observed,
-        verifiedRecoverableRange:
-            JournalByteRange(0, _floorEven(observed, frame)),
+        verifiedRecoverableRange: o.next,
+        owedRange: o.range,
+        owedStretches: o.stretches,
+        recoverableBytes: o.bytes,
         claimAheadOfObserved: true,
         oddTrailingByte: odd,
         cancelled: marked.cancelled,
@@ -341,13 +362,17 @@ class RetainedAudioJournalScan {
         offset: claim,
         bytes: observed - claim,
       ));
+      final _Owed o =
+          _Owed.of(parsed, foldable ? end : _floorEven(claim, frame));
       return RecordingScan(
         recordingId: id,
         manifest: parsed,
         committedClaim: claim,
         observedLength: observed,
-        verifiedRecoverableRange:
-            JournalByteRange(0, foldable ? end : _floorEven(claim, frame)),
+        verifiedRecoverableRange: o.next,
+        owedRange: o.range,
+        owedStretches: o.stretches,
+        recoverableBytes: o.bytes,
         unverifiedTail: true,
         tailRecovered: foldable,
         oddTrailingByte: odd,
@@ -356,12 +381,16 @@ class RetainedAudioJournalScan {
       );
     }
 
+    final _Owed o = _Owed.of(parsed, _floorEven(claim, frame));
     return RecordingScan(
       recordingId: id,
       manifest: parsed,
       committedClaim: claim,
       observedLength: observed,
-      verifiedRecoverableRange: JournalByteRange(0, _floorEven(claim, frame)),
+      verifiedRecoverableRange: o.next,
+      owedRange: o.range,
+      owedStretches: o.stretches,
+      recoverableBytes: o.bytes,
       oddTrailingByte: odd,
       cancelled: parsed.cancelled,
       liveSettlePending: _settlePending(parsed, now),
@@ -435,4 +464,59 @@ class RetainedAudioJournalScan {
   }
 
   static int _floorEven(int n, int frame) => n - (n % frame);
+
+  /// Card RC-3 — the range still owed: from the manifest's transcribed prefix
+  /// (root-cause 2026-09-24 §1.7: this used to start at 0 unconditionally, so a
+  /// recovery re-fed the rows the live path had already produced — its eight
+  /// words were the recording's OPENING, pasted at the end) to [end].
+  ///
+  /// A prefix at or past [end] leaves nothing owed and reads as EMPTY, i.e.
+  /// not a candidate. The writer never records one that way
+  /// (`_accountOwedTail` returns when nothing is owed); a journal the O-2 cap
+  /// cut short is the case that can still reach it.
+  ///
+  /// Card RC-3b — and to the manifest's owed end when the owed stretch sits in
+  /// the MIDDLE of the recording (`owedRangeEndBytes`), never past what is on
+  /// disk.
+  ///
+  /// ⚠️ 更正（RC-K，2026-09-24）：原为 one range read off the prefix/end pair.
+  /// Now ONE STRETCH of `owedRanges` at a time (the first still owed), same
+  /// rules per stretch; [_Owed] carries the rest. A manifest without the list
+  /// reads its old pair as one stretch (`RecordingManifest._owedRangesOf`).
+  static JournalByteRange _afterPrefix(OwedRange r, int end, int frame) {
+    final int start = _floorEven(r.start < 0 ? 0 : r.start, frame);
+    final int? owedEnd = r.end;
+    final int stop =
+        owedEnd == null || owedEnd >= end ? end : _floorEven(owedEnd, frame);
+    return start >= stop ? JournalByteRange.empty : JournalByteRange(start, stop);
+  }
+}
+
+/// Card RC-K — what a manifest still owes, measured against [end] (on disk).
+class _Owed {
+  const _Owed(this.next, this.range, this.stretches, this.bytes);
+
+  /// The stretch to feed next ([RecordingScan.verifiedRecoverableRange]).
+  final JournalByteRange next;
+  final OwedRange? range;
+  final int stretches;
+  final int bytes;
+
+  static _Owed of(RecordingManifest m, int end) {
+    final List<OwedRange> owed =
+        m.owedRanges.where((OwedRange r) => r.isOwed).toList();
+    if (m.owedRanges.isEmpty) {
+      // Nothing was ever recorded as owed: the whole recording, as before RC-3.
+      final JournalByteRange all = JournalByteRange(0, end);
+      return _Owed(all, null, 0, all.length);
+    }
+    final int frame = m.format.bytesPerFrame;
+    int bytes = 0;
+    for (final OwedRange r in owed) {
+      bytes += RetainedAudioJournalScan._afterPrefix(r, end, frame).length;
+    }
+    if (owed.isEmpty) return const _Owed(JournalByteRange.empty, null, 0, 0);
+    return _Owed(RetainedAudioJournalScan._afterPrefix(owed.first, end, frame),
+        owed.first, owed.length, bytes);
+  }
 }

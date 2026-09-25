@@ -126,8 +126,8 @@ export function classify(filename) {
   // is still 'portable-zip' — first-responsible ruling 「platform 说怎么换，kind 说它是原地替换型」,
   // **deliberately no separate kind for mac**.
   // ⚠️ Downstream **must know** this: under this one `portable-zip` kind sit
-  // **two different inner shapes** — the Windows copy unpacks to `FlowMic-portable/`,
-  // the macOS copy unpacks to `FlowMic.app/`.
+  // **three different inner shapes** — Windows: `FlowMic-portable/`,
+  // macOS: `FlowMic.app/`, Linux: `FlowMic-linux-x64/`.
   // Whoever writes the UP-3 updater **must not assume the top-level directory
   // name is the same for every portable-zip**.
   const portable = parsePortableZipName(filename);
@@ -568,7 +568,7 @@ export function gateShippedPlatformsLive({ shipped, version, fetched, url }) {
         `while ${version} artifacts shipped this round. Every client checking for updates gets ` +
         `nothing at all. Generate the manifest (node scripts/build-update-manifest.mjs), deploy ` +
         `publish/update-manifest.json as /etc/flowmic-app/updates.json (production deploys ` +
-        `belong to the device line — docs/FLEET.md), then re-run this gate.`,
+        `belong to the device line — docs/archive/FLEET.md), then re-run this gate.`,
     );
     return { failures, okLines };
   }
@@ -599,7 +599,7 @@ export function gateShippedPlatformsLive({ shipped, version, fetched, url }) {
           `${entry.version} is the latest. This is the exact 0.2.61 P0 shape (all artifact gates ` +
           `green while the update service kept advertising the previous version). Regenerate the ` +
           `manifest (node scripts/build-update-manifest.mjs), deploy publish/update-manifest.json ` +
-          `as /etc/flowmic-app/updates.json (device line — docs/FLEET.md), then re-run this gate.`,
+          `as /etc/flowmic-app/updates.json (device line — docs/archive/FLEET.md), then re-run this gate.`,
       );
     } else {
       failures.push(

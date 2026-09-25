@@ -187,11 +187,11 @@ export const G20 = {
     // coverage in the public repo would be far worse than losing a doc pointer,
     // and a golden that skipped itself over a missing document would be claiming
     // the second cost to avoid the first.
-    internalOnly(path.join(ROOT, 'docs/strategy/2026-08-02-a2-real-device-sheet.md'),
+    internalOnly(path.join(ROOT, 'docs/archive/strategy/2026-08-02-a2-real-device-sheet.md'),
       'internal working record: the open-source export EXCLUDEs all of docs/strategy/. '
       + 'It is the A2 real-device sheet whose 「云端腿」 entries this path replaced; '
       + 'it pins the evidence in the private repo and is not an input to any assertion here.'),
-    internalOnly(path.join(ROOT, 'docs/strategy/2026-08-01-real-device-session-sheet.md'),
+    internalOnly(path.join(ROOT, 'docs/archive/strategy/2026-08-01-real-device-session-sheet.md'),
       'internal working record: the open-source export EXCLUDEs all of docs/strategy/. '
       + 'Same role as the sheet above (the A1 queue/image session sheet) — an evidence '
       + 'cross-link, not a test input.'),

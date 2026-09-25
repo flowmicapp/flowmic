@@ -1,6 +1,6 @@
 // 0.3.25 B3 — POST /api/cloud/billing/withdraw, the EU statutory right of withdrawal.
 //
-// SPEC-REF: docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md
+// SPEC-REF: docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md
 //           §2.1 EU-1/EU-2/EU-4, §3.3, §4 B3
 //           Directive 2011/83/EU art. 9 (14 days), art. 11a (the function and the
 //             acknowledgement), art. 13 (reimburse), art. 14(4)(a) (bear no cost)

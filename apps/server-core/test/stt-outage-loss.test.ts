@@ -33,6 +33,7 @@
 import { describe, expect, it } from 'vitest';
 import { AudioSession } from '../src/stt/audio/session';
 import { SttEngineOrchestrator } from '../src/stt/orchestrator-core';
+import { ENGINE_RECONNECT_WORST_CASE_MS } from '@flowmic/protocol';
 import {
   CHUNK_MS, EN, FakeClock, T0, TranscribingEngine, ZH,
   frame, mergedFinalText, type Corpus, type EngineScript, type ServerFinal, type WireFrame,
@@ -176,8 +177,16 @@ async function makeRig(corpus: Corpus, scripts: EngineScript[]): Promise<Rig> {
  * ⇒ 61 × 6 400 B ≈ 381 KB per active session, against 26 × 6 400 B ≈ 163 KB when
  *   nothing is wrong. 🔴 First written as 60 and measured at 61: the off-by-one
  *   is the boundary chunk, and it is recorded rather than rounded away.
+ *
+ * ⚠️ 更正（NR-96，2026-09-24）：the grace is no longer Σ backoff. Each rung's
+ * spawn is capped since NR-96-A, so the ladder's worst case is waits + caps
+ * (`ENGINE_RECONNECT_WORST_CASE_MS`, @flowmic/protocol, 22 s) and the relay
+ * now retains for that long (engine-reconnect-retention.test.ts pins it). The
+ * bound is therefore (5 000 + 22 000) / 200 + 1 = 136 chunks ≈ 870 KB per
+ * session in the worst case — derived from the same constant, not re-typed.
+ * The arithmetic above is kept as the RT-3 record.
  */
-const MAX_RING_CHUNKS = (5_000 + 7_000) / CHUNK_MS + 1;
+const MAX_RING_CHUNKS = (5_000 + ENGINE_RECONNECT_WORST_CASE_MS) / CHUNK_MS + 1;
 
 const PRE_DROP = 20;          // seq 0..19
 const OUTAGE_AND_AFTER = 50;  // seq 20..69
@@ -379,6 +388,11 @@ describe('RT-3 CASE 1 dropped characters — a 7 s recovery must not outrun the 
  *
  * (Correction supplied by the F-3-b lane's adversarial review; the fixed 7 000
  * figure came from this window's own dispatch note and understated the defect.)
+ *
+ * ⚠️ 更正（NR-96，2026-09-24）：each T is now bounded by `engineSpawnTimeoutMs`
+ * (the rung races it, see CASE 4's correction); 「BOUNDED BY NOTHING」 and 「exactly
+ * one call site」 are history. T₁ = 4.5 s is still under the 5 s cap, so this case
+ * measures the same thing it always did.
  * ═════════════════════════════════════════════════════════════════════════════ */
 
 describe('RT-3 CASE 1a dropped characters — a slow connect loses speech on the first, successful rung', () => {
@@ -746,10 +760,21 @@ describe('REQ-14-01 duplication cost — declared-cumulative blip: transient pre
  * changes when users are told the session died — a product decision, not a bug
  * fix. What the pin DOES do here is bound the memory, which is asserted below:
  * without a bound this failure mode would trade a silent loss for a silent leak.
+ *
+ * ⚠️ 更正（NR-96，2026-09-24）：the open card above is CLOSED by NR-96-A. The
+ * product decision this block deferred was taken by the NR-96 design
+ * (docs/strategy/2026-09-24-reconnect-visibility-design.md §3.5, card A):
+ * `attemptReconnect` now races its spawn against `engineSpawnTimeoutMs`, the
+ * same cap as the cold open, so a hung rung is ONE failed rung and the ladder
+ * gives up at worst Σbackoff + 3 × cap (1+2+4 + 3×5 = 22 s) instead of never.
+ * The original text is kept above; the assertions below were flipped from
+ * 「never advances」 to 「advances and gives up」, and the loss and memory halves
+ * are unchanged (the cap bounds WHEN the user is told, it does not make an
+ * engine hear audio). Budget fields on the frames: engine-reconnect-progress.test.ts.
  * ═════════════════════════════════════════════════════════════════════════════ */
 
-describe('RT-3 CASE 4 — the reconnect path has no spawn timeout (open card), memory bounded', () => {
-  it('a hung reconnect loses ALL speech after the drop, the ladder never advances, the ring stays bounded', async () => {
+describe('RT-3 CASE 4 — a hung reconnect spawn is bounded by the spawn cap (NR-96-A), memory bounded', () => {
+  it('a hung reconnect loses ALL speech after the drop, the ladder advances one rung per cap and gives up, the ring stays bounded', async () => {
     const rig = await makeRig(ZH, [
       { ...SHAPE_MID_FINALS, open: 'ok' },
       { ...SHAPE_MID_FINALS, open: 'hang' },
@@ -757,12 +782,14 @@ describe('RT-3 CASE 4 — the reconnect path has no spawn timeout (open card), m
     await rig.speak(PRE_DROP);
     rig.engines[0]!.emitDrop();
     await rig.clock.advance(0);
-    await rig.speak(150);            // 30 s of speech into a hung reconnect
+    await rig.speak(150);            // 30 s of speech into reconnects that all hang
 
-    // The ladder is stuck INSIDE attempt 1: rung 2 was never armed, so the
-    // 「3 retries then STT_NETWORK_DROP」 promise never fires either.
-    expect(rig.engines).toHaveLength(2);
-    expect(rig.errors, 'the ladder gave up after all — then this test is measuring the wrong thing').toEqual([]);
+    // Every rung hangs (the script repeats its last entry), and every rung is
+    // bounded: three rungs, then 「3 retries then STT_NETWORK_DROP」 fires —
+    // within the 30 s, at 1+5+2+5+4+5 = 22 s after the drop.
+    expect(rig.engines).toHaveLength(4);
+    expect(rig.statuses.filter((s) => s.status === 'reconnecting').map((s) => s.retry_count)).toEqual([1, 2, 3]);
+    expect(rig.errors.map((e) => e.code)).toEqual(['STT_NETWORK_DROP']);
 
     // 30 s of audio was received, buffered, and handed to nobody.
     const fed = rig.fedSeqs();

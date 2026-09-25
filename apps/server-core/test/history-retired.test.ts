@@ -22,7 +22,7 @@
 //      here, not just written in a comment.
 //
 // SPEC-REF: docs/decisions/2026-07-31-no-cloud-sync-for-phone-pc.md;
-//           docs/strategy/2026-07-30-task-package-v1.md §W-A card A2 item 5.
+//           docs/archive/strategy/2026-07-30-task-package-v1.md §W-A card A2 item 5.
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Socket } from 'socket.io';

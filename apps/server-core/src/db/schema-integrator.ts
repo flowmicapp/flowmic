@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md
 //     §9-1 / §11 追认 item 1 (the third-party host pays, whoever is speaking)
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md §2 (「加每 key /
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md §2 (「加每 key /
 //     每宿主 origin 的硬上限（控制台可设，缺省＝档位全量）」), §5 (failure
 //     directions), §10-6 (order: the integrator room is decided BEFORE the
 //     speaker's account)

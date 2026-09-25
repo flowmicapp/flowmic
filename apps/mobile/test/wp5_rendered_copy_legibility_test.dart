@@ -1,7 +1,7 @@
 // 🔴 WP5 review annex §4-1 close-out — **render** criteria for three
 // user-visible copy strings (0.2.53 law).
 //
-// SPEC-REF: docs/strategy/2026-08-13-wp5-review-annex.md §4-1 ledger item 1
+// SPEC-REF: docs/archive/strategy/2026-08-13-wp5-review-annex.md §4-1 ledger item 1
 //   (`controlRowClearNote` (en 78 chars, lands in a maxLines:3 + ellipsis
 //   card, lengthened this round) / `keyClearHint` / `aiRestoreOriginal`
 //   (then **zero content assertions**, driven only by `ValueKey`) — three
@@ -12,7 +12,9 @@
 //
 // Law = CLAUDE.md 0.2.53 paragraph: **any acceptance of "can the user
 // read this sentence" must land the assertion on the rendered result
-// (didExceedMaxLines / geometry), never on `Text.data`.** That round's
+// (didExceedMaxLines / geometry), never on `Text.data`.**
+// (The law is CLAUDE.md D-15 today; the 0.2.53 paragraph it came from is
+// docs/archive/CLAUDE-HISTORY.md §359-387, moved there verbatim.) That round's
 // 1259 all-green with only three letters on screen (`INJ…`) was exactly
 // because the assertion walked around clipping to read `Text.data`.
 //

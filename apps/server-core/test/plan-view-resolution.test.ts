@@ -1,7 +1,7 @@
 // D1 §6.1 / §6.1-bis — the SINGLE point that answers 「what tier is this user, and on what grounds」
 // and 「what is their quota right now」.
 //
-// SPEC-REF: docs/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (PlanView +
+// SPEC-REF: docs/archive/strategy/2026-08-01-d1-paddle-sandbox-design.md §6.1 (PlanView +
 //           PlanSource + the four-step priority), §6.1-bis (permanent_free is an exemption,
 //           not a tier; effectiveLimits is the sole source of quota)
 //           docs/decisions/2026-08-01-owner-three-tier-pricing-usd-monthly.md
@@ -436,7 +436,8 @@ describe('D1 §6.1-bis ① — permanent_free is an EXEMPTION, not a tier', () =
     // sides together, and it cannot say WHICH cell moved when it fails.
     expect(limits.stt_minutes).toBe(3_000);
     // 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-    expect(limits.llm_tokens).toBe(15_000_000);
+    // 2026-09-23: 15M → 50M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md).
+    expect(limits.llm_tokens).toBe(50_000_000);
     expect(limits.pcs).toBe(10);
     // ⚠️ Infinity is max's OWN value here (pro and max are identical on `mobiles`
     // under 「the cloud sells convenience, never capability」). It is not a carve-out for the exemption —
@@ -617,13 +618,15 @@ describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
     expect(view.quota_exempt).toBe(true);
   });
 
-  it('🔴 an exempt user IS refused once MAX\'s 15M LLM tokens are gone', () => {
+  it('🔴 an exempt user IS refused once MAX\'s 50M LLM tokens are gone', () => {
     // `_out`, not `_in`: since owner 2026-08-14 only OUTPUT tokens accrue against
     // the budget (see the pin test below). These fixtures used `llm_tokens_in`
     // until that ruling — under the old sum either column tripped the meter.
     // 15_000_000, not the pre-2026-08-27 100_000_000 — MAX's ceiling moved
     // (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { llm_tokens_out: 15_000_000 });
+    // 50_000_000 since 2026-09-23 — MAX moved again (docs/decisions/2026-09-23-
+    // owner-nr89-nr90-unshelve-price-and-token-caps.md).
+    db.usage.increment(USER, makeBilling().usagePeriodKey(USER, NOW), { llm_tokens_out: 50_000_000 });
     db.users.setPermanentFree(USER, true);
     expect(() => guard(makeBilling()).ensureQuota(USER, 'llm')).toThrow(ServerError);
     // positive control: one token below the line the SAME account is served, so
@@ -679,7 +682,8 @@ describe('D1 §6.1-bis — the exemption reaches the REAL QuotaGuard', () => {
     const q = makeBilling().getQuota(USER);
     expect(q.stt.limit_min).toBe(3_000);
     // 2026-08-27: 100M → 15M (docs/decisions/2026-08-27-owner-quota-gauge-and-token-caps.md).
-    expect(q.llm.limit).toBe(15_000_000);
+    // 2026-09-23: 15M → 50M (docs/decisions/2026-09-23-owner-nr89-nr90-unshelve-price-and-token-caps.md).
+    expect(q.llm.limit).toBe(50_000_000);
     // 2026-08-07: this used to assert `null` on the wire (Infinity serializes to
     // null). It must now SURVIVE serialization as a number — a `null` here would
     // mean we failed to compute the limit, and the two are no longer the same

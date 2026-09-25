@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   apps/server-core/src/billing/paddle/client.ts (the real one)
 //   apps/server-core/src/billing/paddle/mock-client.ts (the stand-in)
-//   docs/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.2
+//   docs/archive/strategy/2026-08-21-0325-console-subscription-compliance-design.md §3.2
 //   *** HUMAN-AUDIT SENSITIVE (billing) — reviewable in isolation ***
 //
 // Which Paddle client a process gets. Split out of bootstrap.ts on 2026-08-21

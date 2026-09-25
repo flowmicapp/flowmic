@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-25-owner-rulings-and-execution-plan.md §2-③ step 4
+//   docs/archive/strategy/2026-08-25-owner-rulings-and-execution-plan.md §2-③ step 4
 //     (card IMG-COPY, owner P0: the capsule must copy the PICTURE, and the
 //     command that does it must NOT reuse the injection clipboard path)
 //   shell/clipboard_copy.rs — the sibling TEXT command whose posture (native

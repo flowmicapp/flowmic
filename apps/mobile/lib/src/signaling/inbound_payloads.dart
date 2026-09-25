@@ -163,7 +163,7 @@ class ControlKeyResult {
   final String kind;
   final bool ok;
 
-  /// One of `unsupported_here` / `no_target` / `failed`, or null.
+  /// One of `unsupported_here` / `no_target` / `failed` / `uncertain`, or null.
   ///
   /// 🔴 CARRIED VERBATIM, NEVER DEFAULTED HERE. A far end that grows a fourth
   /// reason must reach this phone as 「a refusal whose cause I do not recognise」
@@ -172,12 +172,14 @@ class ControlKeyResult {
   /// printing the identifier). The coarsening to `failed` happens at the ONE
   /// place that needs a sentence (`chat_notices.dart`), where it is visible.
   final String? reason;
+  final String? errorCode;
 
   const ControlKeyResult({
     required this.kind,
     required this.ok,
     this.requestId,
     this.reason,
+    this.errorCode,
   });
 
   static ControlKeyResult? tryFromJson(Map<String, Object?> j) {
@@ -193,6 +195,7 @@ class ControlKeyResult {
       ok: ok,
       requestId: j['request_id'] is String ? j['request_id'] as String : null,
       reason: j['reason'] is String ? j['reason'] as String : null,
+      errorCode: j['error_code'] is String ? j['error_code'] as String : null,
     );
   }
 }
@@ -236,27 +239,38 @@ class SttError {
   final String code;
   final String message;
   final bool retryable;
+
   /// WP-9 — the additive `judged_account` field (`'self'` | `'pc_owner'`),
   /// verbatim off the wire. Null on any server build that predates it, or on
   /// any code other than `QUOTA_EXCEEDED` (the only refusal card QTA-2 can
   /// attribute to a second account). See `SttStall.judgedAccount`.
   final String? judgedAccount;
+
+  /// Card RC4-S5 — the additive `unheard_from_ms` (book 04 `stt:error` row):
+  /// where the stretch no engine leg heard begins, on this phone's chunk clock
+  /// (the clock `stt:interim.acked_audio_ms` answers in). Only with
+  /// `STT_SEGMENT_NOT_TRANSCRIBED`; null on any relay that predates it, or when
+  /// the relay no longer held that chunk. Read by `ptt_unheard_tail.dart`.
+  final int? unheardFromMs;
   const SttError({
     required this.code,
     required this.message,
     required this.retryable,
     this.judgedAccount,
+    this.unheardFromMs,
   });
 
   static SttError? tryFromJson(Map<String, Object?> j) {
     final Object? code = j['code'];
     if (code is! String || code.isEmpty) return null;
     final Object? judged = j['judged_account'];
+    final Object? from = j['unheard_from_ms'];
     return SttError(
       code: code,
       message: j['message'] is String ? j['message'] as String : '',
       retryable: j['retryable'] == true,
       judgedAccount: judged is String ? judged : null,
+      unheardFromMs: from is int && from >= 0 ? from : null,
     );
   }
 }
@@ -446,7 +460,10 @@ class BillingBudget {
       mode: mode,
       resetsAt: resets == null
           ? null
-          : DateTime.fromMillisecondsSinceEpoch((resets as num).round(), isUtc: true),
+          : DateTime.fromMillisecondsSinceEpoch(
+              (resets as num).round(),
+              isUtc: true,
+            ),
       reason: why is String && why.isNotEmpty ? why : null,
       exhausted: j['exhausted'] == true,
       payer: payers.contains(j['payer']) ? j['payer'] as String : null,

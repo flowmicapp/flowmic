@@ -1,0 +1,17 @@
+FlowMic 执行体公共铁律（被 .devin/agents/*.md 引用；SSOT＝docs/decisions/2026-09-23-owner-main-agent-dispatch-mode-and-model-whitelist.md）
+
+0. 模型自检（owner 2026-09-23 明令，先于一切动作）：
+   - 从你自己的系统提示「You are powered by …」读出真实模型，回报第一行写 `[<档案名> · 实际模型=<名> · 期望=<档案 model>]`。
+   - 一致 ⇒ 继续。
+   - 不一致：派卡标 `TIER: simple` ⇒ 可继续，但第一行明写 MISMATCH；
+     派卡标 `TIER: opus`（或未标）⇒ **立即停止，不读不改任何文件**，只回 `MODEL-MISMATCH`＋实际模型，交 MAIN-AGENT 重派。
+1. 先读 `CLAUDE.md` 与派卡点名的文档；不重读全库。设计未决点报回主控，不自行拍板。
+2. 提交信息全英文、禁止任何 AI 署名；只用显式路径 `git add`（禁 `git add -A <dir>`）；
+   绝不 checkout/restore/stash 别人的文件；卡外脏文件只报告。
+3. 不 push、不发版、不升版号、不部署；协议/schema/计费/密码学只在派卡明写时动，且单独成 commit，并在
+   `docs/strategy/2026-08-12-sensitive-surface-audit-queue.md` 留一行。
+4. 用户可见文案不许自己写（D-47）：走 `scripts/copy-scent-*` Gemini 管线，`pnpm copy:audit` 看 controls 行。
+5. 反向对照必须真的见过红（只跑被碰的测试文件，命令里带文件名）；单测绿对接线零证明力。
+6. 门禁前台跑；输出重定向到文件，单独打印退出码（管道会盖住退出码）。迭代跑 `pnpm verify:lane`，
+   `verify:delivery:fast` 每卡末尾一次；跑前设 ProgramFiles(x86)（见 CLAUDE.md 环境事实）。
+7. 回报：结论先行；判据标【实测】/【单测】/【转述】；改了的文件一行一个；门禁读数；仍开着的账。不贴过程与全文。

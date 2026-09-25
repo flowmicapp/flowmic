@@ -9,22 +9,111 @@
 // through the SessionHooks contract — no private-field access, no duplicate
 // state. ALL timer methods + wall-clock are injectable for deterministic tests.
 
+import { AUDIO_DEFAULTS, engineReconnectDelayMs } from '@flowmic/protocol';
 import { SttEngineError } from './engines/base';
+import { raceSpawnTimeout } from './spawn-timeout';
 
-export const DEFAULT_BACKOFF_MS: readonly number[] = [1_000, 2_000, 4_000];
-export const DEFAULT_MAX_RETRIES = 3;
+// NR-96 follow-up: the schedule is DECLARED once, in `AUDIO_DEFAULTS` (book 06
+// §1 `engine_reconnect`), and read here — it used to be a second literal copy of
+// the same numbers. The ladder's worst case (retention window, capsule
+// fallback watchdog) is derived from these by `engineReconnectWorstCaseMs`.
+export const DEFAULT_BACKOFF_MS: readonly number[] = AUDIO_DEFAULTS.engine_reconnect_backoff_ms;
+export const DEFAULT_MAX_RETRIES: number = AUDIO_DEFAULTS.engine_reconnect_max_retries;
+export { engineReconnectWorstCaseMs } from '@flowmic/protocol';
+
+/** card RC-1 — the ceiling on ONE wait of the long-recording ladder
+ *  ({@link EngineSessionLadderOptions.unbounded}). Not a new number: the phone's
+ *  own link ladder tops out at the same 30 s
+ *  (`apps/mobile/lib/src/signaling/reconnect.dart` `maxBackoff`), and the web
+ *  client's matches it (NR-96 design §3.6) — one product, one rule. */
+export const UNBOUNDED_BACKOFF_CAP_MS = 30_000;
+
+/** card RC-1 — the long-recording schedule: the declared rungs, then each wait
+ *  doubles the last one, capped at {@link UNBOUNDED_BACKOFF_CAP_MS}
+ *  (defaults ⇒ 1, 2, 4, 8, 16, 30, 30 … s). */
+export function unboundedReconnectDelayMs(backoffMs: readonly number[], attemptIndex: number): number {
+  const last = Math.max(0, backoffMs.length - 1);
+  const base = engineReconnectDelayMs(backoffMs, Math.min(attemptIndex, last));
+  const doublings = Math.max(0, attemptIndex - last);
+  return Math.min(UNBOUNDED_BACKOFF_CAP_MS, base * 2 ** Math.min(doublings, 16));
+}
+
+/**
+ * 🔴 card RC-1 — a leg WE closed (or replaced) while it was still opening.
+ *
+ * CR-12-E root cause §1.4: a pause cut closed a redial's opening leg, the ladder
+ * then closed the rollover's fresh leg, one rung's spawn closed the previous
+ * rung's — four "failures" in 3 s, three of them us closing each other's legs,
+ * and the session died on `STT_NETWORK_DROP` with the network fine. Such a
+ * rejection is not an engine failure: whoever closed the leg owns what comes
+ * next. `orchestrator-core.ts spawnEngine` raises it when `open()` settles on a
+ * leg that is no longer the current one; {@link EngineSessionReconnectLadder.handleEngineError}
+ * returns on it without counting a rung, emitting a frame or closing anything.
+ */
+export class SupersededLegError extends Error {
+  constructor(readonly original?: unknown) { super('engine leg superseded while opening'); this.name = 'SupersededLegError'; }
+}
+
+/** card RC-1 — the per-attempt handle a spawn fills in with the leg it created,
+ *  so a failure can name WHICH leg failed (the ladder closes that one, never
+ *  "whatever is current"). `leg` stays null until the engine exists. */
+export interface SpawnAttempt { leg: unknown }
+
+/** The ladder's `engine-status` payload. The last three fields are NR-96
+ *  (book 15 §2.7, protocol `SttEngineStatusSchema`): the retry budget, put on
+ *  every `reconnecting` frame and on no other, so a client can say "attempt n
+ *  of N" and arm a watchdog from facts on the frame instead of a local guess.
+ *  `retry_count` answers "how many attempts", never "is it alive" (law 5). */
+export interface EngineStatusPayload {
+  provider: string;
+  status: 'ready' | 'reconnecting' | 'failed';
+  retry_count?: number;
+  retry_max?: number;
+  retry_in_ms?: number;
+  attempt_timeout_ms?: number;
+  /** card RC-3b — on the `ready` that ENDS a reconnect only (see
+   *  {@link EngineSessionReconnectLadder} `attemptReconnect`): the audio
+   *  milliseconds re-fed from the retention ring to the new leg. The phone
+   *  subtracts it from what it captured during the outage; the rest no engine
+   *  heard (book 04 `stt:engine-status` row, RC-3b note).
+   *  ⚠️ 更正（RC-L，2026-09-24）：the replay now also re-feeds what the dead leg was handed and never answered
+   *  (`replay-debt.ts` `answeredFloorSeq`), so this can exceed the outage; the phone's owed range therefore
+   *  starts at its own last acknowledged position and ends at 「capture position at `ready` − replayed_ms」,
+   *  which holds for both relays because the replay always runs contiguously up to now (rerun-3 root cause §8 RC-L). */
+  replayed_ms?: number;
+}
+
+/** NR-96 — the progress fields of an `engine-status` payload, copied only when
+ *  present and numeric. The bridge (`engine/stt-session.ts`) builds its outbound
+ *  frame field by field, so a field it does not copy is a field the phone never
+ *  sees; this is its one copy site for all four.
+ *  card RC-3b — and for `replayed_ms`, the fifth, for the same reason. */
+type ProgressKey = 'retry_count' | 'retry_max' | 'retry_in_ms' | 'attempt_timeout_ms' | 'replayed_ms';
+export function engineStatusProgress(e: Partial<EngineStatusPayload>): Pick<EngineStatusPayload, ProgressKey> {
+  const out: Pick<EngineStatusPayload, ProgressKey> = {};
+  for (const k of ['retry_count', 'retry_max', 'retry_in_ms', 'attempt_timeout_ms', 'replayed_ms'] as const) {
+    const v = e[k];
+    if (typeof v === 'number') out[k] = v;
+  }
+  return out;
+}
 
 export interface EngineSessionHooks {
-  /** Spawn a fresh engine session (every reconnect is a brand-new session). */
-  spawnEngine(): Promise<void>;
-  /** Close the current engine session (drop listeners + dispose ws). */
-  closeEngine(): Promise<void>;
-  /** Feed the 5s replay buffer tail into the new engine. */
-  replayBufferTail(): void;
+  /** Spawn a fresh engine session (every reconnect is a brand-new session).
+   *  card RC-1 — fills `attempt.leg` with the leg it created. */
+  spawnEngine(attempt: SpawnAttempt): Promise<void>;
+  /** Close the current engine session (drop listeners + dispose ws).
+   *  card RC-1 — with `leg`, only if that leg IS the current one. */
+  closeEngine(leg?: unknown): Promise<void>;
+  /** Feed the 5s replay buffer tail into the new engine.
+   *  card RC-3b — returns the audio milliseconds it handed over (the
+   *  `replayed_ms` of the `ready` that follows); `void` from a hook that cannot
+   *  say, in which case the frame carries no such field. */
+  replayBufferTail(): number | void;
   /** Stable engine id for the engine-status payload `provider` field. */
   currentEngineId(): string;
-  /** Emit `engine-status {provider, status, retry_count?}` on the bus. */
-  emitStatus(payload: { provider: string; status: 'ready' | 'reconnecting' | 'failed'; retry_count?: number }): void;
+  /** Emit `engine-status` on the bus (shape: {@link EngineStatusPayload}). */
+  emitStatus(payload: EngineStatusPayload): void;
   /** Emit terminal `error {code, message, retryable}` (S-API-8). */
   emitError(payload: { code: string; message: string; retryable: boolean }): void;
   /** Soft-segment timer disarm on terminal failure. */
@@ -37,6 +126,21 @@ export interface EngineSessionHooks {
 export interface EngineSessionLadderOptions {
   reconnectBackoffMs?: readonly number[];
   maxRetries?: number;
+  /** NR-96 — the cap on ONE rung's spawn. The orchestrator passes its
+   *  `engineSpawnTimeoutMs` (the same cap the cold open and `dialLeg` race), so
+   *  a vendor that accepts TCP and never finishes the handshake costs one rung,
+   *  not the rest of the session (RT3-C, `stt-outage-loss.test.ts` CASE 4).
+   *  Absent ⇒ no race AND no `attempt_timeout_ms` on the frame: a field that
+   *  promises a bound nobody enforces would be a lie. */
+  attemptTimeoutMs?: number;
+  /** card RC-1 — a LONG RECORDING (`audio:start.continuous === true`, book 04):
+   *  never give up on count (book 06 §2.3, 2026-08-29 addendum — the session
+   *  degrades, it does not end). `retry_max` is absent from every frame,
+   *  waits follow {@link unboundedReconnectDelayMs}. An error the ENGINE
+   *  declared `retryable:false` still ends it at once (L2): that sentence is
+   *  true, and retrying cannot make it false. Bounded by the session's own
+   *  ceiling and the user's stop. */
+  unbounded?: boolean;
   setTimeoutFn?: (fn: () => void, ms: number) => unknown;
   clearTimeoutFn?: (handle: unknown) => void;
 }
@@ -51,6 +155,9 @@ export class EngineSessionReconnectLadder {
   private reconnectTimer: unknown = null;
   private readonly maxRetries: number;
   private readonly backoff: readonly number[];
+  private readonly attemptTimeoutMs: number | undefined;
+  private readonly unbounded: boolean;
+  private _gaveUp = false;
   private readonly _setTimeout: (fn: () => void, ms: number) => unknown;
   private readonly _clearTimeout: (handle: unknown) => void;
 
@@ -60,6 +167,8 @@ export class EngineSessionReconnectLadder {
   ) {
     this.backoff = options.reconnectBackoffMs ?? DEFAULT_BACKOFF_MS;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
+    this.attemptTimeoutMs = options.attemptTimeoutMs;
+    this.unbounded = options.unbounded === true;
     this._setTimeout = options.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms));
     this._clearTimeout = options.clearTimeoutFn ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
   }
@@ -67,9 +176,17 @@ export class EngineSessionReconnectLadder {
   /** Read-only retry count for engine-status payloads emitted outside the ladder. */
   get retryCount(): number { return this._retryCount; }
 
+  /** card RC-7 — the ladder has spoken its terminal verdict (`failTerminal`).
+   *  Read by `orchestrator-core.ts` so a late-opening leg cannot take the session
+   *  back, and no silence redial dials after it. Never true on an `unbounded`
+   *  ladder except through an engine-declared permanent error. */
+  get gaveUp(): boolean { return this._gaveUp; }
+
   /**
    * OPEN → RECONNECTING on unexpected close. After `maxRetries` exhausted →
-   * FAILED + STT_NETWORK_DROP. The `err` argument is otherwise UNREAD — this
+   * FAILED + STT_NETWORK_DROP (never, on an `unbounded` ladder — card RC-1). `leg` names the leg that
+   * failed (card RC-1: only that one is closed). The `err` argument is otherwise UNREAD (beyond the
+   * card RC-1 `SupersededLegError` check below) — this
    * file has no logger and never had one (the only `console.` on this path is
    * this sentence; a `git -S` anchor stood here until it started matching the
    * commit that introduced it) — and the ladder uses a fixed
@@ -111,26 +228,42 @@ export class EngineSessionReconnectLadder {
    * (`ptt_inbound.dart` → `onSttTerminalError`), so it closes PROCESSING at once
    * instead of idling out its 15 s stall net.
    */
-  handleEngineError(err: Error): void {
-    if (this.hooks.isTerminated()) return;
+  handleEngineError(err: Error, leg?: unknown): void {
+    if (this.hooks.isTerminated() || this._gaveUp) return; // card RC-7: after the verdict, nothing climbs again
+    // 🔴 card RC-1 — a leg somebody else closed while it opened is not a failure;
+    // that somebody owns what comes next. No rung, no frame, nothing closed.
+    if (err instanceof SupersededLegError) return;
     const permanent = isPermanentEngineError(err);
     if (permanent !== null) {
       this.failTerminal(permanent.message, permanent.code);
       return;
     }
-    if (this._retryCount >= this.maxRetries) {
+    if (!this.unbounded && this._retryCount >= this.maxRetries) {
       this.failTerminal('Engine reconnect exhausted');
       return;
     }
     const attempt = this._retryCount;
     this._retryCount += 1;
+    const delay = this.unbounded
+      ? unboundedReconnectDelayMs(this.backoff, attempt) // card RC-1: capped, never exhausted
+      : engineReconnectDelayMs(this.backoff, attempt); // the same rule the worst case sums
+    // NR-96: the budget rides the frame — the SAME `delay` the timer below is
+    // armed with, the SAME cap `attemptReconnect` races. Read, not restated.
+    // card RC-1: an unbounded ladder has no total, and `retry_max` absent IS
+    // how the frame says so (book 04 `stt:engine-status` row).
     this.hooks.emitStatus({
       provider: this.hooks.currentEngineId(),
       status: 'reconnecting',
       retry_count: this._retryCount,
+      ...(this.unbounded ? {} : { retry_max: this.maxRetries }),
+      retry_in_ms: delay,
+      ...(this.attemptTimeoutMs !== undefined ? { attempt_timeout_ms: this.attemptTimeoutMs } : {}),
     });
-    void this.hooks.closeEngine();
-    const delay = this.backoff[Math.min(attempt, this.backoff.length - 1)] ?? 1000;
+    // 🔴 card RC-1 — close the leg that FAILED, never 「whatever is current」: this
+    // line used to close the current engine unconditionally, i.e. the fresh leg a
+    // rollover or another rung had just started (root cause §1.4 step 2).
+    void this.hooks.closeEngine(leg);
+    this.clearReconnectTimer(); // one rung in flight, never two timers racing each other
     this.reconnectTimer = this._setTimeout(() => { void this.attemptReconnect(); }, delay);
   }
 
@@ -150,16 +283,28 @@ export class EngineSessionReconnectLadder {
   private async attemptReconnect(): Promise<void> {
     if (this.hooks.isTerminated()) return;
     this.reconnectTimer = null;
+    const attempt: SpawnAttempt = { leg: null }; // card RC-1: which leg this rung made
     try {
-      await this.hooks.spawnEngine();
-      this.hooks.replayBufferTail();
+      // NR-96 — the rung's spawn is capped like the cold open and `dialLeg`.
+      // A timeout rejects with a plain SpawnTimeoutError, which
+      // `reconnectSpawnError` passes on as a retryable failure: it counts as one
+      // rung and the ladder climbs (or gives up) exactly as for a refused dial.
+      const spawn = this.hooks.spawnEngine(attempt);
+      await (this.attemptTimeoutMs === undefined
+        ? spawn
+        : raceSpawnTimeout(spawn, this.attemptTimeoutMs, this._setTimeout, this._clearTimeout));
+      // card RC-3b — what the replay ACTUALLY handed the new leg, read off the
+      // feed itself, on the frame that says the leg is back: the phone has no
+      // other way to know how much of its outage the relay still held.
+      const replayedMs = this.hooks.replayBufferTail();
       this._retryCount = 0;
       this.hooks.emitStatus({
         provider: this.hooks.currentEngineId(),
         status: 'ready',
+        ...(typeof replayedMs === 'number' ? { replayed_ms: replayedMs } : {}),
       });
     } catch (err) {
-      this.handleEngineError(reconnectSpawnError(err));
+      this.handleEngineError(reconnectSpawnError(err), attempt.leg);
     }
   }
 
@@ -178,6 +323,7 @@ export class EngineSessionReconnectLadder {
    *  where a PERMANENT named error could never reach a verdict at all — see
    *  {@link reconnectSpawnError}. */
   private failTerminal(message: string, code = 'STT_NETWORK_DROP'): void {
+    this._gaveUp = true; // card RC-7 — read by `gaveUp`; set BEFORE the frames, so no listener sees a live ladder
     this.hooks.emitStatus({
       provider: this.hooks.currentEngineId(),
       status: 'failed',
@@ -229,6 +375,7 @@ export class EngineSessionReconnectLadder {
  */
 function reconnectSpawnError(err: unknown): Error {
   if (err instanceof SttEngineError) return err;
+  if (err instanceof SupersededLegError) return err; // card RC-1 — must reach the ladder's own check intact
   return new Error('Engine spawn failed during reconnect');
 }
 

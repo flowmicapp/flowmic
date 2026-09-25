@@ -144,7 +144,7 @@ class _PendingRecoveryPageState extends State<PendingRecoveryPage> {
   ///     `emptyResult` re-transcribes to `emptyResult`, so the card came back
   ///     BYTE FOR BYTE IDENTICAL and the product said nothing at all. MEASURED
   ///     2026-09-12 on TB335ZC — three presses, three identical screenshots
-  ///     (docs/strategy/2026-09-12-phone-pending-transcription-retry-rca.md).
+  ///     (docs/archive/strategy/2026-09-12-phone-pending-transcription-retry-rca.md).
   ///
   /// ⚠️ IT STILL DOES NOT CLAIM A SUCCESS. 「Tried again」 plus what the list
   /// says now is the whole of what this layer knows; A5-3 may have kept the

@@ -2,7 +2,7 @@
 //   docs/rebuild/16-PORTABLE-RECORD-FORMAT-FPR-V1.md §6 (the inventory layer —
 //     this document's most important constraint on the implementation), §8-2
 //     (the byte count beside the checkbox must be really computed)
-//   docs/strategy/2026-08-01-data-asset-lifecycle-design.md §1 (the core
+//   docs/archive/strategy/2026-08-01-data-asset-lifecycle-design.md §1 (the core
 //     ruling: export = traverse + serialize; stats = traverse + aggregate;
 //     clear = traverse + delete. **one traversal implementation, three verbs
 //     consume it**), §5-2 (the acceptance question)

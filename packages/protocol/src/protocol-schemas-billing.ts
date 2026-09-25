@@ -153,7 +153,7 @@ export const BudgetViewSchema = z.object({
   free_plan_minutes: z.number().int().positive().optional(),
   /**
    * WHO PAYS for what this room records -- card MP-0
-   * (docs/strategy/2026-09-11-metering-principal-matrix-design.md SS4, D5).
+   * (docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md SS4, D5).
    *
    * `remaining_ms` answers 「how much is left on the account this socket is told
    * about」. It does NOT answer 「is that the account this room's recordings are
@@ -189,7 +189,7 @@ export const BudgetViewSchema = z.object({
   /**
    * `true` only on a frame sent to the account that OWNS the room, while an
    * UNSIGNED speaker is spending that account's allowance -- card MP-6
-   * (docs/strategy/2026-09-11-metering-principal-matrix-design.md SS10-1 step 4,
+   * (docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md SS10-1 step 4,
    * SS10-3).
    *
    * 🔴 IT IS THE ONLY SOURCE FOR THAT SENTENCE, and it exists because the

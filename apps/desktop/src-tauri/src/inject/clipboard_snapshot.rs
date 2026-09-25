@@ -37,6 +37,7 @@
 //
 // *** HUMAN-AUDIT SENSITIVE (injection path) ***
 
+#[cfg(any(not(target_os = "linux"), test))]
 use crate::inject::sendinput::InjectError;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -545,7 +546,7 @@ pub fn restore_clipboard(snapshot: ClipboardSnapshot) -> Result<(), InjectError>
 // gives a restore failure priority over the paste result, so a host with no
 // implementation reports INJECT_CLIPBOARD_FAIL instead of `injected`.
 
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub fn save_clipboard() -> Result<ClipboardSnapshot, InjectError> {
     Err(InjectError::Unsupported(
         "clipboard snapshot: this platform has no implementation. Returning an empty snapshot \
@@ -553,14 +554,14 @@ pub fn save_clipboard() -> Result<ClipboardSnapshot, InjectError> {
     ))
 }
 
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub fn write_clipboard_formats(_: Vec<(u32, Vec<u8>)>) -> Result<(), InjectError> {
     Err(InjectError::Unsupported(
         "clipboard write: this platform has no implementation",
     ))
 }
 
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub fn restore_clipboard(_: ClipboardSnapshot) -> Result<(), InjectError> {
     Err(InjectError::Unsupported(
         "clipboard restore: this platform has no implementation. Returning Ok here claims the \
@@ -794,3 +795,6 @@ mod tests {
         assert!(empty_idx < set_idx, "EmptyClipboard must precede SetClipboardData");
     }
 }
+
+#[cfg(target_os = "linux")]
+pub use super::linux::{restore_clipboard, save_clipboard, write_clipboard_formats};

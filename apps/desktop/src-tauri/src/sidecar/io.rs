@@ -6,7 +6,7 @@
 //     DB `%APPDATA%/flowmic.sqlite`; handshake FLOWMIC_LISTENING + /api/health 10s;
 //     1.5s child-exit polling; adopt-first socket.io polling probe → netstat+taskkill)
 //   docs/rebuild/13-LESSONS-LEARNED.md §4 (path/CRLF/kill hygiene)
-//   docs/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #1/#2/#3
+//   docs/archive/strategy/R2-R3-TASK-CARDS.md WP-R2-4 lead-controller ruling #1/#2/#3
 //   *** HUMAN-AUDIT SENSITIVE (the taskkill path — forensic PID+name BEFORE kill,
 //       only the :41879 listener, only after an adopt probe said "foreign") ***
 //

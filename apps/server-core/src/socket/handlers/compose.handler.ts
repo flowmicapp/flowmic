@@ -1,9 +1,9 @@
 // SPEC-REF:
 //   docs/rebuild/04-PROTOCOL-SPEC.md §3.4 (compose:start/chunk/done/error)
-//   docs/strategy/2026-07-23-mock-billing-design.md §3/§5 (ensureQuota('llm') has
+//   docs/archive/strategy/2026-07-23-mock-billing-design.md §3/§5 (ensureQuota('llm') has
 //     EXACTLY 1 entry point, compose:start; recordLlmUsage has EXACTLY 1
 //     session-closing site)
-//   docs/strategy/R1-TASK-CARDS.md WP-R1-4 (compose + scenario pipeline)
+//   docs/archive/strategy/R1-TASK-CARDS.md WP-R1-4 (compose + scenario pipeline)
 //   CLAUDE.md red line: LLM failure → explicit compose:error + status records the
 //     truth, never silently falls back to injecting the raw STT text
 //

@@ -43,7 +43,7 @@ export const SHORT_CODE_SPACE = 10_000;
  *  ruled the AXIS (D8 in docs/decisions/2026-08-06-owner-rulings-ui-mcp-pairing.md:
  *  "Option A: each code carries its own total budget"). The value 20 is a
  *  SUGGESTION made by the proposing window
- *  (docs/strategy/2026-08-06-it39-pairing-bruteforce-proposal.md, verbatim
+ *  (docs/archive/strategy/2026-08-06-it39-pairing-bruteforce-proposal.md, verbatim
  *  "suggest N=20") and carried forward unchanged by the implementing window, which
  *  had no owner instruction about the number either. Nobody has ruled that it
  *  must be 20; it is tunable on evidence, and citing this constant as 「owner

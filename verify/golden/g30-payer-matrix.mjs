@@ -34,7 +34,7 @@
 // arm).
 //
 // SPEC-REF:
-//   docs/strategy/2026-09-11-metering-principal-matrix-design.md
+//   docs/archive/strategy/2026-09-11-metering-principal-matrix-design.md
 //     §1 (the matrix) · §2 (the ordered rule) · §3 D1/D5 · §6 (the reverse controls)
 //   docs/decisions/2026-09-10-owner-web-client-identity-qr-demo-and-polish.md
 //     §9 (谁说扣谁; 手机账号≠PC 账号 ⇒ 扣手机) and §9-1

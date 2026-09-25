@@ -111,10 +111,14 @@ Future<void> _startContinuousRouted(
   final PttVisual before = _pttVisualRouted(s);
   final ContinuousOffer? offer = _continuousOfferRouted(s, before);
   if (offer == null || !offer.enabled) return;
+  // Card RC-H — the sheet pulls the account when it opens and redraws its
+  // numbers from a fresh offer when the answer lands (continuous_start_sheet.dart).
   final bool go = await askToStartContinuous(
     context,
     offer: offer,
     strings: strings,
+    account: s.widget.cloudSummary,
+    reread: () => _continuousOfferRouted(s, _pttVisualRouted(s)),
   );
   if (!go || !s.mounted) return;
 
@@ -144,7 +148,70 @@ Future<void> _startContinuousRouted(
     // reached. There is no recorder transition to clear the flag for us here,
     // because there was no recorder.
     s.controller.session.endContinuous();
+    return;
   }
+  // Card CR-12-C (design §4.3) — the recording is running: show it being
+  // written. Only after `ok`, so a refused press never opens a page for a
+  // recording that did not begin.
+  if (s.mounted) _openLiveArticleRouted(s, strings);
+}
+
+/// 🔴 Card RC-H — pull the account once a long recording is over.
+///
+/// The balance on the entry row and in the sheet comes from
+/// [CloudSummaryController.summary], and nothing moves it after a recording:
+/// the relay books usage when the session settles, and its `billing:budget`
+/// frames stop with the audio (root-cause 2026-09-24 §5.2 — the sheet said
+/// 「20 minutes left」 with 12 left). 「Pushed state has no pull path」 again,
+/// the rule `initState`'s own refresh cites.
+///
+/// ⚠️ IT WAITS FOR THE SESSION TO COME TO REST, NOT FOR THE STOP BUTTON. The
+/// flag drops the moment the user presses stop (`endContinuous`, first line of
+/// `pttUp`), while the terminal final — the relay's own end of the session —
+/// arrives afterwards; a read at the button would race the booking it is
+/// meant to see. Recording or processing ⇒ keep owing; anything else pays.
+/// Whether the relay has booked by the time the final lands is not asserted
+/// anywhere this side can read, so the sheet re-reads on open as well.
+void _pullBalanceAfterContinuousRouted(_ChatFlowPageState s) {
+  final PttSession session = s.controller.session;
+  if (session.continuous.isActive || session.continuousStillCapturing) {
+    s._balanceOwed = true;
+    return;
+  }
+  if (!s._balanceOwed) return;
+  final SessionState at = session.fsm.session;
+  if (at == SessionState.recording || at == SessionState.processing) return;
+  s._balanceOwed = false;
+  s.widget.cloudSummary?.refresh();
+}
+
+/// Card CR-12-C — open the recording that is running now on the in-progress
+/// article page. The same root-navigator push `_openArticleRouted` uses, so
+/// the two forms of the page sit in the same place in the route stack.
+///
+/// Reached twice: right after the start (above), and from the dock bar's
+/// status box when the user has come back to this list.
+void _openLiveArticleRouted(_ChatFlowPageState s, AppStrings strings) {
+  final String? id = s.controller.session.recordingArticleId;
+  if (id == null) return;
+  Navigator.of(s.context, rootNavigator: true).push<void>(
+    MaterialPageRoute<void>(
+      builder: (_) => ArticlePage.live(
+        controller: s.controller,
+        articleId: id,
+        strings: strings,
+        // The dock's own builder: one bar, one `onStop`, on both screens.
+        bar: () => s.mounted
+            ? _continuousLiveRouted(
+                s,
+                strings,
+                _pttVisualRouted(s),
+                inArticle: true,
+              )
+            : null,
+      ),
+    ),
+  );
 }
 
 /// The in-progress face, or null when this is not a continuous recording.
@@ -153,11 +220,15 @@ Future<void> _startContinuousRouted(
 /// exclusion, and the plainest form of it: while this is on screen there is no
 /// hold surface to press, no mode row (the dock is past its idle faces) and no
 /// cancel gesture anywhere.
+///
+/// [inArticle] — card CR-12-C: the same bar at the foot of the in-progress
+/// article page, where there is nowhere further to open.
 Widget? _continuousLiveRouted(
   _ChatFlowPageState s,
   AppStrings strings,
-  PttVisual visual,
-) {
+  PttVisual visual, {
+  bool inArticle = false,
+}) {
   final PttSession session = s.controller.session;
   // 🔴 DEFECT D-1 — THE FACE IS DRAWN FROM THE RECORDER, NOT FROM THE FSM.
   // `PttVisual.recording` answers 「is the session in RECORDING」, and CR-3 made
@@ -187,8 +258,10 @@ Widget? _continuousLiveRouted(
     amplitudeWindow: s.controller.amplitudeWindow,
     segmentCount: session.segments.finalizedCount,
     screenHeld: session.screenWake.isHeld,
+    engineReconnect: session.engineReconnect.value, // NR-96-B
     strings: strings,
     onStop: () => unawaited(s.controller.pttUp()),
+    onOpen: inArticle ? null : () => _openLiveArticleRouted(s, strings),
   );
 }
 

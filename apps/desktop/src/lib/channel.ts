@@ -4,7 +4,7 @@
 //   docs/decisions/2026-07-26-dual-channel-spec-misref.md (GA-28: this header
 //     used to cite 07 §6 for "only one active connection at a time", a sentence that section
 //     does not contain — it is REDESIGN A-5 and it is about the MOBILE side)
-//   docs/strategy/R6-BACKLOG-AND-PLAN.md T-2
+//   docs/archive/strategy/R6-BACKLOG-AND-PLAN.md T-2
 //
 // Pure, Tauri-free, DOM-free decision core for the two-channel device page and
 // the capsule's channel label. The Vue components only render what these

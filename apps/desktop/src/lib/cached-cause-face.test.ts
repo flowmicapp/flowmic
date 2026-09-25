@@ -59,15 +59,16 @@ describe('three causes, three sentences, four languages', () => {
     // 卡 L7's reasoning still holds for it: "not injected · cached" + "no input focus found" is
     // one sentence twice. Adding it back would restore the redundancy L7 removed.
     expect(CACHED_CAUSE_CODES.has('INJECT_FOCUS_LOST')).toBe(false);
-    // 🔴 THIS LIST GREW, AND THE OLD ASSERTION HAD PINNED AN OMISSION AS A SPEC.
-    // It read `toEqual([DEFERRED, SELF])` while the protocol had since registered
-    // two more cached-mode codes (63/64, the macOS preflight pair). Nothing bound
-    // the registry to this set, so the two arrived unrouted — and this assertion
-    // then LOCKED THEIR ABSENCE IN as the expected result, exactly the 0.2.52 §3
-    // shape: the reverse control picked the wrong direction, turning the defect into the acceptance criterion (反向对照选错了方向，把缺陷写成了验收标准).
-    expect([...CACHED_CAUSE_CODES].sort()).toEqual([
-      DEFERRED, 'INJECT_NO_ACCESSIBILITY', 'INJECT_SECURE_INPUT_ACTIVE', SELF,
-    ].sort());
+  });
+
+  it('every PC injection verdict has a cached-face route except the named L7 exception', () => {
+    // D-13 / review T-2: the old hand-kept expected list itself omitted a code.
+    // A verdict's producer may normally choose sendinput/clipboard. If it arrives
+    // as cached, the capsule still owes its reason. FOCUS_LOST alone repeats the
+    // cached badge (book 15 §2.5e-4); no second hand-kept expected-code list.
+    const expected = PC_INJECTION_VERDICT_CODES.filter(code => code !== 'INJECT_FOCUS_LOST');
+    expect([...CACHED_CAUSE_CODES].sort(), 'registered PC verdict missing its cached-face route')
+      .toEqual([...expected].sort());
   });
 
   // 🔴 THE STRUCTURAL HALF — what actually stops the next code doing this again.
@@ -212,7 +213,7 @@ describe('Timeline: the failed row names its reason INLINE (§C-2 reason slot)',
   it('TimelinePage really passes the failed reason into statusLine', () => {
     const page = src('../main-window/TimelinePage.vue');
     expect(page).toContain(
-      'statusLine(e.status, targetLabel(e), e.focus_evidence, failedCauseInline(e.status, e.cached_cause, INJECT_FAIL_REASON))',
+      "statusLine(e.status, targetLabel(e), e.focus_evidence, failedCauseInline(e.status, e.cached_cause, INJECT_FAIL_REASON), e.control_outcome === 'submission_uncertain' ? 'INJECT_SUBMISSION_UNCERTAIN' : e.cached_cause)",
     );
   });
 });

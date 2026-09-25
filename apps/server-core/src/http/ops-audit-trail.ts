@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-02-o2-usage-route-contract.md §1.3 (audit-trail conventions)
+//   docs/archive/strategy/2026-08-02-o2-usage-route-contract.md §1.3 (audit-trail conventions)
 //   src/db/schema.ts `-- 10. ops_audit_log` (the DDL argues every column)
 //   src/db/repos/ops-audit.repo.ts (append-only store; fail-loud on a blank row)
 //   src/http/account-auth.ts `adminFromBearer` (THE admin gate — the DECISION)

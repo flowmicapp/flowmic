@@ -5,6 +5,7 @@
 // Import — four possible outcomes per line, every one counted; there is no fifth called「静默跳过」("silent skip").
 
 import type { ChannelTag, TimelineRow, WireHistoryItem } from '../types';
+import type { FprImportFacts } from '../timeline-normalize';
 import { addressOf, rowKey } from '../timeline-address';
 import { readEntry, readHeader, type FileRefusal, type FprHeader, type RefusalReason } from './fpr';
 import type { PreservedFields } from './preserved';
@@ -22,6 +23,7 @@ export interface ImportTarget {
   onHistoryUpdated(
     item: WireHistoryItem,
     channel: ChannelTag,
+    fpr?: FprImportFacts,
   ): { evictedOnArrival: boolean } | null;
   allRows(): TimelineRow[];
 }
@@ -136,7 +138,9 @@ export function applyImport(input: ImportInput): ImportReport {
       out.skipped += 1;
       continue;
     }
-    const mint = input.target.onHistoryUpdated(item, channel);
+    // Preserve the file's local cause without inventing a bridge field or an
+    // injection attempt. The existing mint path normalizes and persists it.
+    const mint = input.target.onHistoryUpdated(item, channel, { source: 'fpr', cached_cause: preserved.ext.cached_cause });
     if (mint === null) {
       // The store could not address the row. It has exactly one cause (a frame
       // with no usable id), which `readEntry` already refuses — so reaching here

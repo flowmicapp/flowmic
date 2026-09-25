@@ -1,6 +1,6 @@
 // E-CL — this phone's belief about what is in its account's blind store.
 //
-// SPEC-REF: docs/strategy/2026-08-08-design-e-blindstore-client.md §3.1
+// SPEC-REF: docs/archive/strategy/2026-08-08-design-e-blindstore-client.md §3.1
 //   (push is idempotent by id+ciphertext ⇒ the client may re-push safely), §4
 //   / §4.1 (per-entry deletion + a pending-delete set: 「written in the same
 //   transaction that deletes the local row」, drained on the next

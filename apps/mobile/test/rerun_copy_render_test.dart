@@ -36,6 +36,16 @@
 // the test FAILS if no language is — otherwise this file would be blind to a
 // regression that shortens the sentence instead of fixing the layout.
 //
+// ⚠️ Correction (NR-89, 2026-09-23): sentence ① (`entryReprocessSub`) no longer
+// exists. The one mode-bound row became two explicit rows — 「re-translate」
+// (`entryRetranslate` / `entryRetranslateSub`, which names the target language
+// through the rendered `translateTargetLabel`) and 「re-organize」
+// (`entryReorganize` / `entryReorganizeSub`). Case ① now measures BOTH
+// sub-lines under the same rules, and the NR-89 group at the bottom pins which
+// rows appear, what they render and what a tap returns. Every string here is
+// read from the catalogue getter, never quoted, so the cases hold for whatever
+// wording the copy pipeline lands.
+//
 // 🔴 THIS FILE DOES NOT MEASURE REAL-DEVICE PIXELS. `flutter_test` uses the Ahem
 // placeholder font — every glyph is a full em square — so a line of 411dp holds
 // far fewer characters than a real font would. That makes the budget CONSERVATIVE
@@ -88,16 +98,27 @@ double _intrinsicWidth(Text t) {
 bool _clipped(WidgetTester tester, Finder f) =>
     tester.renderObject<RenderParagraph>(f).didExceedMaxLines;
 
-TimelineEntry _row() {
+/// What the paragraph actually PAINTS (D-15: the rendered result, not
+/// `Text.data`).
+String _painted(WidgetTester tester, Finder f) =>
+    tester.renderObject<RenderParagraph>(f).text.toPlainText();
+
+TimelineEntry _row({
+  FlowMode mode = FlowMode.translate,
+  String source = '你好世界',
+  String output = 'hello world',
+  String? processMode = 'translate',
+}) {
   final DateTime now = DateTime.utc(2026, 8, 5, 11, 0);
   return TimelineEntry(
     id: 'loc_f3_copy',
     clientId: 'c-f3-copy',
-    mode: FlowMode.translate,
+    mode: mode,
     delivery: Delivery.inject,
     // Rerun is offered only when there are ORIGINAL words to re-run.
-    sourceText: '你好世界',
-    outputText: 'hello world',
+    sourceText: source,
+    outputText: output,
+    processMode: processMode,
     status: EntryStatus.injected,
     origin: 'paired',
     entryType: TimelineEntry.kTranscript,
@@ -109,19 +130,39 @@ TimelineEntry _row() {
 /// A host whose only job is to open the real sheet through its real entry point
 /// (`showEntryContextMenu`) — the sheet's own class is private, and reaching
 /// past the entry point would let this file pass on a widget the app never
-/// builds.
-Widget _menuHost(TimelineEntry entry, AppStrings strings) => MaterialApp(
+/// builds. NR-89: [translateTarget] is passed through exactly as the chat page
+/// passes it, and [onChosen] receives what the sheet returned.
+Widget _menuHost(
+  TimelineEntry entry,
+  AppStrings strings, {
+  String? translateTarget,
+  bool sessionActions = true,
+  void Function(EntryAction?)? onChosen,
+}) => MaterialApp(
   home: Scaffold(
     body: Builder(
       builder: (BuildContext context) => Center(
         child: TextButton(
-          onPressed: () => showEntryContextMenu(context, entry, strings: strings),
+          onPressed: () async {
+            final EntryAction? chosen = await showEntryContextMenu(
+              context,
+              entry,
+              strings: strings,
+              sessionActions: sessionActions,
+              translateTarget: translateTarget,
+            );
+            onChosen?.call(chosen);
+          },
           child: const Text('open'),
         ),
       ),
     ),
   ),
 );
+
+/// NR-89: the target every case below aims at. Not the default (`en`), so a
+/// sub-line that rendered a hard-coded or defaulted language would not match.
+const String kTarget = 'ja';
 
 /// The page narrows history to the instance this phone is talking to, so the
 /// seeded row must be OWNED by the paired session or it renders nowhere.
@@ -164,51 +205,64 @@ Future<ChatController> _controller(FakeSocketTransport transport) async {
 
 void main() {
   // ── ① the rewritten explanation inside the menu ────────────────────────────
-  testWidgets('🔴 card F3: the rerun explanation reads in full in all four languages on a 411dp phone', (
+  testWidgets('🔴 card F3 / NR-89: both re-run explanations read in full in every language on a 411dp phone', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = kPhone;
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.reset);
 
-    // Which languages the sentence is too long for on one line. Collected rather
+    // Which (language, sentence) pairs are too long for one line. Collected rather
     // than asserted per-locale because it is a property of the STRING, and the
     // Chinese one legitimately fits — demanding pressure everywhere would make
     // the test fail for a translation being concise.
-    final List<AppLocale> pressured = <AppLocale>[];
+    final List<String> pressured = <String>[];
 
     for (final AppLocale locale in AppLocale.values) {
       final AppStrings s = AppStrings.of(locale);
-      await tester.pumpWidget(_menuHost(_row(), s));
+      await tester.pumpWidget(_menuHost(_row(), s, translateTarget: kTarget));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      // The action's own NAME first — it is what the user is choosing.
-      expect(find.text(s.entryReprocess), findsOneWidget, reason: '$locale');
-      // …then the sentence this card rewrote. 「作为新的一条发到电脑」 is the
-      // product change; reading half of it is reading a different promise.
-      final Finder sub = find.text(s.entryReprocessSub);
-      expect(sub, findsOneWidget, reason: '$locale entryReprocessSub did not render');
+      // NR-89: two rows, each with its own name and sub-line. The names first —
+      // they are what the user is choosing.
+      final Map<String, String> subs = <String, String>{
+        'entryRetranslateSub': s.entryRetranslateSub(s.translateTargetLabel(kTarget)),
+        'entryReorganizeSub': s.entryReorganizeSub,
+      };
+      for (final String name in <String>[s.entryRetranslate, s.entryReorganize]) {
+        final Finder label = find.text(name);
+        expect(label, findsOneWidget, reason: '$locale label did not render');
+        expect(_painted(tester, label), name, reason: '$locale label');
+      }
 
-      final Text w = tester.widget<Text>(sub);
-      final Size box = tester.getSize(sub);
-      // It stayed inside the phone. (A RenderFlex overflow would already have
-      // failed the test — `flutter_test` turns the yellow stripes into an
-      // exception — so this is the belt to that pair of braces.)
-      expect(box.width, lessThanOrEqualTo(411.0), reason: '$locale overflowed the screen');
-      // Nothing was trimmed with an ellipsis.
-      expect(_clipped(tester, sub), isFalse, reason: '$locale was eaten by an ellipsis');
+      for (final MapEntry<String, String> e in subs.entries) {
+        // …then the sentences. 「作为新的一条发到电脑」 is the product change;
+        // reading half of it is reading a different promise.
+        final Finder sub = find.text(e.value);
+        expect(sub, findsOneWidget, reason: '$locale ${e.key} did not render');
+        expect(_painted(tester, sub), e.value, reason: '$locale ${e.key}');
 
-      if (_intrinsicWidth(w) > box.width) {
-        pressured.add(locale);
-        // 🔴 THE ASSERTION THAT ACTUALLY BITES: it did not fit on one line, so
-        // it must have WRAPPED. A layout that dropped the wrap would report the
-        // same single-line height while the tail of the sentence was gone.
-        expect(
-          box.height,
-          greaterThan(kSubFontSize * 1.5),
-          reason: '$locale did not fit yet occupied only one line — where did the second half go',
-        );
+        final Text w = tester.widget<Text>(sub);
+        final Size box = tester.getSize(sub);
+        // It stayed inside the phone. (A RenderFlex overflow would already have
+        // failed the test — `flutter_test` turns the yellow stripes into an
+        // exception — so this is the belt to that pair of braces.)
+        expect(box.width, lessThanOrEqualTo(411.0), reason: '$locale ${e.key} overflowed the screen');
+        // Nothing was trimmed with an ellipsis.
+        expect(_clipped(tester, sub), isFalse, reason: '$locale ${e.key} was eaten by an ellipsis');
+
+        if (_intrinsicWidth(w) > box.width) {
+          pressured.add('$locale ${e.key}');
+          // 🔴 THE ASSERTION THAT ACTUALLY BITES: it did not fit on one line, so
+          // it must have WRAPPED. A layout that dropped the wrap would report the
+          // same single-line height while the tail of the sentence was gone.
+          expect(
+            box.height,
+            greaterThan(kSubFontSize * 1.5),
+            reason: '$locale ${e.key} did not fit yet occupied only one line — where did the second half go',
+          );
+        }
       }
 
       // Close the sheet before the next locale: a stacked route would measure
@@ -266,7 +320,10 @@ void main() {
       Future<void> pressRerun() async {
         await tester.longPress(find.text(seeded.displayText).first);
         await tester.pumpAndSettle();
-        await tester.tap(find.text(s.entryReprocess));
+        // NR-89: the page passes the controller's translate target, so the
+        // re-translate row is there — a tap on it is the production wiring
+        // (`chat_flow_entry_actions.dart`) end to end.
+        await tester.tap(find.text(s.entryRetranslate));
         await tester.pumpAndSettle();
       }
 
@@ -369,7 +426,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(controller.reprocessEntry(seeded), isNull, reason: 'setup: it started');
+      expect(controller.reprocessEntry(seeded, FlowMode.translate), isNull,
+          reason: 'setup: it started');
       expect(controller.isProcessingUtterance, isTrue);
 
       // The teardown the app never does but every page exit does: dispose the
@@ -388,4 +446,117 @@ void main() {
       await tester.pump();
     },
   );
+
+  // ── (e) NR-89: two explicit rows instead of one mode-bound row ──────────────
+  group('(e) NR-89 — re-translate / re-organize on the long-press sheet', () {
+    Future<EntryAction?> openAndTap(
+      WidgetTester tester,
+      TimelineEntry entry,
+      AppStrings s,
+      String label,
+    ) async {
+      EntryAction? chosen;
+      await tester.pumpWidget(
+        _menuHost(entry, s, translateTarget: kTarget, onChosen: (EntryAction? a) => chosen = a),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
+      return chosen;
+    }
+
+    testWidgets('both rows render on a realtime, a translated and an organized row, '
+        'and each tap returns its own action', (WidgetTester tester) async {
+      tester.view.physicalSize = kPhone;
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+      final AppStrings s = AppStrings.of(AppLocale.en);
+      final Map<String, TimelineEntry> rows = <String, TimelineEntry>{
+        // A realtime row has an original too (`buildFromUtterance` writes
+        // `sourceText: text`) — which is why it can be re-run at all now.
+        'realtime': _row(
+          mode: FlowMode.realtime,
+          source: '今天开会',
+          output: '今天开会',
+          processMode: null,
+        ),
+        'translate': _row(),
+        'organize': _row(mode: FlowMode.organize, output: '你好，世界。', processMode: 'organize'),
+      };
+      for (final MapEntry<String, TimelineEntry> r in rows.entries) {
+        await tester.pumpWidget(_menuHost(r.value, s, translateTarget: kTarget));
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        final Finder retranslate = find.text(s.entryRetranslate);
+        final Finder reorganize = find.text(s.entryReorganize);
+        expect(retranslate, findsOneWidget, reason: '${r.key} row: re-translate');
+        expect(reorganize, findsOneWidget, reason: '${r.key} row: re-organize');
+        expect(_painted(tester, retranslate), s.entryRetranslate);
+        expect(_painted(tester, reorganize), s.entryReorganize);
+        // Laid out with a real box, not merely present in the tree.
+        expect(tester.getSize(retranslate).height, greaterThan(0));
+        expect(tester.getSize(reorganize).height, greaterThan(0));
+        Navigator.of(tester.element(find.text('open'))).pop();
+        await tester.pumpAndSettle();
+
+        expect(await openAndTap(tester, r.value, s, s.entryRetranslate), EntryAction.retranslate,
+            reason: '${r.key} row');
+        expect(await openAndTap(tester, r.value, s, s.entryReorganize), EntryAction.reorganize,
+            reason: '${r.key} row');
+      }
+    });
+
+    testWidgets('the re-translate sub-line names the target the phone translates into', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = kPhone;
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+      for (final AppLocale locale in AppLocale.values) {
+        final AppStrings s = AppStrings.of(locale);
+        await tester.pumpWidget(_menuHost(_row(), s, translateTarget: kTarget));
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        final Finder sub = find.text(s.entryRetranslateSub(s.translateTargetLabel(kTarget)));
+        expect(sub, findsOneWidget, reason: '$locale');
+        // The painted sentence carries the rendered target label (「→ 日本語」),
+        // whatever wording surrounds it.
+        expect(_painted(tester, sub), contains(s.translateTargetLabel(kTarget)), reason: '$locale');
+        Navigator.of(tester.element(find.text('open'))).pop();
+        await tester.pumpAndSettle();
+      }
+    });
+
+    testWidgets('no translate target ⇒ no re-translate row; re-organize is still there', (
+      WidgetTester tester,
+    ) async {
+      final AppStrings s = AppStrings.of(AppLocale.en);
+      for (final String? target in <String?>[null, '']) {
+        await tester.pumpWidget(_menuHost(_row(), s, translateTarget: target));
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        // Positive control first: the sheet is open and the sibling row renders,
+        // so the absence below is the gate, not a blind finder.
+        expect(find.text(s.entryReorganize), findsOneWidget, reason: 'target=$target');
+        expect(find.text(s.entryRetranslate), findsNothing, reason: 'target=$target');
+        Navigator.of(tester.element(find.text('open'))).pop();
+        await tester.pumpAndSettle();
+      }
+    });
+
+    testWidgets('sessionActions:false withholds BOTH rows, even with a target', (
+      WidgetTester tester,
+    ) async {
+      final AppStrings s = AppStrings.of(AppLocale.en);
+      await tester.pumpWidget(
+        _menuHost(_row(), s, translateTarget: kTarget, sessionActions: false),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text(s.confirmDelete), findsOneWidget, reason: 'positive control: sheet is open');
+      expect(find.text(s.entryRetranslate), findsNothing);
+      expect(find.text(s.entryReorganize), findsNothing);
+    });
+  });
 }

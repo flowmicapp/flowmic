@@ -13,7 +13,7 @@
 // write-back threw it away.
 //
 // SPEC-REF:
-//   docs/strategy/2026-07-30-inject-state-narrowing-design.md §1 (what each word
+//   docs/archive/strategy/2026-07-30-inject-state-narrowing-design.md §1 (what each word
 //     now means) + §4 (the three-end display table, and the ⚠ about not creating
 //     a NEW one-value-two-questions while splitting this one)
 //   docs/decisions/2026-07-30-injected-means-delivered-to-keyboard-focus.md

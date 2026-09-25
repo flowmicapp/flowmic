@@ -3,7 +3,7 @@
 // SPEC-REF:
 //   docs/decisions/2026-08-12-owner-req1209-multiselect-and-image-rulings.md
 //     §3 criterion 2 (SUPERSEDED, see below) and criterion 3 (zero decoration)
-//   docs/strategy/2026-08-12-req1209-plus-panel-design.md §4-1, §6 tables 1/2/3
+//   docs/archive/strategy/2026-08-12-req1209-plus-panel-design.md §4-1, §6 tables 1/2/3
 //
 // 🔴🔴 SUPERSEDED (owner report, 2026-08-27): this file used to pin 「tick
 // order, not time order」, because the notes list is newest-first and sorting

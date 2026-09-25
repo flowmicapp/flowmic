@@ -21,6 +21,10 @@
 
 import 'dart:convert';
 
+import 'retained_audio_owed_ranges.dart';
+
+export 'retained_audio_owed_ranges.dart';
+
 /// PCM layout of one recording. Carried per manifest rather than assumed
 /// globally: §A3-2a — offsets from two recordings with different formats are
 /// not interchangeable, so the format travels with the offsets it indexes.
@@ -470,6 +474,60 @@ class RecordingManifest {
   /// flags could express; the TTL sweep still reads [settled] alone.
   final int? liveSettlePendingAtMs;
 
+  /// Card RC-3 — THE TRANSCRIBED PREFIX: bytes `[0, this)` are already words in
+  /// the timeline (the live rows of a recording that ended with its link or
+  /// engine down); the recovery range starts here, not at 0.
+  ///
+  /// WRITER: [RetainedAudioJournal.setTranscribedPrefix], reached only from
+  /// `RetainedAudioSpill.noteOwedTail`. READER: `RetainedAudioJournalScan`,
+  /// which starts `verifiedRecoverableRange` at it.
+  ///
+  /// ⚠️ ADDITIVE AND OPTIONAL, so [formatVersion] does not move: a manifest
+  /// without it decodes to null ⇒ the range starts at 0, which is the pre-RC-3
+  /// behaviour exactly (re-feed everything — duplicated words, never lost ones).
+  ///
+  /// ⚠️ 更正（RC-K，2026-09-24）：原为 a stored field. It is now the ENVELOPE of
+  /// [owedRanges] (the earliest start), still written under its old key so an
+  /// older app reads what it always read; nothing on this build decides by it.
+  int? get transcribedPrefixBytes =>
+      owedRanges.isEmpty ? null : owedRanges.first.start;
+
+  /// Card RC-3b — WHERE THE OWED RANGE ENDS when it does not run to the end of
+  /// the journal: a stretch in the MIDDLE of a long recording that no engine
+  /// heard (the relay's ring had evicted it before its engine came back —
+  /// `ptt_capture_pump.dart` `_noteEngineStatusForArticle`). The range is then
+  /// `[transcribedPrefixBytes, this)`. Null ⇒ to the end (RC-3's owed tail, and
+  /// every manifest written before this field).
+  ///
+  /// WRITER: [RetainedAudioJournal.setOwedRange]. READER:
+  /// `RetainedAudioJournalScan._afterPrefix`. ⚠️ Additive; an older app that
+  /// does not know it reads `[prefix, end)`, i.e. re-feeds MORE — duplicated
+  /// words, never lost ones.
+  ///
+  /// ⚠️ 更正（RC-K，2026-09-24）：原为 a stored field. Now the envelope's end
+  /// (null when any stretch runs to the end), written for older apps only.
+  int? get owedRangeEndBytes {
+    int? end;
+    for (final OwedRange r in owedRanges) {
+      if (r.end == null) return null;
+      if (end == null || r.end! > end) end = r.end;
+    }
+    return end;
+  }
+
+  /// Card RC-K (NR-100) — EVERY stretch this recording still owes, or has owed,
+  /// sorted by start ([OwedRange]; retained_audio_owed_ranges.dart says why a
+  /// list). Empty ⇒ nothing was ever recorded as owed ⇒ the whole recording,
+  /// as before RC-3.
+  ///
+  /// WRITERS: [RetainedAudioJournal.setOwedRange] / `markOwedRangeDone`.
+  /// READER: `RetainedAudioJournalScan`, which feeds the first one still owed.
+  ///
+  /// 🔴 MIGRATION: a manifest written before this key decodes its old pair
+  /// (`transcribedPrefixBytes`, `owedRangeEndBytes`) into ONE range — the
+  /// RC-3b behaviour, unchanged. Additive; [formatVersion] does not move.
+  final List<OwedRange> owedRanges;
+
   const RecordingManifest({
     required this.recordingId,
     this.format = AudioJournalFormat.current,
@@ -486,6 +544,7 @@ class RecordingManifest {
     this.nextEligibleAtMs,
     this.claimAheadOfObservedAt,
     this.liveSettlePendingAtMs,
+    this.owedRanges = const <OwedRange>[],
   });
 
   RecordingManifest copyWith({
@@ -503,6 +562,7 @@ class RecordingManifest {
     int? claimAheadOfObservedAt,
     int? liveSettlePendingAtMs,
     bool clearLiveSettlePending = false,
+    List<OwedRange>? owedRanges,
   }) =>
       RecordingManifest(
         recordingId: recordingId,
@@ -531,6 +591,7 @@ class RecordingManifest {
         liveSettlePendingAtMs: clearLiveSettlePending
             ? null
             : (liveSettlePendingAtMs ?? this.liveSettlePendingAtMs),
+        owedRanges: owedRanges ?? this.owedRanges,
       );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -551,6 +612,13 @@ class RecordingManifest {
           'claimAheadOfObservedAt': claimAheadOfObservedAt,
         if (liveSettlePendingAtMs != null)
           'liveSettlePendingAtMs': liveSettlePendingAtMs,
+        if (transcribedPrefixBytes != null)
+          'transcribedPrefixBytes': transcribedPrefixBytes,
+        if (owedRangeEndBytes != null) 'owedRangeEndBytes': owedRangeEndBytes,
+        // RC-K — the list itself; the two keys above are its envelope, for an
+        // older app (which then re-feeds more: duplicated words, never lost).
+        if (owedRanges.isNotEmpty)
+          'owedRanges': owedRanges.map((OwedRange r) => r.toJson()).toList(),
       };
 
   String encode() => jsonEncode(toJson());
@@ -611,6 +679,8 @@ class RecordingManifest {
       // Additive and optional: a manifest written before SD-2 decodes to null,
       // i.e. 「no settle is pending」, which is the pre-SD-2 behaviour exactly.
       liveSettlePendingAtMs: _int(raw['liveSettlePendingAtMs']),
+      // RC-3 / RC-3b / RC-K — see [_owedRangesOf] for the migration.
+      owedRanges: _owedRangesOf(raw),
     );
   }
 }
@@ -623,6 +693,26 @@ class ManifestFormatException implements Exception {
 
   @override
   String toString() => 'ManifestFormatException: $message';
+}
+
+/// Card RC-K — the owed stretches of a decoded manifest.
+///
+/// `owedRanges` when present. Otherwise the RC-3 / RC-3b pair is ONE range —
+/// `[transcribedPrefixBytes, owedRangeEndBytes ?? end)` — which is exactly what
+/// the scan fed from it before this card (the migration); neither key ⇒ none.
+List<OwedRange> _owedRangesOf(Map<String, Object?> raw) {
+  final Object? list = raw['owedRanges'];
+  if (list is List) {
+    return <OwedRange>[
+      for (final Object? e in list)
+        if (OwedRange.fromJson(e) case final OwedRange r) r,
+    ]..sort((OwedRange a, OwedRange b) => a.start.compareTo(b.start));
+  }
+  final int? prefix = _int(raw['transcribedPrefixBytes']);
+  if (prefix == null) return const <OwedRange>[];
+  return <OwedRange>[
+    OwedRange(start: prefix, end: _int(raw['owedRangeEndBytes'])),
+  ];
 }
 
 String? _str(Object? v) => v is String ? v : null;

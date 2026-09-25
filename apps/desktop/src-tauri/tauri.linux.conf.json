@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "app.flowmic.linux",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "FlowMic",
+        "url": "index.html",
+        "width": 980,
+        "height": 680,
+        "minWidth": 720,
+        "minHeight": 520,
+        "center": true,
+        "resizable": true,
+        "decorations": false,
+        "transparent": false,
+        "shadow": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "visible": false
+      },
+      {
+        "label": "capsule",
+        "title": "FlowMic Capsule",
+        "url": "capsule.html",
+        "width": 560,
+        "height": 76,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "focusable": false,
+        "visible": false
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["appimage", "deb"],
+    "resources": [
+      "resources/server.js",
+      "resources/package.json",
+      "resources/node",
+      "resources/node_modules"
+    ]
+  }
+}

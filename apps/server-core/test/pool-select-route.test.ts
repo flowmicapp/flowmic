@@ -1,6 +1,6 @@
 // A6-3 pool selection — algorithm tests against an in-memory fake pool.
 //
-// SPEC-REF: docs/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md
+// SPEC-REF: docs/archive/strategy/2026-08-02-h6-soniox-streaming-adapter-card.md
 //   §-0d (B17 Q1/Q2/Q4), §-0e (two-layer resolution), §-0f tail (filter vs
 //   rank), §-0b (🔴 the acceptance that matters — see REVERSE CONTROL below).
 //

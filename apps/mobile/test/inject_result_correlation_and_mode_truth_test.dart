@@ -36,6 +36,7 @@ import 'package:flowmic/src/signaling/inbound_payloads.dart';
 import 'package:flowmic/src/signaling/wire_payloads.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
+import 'package:flowmic/src/ui/status_badge.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/di.dart';
 
@@ -169,5 +170,87 @@ void main() {
       });
       expect(r!.mode, isNull);
     });
+  });
+
+  group('L7 — submission uncertainty is independent and terminal', () {
+    test(
+      'write-back preserves content and PC identity, then latches late receipts',
+      () {
+        final TimelineStore store = newTestStore();
+        final TimelineEntry born = store.buildFromUtterance(
+          clientId: 'u-uncertain',
+          mode: FlowMode.realtime,
+          delivery: Delivery.inject,
+          text: 'may already be in the target',
+        );
+
+        expect(
+          store.applyInjectResult(
+            correlationId: born.id,
+            ok: false,
+            pcName: 'Linux PC',
+            failureReason: 'INJECT_SUBMISSION_UNCERTAIN',
+            wireMode: 'cached',
+          ),
+          isTrue,
+        );
+        final TimelineEntry uncertain = store.findById(born.id)!;
+        expect(uncertain.status, EntryStatus.cached);
+        expect(uncertain.outputText, born.outputText);
+        expect(uncertain.pcName, 'Linux PC');
+        expect(uncertain.cachedByVerdict, isTrue);
+        expect(
+          deliveryFaceOf(uncertain, queued: false),
+          DeliveryFace.injectionUncertain,
+        );
+        expect(
+          TimelineEntry.fromJson(uncertain.toJson())!.status,
+          EntryStatus.cached,
+        );
+
+        expect(
+          store.applyInjectResult(
+            correlationId: born.id,
+            ok: true,
+            pcName: 'Linux PC',
+          ),
+          isFalse,
+        );
+        expect(store.findById(born.id)!.status, EntryStatus.cached);
+
+        // A user's explicit action opens a fresh attempt; the terminal latch is
+        // specifically against automatic or late receipts.
+        expect(store.markReinjecting(born.id)!.status, EntryStatus.cached);
+        store.dispose();
+      },
+    );
+
+    for (final code in [
+      'INJECT_WAYLAND_UNSUPPORTED',
+      'INJECT_DISPLAY_UNAVAILABLE',
+    ]) {
+      test('$code stays delivered-not-injected, never uncertain', () {
+        final TimelineStore store = newTestStore();
+        final TimelineEntry born = store.buildFromUtterance(
+          clientId: 'u-wayland',
+          mode: FlowMode.realtime,
+          delivery: Delivery.inject,
+          text: 'kept on the PC',
+        );
+        store.applyInjectResult(
+          correlationId: born.id,
+          ok: false,
+          failureReason: code,
+          wireMode: 'cached',
+        );
+        final TimelineEntry row = store.findById(born.id)!;
+        expect(row.status, EntryStatus.cached);
+        expect(
+          deliveryFaceOf(row, queued: false),
+          DeliveryFace.deliveredNotInjected,
+        );
+        store.dispose();
+      });
+    }
   });
 }

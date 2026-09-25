@@ -1,7 +1,7 @@
 // SPEC-REF:
 //   docs/rebuild/03-SYSTEM-ARCHITECTURE.md §2 (stt/ orchestrator; compose/
 //     orchestrator — domain modules behind the socket handlers)
-//   docs/strategy/R1-TASK-CARDS.md WP-R1-3 (audio/stt engines), WP-R1-4 (compose)
+//   docs/archive/strategy/R1-TASK-CARDS.md WP-R1-3 (audio/stt engines), WP-R1-4 (compose)
 //   CLAUDE.md red line: no silent failure; an LLM failure must not silently fall
 //     back to injecting the raw STT text
 //
@@ -45,6 +45,13 @@ export interface SttOrchestrator {
    *  simply gets no while-streaming budget frames, which degrades to the
    *  join-time reading rather than to a made-up one. */
   readonly quotaDeadlineAt?: number | null;
+  /** Codex review item 4 (2026-09-24) — audio handed to ANY engine this
+   *  recording, in ms (the orchestrator's own `fedAudioMs`). Read by the
+   *  `audio:stop` finish watchdog (socket/handlers/audio-stop-watchdog.ts) to
+   *  size its allowance from the flush cap this recording can legitimately
+   *  need. OPTIONAL: an implementation that does not answer gets the fixed
+   *  fallback window, exactly as before. Implemented by SttSessionBridge. */
+  readonly fedAudioMs?: number;
 }
 
 /** Compose orchestrator seam (R1-4): runs one translate/organize/draft_polish

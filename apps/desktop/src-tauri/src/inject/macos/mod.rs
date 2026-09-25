@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-06-mac-usable-work-breakdown.md §A MAC-05 / MAC-06
+//   docs/archive/strategy/2026-08-06-mac-usable-work-breakdown.md §A MAC-05 / MAC-06
 //   docs/rebuild/07-DESKTOP-SPEC.md §2 (injection pipeline)
 //   *** HUMAN-AUDIT SENSITIVE (injection path) ***
 //

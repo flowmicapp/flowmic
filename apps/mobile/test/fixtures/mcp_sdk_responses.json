@@ -1,0 +1,400 @@
+{
+  "capturedAt": "2026-09-22T12:32:47.553Z",
+  "dependencies": {
+    "node_modules/@modelcontextprotocol/core": {
+      "version": "2.0.0",
+      "integrity": "sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA=="
+    },
+    "node_modules/@modelcontextprotocol/sdk": {
+      "version": "1.30.0",
+      "integrity": "sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA=="
+    },
+    "node_modules/@modelcontextprotocol/server": {
+      "version": "2.0.0",
+      "integrity": "sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw=="
+    }
+  },
+  "exchanges": [
+    {
+      "name": "modern-discover",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "flowmic-fixture-capture",
+              "version": "1.0.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "server/discover",
+        "MCP-Protocol-Version": "2026-07-28"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"result\":{\"supportedVersions\":[\"2026-07-28\"],\"capabilities\":{\"tools\":{\"listChanged\":true}},\"resultType\":\"complete\",\"ttlMs\":0,\"cacheScope\":\"private\",\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"flowmic-interoperability-fixture\",\"version\":\"1.0.0\"}}},\"jsonrpc\":\"2.0\",\"id\":1}"
+    },
+    {
+      "name": "modern-tools",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "flowmic-fixture-capture",
+              "version": "1.0.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "tools/list",
+        "MCP-Protocol-Version": "2026-07-28"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"result\":{\"tools\":[{\"name\":\"submit\",\"inputSchema\":{\"type\":\"object\",\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{\"payload\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"]},\"kind\":{\"type\":\"string\",\"enum\":[\"record\",\"task\"]}},\"required\":[\"payload\",\"kind\"]}},{\"name\":\"refuse\",\"inputSchema\":{\"type\":\"object\",\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"properties\":{}}}],\"resultType\":\"complete\",\"ttlMs\":0,\"cacheScope\":\"private\",\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"flowmic-interoperability-fixture\",\"version\":\"1.0.0\"}}},\"jsonrpc\":\"2.0\",\"id\":2}"
+    },
+    {
+      "name": "modern-success",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+          "name": "submit",
+          "arguments": {
+            "payload": {
+              "text": "synthetic-only"
+            },
+            "kind": "record"
+          },
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "flowmic-fixture-capture",
+              "version": "1.0.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "submit",
+        "MCP-Protocol-Version": "2026-07-28"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"fixture-tool-result\"}],\"resultType\":\"complete\",\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"flowmic-interoperability-fixture\",\"version\":\"1.0.0\"}}},\"jsonrpc\":\"2.0\",\"id\":3}"
+    },
+    {
+      "name": "modern-refusal",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+          "name": "refuse",
+          "arguments": {},
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "flowmic-fixture-capture",
+              "version": "1.0.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "refuse",
+        "MCP-Protocol-Version": "2026-07-28"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"fixture-tool-refusal\"}],\"isError\":true,\"resultType\":\"complete\",\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"flowmic-interoperability-fixture\",\"version\":\"1.0.0\"}}},\"jsonrpc\":\"2.0\",\"id\":4}"
+    },
+    {
+      "name": "unsupported-version",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2099-01-01",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "flowmic-fixture-capture",
+              "version": "1.0.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "server/discover",
+        "MCP-Protocol-Version": "2099-01-01"
+      },
+      "status": 400,
+      "headers": {
+        "content-type": "application/json",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32022,\"message\":\"Unsupported protocol version: 2099-01-01\",\"data\":{\"supported\":[\"2026-07-28\"],\"requested\":\"2099-01-01\"}},\"id\":5}"
+    },
+    {
+      "name": "modern-sse",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/call",
+        "params": {
+          "name": "submit",
+          "arguments": {
+            "payload": {
+              "text": "synthetic-only"
+            },
+            "kind": "task"
+          },
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "flowmic-fixture-capture",
+              "version": "1.0.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "submit",
+        "MCP-Protocol-Version": "2026-07-28"
+      },
+      "status": 200,
+      "headers": {
+        "cache-control": "no-cache, no-transform",
+        "content-type": "text/event-stream",
+        "transfer-encoding": "chunked",
+        "x-accel-buffering": "no"
+      },
+      "body": "event: message\ndata: {\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"fixture-tool-result\"}],\"resultType\":\"complete\",\"_meta\":{\"io.modelcontextprotocol/serverInfo\":{\"name\":\"flowmic-interoperability-fixture\",\"version\":\"1.0.0\"}}},\"jsonrpc\":\"2.0\",\"id\":6}\n\n"
+    },
+    {
+      "name": "auth-required",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "flowmic-fixture-capture",
+              "version": "1.0.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "server/discover",
+        "MCP-Protocol-Version": "2026-07-28"
+      },
+      "status": 401,
+      "headers": {
+        "content-type": "application/json",
+        "transfer-encoding": "chunked",
+        "www-authenticate": "Bearer error=\"invalid_token\", error_description=\"fixture-token-required\", resource_metadata=\"https://fixture.invalid/.well-known/oauth-protected-resource\""
+      },
+      "body": "{\"error\":\"invalid_token\",\"error_description\":\"fixture-token-required\"}"
+    },
+    {
+      "name": "legacy-discover-probe",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "flowmic-fixture-capture",
+              "version": "1.0.0"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "server/discover",
+        "MCP-Protocol-Version": "2026-07-28"
+      },
+      "status": 400,
+      "headers": {
+        "content-type": "application/json",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32000,\"message\":\"Bad Request: Server not initialized\"},\"id\":null}"
+    },
+    {
+      "name": "legacy-initialize",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25",
+          "capabilities": {},
+          "clientInfo": {
+            "name": "flowmic-fixture-capture",
+            "version": "1.0.0"
+          }
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "initialize"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "mcp-session-id": "fixture-session",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"tools\":{\"listChanged\":true}},\"serverInfo\":{\"name\":\"flowmic-interoperability-fixture\",\"version\":\"1.0.0\"}},\"jsonrpc\":\"2.0\",\"id\":9}"
+    },
+    {
+      "name": "legacy-initialized",
+      "request": {
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized",
+        "params": {}
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "notifications/initialized",
+        "MCP-Protocol-Version": "2025-11-25",
+        "Mcp-Session-Id": "fixture-session"
+      },
+      "status": 202,
+      "headers": {
+        "transfer-encoding": "chunked"
+      },
+      "body": ""
+    },
+    {
+      "name": "legacy-tools",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/list",
+        "params": {}
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "tools/list",
+        "MCP-Protocol-Version": "2025-11-25",
+        "Mcp-Session-Id": "fixture-session"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "mcp-session-id": "fixture-session",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"result\":{\"tools\":[{\"name\":\"submit\",\"inputSchema\":{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"object\",\"properties\":{\"payload\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"]},\"kind\":{\"type\":\"string\",\"enum\":[\"record\",\"task\"]}},\"required\":[\"payload\",\"kind\"]},\"execution\":{\"taskSupport\":\"forbidden\"}},{\"name\":\"refuse\",\"inputSchema\":{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"object\",\"properties\":{}},\"execution\":{\"taskSupport\":\"forbidden\"}}]},\"jsonrpc\":\"2.0\",\"id\":10}"
+    },
+    {
+      "name": "legacy-tools-page-one",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/list",
+        "params": {}
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "tools/list",
+        "MCP-Protocol-Version": "2025-11-25",
+        "Mcp-Session-Id": "fixture-session"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "mcp-session-id": "fixture-session",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"result\":{\"tools\":[{\"name\":\"submit\",\"inputSchema\":{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"object\",\"properties\":{\"payload\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"]},\"kind\":{\"type\":\"string\",\"enum\":[\"record\",\"task\"]}},\"required\":[\"payload\",\"kind\"]},\"execution\":{\"taskSupport\":\"forbidden\"}}],\"nextCursor\":\"second-page\"},\"jsonrpc\":\"2.0\",\"id\":11}"
+    },
+    {
+      "name": "legacy-tools-page-two",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/list",
+        "params": {
+          "cursor": "second-page"
+        }
+      },
+      "requestHeaders": {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Method": "tools/list",
+        "MCP-Protocol-Version": "2025-11-25",
+        "Mcp-Session-Id": "fixture-session"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "mcp-session-id": "fixture-session",
+        "transfer-encoding": "chunked"
+      },
+      "body": "{\"result\":{\"tools\":[{\"name\":\"refuse\",\"inputSchema\":{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"type\":\"object\",\"properties\":{}},\"execution\":{\"taskSupport\":\"forbidden\"}}]},\"jsonrpc\":\"2.0\",\"id\":12}"
+    }
+  ]
+}

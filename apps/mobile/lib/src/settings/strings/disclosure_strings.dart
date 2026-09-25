@@ -7,7 +7,7 @@
 // lying. Every factual claim has a code coordinate:
 //
 // 🔴 HEADER REFRESH — 2026-08-19, machine dev-pc-a, WP-3 report §7 item 6
-// (docs/strategy/2026-08-18-lan-fable-wp3-report.md). Everything below was
+// (docs/archive/strategy/2026-08-18-lan-fable-wp3-report.md). Everything below was
 // written BEFORE the 0.3.8 copy rewrite (WP3 C16, commit 611a05bf, 2026-08-18)
 // turned the step bodies into diagram captions. Every coordinate has now been
 // walked against the tree. NOTHING IS DELETED: where a claim was true and
@@ -93,7 +93,7 @@
 //       apps/server-core/src/compose/llm-config.ts  managedLlmConfig()
 //   · which vendor / endpoint / model that is
 //       docs/decisions/2026-08-02-production-engine-lineup-soniox-deepseek.md
-//       docs/strategy/2026-08-06-engine-switch-execution-brief.md §5
+//       docs/archive/strategy/2026-08-06-engine-switch-execution-brief.md §5
 // Pinned by test/data_flow_disclosure_test.dart, INVERTED rather than deleted:
 // the sentence must name the vendor that processes the text and must carry no
 // 「planned / not yet」 hedge. Sliding back into a plan is now as loud a failure
@@ -109,7 +109,7 @@
 //     `===`; a quotation that is not the bytes it claims to be is the same
 //     failure as a rotted line number, one character wide.)
 // and production deliberately does not set FLOWMIC_STT_POOL
-// (docs/strategy/2026-08-06-w1-engine-switch-ledger.md §5; measured on the box
+// (docs/archive/strategy/2026-08-06-w1-engine-switch-ledger.md §5; measured on the box
 // as `candidates:1`). loadPool() therefore synthesises a ONE-route pool, health
 // is null, and no failover can occur. The copy promised the user a mechanism the
 // deployment does not have. A second overstatement rode along: route selection
@@ -161,7 +161,7 @@
 //   apps/server-core/src/engine/stt-factory.ts  resolvePolishDep()
 //     — resolves through the SAME resolveLlmConfigWithSource() the compose turn
 //       uses, and never reads `mode` at all
-//   apps/server-core/src/engine/stt-session.ts:236
+//   apps/server-core/src/engine/stt-session.ts:250
 //     `if (this.deps.polish && !isSegment && this.polishDelivery() === 'sync')`
 //     【CORRECTED 2026-08-19 — this header quoted the guard's first two clauses
 //     as the whole condition. A third was added when the DETACHED (replace-late)

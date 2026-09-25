@@ -26,11 +26,17 @@
 // measurement). What IS asserted: one line per member, each starting with the
 // range the page shows for that member, in the page's order, and all three
 // sentences present — which is the owner's expectation exactly.
+//
+// CR-12-F (2026-09-22): the piece is now one line per PARAGRAPH (the CR-12-B
+// grouping the page draws), not one per member. The expectation below is
+// derived from the same three functions the page and the renderer use.
 
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart' show articleMembersOf;
-import 'package:flowmic/src/ui/article_page.dart' show formatArticleRange;
+import 'package:flowmic/src/timeline/article_paragraphs.dart'
+    show ArticleParagraph, paragraphText, paragraphsOf;
+import 'package:flowmic/src/ui/article_page.dart' show formatParagraphRange;
 import 'package:flowmic/src/ui/chat_article_tile.dart';
 import 'package:flowmic/src/ui/chat_message_tile.dart';
 import 'package:flutter/material.dart' show Text, ValueKey;
@@ -44,9 +50,19 @@ const AppStrings _zh = AppStringsZh();
 /// What the clipboard MUST hold for this recording, derived from the same rows
 /// and the same formatter the page renders — not typed by hand, because the
 /// segment boundaries under `runAsync` are a fixture property (see header).
+List<ArticleParagraph> _paragraphs(ArticleRig r, String articleId) =>
+    <ArticleParagraph>[
+      for (final ArticleParagraph p
+          in paragraphsOf(articleMembersOf(r.store, articleId)))
+        if (paragraphText(p).isNotEmpty) p,
+    ];
+
 String _expectedPiece(ArticleRig r, String articleId) => <String>[
-      for (final TimelineEntry m in articleMembersOf(r.store, articleId))
-        '${formatArticleRange(m)} ${m.displayText}',
+      for (final ArticleParagraph p in _paragraphs(r, articleId))
+        <String>[
+          if (formatParagraphRange(p) != null) formatParagraphRange(p)!,
+          paragraphText(p),
+        ].join(' '),
     ].join('\n');
 
 void main() {
@@ -90,8 +106,8 @@ void main() {
     // Spelled out, so a reader of a failure sees what the owner asked for
     // rather than a diff of two derived strings.
     final List<String> lines = got.split('\n');
-    expect(lines.length, articleMembersOf(r.store, articleId).length,
-        reason: 'one line per segment');
+    expect(lines.length, _paragraphs(r, articleId).length,
+        reason: 'one line per paragraph');
     for (final String line in lines) {
       expect(RegExp(r'^\d\d:\d\d(–\d\d:\d\d)? ').hasMatch(line), isTrue,
           reason: 'each line starts with the page\'s range label — got "$line"');

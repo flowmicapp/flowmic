@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 /// (`ok:true`, mode ≠ cached): NOT `InjectOutcome`, NOT the wire `Value` — no
 /// window title, no injected_at, no error detail, no text. Just enough to
 /// answer 「这条打过了吗」("has this one already been typed") honestly.
+/// L-7 adds explicitly marked uncertain submissions; those are not typed claims.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(in crate::socket) struct TypedLedgerEntry {
     pub(in crate::socket) request_id: String,
@@ -23,7 +24,17 @@ pub(in crate::socket) struct TypedLedgerEntry {
     /// (untouched) utterance is never recorded here, on disk any more than in
     /// memory (`record`'s existing `mode != Cached` guard, unchanged by RV-83).
     pub(in crate::socket) mode: String,
+    /// Partial-submission fact; absent in legacy successes. Contract: 07-DESKTOP-SPEC §2.
+    /// Decision: docs/decisions/2026-09-22-linux-inject-verdict-codes-and-no-new-history-status.md
+    /// (Chose / INJECT_SUBMISSION_UNCERTAIN; first responsible person, owner may overturn).
+    /// This does not assert that any input reached the target application.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(in crate::socket) submission_uncertain: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::socket) recorded_at_ms: Option<u64>,
 }
+
+fn is_false(value: &bool) -> bool { !value }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(in crate::socket) struct TypedLedgerFile {
@@ -33,6 +44,8 @@ pub(in crate::socket) struct TypedLedgerFile {
     /// so this file can never hold more than 256 short records no matter how
     /// long the process runs. The bound is the existing owner-approved 07 §2
     /// constant, not a new one invented for this file.
+    /// Review correction: successful entries retain LRU(256); uncertain entries
+    /// have their own age and 256-entry bound (dedup_uncertain.rs).
     pub(in crate::socket) entries: VecDeque<TypedLedgerEntry>,
 }
 

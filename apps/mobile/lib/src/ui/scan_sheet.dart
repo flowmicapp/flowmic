@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-30/GA-31
+//   docs/archive/strategy/2026-07-25-full-gap-audit/05-WAVE-F-OWNER-ROUND.md GA-30/GA-31
 //   CLAUDE.md red line: no silent failures
 //
 // ONE camera sheet, two callers.

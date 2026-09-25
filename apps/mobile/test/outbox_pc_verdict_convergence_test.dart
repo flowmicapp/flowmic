@@ -166,6 +166,9 @@ void main() {
         'INJECT_TARGET_INVALID',
         'INJECT_SENDINPUT_FAIL',
         'INJECT_NO_TEXT_TARGET',
+        'INJECT_WAYLAND_UNSUPPORTED',
+        'INJECT_DISPLAY_UNAVAILABLE',
+        'INJECT_SUBMISSION_UNCERTAIN',
         'INJECT_DEFERRED_NOT_AUTOINJECTED',
         // MAC-05 (owner 2026-08-07 approved 63/64).
         'INJECT_SECURE_INPUT_ACTIVE',
@@ -184,6 +187,24 @@ void main() {
         );
         box.dispose();
       }
+    });
+
+    test('submission uncertainty ends automatic delivery debt permanently', () async {
+      final _Host host = _Host();
+      final OutboxStore store = InMemoryOutboxStore();
+      final DeliveryOutbox box = _box(host, store);
+      await _enqueue(box);
+      await box.drain();
+      await box.settle(
+        correlationId: 'r1',
+        ok: false,
+        code: 'INJECT_SUBMISSION_UNCERTAIN',
+      );
+      expect((await _read(store, 'r1'))!.state, OutboxDeliveryState.delivered);
+      final int before = host.sends;
+      await box.drain();
+      expect(host.sends, before);
+      box.dispose();
     });
   });
 
@@ -285,18 +306,27 @@ void main() {
       }
     });
 
-    test('🔴 INJECT_NOT_PRIMARY (an admission refusal the PC spoke) still returns queued', () async {
+    test('🔴 both admission refusals the target spoke still return queued', () async {
       // owner 2026-08-02:「被占用时……只能先记录等它退出」— the PC said it, but what it
       // said is the admission layer. Authorship is three values, not two;
       // this case is the entire reason.
-      final _Host host = _Host();
-      final OutboxStore store = InMemoryOutboxStore();
-      final DeliveryOutbox box = _box(host, store);
-      await _enqueue(box);
-      await box.drain();
-      await box.settle(correlationId: 'r1', ok: false, code: 'INJECT_NOT_PRIMARY');
-      expect((await _read(store, 'r1'))!.state, OutboxDeliveryState.queued);
-      box.dispose();
+      for (final String code in <String>[
+        'INJECT_NOT_PRIMARY',
+        'INJECT_TARGET_NOT_READY',
+      ]) {
+        final _Host host = _Host();
+        final OutboxStore store = InMemoryOutboxStore();
+        final DeliveryOutbox box = _box(host, store);
+        await _enqueue(box);
+        await box.drain();
+        await box.settle(correlationId: 'r1', ok: false, code: code);
+        expect(
+          (await _read(store, 'r1'))!.state,
+          OutboxDeliveryState.queued,
+          reason: code,
+        );
+        box.dispose();
+      }
     });
 
     test('a terminal refusal code is still refused (a red-line code must not be read as delivered)', () async {
@@ -454,16 +484,10 @@ void main() {
       return s.findById(born.id)!;
     }
 
-    test('🔴 INJECT_NOT_PRIMARY on the real path ⇒ row = 「待投递」, none of the four languages contain 「未投递」', () {
+    test('🔴 both admission refusals on the real path ⇒ row = 「待投递」, never 「未投递」', () {
       // The desktop stamps exactly 'sendinput' (`client.rs`
       // `build_inject_result(false, "sendinput", Some(error_codes::INJECT_NOT_PRIMARY), …)`);
       // feed that in as-is.
-      final TimelineEntry row = settleWith('INJECT_NOT_PRIMARY', 'sendinput');
-      expect(row.status, EntryStatus.cached, reason: 'not failed — the queue still owes it');
-      expect(row.cachedByVerdict, isTrue);
-      final DeliveryFace face = deliveryFaceOf(row, queued: false);
-      expect(face, DeliveryFace.undelivered);
-
       // Nine-locale expansion (2026-08-14): four Maps + `[loc]!` ⇒ exhaustive
       // switch (the five new locales used to crash on a null assertion). Each
       // locale's banned word is that locale's wording for the 「未投递」 state,
@@ -479,15 +503,29 @@ void main() {
         AppLocale.ko => '미전송',
         AppLocale.ru => 'Не доставлено',
       };
-      for (final AppLocale loc in AppLocale.values) {
-        final String word = deliveryFaceMeta(face, AppStrings(loc)).label;
-        expect(word.isNotEmpty, isTrue, reason: '$loc');
+      for (final String code in <String>[
+        'INJECT_NOT_PRIMARY',
+        'INJECT_TARGET_NOT_READY',
+      ]) {
+        final TimelineEntry row = settleWith(code, 'sendinput');
         expect(
-          word.contains(banned(loc)),
-          isFalse,
-          reason: '$loc said 「${banned(loc)}」: $word — owner forbade this explicitly',
+          row.status,
+          EntryStatus.cached,
+          reason: '$code: not failed — the queue still owes it',
         );
-        expect(word, AppStrings(loc).statusUndelivered, reason: '$loc');
+        expect(row.cachedByVerdict, isTrue, reason: code);
+        final DeliveryFace face = deliveryFaceOf(row, queued: false);
+        expect(face, DeliveryFace.undelivered, reason: code);
+        for (final AppLocale loc in AppLocale.values) {
+          final String word = deliveryFaceMeta(face, AppStrings(loc)).label;
+          expect(word.isNotEmpty, isTrue, reason: '$code $loc');
+          expect(
+            word.contains(banned(loc)),
+            isFalse,
+            reason: '$code $loc said 「${banned(loc)}」: $word — owner forbade this explicitly',
+          );
+          expect(word, AppStrings(loc).statusUndelivered, reason: '$code $loc');
+        }
       }
     });
 

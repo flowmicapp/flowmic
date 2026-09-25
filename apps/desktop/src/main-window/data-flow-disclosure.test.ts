@@ -567,7 +567,7 @@ describe('P1 — the product says where the user’s words go', () => {
     // own hardware」. Inside ②'s numbering that is TRUE — this bullet is one
     // branch of 「which engine hears you」, and where the TEXT goes afterwards is
     // ③'s subject. The audit graded it accurate for exactly that reason
-    // (docs/strategy/2026-08-13-req1309-stt-llm-audit.md A2).
+    // (docs/archive/strategy/2026-08-13-req1309-stt-llm-audit.md A2).
     //
     // 🔴 SO WHY GUARD A TRUE SENTENCE: the numbering is not part of the sentence.
     // This line is quotable on its own — a screenshot, a support reply, a review

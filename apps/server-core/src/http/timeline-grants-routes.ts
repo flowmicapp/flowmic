@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-11-design-e-grant-web-preview.md §3.4 (REST list +
+//   docs/archive/strategy/2026-08-11-design-e-grant-web-preview.md §3.4 (REST list +
 //     revoke, volume-09 verbatim; revocation = the server refuses the next pull,
 //     the web zeroizes on TIMELINE_GRANT_REQUIRED — no push event, no new
 //     event name)

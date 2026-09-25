@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-22-clipboard-restore-race-findings.md (the P0 this rule
+//   docs/archive/strategy/2026-08-22-clipboard-restore-race-findings.md (the P0 this rule
 //     is the fix for, with the measurements)
 //   master-plan §4 / CLAUDE.md red line R11: a status word must be able to answer
 //     "on what grounds do you say that"

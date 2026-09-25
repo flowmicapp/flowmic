@@ -10,7 +10,7 @@
 // lesson (fifteen adapter tests, all green, all driving a FakeWs that answered
 // the way we had assumed, while the real vendor did not). What IS real about
 // the provider was measured live and is recorded in
-// docs/strategy/2026-08-29-creem-stage0-findings.md §2b. What these cases prove
+// docs/archive/strategy/2026-08-29-creem-stage0-findings.md §2b. What these cases prove
 // is the half that is ours: who is admitted, what we refuse and why, what we
 // send, and — the one that costs actual money — WHEN WE DO NOT CALL AT ALL.
 //

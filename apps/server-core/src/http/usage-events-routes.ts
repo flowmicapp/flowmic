@@ -1,5 +1,5 @@
 // SPEC-REF:
-//   docs/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md §5.5
+//   docs/archive/strategy/2026-08-12-req1208-usage-log-storage-audit-and-design.md §5.5
 //     (the two read APIs, and the three idioms they must copy verbatim)
 //   src/db/repos/usage-events.repo.ts (the store this exposes)
 //   src/http/ops-routes.ts (the `limit` REFUSE-not-CLAMP + keyset idioms)

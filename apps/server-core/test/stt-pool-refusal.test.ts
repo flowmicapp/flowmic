@@ -4,7 +4,7 @@
 //   packages/protocol/src/error-codes.ts  STT_POOL_NO_ROUTE (the argument for the code)
 //   apps/server-core/src/stt/pool-routing.ts  the refusal site + `noRouteFor`
 //   apps/server-core/src/stt/engine-factory.ts  the throw site that names the failure
-//   docs/strategy/2026-08-16-lan-fable-settings-efficacy-report.md §5-4 (the finding)
+//   docs/archive/strategy/2026-08-16-lan-fable-settings-efficacy-report.md §5-4 (the finding)
 //
 // 🔴 WHAT THIS FILE PROVES.
 //   · a CONFIGURED pool that refuses a language ends in STT_POOL_NO_ROUTE, and the

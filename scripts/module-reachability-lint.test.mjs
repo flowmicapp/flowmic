@@ -3,7 +3,7 @@
 // WHY THIS EXISTS. That lint is the whole-module anti-façade gate, and until
 // ADM-P0-1 it could be talked into green: a `// import … from './x'` left as
 // an explanation counted as a live import edge. Measured on the bare IMPORT_RE
-// (docs/strategy/2026-08-10-adm-p0-findings.md §1): line-commented and
+// (docs/archive/strategy/2026-08-10-adm-p0-findings.md §1): line-commented and
 // block-commented imports both COUNTED. False green is the worst failure mode
 // for a gate whose only job is to catch unwired capabilities.
 //

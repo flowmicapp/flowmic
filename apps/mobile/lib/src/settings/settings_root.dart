@@ -30,6 +30,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../portable/portable_ports.dart';
+import '../mcp/mcp_settings_backup.dart';
 import '../portable/settings_backup.dart';
 import '../signaling/socket_core.dart';
 import 'llm_capability.dart';
@@ -49,6 +50,7 @@ class SettingsRoot {
     required String workDir,
     required String? deviceName,
     required Future<void> Function() reloadLocalHabits,
+    required McpSettingsPort mcp,
   }) : client = SettingsClient(transport: transport, roomJoins: roomJoins),
        _cardCache = SharedPrefsScenarioCardCache(prefs),
        _prefsStore = SharedPrefsPrefsStore(prefs),
@@ -64,6 +66,7 @@ class SettingsRoot {
     phonePrefs = PhonePrefsCarrier(scenario: scenario, prefs: this.prefs);
     backup = SettingsBackup(
       prefs: prefs,
+      mcp: mcp,
       destination: destination,
       source: source,
       version: version,

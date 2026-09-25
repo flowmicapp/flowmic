@@ -78,6 +78,13 @@ Map<String, Object?> timelineEntryToJson(TimelineEntry e) =>
   // row's payload would grow the ciphertext of a feature most rows never use.
   if (e.articleId != null) 'article_id': e.articleId,
   if (e.articleOffsetMs != null) 'article_offset_ms': e.articleOffsetMs,
+  // 🔴 CR-12-D — absent, not null, for the same reason as the two keys above,
+  // and with a sharper consequence: on read an absent key and a written null
+  // both land on `null`, which this field already defines as 「我不知道」. No SQL
+  // column and no schema bump — `payload` is one JSON TEXT column, exactly as
+  // `article_offset_ms` rides it. If a future card ever projects this into a
+  // column, that migration must be idempotent, replayable and additive-only.
+  if (e.pauseBeforeMs != null) 'pause_before_ms': e.pauseBeforeMs,
   // D7 ③ (2026-09-03) — absent, not null, on every row not born from speech,
   // for the same reason as `article_id` above. Rides the one `payload` column;
   // nothing SELECTs by it, so no projected column and no migration.
@@ -170,6 +177,10 @@ TimelineEntry? timelineEntryFromJson(Map<String, Object?> j) {
         ? j['article_id'] as String
         : null,
     articleOffsetMs: (j['article_offset_ms'] as num?)?.toInt(),
+    // Absent on every row written before this card → null, which is the truth:
+    // nothing measured the silence in front of those rows, and no migration
+    // could invent it.
+    pauseBeforeMs: (j['pause_before_ms'] as num?)?.toInt(),
     // D7 ③ — absent on every row written before ids existed → null, and no
     // migration could invent one; a refine for such a row is simply dropped.
     utteranceId:

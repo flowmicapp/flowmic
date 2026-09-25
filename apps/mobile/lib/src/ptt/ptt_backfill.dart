@@ -66,7 +66,7 @@ const int kBackfillChunkBytes = 6400;
 /// renders them had exactly one sentence, which said the first one. MEASURED
 /// 2026-09-12 on TB335ZC with the network off: the card answered 「a recording
 /// is running」 while the microphone was closed
-/// (docs/strategy/2026-09-12-phone-pending-transcription-retry-rca.md §1-3).
+/// (docs/archive/strategy/2026-09-12-phone-pending-transcription-retry-rca.md §1-3).
 /// A caller that only wants 「did it open」 asks [ok]; a caller that has to say
 /// WHY not reads the value.
 enum BackfillStart {
@@ -113,6 +113,9 @@ extension PttSessionBackfill on PttSession {
     }
     if (!sessionAcceptsPttDown(fsm.session)) return BackfillStart.sessionBusy;
     segments.clear();
+    // Card RC4 — BEFORE the FSM edge, because the FSM's `changes` stream is
+    // synchronous: the ASR health wire reads this inside `onPttDown`.
+    _openSessionIsRecovery = true;
     fsm.onPttDown();
     // Card FX-2 — recovered audio owns the wire now, and it is `none` for the
     // whole of it. Set HERE rather than derived at the row layer for the reason
@@ -121,6 +124,10 @@ extension PttSessionBackfill on PttSession {
     _openSessionDelivery = Delivery.none;
     // Card FX-3 — and this is how much audio it is about to feed.
     _openSessionRange = identity?.range;
+    // Card RC-N — a journal attempt registers itself with its cursor right
+    // after this returns (`recovery_leg_wire.dart` `_runOnWire`); the legacy
+    // leg has no identity, and its frames keep the placement they always had.
+    if (identity == null) articles.attempts.openedUntracked();
     // 04 SPEC 3.3-a's eight identifiers are SPREAD OVER the payload rather
     // than added to `AudioStartPayload`: that class sits at 697 lines in a
     // 700-line file (audit A9 discipline), and the merge belongs to the one
@@ -227,6 +234,10 @@ extension PttSessionBackfill on PttSession {
     required int seqStart,
     required int tsMsBase,
   }) {
+    // Follow-up (MAIN 2026-09-24) — a yielded attempt sends nothing more: the
+    // wire belongs to the live press now, and a recovered frame there would be
+    // live audio to the relay.
+    if (articles.attempts.wireYielded) return 0;
     int sent = 0;
     int seq = seqStart;
     for (int off = 0; off < block.length; off += kBackfillChunkBytes) {
@@ -251,10 +262,134 @@ extension PttSessionBackfill on PttSession {
   }
 
   /// Close the recovery session and let the terminal final come back.
+  ///
+  /// Card RC-M (MAIN ruling 1) — WITHOUT the GA-03 net. The relay flushes a
+  /// backlog before it answers (root cause §3.2: 26.7 s after `audio:stop`),
+  /// and the fixed 15 s net cut every such attempt as `stall_timeout` while
+  /// the words were on their way. The wait is the recovery leg's
+  /// (`RecoveryTimeouts`), and it ends it through [abortBackfill].
   void endBackfill() {
+    // A yielded attempt's stop already went out, with `discard`; the session
+    // on the wire now is the live press's, and this would end it.
+    if (articles.attempts.wireYielded) return;
     _safeEmit(FlowMicEvents.audioStop, const <String, Object?>{});
-    fsm.onPttUp();
+    fsm.onPttUp(armNet: false);
     diag('audio.backfill.end', const <String, Object?>{});
+  }
+
+  /// Card RC4 — the session open on the wire was opened by a recovery pass
+  /// ([beginBackfill], either leg), not by a person pressing the button.
+  ///
+  /// 🔴 THE PHANTOM PRESS (device rerun 4, `r4-YL-list-during-attempt1.png`).
+  /// A recovery drives the SAME FSM a press does (`fsm.onPttDown` above), and
+  /// every surface that asked the FSM 「is somebody recording」 answered yes:
+  /// the list drew a live 「转录中」 bubble with the engine's
+  /// `STT_NETWORK_DROP` sentence ending in 「请再说一遍」, and the button read
+  /// 「松开 结束」 with the swipe-up strip, while nobody held anything. The FSM
+  /// state answers 「what is the wire doing」; this answers 「whose session is
+  /// it」, and the user-facing surfaces need both (chat_ptt_lifecycle.dart
+  /// `pressSessionState`, chat_notices.dart, chat_asr_health_wire.dart).
+  ///
+  /// Written by the two openers before their FSM edge (here and
+  /// ptt_edges.dart `pttDown`), never cleared at the end of a session: like
+  /// [openSessionDelivery], it describes the session last opened, and only
+  /// the next opener changes the answer. Pinned by
+  /// `test/recovery_no_phantom_press_test.dart`.
+  bool get openSessionIsRecovery => _openSessionIsRecovery;
+
+  /// Card RC4 — a recovery pass owns the FSM right now (it is in a session
+  /// state that only an opener can reach). False at rest, whoever opened last.
+  bool get recoveryOwnsSession =>
+      _openSessionIsRecovery &&
+      (fsm.session == SessionState.recording ||
+          fsm.session == SessionState.processing ||
+          fsm.session == SessionState.justDone);
+
+  /// Follow-up (MAIN 2026-09-24) — a registered recovery attempt holds the
+  /// wire right now: the session is RECORDING (feeding) or PROCESSING
+  /// (waiting) on its behalf. A live press may take the wire from it
+  /// ([yieldRecoveryForLive]); the legacy segment leg is not registered and
+  /// keeps refusing the press as before.
+  bool get recoveryHoldsWire =>
+      articles.attempts.wireAttemptInFlight &&
+      (fsm.session == SessionState.recording ||
+          fsm.session == SessionState.processing);
+
+  /// Follow-up (MAIN 2026-09-24) — THE RECOVERY YIELDS TO LIVE SPEECH.
+  ///
+  /// Measured before this (phone A report, open items 3 and 4): while an
+  /// attempt held the wire the press button was shut for as long as the relay
+  /// took (RC-M lets that be minutes), and when a live stop's final and a
+  /// recovery did share the wire, the recovery's late segment finals could be
+  /// filed under the live press and the live settle declined.
+  ///
+  /// The attempt's session is thrown away on the relay (`discard`, the swipe-up
+  /// cancel's frame: server-core `audio.handler.ts` disposes it without a
+  /// flush and emits nothing further); its late frames are dropped here
+  /// (`RecoveryAttemptLedger.yieldWire`); the FSM comes back to rest for the
+  /// press. The recovery leg sees the yield and returns it as a refusal —
+  /// no failure, no backoff, the range still owed — and the pass runs again
+  /// once the live session has settled.
+  ///
+  /// ⚠️ Billing: the relay settles what was already fed on dispose, under the
+  /// attempt's operation id. An automatic attempt's id is derived from its job
+  /// (card RC-R, `deriveOperationId`), so the resumed attempt is the same
+  /// operation and the relay's `meterOnce` does not charge it again.
+  void yieldRecoveryForLive() => unawaited(_yieldRecovery('live'));
+
+  /// Card RC6 — the same yield, for an account change
+  /// (chat_ptt_lifecycle.dart `stopRecordingForAccountChange`), returning the
+  /// discard stop's acknowledgement so sign-out can wait for it
+  /// (login_controller.dart `_beforeAccountChange`, bounded there).
+  ///
+  /// 🔴 ALSO WHEN THE SOCKET IS ALREADY GONE. Measured on the device (rerun 5,
+  /// criterion 3): 登出 is reached from the home screen, leaving the chat page
+  /// disconnects the socket (main_page_builders.dart `onBack`), and once the
+  /// FSM's drop grace is over the session is `disconnected` — the attempt is
+  /// still waiting on its own clocks but [recoveryHoldsWire] is false. Nothing
+  /// yielded it, and it was written `failed / engine_progress` with a backoff.
+  /// Here any registered attempt still in flight
+  /// (`RecoveryAttemptLedger.wireAttemptInFlight`) yields; the stop is sent
+  /// only on a live link — on a dead one there is no session left to discard,
+  /// and a stop queued for the next socket would reach whichever account that
+  /// socket belongs to.
+  Future<void> yieldRecoveryForAccountChange() => _yieldRecovery('account_change');
+
+  /// The one yield. The leg sees it (`wasYielded`) and returns a refusal: no
+  /// failure, no backoff, the range still owed.
+  Future<void> _yieldRecovery(String reason) {
+    final String? id = articles.attempts.wireAttemptId;
+    articles.attempts.yieldWire();
+    final bool linked = fsm.connection == ConnectionState.connected;
+    diag(
+        reason == 'live'
+            ? 'audio.backfill.yielded_to_live'
+            : 'audio.backfill.yielded_for_account_change',
+        <String, Object?>{'attempt_id': id, 'stop_sent': linked});
+    final Future<void> acked;
+    if (linked) {
+      acked = () async {
+        try {
+          await transport.emitWithAck<Object?>(
+            FlowMicEvents.audioStop,
+            const <String, Object?>{'discard': true},
+            timeout: const Duration(seconds: 10),
+          );
+        } on Object {
+          // No acknowledgement (the link went): nothing more will come from
+          // that session over this socket either.
+        } finally {
+          articles.attempts.yieldedStopAcknowledged();
+        }
+      }();
+    } else {
+      // No socket, no session on it, no frames still to come from it.
+      articles.attempts.yieldedStopAcknowledged();
+      acked = Future<void>.value();
+    }
+    if (fsm.session == SessionState.recording) fsm.onPttUp(armNet: false);
+    fsm.releaseProcessing();
+    return acked;
   }
 
   /// Abandon a recovery session that cannot finish (the link died mid-feed).
@@ -264,8 +399,17 @@ extension PttSessionBackfill on PttSession {
   /// swiped up, wrong here: the server may already have finalised some of this
   /// stretch, and those rows are recovered words we asked for. This just returns
   /// the FSM to rest so the next attempt can begin.
+  ///
+  /// Card RC-M — also the recovery leg's way out of a wait its own clocks
+  /// ended: PROCESSING has no net for a recovery ([endBackfill]), so it is
+  /// released here, without a stall banner (the journal records the failure).
   void abortBackfill() {
-    if (fsm.session == SessionState.recording) fsm.onPttUp();
+    if (articles.attempts.wireYielded) return; // see [endBackfill]
+    if (fsm.session == SessionState.recording) {
+      fsm.onPttUp();
+    } else if (fsm.session == SessionState.processing) {
+      fsm.releaseProcessing();
+    }
     diag('audio.backfill.aborted', const <String, Object?>{});
   }
 }

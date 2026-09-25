@@ -24,5 +24,6 @@
   "AutostartEnabledButOff": "Der Autostart-Eintrag wurde geschrieben, das System meldet ihn aber als deaktiviert (er kann im Task-Manager unter „Autostart“ ausgeschaltet sein)",
   "AutostartStillEnabled": "Das System meldet den Autostart nach dem Entfernen weiterhin als aktiviert — das Entfernen ist nicht wirksam geworden",
   "AutostartRegOpenFailed": "Der Autostart-Registrierungsschlüssel konnte nicht geöffnet werden: {detail}",
-  "AutostartRewriteFailed": "Der Autostart-Eintrag konnte nicht mit einem Pfad in Anführungszeichen neu geschrieben werden: {detail}"
+  "AutostartRewriteFailed": "Der Autostart-Eintrag konnte nicht mit einem Pfad in Anführungszeichen neu geschrieben werden: {detail}",
+  "LinuxCapsuleUnavailable": "Die Kapsel ist in dieser Desktopsitzung nicht verfügbar. Das Hauptfenster wurde geöffnet."
 }

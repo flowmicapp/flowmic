@@ -125,6 +125,13 @@ const Set<String> kPcInjectionVerdictCodes = <String>{
   // answers. The ruling is a SECOND dimension, declared separately.
   'INJECT_SECURE_INPUT_ACTIVE',
   'INJECT_NO_ACCESSIBILITY',
+  // Linux display admission can accept delivery while refusing injection;
+  // submission uncertainty is stronger still: the PC cannot prove whether the
+  // target consumed the input. All are PC injection-stage verdicts, so the
+  // phone queue must stop automatic redelivery.
+  'INJECT_WAYLAND_UNSUPPORTED',
+  'INJECT_DISPLAY_UNAVAILABLE',
+  'INJECT_SUBMISSION_UNCERTAIN',
 };
 
 // ── SECOND DIMENSION — 「will the cause of this refusal clear by itself?」 ────
@@ -247,10 +254,10 @@ bool transientVerdictEarnsAnotherAttempt({
 /// 🔴 **THE PC RECEIVED THIS FRAME, BUT REFUSED IT AT THE ADMISSION LAYER**
 /// — it never ran the injection segment.
 ///
-/// Today only `INJECT_NOT_PRIMARY`: the desktop-side call in
-/// `socket/client.rs`'s `wire::build_inject_result` carrying
-/// `error_codes::INJECT_NOT_PRIMARY` — `gate.open()` is false, refused
-/// outright, never enters `run_inject`.
+/// Today this is either `INJECT_NOT_PRIMARY` (the desktop-side gate is held by
+/// another phone) or `INJECT_TARGET_NOT_READY` (the selected web target has not
+/// opened its admission gate). Both are spoken by the target that received the
+/// frame, and both refuse before the injection/transcript path runs.
 ///
 /// ⚠️ **Line numbers are deliberately NOT written here** (fixed 2026-08-07).
 /// The original text said `client.rs:535-542`, and today that call site is
@@ -278,6 +285,7 @@ bool transientVerdictEarnsAnotherAttempt({
 /// these three codes are terminal).
 const Set<String> kPcAdmissionRefusalCodes = <String>{
   'INJECT_NOT_PRIMARY',
+  'INJECT_TARGET_NOT_READY',
 };
 
 /// 🔴 「was this verdict reached by the PC at the **ADMISSION layer**」 (⇒

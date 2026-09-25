@@ -46,78 +46,8 @@ part 'live_draft_tile.dart';
 // `part` reasoning as above; the new file's header states the seam and says
 // plainly that it is a size cut, not a layering claim.
 part 'chat_row_reason.dart';
-
-// owner 2026-07-26 ④: was a bare HH:mm for every row — a day-old 19:08 read as
-// fresh. The dated rule lives (tested) in time_label.dart.
-
-/// 「PC名 → 窗口名」("PC name → window name") — this row **is addressed to
-/// which PC**, and (only present once it landed) **which window it entered**.
-///
-/// 🔴 Card L7 / owner 2026-08-02, verbatim: 「**the PC name must be shown**」.
-///
-/// ⚠️ This function used to only read [TimelineEntry.pcName], and that field
-/// **is only written once the row actually lands**
-/// (`timeline_store.dart`: `pcName: ok ? pcName : null`) ⇒ **precisely the
-/// rows that most need to know
-/// 「which PC is this one waiting on」** (pending delivery / undelivered /
-/// noted only) **show no PC name at all**.
-/// owner's sentence was pointing at exactly this hole.
-///
-/// Now two tiers:
-///   ① [TimelineEntry.spokenToInstanceName] —— the **destination**, frozen the
-///      moment the row was minted
-///      (`timeline_store.dart:305`, its only writer), so **every row has
-///      one**, regardless of whether delivery succeeded;
-///   ② [TimelineEntry.pcName] —— the one it **actually landed on**, present
-///      only for rows that landed.
-///
-/// 🔴 **When both exist, ② WINS**: the destination is 「who I meant to send it
-/// to」, `pcName` is 「where it actually
-/// went」, and the latter is the stronger fact. In the overwhelming majority
-/// of cases the two agree; the one time they do not (a re-pair, a PC renamed)
-/// we should say where it really went. **This is not merging two values into
-/// one** — they are still two fields answering two questions,
-/// this is only a **display priority**, and the one preferred is the one
-/// that can be proven.
-///
-/// Never invents a leg: neither present (legacy data) ⇒ nothing is drawn.
-String? _provenance(TimelineEntry e) {
-  final String dest = (e.spokenToInstanceName ?? '').trim();
-  final String landed = (e.pcName ?? '').trim();
-  final String pc = landed.isNotEmpty ? landed : dest;
-  final String win = (e.injectTarget?.windowTitle ?? '').trim();
-  if (pc.isEmpty && win.isEmpty) return null;
-  if (pc.isEmpty) return '→ $win';
-  if (win.isEmpty) return '→ $pc';
-  return '$pc → $win';
-}
-
-/// §4b-8 per-row display of transcription duration + word count. ONE function decides both whether the chip
-/// shows and what it says — same reasoning as [_reasonLineFor]'s own doc: two
-/// separately-maintained conditions (one gating render, one building text)
-/// are how they drift apart.
-///
-/// Word count is ALWAYS present for a non-picture row (`entryWordCount` only
-/// returns null for [TimelineEntry.isImage] — see entry_metrics.dart), so the
-/// duration clause is the only optional half: `durationMs == null` (no real
-/// duration was ever stamped on this row) drops the leading "12s · " rather
-/// than rendering a fabricated "0s" — the CLAUDE.md red line this card exists
-/// to respect (「不许画『0 秒』——那是把『没有』说成『零』」("must not draw '0
-/// seconds' — that turns 'none' into 'zero'")).
-String? _metricsLabel(TimelineEntry e, AppStrings strings) {
-  final int? words = entryWordCount(e);
-  if (words == null) return null; // picture row: nothing to count
-  final String wordsLabel = strings.entryWordCountLabel(words);
-  final int? ms = e.durationMs;
-  if (ms == null) return wordsLabel;
-  return '${formatEntryDuration(ms)} · $wordsLabel';
-}
-
-BoxDecoration _cardDecoration({Color? border}) => BoxDecoration(
-  color: FlowMicColors.surface,
-  border: Border.all(color: border ?? FlowMicColors.line),
-  borderRadius: BorderRadius.circular(18),
-);
+// 800-line cap: provenance and metrics helpers moved out VERBATIM.
+part 'chat_message_tile_helpers.dart';
 
 class ChatMessageTile extends StatelessWidget {
   const ChatMessageTile({
@@ -253,10 +183,10 @@ class ChatMessageTile extends StatelessWidget {
     // keypress frame left the device, which is the whole of what this end can prove.
     //
     // 🔴 THE FORK IS BEFORE `deliveryFaceOf`, DELIBERATELY. `TimelineEntry.status`
-    // on a control row is a structural filler (the column is non-null; see that
-    // field's doc) and is NOT this row's answer to anything — so the face function
-    // must never be asked about it. Putting the fork here is what makes that
-    // sentence structurally true rather than a promise.
+    // on a control row normally starts as a structural filler; ChatControlTile
+    // reads only its independent uncertain outcome. The message-delivery face
+    // function must never be asked about it. Putting the fork here keeps those
+    // two vocabularies structurally separate.
     if (entry.isControl) {
       return ChatControlTile(
         entry: entry,
@@ -370,7 +300,8 @@ class ChatMessageTile extends StatelessWidget {
         face == DeliveryFace.failed ||
         face == DeliveryFace.undelivered ||
         face == DeliveryFace.noFocus ||
-        face == DeliveryFace.deliveredNotInjected;
+        face == DeliveryFace.deliveredNotInjected ||
+        face == DeliveryFace.injectionUncertain;
     final bool canRetry =
         onRetry != null &&
         retryableFace &&

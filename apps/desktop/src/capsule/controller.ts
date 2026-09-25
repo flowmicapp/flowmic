@@ -84,6 +84,16 @@ export {
 // Re-exported here so no import site moved.
 import { morph, state, vis, watchdog } from './capsule-state';
 import { UtteranceView } from './utterance-view';
+import { engineRetryExpired, engineRetryFromFrame } from './engine-retry';
+
+/** NR-96 follow-up — the cell may no longer claim `reconnecting`: nothing backs it
+ *  (the watchdog fired, or the utterance started/stopped under it), so it goes
+ *  blank. Only ever called for a `reconnecting` cell; every other status is a
+ *  fresh fact and stays. */
+function blankStaleReconnect(): void {
+  if (state.engineStatus === 'reconnecting') state.engineSilent = true;
+  state.engineRetry = null;
+}
 export { morph, state, vis, watchdog } from './capsule-state';
 
 let speakStart = 0;
@@ -153,6 +163,7 @@ function onAudioStart(p: unknown): void {
   state.speakElapsedMs = 0;
   state.injected = null;
   state.injectFailed = null;
+  blankStaleReconnect(); // NR-96: a new utterance is a new ladder; the old claim is unbacked
   state.locked = true;
   speakStart = now;
   utteranceHadAudio = true;
@@ -171,6 +182,10 @@ function onAudioStart(p: unknown): void {
   // capsule that is already up, and the two answer different questions.
 }
 function onAudioStop(_p: unknown): void {
+  // NR-96-C: the activity ended, so its reconnect claim did too (book 15 §2.7 law 3's
+  // fourth edge) — the cell goes blank. A give-up that lands after release still
+  // arrives as `failed`, which onEngineStatus shows on its own.
+  blankStaleReconnect();
   // Speak ended; the inject:result (or the latch watchdog) moves the form on. The
   // lock is retained until an inject resolves (mirrors the Rust SPEAKING-lock
   // ruling), and audio:stop is NOT a watchdog heartbeat — if the final never
@@ -224,6 +239,10 @@ export function capsuleVisibleForTest(): boolean {
 
 
 function onInterim(p: unknown): void {
+  // NR-96: an interim comes only from a live engine's own handler — the engine is
+  // producing, so the cell says ready (see engine-retry.ts for why finals are not used).
+  if (state.engineStatus === 'reconnecting' || state.engineSilent) { state.engineStatus = 'ready'; state.engineKnown = true; }
+  state.engineSilent = false; state.engineRetry = null;
   morph.onSpeakingStart();
   utteranceView.onInterim(num(pick(p, 'segment_idx')), str(pick(p, 'text')));
   publishUtteranceView();
@@ -250,6 +269,11 @@ function onLevel(p: unknown): void {
 export function onInjectResult(p: unknown): void {
   const now = Date.now();
   const r = p as InjectResult;
+  const recent = state.recent.find((line) => line.id === r.row_id && line.channel === r.channel);
+  if (recent) {
+    recent.cachedCause = r.ok ? null : r.error ?? null;
+    if (r.error === 'INJECT_SUBMISSION_UNCERTAIN') recent.status = 'cached';
+  }
   watchdog.stop(); // latch closed normally by the remote inject:result
   vis.onSettled(); // injected | cached | inject_failed are ALL settled (INV-4)
   appendForensic('capsule', `settled ok=${r?.ok === true} mode=${r?.mode ?? '?'}`);
@@ -325,6 +349,7 @@ export function onInjectResult(p: unknown): void {
       // wire never fills it, so `focusTarget` is what actually shows. '' → no arrow.
       target: resultTarget || focusTarget,
       cached,
+      uncertain: code === 'INJECT_SUBMISSION_UNCERTAIN',
       // The ✗ face has always shown this. 🔴 The 📥 face now shows it TOO, but only
       // for a NAMED cause — see `cachedCause` below and docs/rebuild/15 §2.5e-4.
       reason: INJECT_FAIL_REASON[code] ?? S.cap_reason_unknown,
@@ -374,6 +399,14 @@ export function onEngineStatus(p: unknown): void {
   if (status === 'loading' || status === 'ready' || status === 'reconnecting' || status === 'failed') {
     state.engineStatus = status;
     state.engineKnown = true;
+    // NR-96-C: the count lives exactly as long as `reconnecting` does — every
+    // other status is the ladder's success or give-up edge (book 15 §2.7 law 2).
+    state.engineSilent = false;
+    if (status === 'reconnecting') {
+      state.engineRetry = engineRetryFromFrame(p, Date.now());
+    } else {
+      state.engineRetry = null;
+    }
   }
 }
 /** ✅ HAS A PRODUCER AGAIN (卡 P + 卡 D). Between 0.2.27 and the row-transit round no
@@ -530,6 +563,10 @@ export function fireAudioStartForTest(): void {
 export function fireRealAudioStartForTest(p: unknown = {}): void {
   onAudioStart(p);
 }
+/** NR-96 seam — drives the REAL private onAudioStop (same precedent as above). */
+export function fireAudioStopForTest(p: unknown = {}): void {
+  onAudioStop(p);
+}
 /** Utterance-view seams: drive the REAL private stt handlers, so a test asserts
  *  the wiring (payload -> view -> the two rendered fields) and not a hand-built
  *  copy of it. Same precedent as [fireRealAudioStartForTest]. */
@@ -558,6 +595,11 @@ export function fireTickForTest(): void {
 function tick(): void {
   const now = Date.now();
   if (watchdog.check(now)) onLatchStarved();
+  // NR-96-C — R3: the relay-fed count has a local deadline read off its own frame.
+  if (state.engineRetry !== null && engineRetryExpired(state.engineRetry, now)) {
+    blankStaleReconnect(); // the truth is unknown: the cell says nothing
+    appendForensic('capsule', 'engine reconnect cell blanked: no newer engine-status or interim before the frame deadline (progress silent)');
+  }
   // The speaking row's live duration. Driven by the EXISTING 150ms tick rather
   // than a timer of its own: a second clock would be a second answer to 「how
   // long has this been running」, and the two would disagree the moment one of

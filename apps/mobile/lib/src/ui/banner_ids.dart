@@ -121,6 +121,22 @@ class BannerIds {
   /// with the auto-hide reconciler like every other past-event banner.
   static const String controlKeyRefused = 'control_key_refused';
 
+  /// Card NR-96-E1 — `mobile:reconnect` went unanswered past its bound and the
+  /// phone has stopped asking on its own (`HoldOutRetry.noteLostAck`).
+  ///
+  /// 🔴 ITS OWN ID, NOT [link]. [link] is the socket, and in this state the
+  /// socket is UP — the server simply never answered the ask to rejoin the
+  /// room. Sharing the id would let a healthy link row erase the one sentence
+  /// that says why nothing is being delivered. EVENT-type (design §4 E1).
+  static const String reconnectAckLost = 'reconnect_ack_lost';
+
+  /// Card RC-3 — a long recording is still capturing while the relay has lost
+  /// its speech-engine leg. ITS OWN ID, NOT [link], for the reason
+  /// [reconnectAckLost] gives: the socket is UP here, and the link row must not
+  /// be the thing that speaks for (or erases) an engine outage. STATE-type:
+  /// it goes when a leg is heard from again or the recording ends.
+  static const String continuousEngineDown = 'continuous_engine_down';
+
   // `timelineConflict` was removed in 0.2.27 with the banner it keyed (see
   // buildChatBanners). A banner id nothing can push is dead weight that reads
   // like a live surface.
