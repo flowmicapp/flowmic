@@ -67,7 +67,7 @@ Future<void> main() async {
       schema: <String, Object?>{'type': 'object'}, mapping: <String, Object?>{}, credential: secret);
     final McpReply discovered = await service.discover(draft.id);
     if (!discovered.succeeded) throw StateError('fixture discovery failed: ${discovered.reason}');
-    final Map tool = (discovered.result!['tools']! as List).cast<Map>().firstWhere((Map t) => t['name'] == 'submit');
+    final Map<dynamic, dynamic> tool = (discovered.result!['tools']! as List).cast<Map<dynamic, dynamic>>().firstWhere((Map<dynamic, dynamic> t) => t['name'] == 'submit');
     await service.configure(id: draft.id, name: draft.name, tool: 'submit',
       schema: (tool['inputSchema'] as Map).cast<String, Object?>(),
       mapping: <String, Object?>{'/payload/text': <String, Object?>{'source': 'outputText'}, '/kind': <String, Object?>{'source': 'fixed', 'value': 'record'}},

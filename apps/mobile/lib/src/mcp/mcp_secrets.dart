@@ -34,7 +34,7 @@ class SecureMcpSecretStore implements McpSecretStore {
     if (value == null) return null;
     // Corruption is a named failure, not an invented unauthenticated endpoint.
     try {
-      final Map raw = jsonDecode(value) as Map;
+      final Map<dynamic, dynamic> raw = jsonDecode(value) as Map;
       final Uri endpoint = Uri.parse(raw['endpoint'] as String);
       validateMcpEndpoint(endpoint);
       return McpSecrets(endpoint: endpoint, token: raw['token'] as String?,

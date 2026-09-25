@@ -5,11 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import '../lib/src/diag/diag_log.dart';
-import '../lib/src/mcp/mcp_schema.dart';
-import '../lib/src/signaling/wire_payloads.dart';
-import '../lib/src/timeline/timeline_entry.dart';
-import '../lib/src/timeline/timeline_sqlite.dart';
+import 'package:flowmic/src/diag/diag_log.dart';
+import 'package:flowmic/src/mcp/mcp_schema.dart';
+import 'package:flowmic/src/signaling/wire_payloads.dart';
+import 'package:flowmic/src/timeline/timeline_entry.dart';
+import 'package:flowmic/src/timeline/timeline_sqlite.dart';
 
 void main() {
   sqfliteFfiInit();

@@ -119,7 +119,7 @@ class _Rig {
       transport.pushIncoming(FlowMicEvents.controlKeyResult, <String, Object?>{
         'kind': kind,
         'ok': ok,
-        if (errorCode != null) 'error_code': errorCode,
+        'error_code': ?errorCode,
         'reason': ?reason,
         'request_id': ?requestId,
       });

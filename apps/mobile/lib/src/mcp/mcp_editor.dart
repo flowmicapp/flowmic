@@ -89,7 +89,7 @@ class McpEditor extends ChangeNotifier {
         restored = false;
         if (_revision == revision) { _dirty = false; error = null; }
       } on McpMappingError catch (e) { error = e.unsupported ? 'schema_unsupported' : 'local_mapping'; errorField = e.field; }
-      on StateError catch (e) { error = '${e.message}'; }
+      on StateError catch (e) { error = e.message; }
       on FormatException { error = 'https_required'; }
       on Object { error = 'storage_unavailable'; }
       _notify();
@@ -108,7 +108,7 @@ class McpEditor extends ChangeNotifier {
     if (revision == _revision) {
       tested = reply;
       tools = reply.succeeded
-        ? (reply.result!['tools']! as List).whereType<Map>().map((Map t) => t.cast<String, Object?>()).toList()
+        ? (reply.result!['tools']! as List).whereType<Map<dynamic, dynamic>>().map((Map<dynamic, dynamic> t) => t.cast<String, Object?>()).toList()
         : <Map<String, Object?>>[];
       if (reply.succeeded && channel != null && tool.isNotEmpty) tested = await service.testChannel(channel!.id);
     }

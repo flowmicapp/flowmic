@@ -174,8 +174,8 @@ class McpService extends ChangeNotifier {
   Future<McpReply> _listAndValidate(McpChannel channel, McpSecrets credential) async {
     final McpReply reply = await _client(channel, credential).listTools();
     if (!reply.succeeded) return reply;
-    final List<Map> tools = (reply.result!['tools']! as List).whereType<Map>().toList();
-    final List<Map> matches = tools.where((Map t) => t['name'] == channel.tool).toList();
+    final List<Map<dynamic, dynamic>> tools = (reply.result!['tools']! as List).whereType<Map<dynamic, dynamic>>().toList();
+    final List<Map<dynamic, dynamic>> matches = tools.where((Map<dynamic, dynamic> t) => t['name'] == channel.tool).toList();
     if (matches.length != 1) {
       await store!.setState(channel.id, channel.generation, McpChannelState.toolMissing);
       return const McpReply(McpEvidence.notExecuted, 'tool_missing');
@@ -240,9 +240,13 @@ class McpService extends ChangeNotifier {
         final List<Map<String, Object?>> jobs = await store!.submissions(channel.id);
         for (final Map<String, Object?> job in jobs.reversed) {
           if (_disposed || !_foreground || !available ||
-              !channels.any((McpChannel c) => c.id == channel.id && c.generation == channel.generation && c.canSend)) break;
+              !channels.any((McpChannel c) => c.id == channel.id && c.generation == channel.generation && c.canSend)) {
+            break;
+          }
           if (job['ready'] != 1 || !<String>{'pending', 'retrying'}.contains(job['state']) ||
-              (job['next_attempt_at'] as int? ?? 0) > store!.nowMs) continue;
+              (job['next_attempt_at'] as int? ?? 0) > store!.nowMs) {
+            continue;
+          }
           if (job['generation'] != channel.generation) {
             await store!.reject(job, 'local_mapping');
             continue;
@@ -336,7 +340,7 @@ class McpService extends ChangeNotifier {
 
 void _put(Map<String, Object?> arguments, String pointer, Object? value) {
   final List<String> keys = pointer.substring(1).split('/').map((String k) => k.replaceAll('~1', '/').replaceAll('~0', '~')).toList();
-  Map target = arguments;
+  Map<dynamic, dynamic> target = arguments;
   for (final String key in keys.take(keys.length - 1)) { target = target[key] as Map; }
   target[keys.last] = value;
 }

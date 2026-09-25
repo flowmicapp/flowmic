@@ -152,7 +152,9 @@ class McpStore extends ChangeNotifier {
   Future<void> recordLocal(TimelineEntry entry, {required LocalRecordSource source,
     required Map<String, int> targets}) async {
     if (!available || entry.origin != 'cloud' || entry.deleted ||
-        !<String>{TimelineEntry.kTranscript, TimelineEntry.kImage}.contains(entry.entryType)) return;
+        !<String>{TimelineEntry.kTranscript, TimelineEntry.kImage}.contains(entry.entryType)) {
+      return;
+    }
     final bool birth = source == LocalRecordSource.birthReady || source == LocalRecordSource.birthAwaitingContent;
     if (birth && targets.isEmpty) return;
     if (source == LocalRecordSource.edit) return;

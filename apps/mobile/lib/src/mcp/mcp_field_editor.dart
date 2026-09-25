@@ -20,7 +20,7 @@ class McpFieldEditor extends StatelessWidget {
   final McpEditor editor;
   final McpField field;
   final AppStrings strings;
-  Map get binding => editor.bindings[field.path] as Map? ?? <String, Object?>{};
+  Map<dynamic, dynamic> get binding => editor.bindings[field.path] as Map? ?? <String, Object?>{};
   bool get secret => binding['secret'] == true;
   Object? get value => secret ? editor.fixedSecrets[field.path] : binding['value'];
 
@@ -79,9 +79,9 @@ class McpFieldEditor extends StatelessWidget {
   }
 
   Widget _fixedEditor(BuildContext context) {
-    final List? enumeration = field.schema['enum'] as List?;
+    final List<dynamic>? enumeration = field.schema['enum'] as List?;
     if (enumeration != null || field.schema.containsKey('const')) {
-      final List choices = enumeration ?? <Object?>[field.schema['const']];
+      final List<dynamic> choices = enumeration ?? <Object?>[field.schema['const']];
       // Index selection supports scalar, array and object enum constants alike.
       return DropdownButtonFormField<int>(isExpanded: true,
         key: ValueKey<String>('mcp.enum.${field.path}'),
@@ -90,8 +90,8 @@ class McpFieldEditor extends StatelessWidget {
         onChanged: (int? i) { if (i != null) _fixed(choices[i]); });
     }
     if (field.type == 'array') {
-      final List values = value as List? ?? <Object?>[];
-      final Map item = field.schema['items']! as Map;
+      final List<dynamic> values = value as List? ?? <Object?>[];
+      final Map<dynamic, dynamic> item = field.schema['items']! as Map;
       final String type = item['type']! as String;
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
         for (int i = 0; i < values.length; i++) Row(children: <Widget>[
@@ -106,9 +106,9 @@ class McpFieldEditor extends StatelessWidget {
     return _scalar(field.type, value, _fixed, field.path, schema: field.schema);
   }
 
-  Widget _scalar(String type, Object? value, void Function(Object?) set, String key, {required Map schema}) {
+  Widget _scalar(String type, Object? value, void Function(Object?) set, String key, {required Map<dynamic, dynamic> schema}) {
     if (schema['enum'] is List || schema.containsKey('const')) {
-      final List choices = schema['enum'] as List? ?? <Object?>[schema['const']];
+      final List<dynamic> choices = schema['enum'] as List? ?? <Object?>[schema['const']];
       return DropdownButtonFormField<int>(isExpanded: true, initialValue: choices.indexOf(value).clamp(0, choices.length - 1),
         items: <DropdownMenuItem<int>>[for (int i = 0; i < choices.length; i++) DropdownMenuItem<int>(value: i, child: Text(secret ? '••••' : '${choices[i]}'))],
         onChanged: (int? i) { if (i != null) set(choices[i]); });

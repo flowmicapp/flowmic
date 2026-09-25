@@ -62,15 +62,15 @@ class McpMapping {
             (s.containsKey('additionalProperties') && s['additionalProperties'] is! bool)) {
           throw McpMappingError(path, unsupported: true);
         }
-        final Map properties = props as Map? ?? <String, Object?>{};
+        final Map<dynamic, dynamic> properties = props as Map? ?? <String, Object?>{};
         if ((requiredKeys as List? ?? <Object?>[]).any((Object? k) => !properties.containsKey(k))) {
           throw McpMappingError(path, unsupported: true);
         }
         if (path.isNotEmpty) fields.add(McpField(path, s, required));
-        for (final MapEntry e in properties.entries) {
+        for (final MapEntry<dynamic, dynamic> e in properties.entries) {
           if (e.key is! String || e.value is! Map) throw McpMappingError(path, unsupported: true);
           visit((e.value as Map).cast<String, Object?>(), _pointer(path, e.key as String),
-            required && (requiredKeys as List? ?? <Object?>[]).contains(e.key), depth + 1);
+            required && (requiredKeys ?? <Object?>[]).contains(e.key), depth + 1);
         }
       } else {
         fields.add(McpField(path, s, required));
@@ -115,8 +115,8 @@ class McpMapping {
     void requireFields(Map<String, Object?> s, String path) {
       if (bindings.containsKey(path)) return;
       if (s['type'] != 'object') throw McpMappingError(path);
-      final Map props = s['properties'] as Map? ?? <String, Object?>{};
-      final List required = s['required'] as List? ?? <Object?>[];
+      final Map<dynamic, dynamic> props = s['properties'] as Map? ?? <String, Object?>{};
+      final List<dynamic> required = s['required'] as List? ?? <Object?>[];
       for (final Object? name in props.keys) {
         final String child = _pointer(path, name! as String);
         // Optional objects become present when any descendant is mapped. Their
@@ -164,7 +164,7 @@ class McpMapping {
       }
       if (s['type'] != 'object') return null;
       final Map<String, Object?> result = <String, Object?>{};
-      for (final MapEntry e in (s['properties'] as Map? ?? <String, Object?>{}).entries) {
+      for (final MapEntry<dynamic, dynamic> e in (s['properties'] as Map? ?? <String, Object?>{}).entries) {
         final Object? value = materialize((e.value as Map).cast<String, Object?>(), _pointer(path, e.key as String));
         if (value != null && (!(value is Map && value.isEmpty) ||
             (s['required'] as List? ?? <Object?>[]).contains(e.key) || bindings.containsKey(_pointer(path, e.key as String)))) {
@@ -210,7 +210,9 @@ void _validate(Object? value, Map<String, Object?> schema, String path) {
       final DateTime? parsed = DateTime.tryParse(value);
       if (match == null || parsed == null ||
           <int>[parsed.year, parsed.month, parsed.day, parsed.hour, parsed.minute, parsed.second]
-            .asMap().entries.any((MapEntry<int, int> e) => e.value != int.parse(match.group(e.key + 1)!))) bad();
+            .asMap().entries.any((MapEntry<int, int> e) => e.value != int.parse(match.group(e.key + 1)!))) {
+        bad();
+      }
     }
     if (schema['minLength'] is num && value.runes.length < (schema['minLength']! as num)) bad();
     if (schema['maxLength'] is num && value.runes.length > (schema['maxLength']! as num)) bad();
@@ -227,11 +229,11 @@ void _validate(Object? value, Map<String, Object?> schema, String path) {
     for (final Object? item in value) { _validate(item, (schema['items']! as Map).cast<String, Object?>(), path); }
   }
   if (value is Map) {
-    final Map props = schema['properties'] as Map? ?? <String, Object?>{};
+    final Map<dynamic, dynamic> props = schema['properties'] as Map? ?? <String, Object?>{};
     for (final Object? required in schema['required'] as List? ?? <Object?>[]) {
       if (!value.containsKey(required)) throw McpMappingError(_pointer(path, required! as String));
     }
-    for (final MapEntry e in value.entries) {
+    for (final MapEntry<dynamic, dynamic> e in value.entries) {
       if (e.key is! String) bad();
       if (!props.containsKey(e.key)) {
         if (schema['additionalProperties'] == false) bad();

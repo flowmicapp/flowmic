@@ -29,8 +29,6 @@ import 'dart:typed_data';
 import 'package:flowmic/generated/flowmic_events.g.dart';
 import 'package:flowmic/src/audio/audio_capture.dart';
 import 'package:flowmic/src/audio/retained_audio_journal.dart';
-import 'package:flowmic/src/audio/retained_audio_journal_fs.dart';
-import 'package:flowmic/src/audio/retained_audio_manifest.dart' show JournalAttempt;
 import 'package:flowmic/src/session/recovery_backoff.dart' show RecoveryQueueState;
 import 'package:flowmic/src/audio/retained_audio_spill.dart';
 import 'package:flowmic/src/audio/retained_audio_store.dart';
@@ -161,7 +159,7 @@ void main() {
         commitInterval: const Duration(days: 1),
       );
       await j.appendPcm(Uint8List(kRecoveryReadBlockBytes));
-      j.addAttempt(JournalAttempt(
+      j.addAttempt(const JournalAttempt(
           attemptId: 'a-1', startedAtMs: due - 60000, kind: 'auto_retry'));
       j.closeAttempt('a-1', outcome: JournalAttempt.outcomeFailed);
       j.setRecoveryState(RecoveryQueueState.pending, nextEligibleAtMs: due);

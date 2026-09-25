@@ -26,20 +26,20 @@ void mcpSubmissionScenarios() {
   sqfliteFfiInit();
   late SecurityContext tls;
   late String cert;
-  late Map<String, Map> captures;
+  late Map<String, Map<dynamic, dynamic>> captures;
   late Map<String, Object?> toolSchema;
   setUpAll(() async {
     final ProcessResult minted = await Process.run('node', <String>[
       '--experimental-strip-types', 'test/support/mint_lan_tls_identity.mjs'], runInShell: true);
     expect(minted.exitCode, 0);
-    final Map identity = jsonDecode(minted.stdout as String) as Map;
+    final Map<dynamic, dynamic> identity = jsonDecode(minted.stdout as String) as Map;
     cert = identity['certPem'] as String;
     tls = SecurityContext()..useCertificateChainBytes(utf8.encode(cert))
       ..usePrivateKeyBytes(utf8.encode(identity['keyPem'] as String));
-    final Map fixture = jsonDecode(File('test/fixtures/mcp_sdk_responses.json').readAsStringSync()) as Map;
-    captures = <String, Map>{for (final Map e in (fixture['exchanges'] as List).cast<Map>()) e['name'] as String: e};
-    final Map result = (jsonDecode(captures['modern-tools']!['body'] as String) as Map)['result'] as Map;
-    toolSchema = ((result['tools'] as List).cast<Map>().firstWhere((Map t) => t['name'] == 'submit')['inputSchema'] as Map).cast<String, Object?>();
+    final Map<dynamic, dynamic> fixture = jsonDecode(File('test/fixtures/mcp_sdk_responses.json').readAsStringSync()) as Map;
+    captures = <String, Map<dynamic, dynamic>>{for (final Map<dynamic, dynamic> e in (fixture['exchanges'] as List).cast<Map<dynamic, dynamic>>()) e['name'] as String: e};
+    final Map<dynamic, dynamic> result = (jsonDecode(captures['modern-tools']!['body'] as String) as Map)['result'] as Map;
+    toolSchema = ((result['tools'] as List).cast<Map<dynamic, dynamic>>().firstWhere((Map<dynamic, dynamic> t) => t['name'] == 'submit')['inputSchema'] as Map).cast<String, Object?>();
   });
 
   late Directory folder;
@@ -83,16 +83,16 @@ void mcpSubmissionScenarios() {
         : body['method'] == 'tools/list' ? 'modern-tools'
         : mode == 'modern-refusal' ? 'modern-refusal' : mode == '401' ? 'auth-required'
         : mode == 'modern-sse' ? 'modern-sse' : 'modern-success';
-      final Map record = captures[capture]!;
+      final Map<dynamic, dynamic> record = captures[capture]!;
       request.response.statusCode = record['status'] as int;
-      for (final MapEntry e in (record['headers'] as Map).entries) {
-        if (<String>{'content-type', 'www-authenticate'}.contains(e.key)) request.response.headers.set(e.key as String, e.value!);
+      for (final MapEntry<dynamic, dynamic> e in (record['headers'] as Map).entries) {
+        if (<String>{'content-type', 'www-authenticate'}.contains(e.key)) request.response.headers.set(e.key as String, e.value as Object);
       }
       String response = (record['body'] as String).replaceAll('"id":${(record['request'] as Map)['id']}', '"id":${body['id']}');
       // Labelled fault mutation of the recorded official tool list, not an
       // invented interoperability fixture. Keep another tool to catch fallback.
       if (body['method'] == 'tools/list' && mode == 'selected-tool-removed') {
-        final Map changed = jsonDecode(response) as Map;
+        final Map<dynamic, dynamic> changed = jsonDecode(response) as Map;
         ((changed['result'] as Map)['tools'] as List).removeWhere((Object? t) => (t! as Map)['name'] == 'submit');
         response = jsonEncode(changed);
       }
@@ -125,7 +125,7 @@ void mcpSubmissionScenarios() {
   Future<McpChannel> enable() async {
     final McpChannel channel = await configure();
     expect((await service.testChannel(channel.id)).succeeded, true);
-    expect(requests.map((Map r) => r['method']), isNot(contains('tools/call')));
+    expect(requests.map((Map<dynamic, dynamic> r) => r['method']), isNot(contains('tools/call')));
     await service.enable(channel.id);
     return channel;
   }
@@ -135,7 +135,7 @@ void mcpSubmissionScenarios() {
     await timeline.awaitPersisted(row.id);
     return row;
   }
-  int getCalls() => requests.where((Map r) => r['method'] == 'tools/call').length;
+  int getCalls() => requests.where((Map<dynamic, dynamic> r) => r['method'] == 'tools/call').length;
 
   test('zero configuration: zero real HTTPS requests and registry, enabled positive control is nonzero', () async {
     await birth('local only');
@@ -148,7 +148,7 @@ void mcpSubmissionScenarios() {
     await birth('opted in');
     await service.drain();
     expect(getCalls(), 1);
-    final Map job = (await persistence.mcp.submissions(channel.id)).single;
+    final Map<dynamic, dynamic> job = (await persistence.mcp.submissions(channel.id)).single;
     expect(job['state'], 'sent');
     expect(job['remote_ack'], 'tool_result');
     expect(job['snapshot'], isNull);
@@ -171,7 +171,7 @@ void mcpSubmissionScenarios() {
     await service.drain();
     expect(requests.length, before);
     expect((await persistence.mcp.submissions(channel.id)).single['state'], 'sent');
-    final Map call = requests.firstWhere((Map r) => r['method'] == 'tools/call');
+    final Map<dynamic, dynamic> call = requests.firstWhere((Map<dynamic, dynamic> r) => r['method'] == 'tools/call');
     expect(((call['params'] as Map)['arguments'] as Map)['payload'], <String, Object?>{'text': 'first body'});
   });
 
@@ -198,7 +198,7 @@ void mcpSubmissionScenarios() {
     expect(getCalls(), 2);
     final List<Map<String, Object?>> jobs = await persistence.mcp.submissions(channel.id);
     expect(jobs, hasLength(2));
-    expect(jobs.map((Map j) => j['state']), everyElement('sent'));
+    expect(jobs.map((Map<dynamic, dynamic> j) => j['state']), everyElement('sent'));
   });
 
   test('slow channel does not block another receiver', () async {
@@ -273,7 +273,7 @@ void mcpSubmissionScenarios() {
       mode = fault;
       await birth('uncertain or refused');
       await service.drain();
-      final Map job = (await persistence.mcp.submissions(channel.id)).single;
+      final Map<dynamic, dynamic> job = (await persistence.mcp.submissions(channel.id)).single;
       expect(job['state'], fault == 'modern-refusal' ? 'rejected' : 'unknown');
       expect(job['remote_ack'], isNull);
       if (fault == 'modern-refusal') { expect(job['snapshot'], isNull); expect(job['last_error'], 'remote_tool'); }
@@ -289,7 +289,7 @@ void mcpSubmissionScenarios() {
     await service.drain();
     expect(getCalls(), 1);
     expect(service.channels.single.state, McpChannelState.reauthorizationRequired);
-    expect((await persistence.mcp.submissions(channel.id)).map((Map j) => j['state']), everyElement('pending'));
+    expect((await persistence.mcp.submissions(channel.id)).map((Map<dynamic, dynamic> j) => j['state']), everyElement('pending'));
     final int count = requests.length;
     await service.drain();
     expect((await service.testChannel(channel.id)).succeeded, false);
@@ -299,11 +299,11 @@ void mcpSubmissionScenarios() {
     await service.configure(id: channel.id, name: channel.name, tool: channel.tool,
       schema: toolSchema, mapping: mapping, credential: credential('new-fixture-bearer'));
     expect(service.channels.single.canSend, false);
-    expect((await persistence.mcp.submissions(channel.id)).map((Map j) => j['state']), everyElement('pending'));
+    expect((await persistence.mcp.submissions(channel.id)).map((Map<dynamic, dynamic> j) => j['state']), everyElement('pending'));
     mode = 'modern-success';
     expect((await service.testChannel(channel.id)).succeeded, true);
     await service.drain();
-    expect((await persistence.mcp.submissions(channel.id)).map((Map j) => j['state']), everyElement('sent'));
+    expect((await persistence.mcp.submissions(channel.id)).map((Map<dynamic, dynamic> j) => j['state']), everyElement('sent'));
     expect(getCalls(), 3);
   });
 
@@ -312,7 +312,7 @@ void mcpSubmissionScenarios() {
     final TimelineEntry row = await birth('frozen body');
     mode = '429';
     await service.drain();
-    final Map initial = (await persistence.mcp.submissions(channel.id)).single;
+    final Map<dynamic, dynamic> initial = (await persistence.mcp.submissions(channel.id)).single;
     expect(initial['state'], 'retrying');
     expect((initial['next_attempt_at'] as int) - (initial['updated_at'] as int), greaterThanOrEqualTo(119000));
     timeline.applyEdit(row.id, 'do not send this edit');
@@ -324,10 +324,10 @@ void mcpSubmissionScenarios() {
       await service.drain();
     }
     expect(getCalls(), 5);
-    for (final Map call in requests.where((Map r) => r['method'] == 'tools/call')) {
+    for (final Map<dynamic, dynamic> call in requests.where((Map<dynamic, dynamic> r) => r['method'] == 'tools/call')) {
       expect(((call['params'] as Map)['arguments'] as Map)['payload'], <String, Object?>{'text': 'frozen body'});
     }
-    final Map terminal = (await persistence.mcp.submissions(channel.id)).single;
+    final Map<dynamic, dynamic> terminal = (await persistence.mcp.submissions(channel.id)).single;
     expect(terminal['state'], 'rejected');
     expect(terminal['last_error'], 'retry_exhausted');
     expect(terminal['snapshot'], isNull);
@@ -338,9 +338,9 @@ void mcpSubmissionScenarios() {
     final ProcessResult route = await Process.run('node', <String>['--input-type=module', '-e',
       "import {selectStages} from '../../verify/lane-map.mjs'; console.log(JSON.stringify(selectStages(['apps/mobile/integration_test/mcp_submission_scenarios.dart'])));"], runInShell: true);
     expect(route.exitCode, 0);
-    final Map result = jsonDecode(route.stdout as String) as Map;
+    final Map<dynamic, dynamic> result = jsonDecode(route.stdout as String) as Map;
     expect(result['unmapped'], isEmpty);
-    expect((result['matched'] as List).cast<Map>().map((Map m) => (m['rule'] as Map)['id']), contains('mobile'));
+    expect((result['matched'] as List).cast<Map<dynamic, dynamic>>().map((Map<dynamic, dynamic> m) => (m['rule'] as Map)['id']), contains('mobile'));
     expect(result['stages'], contains('verify:mobile-tests'));
     expect(File('test/mcp_submission_integration_test.dart').readAsStringSync(), contains('mcpSubmissionScenarios();'));
   });

@@ -24,7 +24,6 @@ import 'package:flowmic/src/signaling/socket_core.dart';
 import 'package:flowmic/src/signaling/wire_payloads.dart';
 import 'package:flowmic/src/signaling/state_machine.dart';
 import 'package:flowmic/src/stt/stt_stream.dart';
-import 'package:flowmic/src/timeline/article.dart';
 import 'package:flowmic/src/timeline/article_paragraphs.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
@@ -33,7 +32,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/di.dart';
 import 'support/fakes.dart';
-import 'support/temp_teardown.dart';
 
 class _Rig {
   _Rig() {

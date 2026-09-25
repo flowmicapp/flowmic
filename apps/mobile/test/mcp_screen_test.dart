@@ -20,12 +20,10 @@ import 'package:flowmic/src/mcp/mcp_secrets.dart';
 import 'package:flowmic/src/mcp/mcp_transport.dart';
 import 'package:flowmic/src/settings/app_settings.dart';
 import 'package:flowmic/src/settings/app_strings.dart';
-import 'package:flowmic/src/settings/scenario_card.dart';
 import 'package:flowmic/src/settings/scenario_card_controller.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_sqlite.dart';
 import 'package:flowmic/src/ui/settings_page.dart';
-import 'package:flowmic/src/ui/entry_context_menu.dart';
 import 'package:flowmic/src/ui/chat_flow_page.dart';
 import 'package:flowmic/src/signaling/wire_payloads.dart';
 import 'package:flowmic/src/session/outbox_blob_store.dart';
@@ -39,10 +37,10 @@ import 'support/update_fakes.dart';
 
 class _Captured implements McpTransport {
   _Captured() {
-    final Map raw = jsonDecode(File('test/fixtures/mcp_sdk_responses.json').readAsStringSync()) as Map;
-    captures = <String, Map>{for (final Map c in (raw['exchanges'] as List).cast<Map>()) c['name'] as String: c};
+    final Map<dynamic, dynamic> raw = jsonDecode(File('test/fixtures/mcp_sdk_responses.json').readAsStringSync()) as Map;
+    captures = <String, Map<dynamic, dynamic>>{for (final Map<dynamic, dynamic> c in (raw['exchanges'] as List).cast<Map<dynamic, dynamic>>()) c['name'] as String: c};
   }
-  late Map<String, Map> captures;
+  late Map<String, Map<dynamic, dynamic>> captures;
   final List<String> methods = <String>[];
   String mode = 'modern-success';
   int get calls => methods.where((String m) => m == 'tools/call').length;
@@ -51,7 +49,7 @@ class _Captured implements McpTransport {
     required String version, required String? token, required String? session}) async {
     final String method = message['method']! as String;
     methods.add(method);
-    final Map capture = captures[mode == 'auth-required' ? mode : method == 'server/discover' ? 'modern-discover' : method == 'tools/list' ? 'modern-tools' : mode]!;
+    final Map<dynamic, dynamic> capture = captures[mode == 'auth-required' ? mode : method == 'server/discover' ? 'modern-discover' : method == 'tools/list' ? 'modern-tools' : mode]!;
     return decodeMcpReply(status: capture['status'] as int, headers: (capture['headers'] as Map).cast<String, String>(),
       body: (capture['body'] as String).replaceAll('"id":${(capture['request'] as Map)['id']}', '"id":${message['id']}'),
       id: message['id'], toolCall: method == 'tools/call');
@@ -109,8 +107,8 @@ void main() {
   }
 
   Future<McpChannel> enabled() async {
-    final Map result = (jsonDecode(captured.captures['modern-tools']!['body'] as String) as Map)['result'] as Map;
-    final Map tool = (result['tools'] as List).first as Map;
+    final Map<dynamic, dynamic> result = (jsonDecode(captured.captures['modern-tools']!['body'] as String) as Map)['result'] as Map;
+    final Map<dynamic, dynamic> tool = (result['tools'] as List).first as Map;
     final McpChannel channel = await service.configure(name: 'Fixture', tool: 'submit', schema: (tool['inputSchema'] as Map).cast<String, Object?>(),
       mapping: <String, Object?>{'/payload/text': <String, Object?>{'source': 'outputText'}, '/kind': <String, Object?>{'source': 'fixed', 'value': 'record'}},
       credential: McpSecrets(endpoint: Uri.parse('https://fixture.invalid/secret-path'), token: null, fixed: <String, Object?>{}));

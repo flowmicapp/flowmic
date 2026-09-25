@@ -35,7 +35,9 @@ Future<void> mcpManual(BuildContext context, AppStrings s, McpService service, M
     if (!context.mounted) return;
     final String disclosure = s.mcp(McpText.manualDisclosure, host: channel.hostHint, tool: channel.tool);
     if (!await mcpConfirm(context, s, duplicate ? '$disclosure\n\n${s.mcp(McpText.unknownRetryWarning)}' : disclosure, s.mcp(McpText.manual),
-      details: <Widget>[Text(channel.name), Text(channel.hostHint), Text(channel.tool)])) return;
+      details: <Widget>[Text(channel.name), Text(channel.hostHint), Text(channel.tool)])) {
+      return;
+    }
     // Re-read the generation after the dialog. A background configuration import
     // must never redirect the user's confirmation to a different recipient.
     if (!service.channels.any((McpChannel c) => c.id == channel.id && c.generation == channel.generation && c.canSend)) {

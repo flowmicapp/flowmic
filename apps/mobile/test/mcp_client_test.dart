@@ -52,7 +52,7 @@ void main() {
     for (final Object? invalid in <Object?>[null, <String, Object?>{'name': 4}, <String, Object?>{'name': 'submit', 'inputSchema': <String, Object?>{}}]) {
       final ReplayTransport transport = ReplayTransport(<String>['modern-discover', 'modern-tools']);
       final Map<String, Object?> fixture = transport.fixtures['modern-tools']!;
-      final Map body = jsonDecode(fixture['body']! as String) as Map;
+      final Map<dynamic, dynamic> body = jsonDecode(fixture['body']! as String) as Map;
       ((body['result'] as Map)['tools'] as List).add(invalid);
       fixture['body'] = jsonEncode(body);
       expect((await client(transport).listTools()).reason, 'schema_unsupported');

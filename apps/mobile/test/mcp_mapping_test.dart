@@ -33,10 +33,10 @@ void main() {
     }
   });
   test('official SDK nested object and enum schema maps the actual row', () {
-    final Map capture = jsonDecode(File('test/fixtures/mcp_sdk_responses.json').readAsStringSync()) as Map;
-    final Map exchange = (capture['exchanges'] as List).cast<Map>().firstWhere((Map e) => e['name'] == 'modern-tools');
-    final Map result = (jsonDecode(exchange['body'] as String) as Map)['result'] as Map;
-    final Map tool = (result['tools'] as List).cast<Map>().firstWhere((Map t) => t['name'] == 'submit');
+    final Map<dynamic, dynamic> capture = jsonDecode(File('test/fixtures/mcp_sdk_responses.json').readAsStringSync()) as Map;
+    final Map<dynamic, dynamic> exchange = (capture['exchanges'] as List).cast<Map<dynamic, dynamic>>().firstWhere((Map<dynamic, dynamic> e) => e['name'] == 'modern-tools');
+    final Map<dynamic, dynamic> result = (jsonDecode(exchange['body'] as String) as Map)['result'] as Map;
+    final Map<dynamic, dynamic> tool = (result['tools'] as List).cast<Map<dynamic, dynamic>>().firstWhere((Map<dynamic, dynamic> t) => t['name'] == 'submit');
     final Map<String, Object?> schema = (tool['inputSchema'] as Map).cast<String, Object?>();
     final McpMapping mapping = McpMapping(schema, <String, Object?>{
       '/payload/text': source('outputText'), '/kind': <String, Object?>{'source': 'fixed', 'value': 'record'},

@@ -653,8 +653,9 @@ class MobilePairPayload {
         'client_version': clientVersion,
       if (clientCaps.isNotEmpty) 'client_caps': clientCaps,
     };
-    if (cloudInstance)
+    if (cloudInstance) {
       return <String, Object?>{'cloud_instance': true, ...named};
+    }
     if (shortCode != null) {
       return <String, Object?>{
         'short_code': shortCode,

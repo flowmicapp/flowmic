@@ -27,7 +27,6 @@ import 'package:flowmic/generated/flowmic_events.g.dart';
 import 'package:flowmic/src/audio/retained_audio_journal.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/rc3_rig.dart';

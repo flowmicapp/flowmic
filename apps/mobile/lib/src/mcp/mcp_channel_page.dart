@@ -81,8 +81,10 @@ class _McpChannelPageState extends State<McpChannelPage> {
             builder: (BuildContext context, AsyncSnapshot<List<Map<String, Object?>>> snapshot) => ListView.builder(
               padding: const EdgeInsets.all(16), itemCount: 1 + (channel == null ? 0 : snapshot.data?.length ?? 0),
               itemBuilder: (BuildContext context, int index) {
-                if (index > 0) return McpHistoryRow(key: ValueKey<String>('mcp.job.${snapshot.data![index - 1]['entry_id']}'),
+                if (index > 0) {
+                  return McpHistoryRow(key: ValueKey<String>('mcp.job.${snapshot.data![index - 1]['entry_id']}'),
                   service: widget.service, channel: channel!, job: snapshot.data![index - 1], strings: s);
+                }
                 return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
                   if (!widget.service.available || snapshot.hasError) Text(s.mcp(McpText.storageUnavailable)),
                   if (channel != null) Text(s.mcp(channelText(channel.state))),

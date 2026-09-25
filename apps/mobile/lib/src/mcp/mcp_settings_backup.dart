@@ -51,7 +51,9 @@ class McpSettingsBackup implements McpSettingsPort {
       final Uri? parsed = Uri.tryParse('https://${host.contains(':') && !host.startsWith('[') ? '[$host]' : host}');
       if (host.isEmpty || host.length > 253 || parsed == null || parsed.host != host || parsed.hasPort || parsed.hasQuery || parsed.hasFragment ||
           parsed.userInfo.isNotEmpty || parsed.path.isNotEmpty || (raw['name'] as String).length > 128 ||
-          (raw['tool'] as String).length > 1024) throw StateError('mcp_configuration_invalid');
+          (raw['tool'] as String).length > 1024) {
+        throw StateError('mcp_configuration_invalid');
+      }
       final Map<String, Object?> schema = (raw['input_schema'] as Map).cast<String, Object?>();
       final Map<String, Object?> mapping = publicMcpMapping((raw['mapping'] as Map).cast<String, Object?>());
       McpMapping(schema, mapping, requireComplete: false);

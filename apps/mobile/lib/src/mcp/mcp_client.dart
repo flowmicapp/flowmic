@@ -78,7 +78,7 @@ class McpClient {
     String? cursor;
     for (int page = 0; page < 32; page++) {
       final McpReply reply = await _send('tools/list', <String, Object?>{
-        if (cursor != null) 'cursor': cursor,
+        'cursor': ?cursor,
       }, version: _version!);
       if (!reply.succeeded) {
         if (reply.status == 404 || reply.code == -32022) invalidate();

@@ -6,8 +6,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/src/mcp/mcp_client.dart';
-import '../lib/src/mcp/mcp_transport.dart';
+import 'package:flowmic/src/mcp/mcp_client.dart';
+import 'package:flowmic/src/mcp/mcp_transport.dart';
 import 'mcp_client_test.dart' show captures;
 
 void main() {

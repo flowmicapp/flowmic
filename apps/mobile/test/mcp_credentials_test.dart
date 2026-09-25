@@ -49,8 +49,8 @@ void main() {
       deviceName: null, onImported: () async {});
     expect((await backup.export()).ok, true);
     final String exported = await File(destination.savedPath!).readAsString();
-    final Map document = jsonDecode(exported) as Map;
-    final List configs = (document['local'] as Map)['mcp_channels'] as List;
+    final Map<dynamic, dynamic> document = jsonDecode(exported) as Map;
+    final List<dynamic> configs = (document['local'] as Map)['mcp_channels'] as List;
     expect(configs, hasLength(1));
     expect((configs.single as Map).keys.toSet(),
       <String>{'id', 'name', 'host_hint', 'tool', 'input_schema', 'mapping'});

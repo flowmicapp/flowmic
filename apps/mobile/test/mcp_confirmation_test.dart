@@ -37,7 +37,7 @@ void main() {
     timeline = newTestStore(persistence: persistence);
     transport = ReplayTransport(<String>['modern-discover', 'modern-tools', 'modern-tools', 'modern-success']);
     service = McpService(store: persistence.mcp, transport: transport);
-    final Map result = (jsonDecode(transport.fixtures['modern-tools']!['body']! as String) as Map)['result'] as Map;
+    final Map<dynamic, dynamic> result = (jsonDecode(transport.fixtures['modern-tools']!['body']! as String) as Map)['result'] as Map;
     channel = await service.configure(name: 'fixture', tool: 'submit',
       schema: (((result['tools'] as List).first as Map)['inputSchema'] as Map).cast<String, Object?>(),
       mapping: <String, Object?>{'/payload/text': <String, Object?>{'source': 'outputText'}, '/kind': <String, Object?>{'source': 'fixed', 'value': 'record'}},

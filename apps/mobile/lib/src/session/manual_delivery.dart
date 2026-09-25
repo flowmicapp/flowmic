@@ -428,10 +428,12 @@ class ManualDelivery {
       final OutboxDrainReport report = await _host.outbox.drain(
         userRequestedEntryIds: snapCovered.toSet(),
       );
-      if (report.busy)
+      if (report.busy) {
         return null; // Card F2: merged into running drain, not failed.
-      if (report.linkOk == false)
+      }
+      if (report.linkOk == false) {
         return failSettled(settle, ComposeSendFailure.linkDown);
+      }
       // ── card B2-M — SAME SHAPE AS chat_utterance.dart's `_deliverDirect`
       // (card B2-H) ────────────────────────────────────────────────────────
       //

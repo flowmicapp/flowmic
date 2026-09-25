@@ -24,7 +24,6 @@ import 'dart:io';
 import 'package:flowmic/generated/flowmic_events.g.dart';
 import 'package:flowmic/src/audio/audio_capture.dart';
 import 'package:flowmic/src/audio/retained_audio_journal.dart';
-import 'package:flowmic/src/audio/retained_audio_manifest.dart';
 import 'package:flowmic/src/audio/retained_audio_spill.dart';
 import 'package:flowmic/src/audio/retained_audio_store.dart';
 import 'package:flowmic/src/destination/destination_controller.dart';
