@@ -90,6 +90,12 @@ jobs:
       - name: Rust doctests
         run: pnpm verify:doctests
 
+      # scripts/sidecar-firewall-render.test.mjs (NR-117) mounts the desktop
+      # DevicesPage in Playwright Chromium; the runner image has no browser
+      # cache, so install it here the same way verify-linux.yml does.
+      - name: Install rendering test browser
+        run: pnpm exec playwright install chromium
+
       - name: Script tests
         run: pnpm verify:scripts
 
