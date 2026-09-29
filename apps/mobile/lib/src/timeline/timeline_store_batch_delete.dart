@@ -44,6 +44,11 @@ part of 'timeline_store.dart';
 void _deleteOne(TimelineStore store, String id) {
   final int i = store._entries.indexWhere((TimelineEntry e) => e.id == id);
   if (i < 0) return;
+  final String? article = store._entries[i].articleId;
+  if (store.articleHolds.contains(article)) {
+    unawaited(store.articleHolds.waitFor(article).then((_) => _deleteOne(store, id)));
+    return;
+  }
   final TimelineEntry gone = store._entries.removeAt(i);
   // Fire-and-forget like every other persist on this class — order is held by
   // the single-writer invariant (every mutation goes through this class, on
@@ -143,6 +148,11 @@ Future<ReapResult> _deleteMany(
   List<TimelineEntry> doomed,
 ) async {
   final Map<String, TimelineEntry> unique = <String, TimelineEntry>{};
+  for (final TimelineEntry row in doomed) {
+    if (store.articleHolds.contains(row.articleId)) {
+      await store.articleHolds.waitFor(row.articleId);
+    }
+  }
   for (final TimelineEntry e in doomed) {
     unique.putIfAbsent(e.id, () => e);
   }
@@ -201,6 +211,7 @@ Future<ReapResult> _clear(
   ClearWindow window, {
   DateTime? now,
 }) async {
+  if (store.articleHolds.isNotEmpty) await store.articleHolds.waitForAll();
   final DateTime? horizon = horizonOf(window, now ?? DateTime.now().toUtc());
   final List<TimelineEntry> doomed = planClear(
     await store._persistence.loadAll(),

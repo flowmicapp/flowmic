@@ -40,7 +40,7 @@ extension ChatControllerWiring on ChatController {
     utteranceCompose = UtteranceComposeController(host: this, gate: composeGate);
     delivery = ManualDelivery(host: this, gate: composeGate);
     // Built here for the same reason `delivery` is: it needs `host: this`.
-    outbox = DeliveryOutbox(store: outboxStore, blobs: outboxBlobs, host: this);
+    outbox = DeliveryOutbox(store: outboxStore, blobs: outboxBlobs, host: this, onPersisted: session.timings.persisted);
     rowImages = outboxBlobs;
     imageSend = ImageSendController(
       host: this,
@@ -70,6 +70,7 @@ extension ChatControllerWiring on ChatController {
     // shape as the line above it; the matching removeListener rides the same
     // teardown (chat_transient_banner_timers.dart).
     session.latestBudget.addListener(notifyUi);
+    backfill.progress.addListener(notifyUi);
     // NR-96 — three more facts the page is rebuilt from: the engine chip
     // (B), the unanswered-reconnect notice (E1), the ladder's rung (E2).
     session.engineReconnect.listenable.addListener(notifyUi);

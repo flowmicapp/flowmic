@@ -336,6 +336,13 @@ fn emit_state(app: &AppHandle, phase: &Phase, dialed: Option<String>) {
 /// tree → cwd). The MSI/exe dirs come from the Tauri path resolver (app feature);
 /// the dev-tree + cwd fallbacks keep `pnpm tauri dev` working.
 fn resolve_candidates(app: &AppHandle) -> Vec<std::path::PathBuf> {
+    // An installed Linux bundle must not borrow a server from cwd or a dev tree.
+    #[cfg(target_os = "linux")]
+    if let Some(resources) = std::env::current_exe().ok()
+        .and_then(|exe| exe.parent().and_then(crate::sidecar::node_runtime::linux_installed_resources))
+    {
+        return vec![resources];
+    }
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     // 1. MSI: bundled under <resource_dir>/resources/server.js.
     if let Ok(res) = app.path().resource_dir() {

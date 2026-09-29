@@ -116,7 +116,10 @@ describe('the catalogue is a vendor list, and old ids still resolve', () => {
   it('Anthropic keeps its native protocol and its /v1-less base URL', () => {
     const p = findLlmPreset('cloud-anthropic-claude');
     expect(p?.protocol).toBe('anthropic');
-    // The adapter appends the route; a `/v1` here would double it.
+    // The adapter builds the route (`anthropicMessagesUrl`, server-core
+    // compose/llm/anthropic.ts: bare host → `/v1/messages`). Since BYOK-ANT-1 a
+    // `/v1` base would also work; the old note here said it "would double it",
+    // which was only true while the adapter appended a bare `/messages`.
     expect(p?.endpoint).toBe('https://api.anthropic.com');
   });
 

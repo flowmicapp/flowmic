@@ -495,6 +495,10 @@ fn stage1_focus(
     locked_hwnd: Option<u64>,
     focus_switcher: FocusSwitcher,
 ) -> Result<u64, InjectOutcome> {
+    #[cfg(target_os = "linux")]
+    let locked_hwnd = locked_hwnd.filter(|hwnd| *hwnd != 0).or_else(|| {
+        crate::focus::current_foreground_target().map(|(hwnd, _, _)| hwnd)
+    });
     let hwnd = match locked_hwnd {
         Some(h) if h != 0 => h,
         _ => {

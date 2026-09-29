@@ -38,6 +38,12 @@ export interface SttStartArgs {
   capUserId?: string;
   /** card MP-1 — the integrator key whose sub-quota also bounds the hard stop. */
   integratorKeyId?: string;
+  /** card EMB-15 — this session runs in a THIRD-PARTY host page's room
+   *  (`room_kind==='integrator'`, read off the room row by `isIntegratorSession`).
+   *  Such a session arms NO language-model leg (polish, refine): the stranger's
+   *  words are not sent to the host's model whatever any switch says. Present only
+   *  when true. */
+  integratorRoom?: true;
   mode: 'realtime' | 'translate' | 'organize';
   delivery: Delivery;
   sourceLang: string;

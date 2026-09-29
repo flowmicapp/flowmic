@@ -229,6 +229,7 @@ String _settleSpan(
   // `await`-carrying delivery so a replay landing inside that window is judged
   // against a watermark that already includes this row.
   if (!foreign) segs.markSettled(f.segmentIdx);
+  c._articleSpanLanded(entry);
   // Card RC-B follow-up — remember this row as the live press's, so a press
   // whose last span is silent can settle on the rows it produced. A recovery
   // session (a fed range is open) mints rows that are not the press's.
@@ -273,6 +274,9 @@ String _settleSpan(
     return entry.id;
   }
   c._liveText = '';
+  if (!f.isSegment) c.session.timings.bind(entry.clientId);
+  if (!f.isSegment) c.session.timings.active?.painted();
+  if (!f.isSegment && _composeTaskFor(c._activeMode) == null && (c._activeSendPolicy == SendPolicy.manual || entry.delivery == Delivery.none || entry.origin == 'cloud')) c.session.timings.active?.finish();
   // Card D-2's `c._lastUtteranceEntryId = entry.id` stood here until
   // 2026-09-03: the row now carries the server's `utterance_id` (built in
   // above), which is the key a refine matches on — see `_applyRefined`.
@@ -280,9 +284,13 @@ String _settleSpan(
   // mark is per-entry and session-persistent (lead's ruling): once an utterance
   // reports polish:skipped its bubble keeps the mark; later utterances never
   // clear earlier marks.
-  if (f.polish == SttPolish.skipped) {
-    c._polishSkippedEntryIds.add(entry.id);
-  }
+  final PolishBadge? badge = PolishBadge.fromFinal(f);
+  if (badge != null) c._polishBadges[entry.id] = badge;
+  // NR-123: the row badge says 「no model」; the chat says where, once per PC.
+  if (badge == PolishBadge.noModel) raisePolishNoModelHintRouted(c);
+  // NR-130: the row badge says "model refused"; the chat says where to check, once per PC.
+  if (badge == PolishBadge.modelRejected) raisePolishNoModelHintRouted(c, PolishBadge.modelRejected);
+  if (f.polish == SttPolish.applied) clearPolishNoModelHintOnAppliedRouted(c);
   // GA-01: translate / organize are PRODUCT modes, not metadata. The row is
   // built (the utterance happened) but nothing is delivered or synced yet — the
   // LLM runs first and the finished text goes up in ONE history:create. The
@@ -297,6 +305,7 @@ String _settleSpan(
   if (task != null) {
     final AiComposeFailure? failed = c.utteranceCompose.start(
       entryId: entry.id,
+      timing: c.session.timings.forRequest(entry.clientId),
       requestId: entry.clientId,
       task: task,
       sourceText: text,

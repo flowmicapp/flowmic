@@ -6,6 +6,13 @@
 // https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
 // This is deliberately a classic, single-disk ZIP profile, not a ZIP64 parser.
 
+/** NR-107: the real Tauri binary. `flowmic-desktop` is now the libc-only
+ *  launcher (apps/desktop/linux-launcher/flowmic-launcher.c, REAL_BINARY_NAME)
+ *  that checks the system libraries and then execs this file. */
+export const LINUX_PORTABLE_REAL_EXE = '.flowmic-desktop-bin';
+/** Entries that get 0755 in the portable ZIP; everything else is 0644. */
+export const LINUX_PORTABLE_EXECUTABLES = Object.freeze(['flowmic-desktop', LINUX_PORTABLE_REAL_EXE, 'node']);
+
 const fail = (reason) => { throw new Error(`Linux portable ZIP: ${reason}`); };
 const utf8 = new TextDecoder('utf-8', { fatal: true });
 
@@ -133,7 +140,7 @@ export function normalizeLinuxPortableModes(buf, dirName) {
   if (nextLocal !== cdStart) fail('local records do not end at central directory');
   const result = Buffer.from(buf);
   for (const entry of entries) {
-    const executable = entry.name === `${dirName}/flowmic-desktop` || entry.name === `${dirName}/node`;
+    const executable = LINUX_PORTABLE_EXECUTABLES.some((name) => entry.name === `${dirName}/${name}`);
     const mode = entry.isDir ? 0o040755 : executable ? 0o100755 : 0o100644;
     result[entry.p + 5] = 3; // UNIX creator; preserve the version byte.
     result.writeUInt32LE(((mode << 16) | (entry.attrs & 0xffff)) >>> 0, entry.p + 38);

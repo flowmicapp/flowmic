@@ -923,7 +923,13 @@ void main() {
       expect(q.top!.message, contains(zh.aiErrorCode('QUOTA_EXCEEDED')));
     });
 
-    test('an UNKNOWN server code is surfaced verbatim rather than swallowed', () {
+    // 2026-09-29 (EMB-15 follow-up 2): this case used to assert the OPPOSITE —
+    // that an unknown code is printed verbatim — and so it pinned the defect it
+    // was named after: a bare identifier on the banner (owner 2026-08-22: no
+    // internal vocabulary on screen). It now asserts the sentence and that the
+    // identifier is absent. The full binding lives in
+    // compose_error_copy_binding_test.dart.
+    test('an UNKNOWN server code is shown as the generic sentence, never as the identifier', () {
       final BannerQueue q = buildChatBanners(
         connection: ConnectionState.connected,
         autoStopped: false,
@@ -933,7 +939,8 @@ void main() {
           code: 'SOME_NEW_CODE',
         ),
       );
-      expect(q.top!.message, contains('SOME_NEW_CODE'));
+      expect(q.top!.message, isNot(contains('SOME_NEW_CODE')));
+      expect(q.top!.message, contains(zh.aiErrorCode(null)));
     });
 
     // 🔴 …and EMAIL_VERIFY_GRACE_EXPIRED was reaching users through THAT arm.

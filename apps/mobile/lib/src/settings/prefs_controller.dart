@@ -23,16 +23,29 @@
 // and the 「saved locally · pending sync」 note left this file on 2026-09-03
 // (WP-B2); the server refuses those writes now, from any client.
 //
-// ── 🔴 「NEVER SET」 IS A REAL STATE, AND IT IS NOT CARRIED ────────────────
-// A preference the user has never touched is `null` here and is absent from the
-// bundle. The server then reads 「not set」 and applies ITS default — for polish
-// that default is 「on when this deployment can resolve a language model, off
-// when it cannot」 (stt-polish-settings.ts), a decision the server can make and
-// this phone cannot. Carrying a guessed value would turn 「the PC has no model」
-// into a polish attempt that fails on every sentence and a notice on every row.
-// So the UI renders the product default for an untouched switch (polish on ·
-// strict; refine off; consent off), the first tap makes it explicit, and only
-// explicit values travel.
+// ── 「NEVER SET」 IS A REAL STATE — AND FOR POLISH IT IS CARRIED AS ITS DEFAULT ─
+// A preference the user has never touched is `null` here (and in the local
+// store and the settings backup: an untouched row is not written). The UI
+// renders the product default for an untouched switch (polish on · strict;
+// refine off; consent off) and the first tap makes it explicit.
+// 🔴 NR-132 (2026-09-29): POLISH TRAVELS AS WHAT THE SWITCH SHOWS. Until then
+// only explicit values travelled and this header argued the server should
+// decide an untouched polish switch (「on when it can resolve a model, off when
+// it cannot」), because carrying ON 「would turn 'the PC has no model' into a
+// polish attempt that fails on every sentence and a notice on every row」.
+// The 0.3.101 device test (T2) measured what that cost: LAN, no model, this
+// switch reading ON, and the rows carrying no NR-123 badge and no hint — the
+// server had silently answered OFF. One switch, two answers. That 「notice」 is
+// now exactly the product answer (NR-123's `not_configured` badge plus a
+// one-time hint), so the phone's displayed value is the truth, and
+// [PrefsController.effectivePolish] — built on [kPolishDefault], the SAME
+// constant the switch reads — is what `phone_prefs_payload.dart` carries. The
+// server's absent-row default is ON too (server-core stt/stt-polish-settings.ts
+// `STT_POLISH_DEFAULT`), so a phone too old to carry it gets the same answer.
+// Refine and the consent are still carried only when explicit: their untouched
+// display (off) already equals the server's absent-row answer
+// (stt-refine-settings.ts `DEFAULT = { enabled: false }`; scenario-infer-store.ts
+// `consentFromValue` 「never asked」 ⇒ no consent), so there is no split to close.
 //
 // ── D8: WHAT THE CONSENT SWITCH MEANS ON A PHONE ───────────────────────────
 // The consent row records the DESTINATION the user was shown (`granted_for`:
@@ -144,6 +157,16 @@ class InferenceConsentPrefs {
   int get hashCode => granted.hashCode;
 }
 
+/// 🔴 NR-132 — the ONE answer to 「what is polish when the user never touched
+/// it」. The switch renders it ([PrefsController.polishEnabled] /
+/// [PrefsController.polishStrength]) and the request carries it
+/// ([PrefsController.effectivePolish] → `phone_prefs_payload.dart`); both read
+/// this constant so they cannot drift apart again. The server's twin is
+/// `STT_POLISH_DEFAULT` in server-core stt/stt-polish-settings.ts, and
+/// server-core test/stt-polish-default-truth.test.ts reads THIS declaration and
+/// fails if the two disagree — keep it on one line in this form.
+const PolishPrefs kPolishDefault = PolishPrefs(enabled: true, strength: PolishStrength.strict);
+
 /// The three rows together, each nullable = never set (header).
 @immutable
 class PhonePrefs {
@@ -237,9 +260,14 @@ class PrefsController extends ChangeNotifier {
   /// them on a wire.
   PhonePrefs get prefs => _prefs;
 
+  /// NR-132 — polish as it takes effect: the user's row, or [kPolishDefault]
+  /// when untouched. What the switch SHOWS and what the request CARRIES are
+  /// both this getter, so the two cannot disagree.
+  PolishPrefs get effectivePolish => _prefs.polish ?? kPolishDefault;
+
   /// What the switches SHOW. The product default for an untouched row (header).
-  bool get polishEnabled => _prefs.polish?.enabled ?? true;
-  PolishStrength get polishStrength => _prefs.polish?.strength ?? PolishStrength.strict;
+  bool get polishEnabled => effectivePolish.enabled;
+  PolishStrength get polishStrength => effectivePolish.strength;
   bool get refineEnabled => _prefs.refine?.enabled ?? false;
   bool get inferenceGranted => _prefs.inference?.granted ?? false;
 
@@ -251,8 +279,7 @@ class PrefsController extends ChangeNotifier {
 
   void setPolishEnabled(bool enabled) {
     final PolishPrefs next =
-        (_prefs.polish ?? PolishPrefs(enabled: polishEnabled, strength: polishStrength))
-            .copyWith(enabled: enabled);
+        effectivePolish.copyWith(enabled: enabled);
     if (next == _prefs.polish) return;
     _prefs = _prefs.copyWith(polish: next);
     _commit();
@@ -260,8 +287,7 @@ class PrefsController extends ChangeNotifier {
 
   void setPolishStrength(PolishStrength strength) {
     final PolishPrefs next =
-        (_prefs.polish ?? PolishPrefs(enabled: polishEnabled, strength: polishStrength))
-            .copyWith(strength: strength);
+        effectivePolish.copyWith(strength: strength);
     if (next == _prefs.polish) return;
     _prefs = _prefs.copyWith(polish: next);
     _commit();

@@ -59,127 +59,14 @@ import '../signaling/wire_payloads.dart' show FlowMode;
 import '../timeline/article.dart';
 import '../timeline/timeline_store.dart';
 import 'article_replay_target.dart';
+import 'backfill_progress.dart';
+export 'backfill_progress.dart';
 import 'instance_probe.dart' show ServerChannel;
-import 'pending_recovery.dart' show PendingRetryOutcome;
+import 'pending_recovery.dart'
+    show PendingRetryOutcome, PendingRecoveryItem, PendingRecoveryState;
 import 'recovery_gate.dart';
 import 'recovery_journal_leg.dart';
 import 'recovery_retry_timer.dart';
-
-/// Card RC-G — one piece's share of [BackfillProgress].
-@immutable
-class ArticleBackfill {
-  const ArticleBackfill({required this.pendingMs, required this.fromOutage});
-
-  static const ArticleBackfill none =
-      ArticleBackfill(pendingMs: 0, fromOutage: false);
-
-  /// Milliseconds of THIS piece's audio still waiting to become words.
-  final int pendingMs;
-
-  /// Was any of [pendingMs] recorded while the link (or the engine) was down?
-  /// Chooses the article page's sentence exactly as
-  /// [BackfillProgress.pendingFromOutage] used to, but for this piece only.
-  final bool fromOutage;
-}
-
-/// How much recovery is still owed, for the face ruling ⑮ requires.
-@immutable
-class BackfillProgress {
-  const BackfillProgress({
-    required this.pendingMs,
-    required this.running,
-    this.serverTier,
-    this.needsManual = 0,
-    this.settledUnverified = 0,
-    this.pendingFromOutage = false,
-    this.byArticle = const <String, ArticleBackfill>{},
-  });
-
-  static const BackfillProgress idle =
-      BackfillProgress(pendingMs: 0, running: false);
-
-  /// Card RC-1a - which of A7-3's three classes the LAST evaluated server fell
-  /// into, or null when no journal pass has run (the legacy segment leg does
-  /// not negotiate anything, so it leaves this alone).
-  ///
-  /// 🔴 THE FACE RC-1b OWES THE USER HANGS OFF THIS. Tier C means the audio is
-  /// on the phone and nothing is being attempted; a screen that showed only
-  /// [pendingMs] would say 「N minutes owed」 forever with no explanation.
-  /// 🔴 IT IS NOT A COPY word: nothing here is a user-visible string, and this
-  /// card adds none.
-  final RecoveryTier? serverTier;
-
-  /// Journal recordings whose automatic budget is spent (owner ruling O-9:
-  /// five attempts). Only a user action moves them; that action is RC-1b.
-  final int needsManual;
-
-  /// Journal recordings that produced a row without a complete proof (A5-3).
-  /// Kept, never auto-retried, never swept.
-  final int settledUnverified;
-
-  /// Milliseconds of audio still waiting to become words. Derived from the
-  /// BYTES on disk, so it is a measurement of the remaining work rather than an
-  /// estimate of how long the work will take — which is the honest thing to put
-  /// on screen, and the reason ruling ⑮ could be satisfied without first knowing
-  /// whether recovery is faster than real time.
-  final int pendingMs;
-
-  /// Card LK-3 — was ANY of [pendingMs] recorded while the link was down?
-  ///
-  /// 🔴 IT PICKS THE SENTENCE, IT IS NOT ONE. The article banner may only say
-  /// 「recorded offline」 when something on disk says the link went; a pause, a
-  /// capture fault or a press waiting on a receipt all owe words too, and
-  /// telling that user their network dropped is a claim about their network
-  /// that nothing measured (observed 2026-09-07: 「断网时录下的 26s 还在转写」
-  /// on a recording that was only paused).
-  ///
-  /// True when a journal recording carries `JournalInterrupt.linkLoss`, or
-  /// when the LEGACY face is holding bytes at all — that face writes
-  /// `<session>__seg-N.pcm` only while the uplink is gone (see
-  /// `audio/audio_capture_journal.dart`'s header on why its tombstone runs
-  /// today).
-  final bool pendingFromOutage;
-
-  /// Card RC-G — [pendingMs] and [pendingFromOutage] again, per session key
-  /// (`RetainedAudioSpill.sessionKeyOf`; a continuous recording's key is its
-  /// ARTICLE id). Read through [forArticle].
-  final Map<String, ArticleBackfill> byArticle;
-
-  /// Card RC-G — what [articleId] alone still owes.
-  ///
-  /// 🔴 THE ARTICLE PAGE READS THIS, NEVER [pendingMs]. [pendingMs] is the
-  /// whole phone's debt; printed on one piece's page it read 「断网时录下的
-  /// 10:51 还在转写」 on a piece that owed 1:35, the other 9:16 being other
-  /// recordings — one of which never lost the network at all (CR-12-E re-run,
-  /// root-cause §5.5). Pinned by `test/article_backfill_per_article_test.dart`.
-  ArticleBackfill forArticle(String articleId) =>
-      byArticle[articleId] ?? ArticleBackfill.none;
-
-  /// Whether a stretch is being fed back right now.
-  final bool running;
-
-  bool get hasWork => pendingMs > 0 || running;
-
-  /// Card RC-1b — is there audio on this phone the pending-recovery screen
-  /// would have something to say about?
-  ///
-  /// 🔴 IT GATES A TAP TARGET, NOT A SENTENCE. The retained-audio banner grows
-  /// a 「show me」 action only when this is true, because a control that opens
-  /// an empty page is the affordance R8 forbids.
-  ///
-  /// ⚠️ IT UNDERCOUNTS ONE CASE, ON PURPOSE RATHER THAN BY OVERSIGHT: audio the
-  /// user CANCELLED is kept (owner ruling O-5) and is deliberately absent from
-  /// every count here — the leg excludes it from the debt, which is correct,
-  /// because nothing is owed for it. A phone whose only kept audio is
-  /// cancelled therefore reaches the screen through the list entry rather than
-  /// through this banner. Registered here so the gap is a decision on the
-  /// record and not a bug somebody re-derives.
-  bool get hasKeptAudio =>
-      hasWork ||
-      needsManual > 0 ||
-      settledUnverified > 0 ||
-      serverTier == RecoveryTier.awaitingServerCapability;
-}
 
 /// Feeds retained audio back through the ordinary transcription path.
 ///
@@ -214,7 +101,17 @@ class BackfillRunner {
         _clock = clock,
         _newId = newId,
         _metered = metered,
-        _sleep = sleep;
+       _sleep = sleep {
+    _session.articles.attempts.recoveringArticle.addListener(_recoveryChanged);
+  }
+
+  void _recoveryChanged() {
+    if (!_disposed) {
+      progress.value = progress.value.withRecoveringArticle(
+        _session.articles.attempts.recoveringArticle.value,
+      );
+    }
+  }
 
   final PttSession _session;
   final TimelineStore _timeline;
@@ -512,7 +409,13 @@ class BackfillRunner {
     final RecoveryJournalLeg? leg = journalLeg;
     if (leg != null) {
       final int passStartedMs = _nowMs(); // Codex rc3 ⑦ — see `_armRetry`
-      _lastLegOutcome = await leg.run(fallbackSourceLang: sourceLang);
+      _lastLegOutcome = await leg.run(
+        fallbackSourceLang: sourceLang,
+        onScanned: (RecoveryLegOutcome debt) async {
+          _lastLegOutcome = debt;
+          await _publish(store, running: true);
+        },
+      );
       await _armRetry(sourceLang, passStartedMs: passStartedMs); // RC-O
       if (_lastLegOutcome.stopEarly) {
         await _publish(store, running: false);
@@ -721,26 +624,47 @@ class BackfillRunner {
     int bytes = 0;
     // Card RC-G — per session key: legacy bytes (all outage, see below) and
     // the journal leg's own split.
-    final Map<String, (int, int)> perKey = <String, (int, int)>{};
+    final Map<String, (int, int, bool, PendingRecoveryItem?)> perKey =
+        <String, (int, int, bool, PendingRecoveryItem?)>{};
     for (final String key in await store.pendingSessions()) {
       if (key == store.sessionKey) continue;
       final int b = await store.bytesForSession(key);
       bytes += b;
-      final (int, int) was = perKey[key] ?? (0, 0);
-      perKey[key] = (was.$1 + b, was.$2 + b);
+      final (int, int, bool, PendingRecoveryItem?) was =
+          perKey[key] ?? (0, 0, false, null);
+      perKey[key] = (
+        was.$1 + b,
+        was.$2 + b,
+        true,
+        PendingRecoveryItem(
+          id: key,
+          state: PendingRecoveryState.waitingAuto,
+          durationMs: pcmBytesToMs(b),
+          legacy: true,
+        ),
+      );
     }
     for (final MapEntry<String, SessionDebtBytes> e
         in _lastLegOutcome.bySession.entries) {
-      final (int, int) was = perKey[e.key] ?? (0, 0);
-      perKey[e.key] =
-          (was.$1 + e.value.pendingBytes, was.$2 + e.value.outageBytes);
+      final (int, int, bool, PendingRecoveryItem?) was =
+          perKey[e.key] ?? (0, 0, false, null);
+      perKey[e.key] = (
+        was.$1 + e.value.pendingBytes,
+        was.$2 + e.value.outageBytes,
+        was.$3 || e.value.waitingAuto,
+        was.$3 ? was.$4 : e.value.recoveryItem,
+      );
     }
     if (_disposed) return;
     progress.value = BackfillProgress(
+      recoveringArticleId: _session.articles.attempts.recoveringArticle.value,
       byArticle: <String, ArticleBackfill>{
-        for (final MapEntry<String, (int, int)> e in perKey.entries)
+        for (final MapEntry<String, (int, int, bool, PendingRecoveryItem?)> e
+            in perKey.entries)
           if (e.value.$1 > 0)
             e.key: ArticleBackfill(
+              waitingAuto: e.value.$3,
+              recoveryItem: e.value.$4,
               pendingMs: pcmBytesToMs(e.value.$1),
               fromOutage: e.value.$2 > 0,
             ),
@@ -770,6 +694,9 @@ class BackfillRunner {
     // somebody's teardown.
     if (_disposed) return;
     _disposed = true;
+    _session.articles.attempts.recoveringArticle.removeListener(
+      _recoveryChanged,
+    );
     _retry.cancel(); // RC-O
     progress.dispose();
   }

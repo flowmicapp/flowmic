@@ -108,6 +108,10 @@
 // closed before srvjp is ever made selectable — see test/writer-only-census.test.ts
 // which fails if a NEW write site appears in a handler without being classified,
 // so this list cannot quietly go stale the way a hand-kept list does.
+// ⚠️ 2026-09-29 (NR-131) — of those, `stampMachineUid` and the client
+// declaration (`notePcClientDeclaration`) now ALSO travel to the writer as an
+// outbox `pc.identity` record (node/pc-identity-forward.ts), and presence as
+// `pc.presence`; the local copies are still erased by the pull.
 //
 // ── WHY A GUARD OBJECT AND NOT AN `if (isReplica)` IN EACH HANDLER ─────────
 // Six copies of the same condition is six places for the seventh to be forgotten,

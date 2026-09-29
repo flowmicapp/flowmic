@@ -23,11 +23,7 @@ import {
 } from '@flowmic/protocol';
 import type { SettingRow, SettingsRepo } from '../src/db/repos/settings.repo';
 import { loadRoutings } from '../src/stt/engine-factory';
-import {
-  STT_POLISH_DEFAULT_WITH_LLM,
-  STT_POLISH_DEFAULT_WITHOUT_LLM,
-  readSttPolish,
-} from '../src/stt/stt-polish-settings';
+import { STT_POLISH_DEFAULT, readSttPolish } from '../src/stt/stt-polish-settings';
 import { ScenarioInferenceStore } from '../src/compose/scenario-infer-store';
 import { resolveLlmConfigWithSource } from '../src/compose';
 import { ServerError } from '../src/errors';
@@ -90,25 +86,21 @@ describe('settings-key-drift GET anchors read the exact literal keys the desktop
     expect(readSttPolish(recordingRepo({ 'stt.polish': { enabled: false } }, []), 'u1')).toEqual({ enabled: false });
   });
 
-  it('readSttPolish resolves the default from whether a usable LLM exists (POLISH-CFG)', () => {
-    // 🔴 This case has now been rewritten TWICE by the same mechanism, and that is
-    // the point worth keeping. It first read "defaults OFF" with a literal
-    // `{enabled:false}`; owner ruled "AI polish defaults to fully on" and the literal went red, so
-    // it was rewritten against a constant. On 2026-08-09 the constant itself
-    // stopped being the answer: owner ruled the default follows "whether an LLM is configured", so
-    // there is no single value left for this case to assert. It now states the
-    // RULE, which is what it was always trying to be about.
-    //
-    // No llm.config and no managed default ⇒ nothing to call ⇒ the feature does
-    // not arm itself behind the user's back.
-    expect(readSttPolish(recordingRepo({}, []), 'u1')).toEqual(STT_POLISH_DEFAULT_WITHOUT_LLM);
-
-    // A usable config ⇒ owner's "once LLM is configured, it needs to be enabled".
+  it('readSttPolish: an absent row resolves to STT_POLISH_DEFAULT (ON) with or without a usable LLM (NR-132)', () => {
+    // 🔴 This case has now been rewritten THREE times by the same mechanism. It
+    // first read "defaults OFF" with a literal; owner ruled "AI polish defaults to
+    // fully on" and it was rewritten against a constant; on 2026-08-09 (POLISH-CFG)
+    // the default became 「on iff a usable LLM resolves」. On 2026-09-29 (NR-132)
+    // it became a constant again, ON, because the switch that renders it is the
+    // phone's and shows ON when untouched — see stt-polish-settings.ts.
+    // Both model states are asserted so a return to the model-dependent rule reddens.
+    expect(STT_POLISH_DEFAULT).toEqual({ enabled: true });
+    expect(readSttPolish(recordingRepo({}, []), 'u1')).toEqual(STT_POLISH_DEFAULT);
     const withLlm = recordingRepo(
       { 'llm.config': { protocol: 'openai-compatible', endpoint: 'http://x/v1', model: 'm', api_key: '' } },
       [],
     );
-    expect(readSttPolish(withLlm, 'u1')).toEqual(STT_POLISH_DEFAULT_WITH_LLM);
+    expect(readSttPolish(withLlm, 'u1')).toEqual(STT_POLISH_DEFAULT);
   });
 
   it('🔴 an explicit row is honoured at BOTH values — this card moved the default, not the choice', () => {

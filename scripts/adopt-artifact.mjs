@@ -4,6 +4,7 @@
 //     node scripts/adopt-artifact.mjs <path> --sha256 <hash-from-the-producing-machine>
 //     node scripts/adopt-artifact.mjs <path> --sha256 <hash> --platform macos-arm64
 //     node scripts/adopt-artifact.mjs <path> --sha256 <hash> --dry-run
+//     node scripts/adopt-artifact.mjs FlowMic_<v>_amd64.deb --sha256 <hash>   (NR-107)
 //
 // ── the problem this exists for ─────────────────────────────────────────────
 //
@@ -50,13 +51,32 @@
 // · When the source filename carries no version, it CANNOT cross-check the
 //   version it is about to write into the name, and says so on every run
 //   rather than letting the filename quietly speak for bytes nobody asked.
+//
+// ── NR-107: the Linux .deb and the no-DEV: rule ──────────────────────────────
+//
+// A source ending in `.deb` is adopted under the same trust rules (mandatory
+// out-of-band --sha256, version cross-check, never clobber different bytes,
+// re-hash what landed) as `FlowMic_<version>_amd64.deb` — Tauri's name, the
+// one the download center and the GitHub Release collect. Its platform can only
+// be linux-x64; the magic check is the ar(1) header plus the Debian package's
+// first member, `debian-binary`. A linux-x64 portable zip is additionally
+// opened to refuse any `DEV:` placeholder in its launcher or README-LINUX.txt
+// (scripts/linux-dev-copy-gate.mjs); the .deb carries neither file.
 
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { PORTABLE_PLATFORMS, portableZipName, sidecarLine } from './pack-portable.mjs';
+import { assertLinuxZipHasNoDevCopy } from './linux-dev-copy-gate.mjs';
+import { PORTABLE_PLATFORMS, linuxDebName, portableZipName, sidecarLine } from './pack-portable.mjs';
+
+/** Debian binary package: an ar(1) archive whose first member is `debian-binary`. */
+export function looksLikeDeb(bytes) {
+  return bytes.length >= 68 &&
+    bytes.subarray(0, 8).toString('latin1') === '!<arch>\n' &&
+    bytes.subarray(8, 21).toString('latin1') === 'debian-binary';
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -160,7 +180,13 @@ export function adoptArtifact({ sourcePath, attestedSha256, version, outDir, pla
   }
 
   const sourceName = basename(sourcePath);
-  const { platform: plat, how } = choosePlatform(sourceName, platform);
+  const isDeb = sourceName.endsWith('.deb');
+  if (isDeb && platform !== undefined && platform !== 'linux-x64') {
+    throw new AdoptError(`${sourceName} is a Debian package; its platform can only be linux-x64, not --platform ${platform}.`);
+  }
+  const { platform: plat, how } = isDeb
+    ? { platform: 'linux-x64', how: 'a .deb is the linux-x64 package' }
+    : choosePlatform(sourceName, platform);
   const versionCheck = checkVersionAgreement(sourceName, version);
 
   const bytes = readFileSync(sourcePath);
@@ -177,14 +203,29 @@ export function adoptArtifact({ sourcePath, attestedSha256, version, outDir, pla
   }
   // Magic bytes only — see the header for why this deliberately does not
   // impose the Windows bundle's internal shape on a foreign artifact.
-  if (bytes.length < 4 || bytes.readUInt32LE(0) !== 0x04034b50) {
+  if (isDeb && !looksLikeDeb(bytes)) {
+    throw new AdoptError(
+      `${sourceName} is not a Debian package (expected an ar archive whose first member is debian-binary; got ${bytes.subarray(0, 8).toString('hex')}).\n` +
+      '  Filing it under a .deb name would make the name lie.',
+    );
+  }
+  if (!isDeb && (bytes.length < 4 || bytes.readUInt32LE(0) !== 0x04034b50)) {
     throw new AdoptError(
       `${sourceName} does not begin with the zip magic (got ${bytes.subarray(0, 4).toString('hex')}, expected 504b0304).\n` +
       '  The canonical portable artifact name ends in .zip, so filing a non-zip under it would make the name lie.',
     );
   }
 
-  const destName = portableZipName(version, plat);
+  // NR-107: no `DEV:` placeholder ships in a Linux portable bundle.
+  if (!isDeb && plat === 'linux-x64') {
+    try {
+      assertLinuxZipHasNoDevCopy(bytes, sourceName);
+    } catch (error) {
+      throw new AdoptError(error.message);
+    }
+  }
+
+  const destName = isDeb ? linuxDebName(version) : portableZipName(version, plat);
   const destPath = join(outDir, destName);
   const sidecarPath = `${destPath}.sha256`;
 

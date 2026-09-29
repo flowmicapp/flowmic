@@ -58,14 +58,15 @@ export * from './registry-shared';
 export * from './device-slots';
 import { makeDeviceSlots, type DeviceSlots } from './device-slots';
 import {
-  isRealPc, occupiesMobileSlot, sanitizeClientInstanceId, type PairInput,
+  isIntegratorRoom, isRealPc, occupiesMobileSlot, sanitizeClientInstanceId, type PairInput,
   CLOUD_INSTANCE_ID, CLOUD_INSTANCE_SHORT_CODE, CLOUD_INSTANCE_PC_NAME,
   PCID_DIGITS, PCID_SPACE,
 } from './registry-shared';
 import { resolvePcForPair as resolvePcForPairImpl } from './registry-pair-resolve';
 import { serializeTargetCaps } from './target-caps';
 import { ensureWebRoom, type WebRoomOutcome } from './web-room';
-import { mintIntegratorRoom, type IntegratorRoomOutcome } from './integrator-room';
+import { mintIntegratorRoom, type IntegratorRoomOutcome, type IntegratorRoomOptions } from './integrator-room';
+import { allocateIntegratorCode } from './integrator-code-limit';
 
 export class Registry {
   private readonly codes: ShortCodeGovernor;
@@ -225,10 +226,11 @@ export class Registry {
     if (existing) {
       // Re-register the same physical PC: rotate token + short code, keep row.
       const token = newToken();
+      const integrator = existing.room_kind === 'integrator';
+      const shortCode = integrator ? allocateIntegratorCode(this.codes, existing.id) : this.allocateCode(existing.id);
       pcs.setToken(existing.id, token);
-      const shortCode = this.allocateCode(existing.id);
       pcs.setShortCode(existing.id, shortCode);
-      this.codes.stamp(existing.id, shortCode);
+      this.codes.stamp(existing.id, shortCode, integrator ? 'integrator' : 'pc');
       pcs.setOnline(existing.id, true);
       // Adopt the credentials this machine is presenting NOW, so the next
       // registration resolves through ① directly and ② stays the rare path.
@@ -368,11 +370,12 @@ export class Registry {
    * unlike `ensureWebRoom` it takes no per-account lock: there is nothing to
    * serialize when every call is meant to produce a different row.
    */
-  mintIntegratorRoom(user_id: string, key_id: string, opts?: { ttlMs?: number; deviceName?: string }): IntegratorRoomOutcome {
+  mintIntegratorRoom(user_id: string, key_id: string, opts?: IntegratorRoomOptions): IntegratorRoomOutcome {
     return mintIntegratorRoom({
       pcs: this.deps.pcs,
-      allocateCode: (ownerId) => this.allocateCode(ownerId),
-      stampCode: (pcId, code) => this.codes.stamp(pcId, code),
+      mobiles: this.deps.mobiles,
+      allocateCode: (ownerId) => allocateIntegratorCode(this.codes, ownerId),
+      stampCode: (pcId, code) => this.codes.stamp(pcId, code, 'integrator'),
       stampPcid: (pc) => this.stampPcid(pc),
       bindRoom: (pcId, keyId, at) => {
         const sink = this.deps.integratorKeys;
@@ -427,10 +430,17 @@ export class Registry {
     // 🔴 B12 (2026-09-02, WP-6) — EXCEPT on a replica, where `opts.
     // skipPcidBackfill` is set by the caller (pc.handler.ts, from the SAME
     // `writerOnly()` guard every other per-role decision here reads). Unlike
-    // `stampMachineUid`/`setOnline` just above and below — genuinely idempotent
-    // writes of a value the CLIENT already knows, so a replica's copy dying at
-    // the next pull loses nothing new — `stampPcid` MINTS a fresh random value
-    // when the row has none. Minting it locally on a replica does not merely
+    // `stampMachineUid`/`setOnline` just above and below — idempotent writes of
+    // a value the CLIENT already knows and re-sends on every connection —
+    // `stampPcid` MINTS a fresh random value when the row has none.
+    // ⚠️ CORRECTED (NR-131, 2026-09-29): this used to say a replica's copy of
+    // those two 「dying at the next pull loses nothing new」. False whenever the
+    // WRITER lacks the value — every row that needs the uid BACKFILL this method
+    // exists for: the local stamp was erased and nothing ever reached the writer,
+    // so phones read `pc_machine_uid: null` forever. The uid (and the client
+    // declaration) now reach the writer through the pc handler's
+    // `notePcIdentity` → outbox `pc.identity` (node/pc-identity-forward.ts);
+    // presence through `stampPresence`. Minting it locally on a replica does not merely
     // get erased: because the writer's own row is STILL null afterwards, the
     // NEXT reconnect (same replica after a pull, or any other node) mints a
     // DIFFERENT one — a pre-0.2.66 row that only ever reconnects through a
@@ -447,9 +457,10 @@ export class Registry {
   refreshShortCode(pc_id: string): string {
     const existing = this.deps.pcs.findById(pc_id);
     if (!existing) throw new ServerError('PAIR_PC_OFFLINE', 'pc not found');
-    const code = this.allocateCode(pc_id);
+    const integrator = existing.room_kind === 'integrator';
+    const code = integrator ? allocateIntegratorCode(this.codes, pc_id) : this.allocateCode(pc_id);
     this.deps.pcs.setShortCode(pc_id, code);
-    this.codes.stamp(pc_id, code);
+    this.codes.stamp(pc_id, code, integrator ? 'integrator' : 'pc');
     return code;
   }
 
@@ -545,7 +556,12 @@ export class Registry {
     // that would not be counted a millisecond later. MP-6 moved the predicate onto
     // `client`, which is written by this very insert — the timing problem, and
     // therefore the seam, no longer has anything to solve.
-    if (occupiesMobileSlot({ client: input.client ?? null })) {
+    //
+    // 🔴 card EMB-6 — and a pairing INTO an integrator room (a visitor's app
+    // scanning a third-party page's QR) is not the host account's handset
+    // either: `isIntegratorRoom`, the same predicate `countMobileDevices` skips
+    // such rooms by, so the ceiling does not judge a row the count ignores.
+    if (occupiesMobileSlot({ client: input.client ?? null }) && !isIntegratorRoom(pc)) {
       this.slots.ensureMobileSlot(input.user_id ?? pc.user_id);
     }
     const token = newToken();

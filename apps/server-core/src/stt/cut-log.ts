@@ -43,6 +43,7 @@ export type SttCutKind = 'segment' | 'hangup' | 'stop';
 
 export interface SttCutRecord {
   kind: SttCutKind;
+  backlog_ms?: number | null;
   reason: SegmentCutReason | null;
   segment_idx: number;
   boundary_seq: number;
@@ -72,7 +73,7 @@ export function cutPointFacts(c: { legMs: number; leftWordStartMs: number; right
 }
 
 /** What the orchestrator's single flush chokepoint records about the most recent flush. */
-export interface LastFlushFacts { startedMs: number; endedMs: number; timedOut: boolean; lastWordMs: number | null; legFedMs: number }
+export interface LastFlushFacts { backlogMs?: number | null; startedMs: number; endedMs: number; timedOut: boolean; lastWordMs: number | null; legFedMs: number }
 
 /** The event name, exported so the shape test and a log reader grep the same string. */
 export const STT_CUT_EVENT = 'stt.cut';
@@ -92,5 +93,5 @@ export function flushFields(f: LastFlushFacts | null, sinceMs: number): Pick<Stt
 export function logCutIfFlushed(head: Pick<SttCutRecord, 'kind' | 'reason' | 'segment_idx' | 'boundary_seq' | 'replayed_ms'> & { x?: CutPointFacts | null }, f: LastFlushFacts | null, sinceMs: number): void {
   const flush = flushFields(f, sinceMs);
   const { x, ...rest } = head;
-  if (flush !== null) logCut({ ...rest, ...(x ?? NO_CUT_POINT), ...flush }); // card RC-J: the cut point, null unless an overdue cut
+  if (flush !== null) logCut({ ...rest, ...(head.kind === 'stop' ? { backlog_ms: f?.backlogMs == null ? null : Math.round(f.backlogMs) } : {}), ...(x ?? NO_CUT_POINT), ...flush }); // card RC-J: the cut point, null unless an overdue cut
 }

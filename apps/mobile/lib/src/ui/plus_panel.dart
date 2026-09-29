@@ -35,6 +35,7 @@ import '../session/image_send_controller.dart' show ImageOriginalBlock;
 import '../settings/app_strings.dart';
 import '../settings/local_prefs.dart';
 import '../session/backfill_runner.dart';
+import '../session/chat_controller.dart';
 import '../timeline/cloud/light_record_query.dart';
 import '../timeline/timeline_entry.dart';
 import 'confirm_dialog.dart';
@@ -109,6 +110,7 @@ Future<void> showPlusPanel(
   /// CR-8 / ruling ⑮ — how much offline audio is still becoming words. Null ⇒
   /// no recovery channel is wired, and the article page says nothing about it.
   ValueListenable<BackfillProgress>? backfill,
+  ChatController? articleController,
 
   /// Asked, not snapshotted — see [PlusPanelNotesTab.isSignedIn].
   bool Function()? isSignedIn,
@@ -148,6 +150,7 @@ Future<void> showPlusPanel(
       lightRecords: lightRecords,
       liveArticleId: liveArticleId,
       backfill: backfill,
+      articleController: articleController,
       isSignedIn: isSignedIn,
       onSignIn: onSignIn,
       onSendSelection: onSendSelection,
@@ -173,6 +176,7 @@ class PlusPanel extends StatefulWidget {
     this.lightRecords,
     this.liveArticleId,
     this.backfill,
+    this.articleController,
     this.isSignedIn,
     this.onSignIn,
     this.onSendSelection,
@@ -223,6 +227,7 @@ class PlusPanel extends StatefulWidget {
   /// CR-8 / ruling ⑮ — how much offline audio is still becoming words, for the
   /// article page the notes tab opens. Null ⇒ no recovery channel is wired.
   final ValueListenable<BackfillProgress>? backfill;
+  final ChatController? articleController;
   final bool Function()? isSignedIn;
   final Future<void> Function()? onSignIn;
 
@@ -440,6 +445,7 @@ class _PlusPanelState extends State<PlusPanel> {
                     selection: _selection,
                     imageSendable: widget.imageSendable,
                     backfill: widget.backfill,
+                    articleController: widget.articleController,
                   ),
                 )
               else ...<Widget>[

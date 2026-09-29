@@ -157,6 +157,10 @@ export function makeIntegratorKeyGuard(deps: IntegratorKeyGuardDeps): Integrator
       // answered by the route, and the route folds `unknown` and `revoked` into
       // one reply for the same reason the trial ledger folds unknown and
       // expired.
+      // EMB-1b: an empty origins array from a legacy row refuses room creation
+      // through this exact-origin check. The 2026-09-29 EMB-0 production
+      // inventory (§1) found zero active integrator keys, so no live key is
+      // broken by that refusal.
       if (!originAllowed(key, origin)) return { ok: false, reason: 'origin' };
       return { ok: true, key };
     },

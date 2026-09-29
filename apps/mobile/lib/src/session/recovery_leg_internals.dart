@@ -34,6 +34,10 @@ enum _StepOutcome {
   refusedNoLink,
   linkLost,
   recordingGone,
+  // Internal restart request, consumed (and bounded) by _attemptRanges.
+  revalidate,
+  // Leave this candidate for the next sweep; other candidates may proceed.
+  revalidationDeferred,
 }
 
 @immutable

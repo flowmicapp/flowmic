@@ -27,6 +27,7 @@ import '../session/pending_recovery.dart';
 import '../settings/app_strings.dart';
 import '../timeline/entry_metrics.dart';
 import 'tokens.dart';
+import 'recovery_status_sentence.dart';
 
 /// One recording: when, how long, one sentence, and whatever it may offer.
 class PendingRecoveryCard extends StatelessWidget {
@@ -63,30 +64,6 @@ class PendingRecoveryCard extends StatelessWidget {
   /// withheld for the second it takes, never drawn-and-inert (R8).
   final VoidCallback? onDelete;
 
-  /// §A8-1 P2-10 — one sentence per state, chosen here and nowhere else.
-  ///
-  /// 🔴 EXHAUSTIVE WITH NO DEFAULT. A `default` arm would let a state added
-  /// later inherit somebody else's sentence, silently, on a screen whose whole
-  /// job is to say which of five different things is true.
-  static String sentenceFor(PendingRecoveryState state, AppStrings s) =>
-      switch (state) {
-        PendingRecoveryState.waitingAuto => s.pendingRecoveryStateWaiting,
-        PendingRecoveryState.needsManual => s.pendingRecoveryStateNeedsManual,
-        PendingRecoveryState.shortfall => s.pendingRecoveryStateShortfall,
-        PendingRecoveryState.settledUnverified =>
-          s.pendingRecoveryStateUnverified,
-        PendingRecoveryState.settledServerKeepsAudio =>
-          s.pendingRecoveryStateServerKeepsAudio,
-        PendingRecoveryState.emptyResult =>
-          s.pendingRecoveryStateEmptyResult,
-        PendingRecoveryState.emptyConfirmed =>
-          s.pendingRecoveryStateEmptyConfirmed,
-        PendingRecoveryState.serverUnsupported =>
-          s.pendingRecoveryStateServerUnsupported,
-        PendingRecoveryState.cancelled => s.pendingRecoveryStateCancelled,
-        PendingRecoveryState.unreadable => s.pendingRecoveryStateUnreadable,
-      };
-
   @override
   Widget build(BuildContext context) {
     final bool mayRetry =
@@ -111,9 +88,11 @@ class PendingRecoveryCard extends StatelessWidget {
             // Card RC-S — in place of the state sentence, not under it: see
             // [PendingRecoveryItem.otherAccount] for why the state's own
             // sentence would be false here.
-            item.otherAccount
-                ? strings.pendingRecoveryOtherAccount
-                : sentenceFor(item.state, strings),
+            recoveryStatusSentence(
+              item.state,
+              strings,
+              otherAccount: item.otherAccount,
+            ),
             key: ValueKey<String>('pendingRecovery.sentence.${item.id}'),
             style: TextStyle(
               color: FlowMicColors.t1,

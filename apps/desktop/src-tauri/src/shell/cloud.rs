@@ -28,6 +28,7 @@ use crate::socket::blocking::run_blocking;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::cloud_account_outcome;
 use crate::forensic;
 use crate::socket::bridge;
 use crate::socket::channel::{self, Channel, CloudConfig, KEY_MALFORMED};
@@ -389,7 +390,9 @@ const ACCOUNT_HTTP_TIMEOUT: Duration = Duration::from_secs(6);
 ///   `ok`            — both reads answered; `me` + `summary` are present.
 ///   `no_key`        — signed out. Nothing to ask with. Not a failure.
 ///   `no_endpoint`   — no relay address saved. Also not a failure.
-///   `unauthorized`  — the server said 401. **Actionable**: sign in again.
+///   `unauthorized`  — the server said 401, and ONLY a 401 (NR-109: a 403 is a
+///                     verified credential being refused something, never a
+///                     lapsed one). **Actionable**: sign in again.
 ///   `restricted`    — the server said `403 ACCOUNT_RESTRICTED`. The credential
 ///                     is FINE; the account is not being served. There is
 ///                     nothing to press, so it must never share a face with
@@ -397,6 +400,10 @@ const ACCOUNT_HTTP_TIMEOUT: Duration = Duration::from_secs(6);
 ///                     that succeeds and changes nothing. `detail` carries the
 ///                     enumerated reason KEY, or `None` when the server sent
 ///                     none (owner ruling 2026-08-27 §R1 追加).
+///   `unverified`    — the server said `403 EMAIL_NOT_VERIFIED` (NR-109). The
+///                     credential is FINE; the account's mailbox is not verified
+///                     yet, so the plan/usage read is withheld. Verify, then ask
+///                     again — never 「sign in again」.
 ///   `unreachable`   — the network/relay did not answer. **Wait and retry**.
 ///   `bad_response`  — it answered, and we could not read what it said. That is
 ///                     OUR bug surface, not the user's, and folding it into
@@ -476,24 +483,18 @@ fn get_json(
         // the enumerated `reason` the Terms promise them was discarded one line
         // before it would have been shown.
         //
-        // Two verdicts, two outcomes: `unauthorized` is 「your credential is no
-        // good」 (sign in again), `restricted` is 「your credential is fine and
-        // your account is not being served」 (nothing to press). `detail` carries
-        // the reason KEY verbatim so the frontend can render the enumerated
-        // sentence — never a sentence invented here.
-        let restricted = resp
-            .json::<serde_json::Value>()
-            .ok()
-            .filter(|b| b.get("error").and_then(serde_json::Value::as_str) == Some("ACCOUNT_RESTRICTED"))
-            .map(|b| {
-                b.get("reason")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string)
-            });
-        return match restricted {
-            Some(reason) => Err(("restricted".to_string(), reason)),
-            None => Err(("unauthorized".to_string(), Some(format!("http {}", status.as_u16())))),
-        };
+        // 🔴 NR-109 (2026-09-26): the same fold was still there for every OTHER
+        // 403, and `/api/cloud/summary` sends one to every account whose mailbox
+        // is not verified yet — i.e. to every freshly registered user. The card
+        // said 「登录已过期」 about a key the relay had accepted a minute earlier.
+        // The whole decision now lives in `crate::cloud_account_outcome`, where
+        // the lean test pass pins it: only a 401 may read as `unauthorized`.
+        let body = resp.json::<serde_json::Value>().ok();
+        // `refusal_outcome` answers `Some` for every 401/403 (its tests pin that);
+        // the fallback is here only so the type does not need an `unwrap`.
+        let (outcome, detail) = cloud_account_outcome::refusal_outcome(status.as_u16(), body.as_ref())
+            .unwrap_or(("bad_response", Some(format!("http {}", status.as_u16()))));
+        return Err((outcome.to_string(), detail));
     }
     if !status.is_success() {
         return Err(("bad_response".to_string(), Some(format!("http {}", status.as_u16()))));
@@ -565,6 +566,84 @@ pub fn cloud_account_fetch(state: State<'_, CloudState>) -> CloudAccountDto {
                 out.detail.as_ref().map(|d| format!(" ({d})")).unwrap_or_default()
             ),
         );
+        out
+    })
+}
+
+/// NR-109 — how long a resend may take. Longer than the account read on purpose:
+/// the relay AWAITS the mail transport before it answers (email-verification-
+/// routes.ts, 「honesty beats latency here」), so a slow mail vendor is a slow 200,
+/// not a failure.
+const RESEND_HTTP_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// What `cloud_verification_resend` reports. `outcome` values:
+/// `sent` / `already_verified` / `cooldown` / `rate_limited` / `no_email` /
+/// `send_failed` / `unauthorized` / `bad_response` — one per answer of the route
+/// (`crate::cloud_account_outcome::resend_outcome`) — plus two that are about the
+/// request, not the answer, and are deliberately NOT one value:
+///   `unreachable` — the connection was never made, so nothing was sent;
+///   `no_answer`   — the request may have arrived and no answer came back in
+///                   time, so whether a mail left is UNKNOWN and must be said so.
+/// And `no_key` / `no_endpoint`, which mean there was nothing to ask with.
+#[derive(serde::Serialize, Clone)]
+pub struct VerificationResendDto {
+    pub outcome: String,
+    /// Only on `cooldown`, verbatim from the server.
+    pub retry_after_ms: Option<u64>,
+}
+
+fn resend_blocking(base: String, key: String) -> (VerificationResendDto, String) {
+    let done = |outcome: &str, retry: Option<u64>, detail: String| {
+        (VerificationResendDto { outcome: outcome.to_string(), retry_after_ms: retry }, detail)
+    };
+    let client = match reqwest::blocking::Client::builder().timeout(RESEND_HTTP_TIMEOUT).build() {
+        Ok(c) => c,
+        Err(e) => return done("bad_response", None, transport_detail(&e)),
+    };
+    let resp = client
+        .post(format!("{base}{}", cloud_account_outcome::RESEND_PATH))
+        .header("Authorization", format!("Bearer {key}"))
+        .json(&serde_json::json!({}))
+        .send();
+    let resp = match resp {
+        Ok(r) => r,
+        // Connect failed ⇒ the request never left: nothing was sent. Any other
+        // transport failure (timeout included) may have happened after the relay
+        // received it — and it sends the mail before it answers.
+        Err(e) if e.is_connect() => return done("unreachable", None, transport_detail(&e)),
+        Err(e) => return done("no_answer", None, transport_detail(&e)),
+    };
+    let status = resp.status().as_u16();
+    let body = resp.json::<serde_json::Value>().ok();
+    let (outcome, retry) = cloud_account_outcome::resend_outcome(status, body.as_ref());
+    done(outcome, retry, cloud_account_outcome::resend_detail(status, body.as_ref()))
+}
+
+/// NR-109 (MAIN decision ①) — ask the relay to send the verification email again,
+/// with this PC's Cloud Key. The key never leaves Rust (same rule as the account
+/// read); only the verdict crosses back. Never throws, for the same reason
+/// `cloud_account_fetch` never does.
+#[tauri::command(async)]
+pub fn cloud_verification_resend(state: State<'_, CloudState>) -> VerificationResendDto {
+    run_blocking(|| {
+        let cfg = state.snapshot();
+        let base = cfg.endpoint.trim_end_matches('/').to_string();
+        if base.is_empty() {
+            return VerificationResendDto { outcome: "no_endpoint".to_string(), retry_after_ms: None };
+        }
+        let Some(key) = cfg.jwt.clone() else {
+            return VerificationResendDto { outcome: "no_key".to_string(), retry_after_ms: None };
+        };
+        // Same thread discipline as `cloud_account_fetch` (reqwest::blocking must
+        // not be driven from inside the async runtime).
+        let (out, detail) = match std::thread::spawn(move || resend_blocking(base, key)).join() {
+            Ok(r) => r,
+            Err(_) => (
+                VerificationResendDto { outcome: "bad_response".to_string(), retry_after_ms: None },
+                "worker panicked".to_string(),
+            ),
+        };
+        forensic::record("cloud", &format!("verification resend → {} ({detail})", out.outcome));
         out
     })
 }

@@ -189,7 +189,19 @@ Future<String> _recordAndStop(WidgetTester tester, ArticleRig r) async {
   }
 
   late String id;
-  await step(() async => id = await r.startRecording());
+  // 🔴 The recorder fake is SILENT until fed, and the production capture
+  // watchdog (`kDeadCaptureAfter`, 1.5 s of REAL time, armed inside
+  // `AudioCapture.start`) reads silence as a dead microphone: it raises
+  // `no-audio-captured`, the controller arms a 4 s banner auto-hide timer in the
+  // fake-async zone, and the binding fails the test with 「A Timer is still
+  // pending」 before any tearDown can dispose the rig. Quiet machines finish
+  // this test in well under 1.5 s so it passed; a saturated six-lane gate did
+  // not. Feeding one PCM chunk (what `_startFromEntry` above already does)
+  // makes the mic alive, so the watchdog has nothing to say at any speed.
+  await step(() async {
+    id = await r.startRecording();
+    r.recorder.feed(makePcm(6400));
+  });
   await step(() => r.say(_r0, 0, isSegment: true, durationMs: 45000));
   await step(() => r.say(_r1, 1, isSegment: true, durationMs: 30000));
   await step(() => r.controller.pttUp());

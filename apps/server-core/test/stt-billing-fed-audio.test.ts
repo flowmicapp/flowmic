@@ -12,7 +12,7 @@
 //
 // Driven through the PRODUCTION pieces: SttSessionBridge + VadGate +
 // AudioSession + SttEngineOrchestrator wired exactly as `engine-factory.ts`
-// wires a managed streaming leg (`shouldFeedEngine: () => vad.open`). Only the
+// wires a managed streaming leg (`shouldFeedEngine: () => vad.admitChunk`). Only the
 // engine is a stand-in, because the fault (an engine that is gone) cannot be
 // injected otherwise.
 //
@@ -75,7 +75,7 @@ async function run(speakMs: number, dropAtMs: number | readonly number[] | undef
         return leg;
       }, {
         now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
-        softSegmentMs: 3_600_000, shouldFeedEngine: (): boolean => vad!.open,
+        softSegmentMs: 3_600_000, shouldFeedEngine: (): boolean => vad!.admitChunk,
       });
       return { orchestrator: orch, isByok: false, gated: true };
     },
@@ -186,7 +186,7 @@ async function runOutage(o: { speakMs: number; dropAtMs: number; openAtMs: numbe
         return leg;
       }, {
         now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
-        softSegmentMs: 3_600_000, shouldFeedEngine: (): boolean => vad!.open,
+        softSegmentMs: 3_600_000, shouldFeedEngine: (): boolean => vad!.admitChunk,
         ...(o.unbounded === true ? { reconnectUnbounded: true } : {}),
       });
       return { orchestrator: orch, isByok: false, gated: true };

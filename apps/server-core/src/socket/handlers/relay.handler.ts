@@ -371,7 +371,7 @@ export function registerRelayHandlers(socket: Socket, deps: RelayHandlerDeps): v
     // t2 — marked BEFORE the relay so the inject segment covers the PC's real
     // work, not our own emit. A dropped/invalid frame is deliberately not marked:
     // it never reached the PC, so timing it would attribute someone else's delay.
-    markInjectRequest(roomUuid, parsed.data.entry_id ?? null);
+    markInjectRequest(roomUuid, parsed.data.entry_id ?? null, undefined, { source: parsed.data.source, origin: parsed.data.inject_origin });
     // Pass through, not storage (owner's architecture ruling 2026-07-31). `parsed.data` — not a rebuilt
     // object — is what crosses, so the card P row fields (created_at / source_text /
     // entry_type / thumb_b64 / device_label / target_pc_id) reach the PC exactly

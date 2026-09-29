@@ -21,15 +21,24 @@
 // number-one bug shape. One builder, read at emit time, is what makes that
 // structurally impossible rather than a discipline.
 //
-// ── 🔴 「NEVER SET」 IS A REAL STATE AND IS OMITTED ──────────────────────────
+// ── 「NEVER SET」: OMITTED FOR THREE KEYS, CARRIED AS ITS DEFAULT FOR POLISH ─
 //
-// A preference the user has never touched is absent from the bundle. The server
-// then reads 「not set」 and applies ITS default — for polish that is 「on when
-// this deployment can resolve a language model, off when it cannot」, a decision
-// the server can make and this phone cannot. Same rule the push-era controllers
-// used, for the same reason; it is also what keeps a fresh install's frames
-// byte-for-byte what they were before this card (the `prefs` key is omitted
-// entirely when the bundle is empty — see [PhonePrefsCarrier.frame]).
+// Card, refine and consent: a value the user never touched is absent from the
+// bundle and the server reads 「not set」 — its absent-row answer equals what
+// this phone shows for them (empty card, off, off).
+// 🔴 NR-132 (2026-09-29): `stt.polish` is ALWAYS carried, as
+// `prefs.effectivePolish` (the user's row or `kPolishDefault`, the constant the
+// switch renders). Until then it too was omitted when untouched and the server
+// decided 「on iff it can resolve a model」 — so on a LAN PC with no model the
+// switch read ON, the server answered OFF, and the NR-123 badge and hint never
+// fired (0.3.101 device test T2). The phone's displayed value is the truth.
+// ⚠️ Consequence, stated because it changes a frame: the bundle is never empty
+// any more, so `prefs` is on EVERY `audio:start` / `compose:start`, and the
+// server's 「no bundle ⇒ read the database rows」 branch (server-core
+// settings/session-overlay.ts, kept for old phones — design D11) is no longer
+// reached by this build, even for a phone that set nothing else. That is the
+// overlay's intended semantics for a phone that carries a bundle (「a key absent
+// from the bundle is UNSET, never the database row」).
 //
 // ── LITERAL-KEY SET ANCHORS (verify/lint/settings-key-drift.mjs) ────────────
 //
@@ -97,7 +106,8 @@ class PhonePrefsCarrier {
     // gibberish inside the prompt. Pinned by phone_prefs_payload_test.dart.
     b.carrySetting('scenario.card', card.isEmpty ? null : card.toWireJson());
     final PhonePrefs held = prefs.prefs;
-    b.carrySetting('stt.polish', held.polish?.toJson());
+    // NR-132: the EFFECTIVE value, never null — see the header.
+    b.carrySetting('stt.polish', prefs.effectivePolish.toJson());
     b.carrySetting('stt.refine', held.refine?.toJson());
     b.carrySetting('scenario.inference', held.inference?.toJson());
     return b.map;

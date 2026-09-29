@@ -414,6 +414,8 @@ class RetainedAudioSpill {
   /// settle path that read the store's session key would find whatever the next
   /// press rolled it to.
   LiveAudioAttempt? get liveAttempt => _liveAttempt;
+  RecordingManifest? _closedManifest;
+  RecordingManifest? get liveManifest => _journal?.manifest ?? _closedManifest;
 
   LiveAudioAttempt? _liveAttempt;
 
@@ -625,6 +627,7 @@ class RetainedAudioSpill {
   Future<void> _closeJournalLocked(String? interruptReason) async {
     final RetainedAudioJournal? j = _journal;
     if (j == null) return;
+    _closedManifest = j.manifest; // NR-115: queue facts survive closing the live handle.
     _journal = null;
     _recordingId = null;
     await _journalNotices?.cancel();

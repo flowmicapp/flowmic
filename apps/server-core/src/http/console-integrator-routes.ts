@@ -182,6 +182,9 @@ function readOrigins(value: unknown): string[] | null {
   const out: string[] = [];
   for (const raw of value) {
     if (typeof raw !== 'string') return null;
+    // A wildcard is a pattern, not a site origin. Some wildcard hosts (for
+    // example `http://*`) are accepted by URL, so reject `*` before parsing.
+    if (raw.includes('*')) return null;
     // 🔴 NORMALISED ON THE WAY IN, not only on the way out. Storing what the
     // caller typed and normalising at comparison time would work, and it would
     // also mean the console shows a list that does not look like what the check
@@ -189,6 +192,8 @@ function readOrigins(value: unknown): string[] | null {
     // integrator cannot see. One form, stored once.
     const norm = normalizeOrigin(raw);
     if (norm === null) return null;
+    // localhost and 127.0.0.1 are intentional development origins; normalizeOrigin
+    // accepts them under the same exact-origin rule as production domains.
     if (!out.includes(norm)) out.push(norm);
   }
   return out;

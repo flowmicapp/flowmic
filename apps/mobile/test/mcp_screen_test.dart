@@ -91,7 +91,44 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
   }
+  // The results these tests read cross a sqflite isolate and a fake transport,
+  // i.e. REAL time. `settle` above is a fixed 12 x 15 ms and is only a good
+  // wait for widget animations; on a saturated six-lane gate the isolate
+  // answered later than that and `remoteRejected` was simply not painted yet
+  // (mcp_screen_test.dart:214, NR-103). Wait on the observable condition
+  // itself, bounded generously, and let the caller's `expect` say what was
+  // missing if the bound is ever hit. `kUntilBound` is the only knob.
+  const Duration kUntilBound = Duration(seconds: 30);
+  Future<void> until(WidgetTester tester, bool Function() done) async {
+    final Stopwatch clock = Stopwatch()..start();
+    while (!done() && clock.elapsed < kUntilBound) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+  }
+  Future<void> untilText(WidgetTester tester, String text) => until(tester, () => find.text(text).evaluate().isNotEmpty);
+  // End of test. sqflite arms a 10 s lock-warning Timer (fake-async zone) per
+  // query issued from the fake zone, cancelled only when the isolate answers.
+  // Two things in this feature issue such queries on their own after the test
+  // body is done: `McpHistoryRow` re-reads on every build, and the service's
+  // own `drain` (kicked from the fake zone by store change events) walks a few
+  // queries in sequence. Disposing the tree while one is in flight leaves the
+  // Timer pending and the binding fails the test ('A Timer is still pending',
+  // seen in the ja and fr locale cases under 40 busy loops).
+  // Each round queues one query on the same database (answered after every
+  // query already queued, whatever the load) and then pumps so the chain
+  // moves to its next query. The round count bounds the CHAIN DEPTH (about
+  // three), not wall-clock time; `background()` first so no new drain starts.
+  Future<void> finish(WidgetTester tester) async {
+    service.background();
+    for (int i = 0; i < 10; i++) {
+      await tester.runAsync(() => persistence.mcp.db.rawQuery('select 1'));
+      await tester.pump();
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+  }
   Future<void> tap(WidgetTester tester, Finder target) async {
+    await until(tester, () => target.evaluate().isNotEmpty);
     await tester.ensureVisible(target); await tester.tap(target); await settle(tester);
   }
   Future<void> mountSettings(WidgetTester tester) async {
@@ -128,7 +165,9 @@ void main() {
     await tester.pumpWidget(MaterialApp(builder: (_, Widget? child) => McpScope(service: service, settings: settings, child: child!),
       home: ChatFlowPage(controller: rig.controller, appSettings: settings)));
     await settle(tester);
+    await until(tester, () => find.text(row.outputText).evaluate().isNotEmpty);
     await tester.longPress(find.text(row.outputText).first); await settle(tester);
+    await until(tester, () => find.byType(BottomSheet).evaluate().isNotEmpty);
     expect(find.byType(BottomSheet), findsOneWidget);
     await tap(tester, find.text(getStrings().mcp(McpText.manual)).last);
   }
@@ -163,6 +202,7 @@ void main() {
     await tap(tester, find.text(getStrings().mcp(McpText.sourceFixed)).last);
     expect(find.byKey(const ValueKey<String>('mcp.enum./kind')), findsOneWidget);
     await tap(tester, find.byKey(const ValueKey<String>('mcp.test')));
+    await untilText(tester, getStrings().mcp(McpText.testPassed));
     expect(find.text(getStrings().mcp(McpText.testPassed)), findsOneWidget);
     expect(captured.calls, 0);
     expect(service.channels.single.authorized, false);
@@ -175,6 +215,7 @@ void main() {
     expect(service.channels.single.authorized, false);
     await tap(tester, find.byKey(const ValueKey<String>('mcp.enable')));
     await tap(tester, find.byKey(const ValueKey<String>('mcp.confirm')));
+    await until(tester, () => service.channels.single.canSend);
     expect(service.channels.single.canSend, true);
     late TimelineEntry entry;
     await tester.runAsync(() async {
@@ -183,15 +224,18 @@ void main() {
       await rig.store.awaitPersisted(entry.id); await service.drain();
     });
     await settle(tester);
+    await until(tester, () => captured.calls == 1);
+    await untilText(tester, getStrings().mcp(McpText.toolResult));
     expect(captured.calls, 1);
     expect(find.text('Widget record visible'), findsOneWidget);
     expect(find.text(getStrings().mcp(McpText.toolResult)), findsOneWidget);
     await tester.runAsync(() async { rig.store.applyEdit(entry.id, 'Edited locally'); await rig.store.awaitPersisted(entry.id); await service.drain(); });
     await settle(tester);
+    await untilText(tester, getStrings().mcp(McpText.localChanged));
     expect(captured.calls, 1);
     expect(find.text(getStrings().mcp(McpText.localChanged)), findsOneWidget);
     expect(tester.takeException(), isNull);
-    service.background(); await tester.pumpWidget(const SizedBox.shrink());
+    await finish(tester);
   });
 
   testWidgets('real record menu: history submission requires disclosure and remote refusal requires duplicate warning', (WidgetTester tester) async {
@@ -210,6 +254,7 @@ void main() {
     captured.mode = 'modern-refusal';
     await tap(tester, submit);
     await tap(tester, find.byKey(const ValueKey<String>('mcp.confirm')));
+    await untilText(tester, getStrings().mcp(McpText.remoteRejected));
     expect(captured.calls, 1);
     expect(find.text(getStrings().mcp(McpText.remoteRejected)), findsOneWidget);
     expect(find.text(getStrings().mcp(McpText.toolResult)), findsNothing);
@@ -217,7 +262,7 @@ void main() {
     expect(find.textContaining(getStrings().mcp(McpText.unknownRetryWarning)), findsOneWidget);
     await tap(tester, find.text(getStrings().cancel));
     expect(captured.calls, 1);
-    service.background(); await tester.pumpWidget(const SizedBox.shrink());
+    await finish(tester);
   });
 
   testWidgets('manual cannot promote unfinished content, and a changed result invalidates an open confirmation', (WidgetTester tester) async {
@@ -226,6 +271,7 @@ void main() {
     await openManual(tester, pending);
     await tap(tester, find.byKey(ValueKey<String>('mcp.manual.${channel.id}')));
     await tap(tester, find.byKey(const ValueKey<String>('mcp.confirm')));
+    await untilText(tester, getStrings().mcp(McpText.contentNotReady));
     expect(captured.calls, 0);
     expect(find.text(getStrings().mcp(McpText.contentNotReady)), findsOneWidget);
     service.background();
@@ -234,11 +280,13 @@ void main() {
     await tap(tester, find.byKey(ValueKey<String>('mcp.manual.${channel.id}')));
     await tester.runAsync(() async { service.foreground(); await Future<void>.delayed(const Duration(milliseconds: 150)); });
     await settle(tester);
+    await until(tester, () => captured.calls == 1);
     expect(captured.calls, 1);
     await tap(tester, find.byKey(const ValueKey<String>('mcp.confirm')));
+    await untilText(tester, getStrings().mcp(McpText.unknownRetryWarning));
     expect(captured.calls, 1);
     expect(find.text(getStrings().mcp(McpText.unknownRetryWarning)), findsOneWidget);
-    service.background(); await tester.pumpWidget(const SizedBox.shrink());
+    await finish(tester);
   });
 
   testWidgets('editor discovery 401 stops the channel and retesting cannot hammer the same token', (WidgetTester tester) async {
@@ -247,6 +295,7 @@ void main() {
     await mountSettings(tester);
     await tap(tester, find.byKey(ValueKey<String>('mcp.edit.${channel.id}')));
     await tap(tester, find.byKey(const ValueKey<String>('mcp.test')));
+    await until(tester, () => service.channels.single.state == McpChannelState.reauthorizationRequired);
     expect(service.channels.single.state, McpChannelState.reauthorizationRequired);
     expect(find.text(getStrings().mcp(McpText.reauthorize)), findsWidgets);
     final int count = captured.methods.length;
@@ -254,7 +303,7 @@ void main() {
     expect(captured.methods.length, count);
     final FilledButton enable = tester.widget<FilledButton>(find.byKey(const ValueKey<String>('mcp.enable')));
     expect(enable.onPressed, isNull);
-    service.background(); await tester.pumpWidget(const SizedBox.shrink());
+    await finish(tester);
   });
 
   for (final AppLocale locale in AppLocale.values) {
@@ -295,6 +344,7 @@ void main() {
       await rendered('mcp.last-call-time');
       await tap(tester, find.byKey(ValueKey<String>('mcp.edit.${channel.id}')));
       await tap(tester, find.byKey(const ValueKey<String>('mcp.test')));
+      await until(tester, () => find.byKey(const ValueKey<String>('mcp.tool-heading')).evaluate().isNotEmpty);
       await rendered('mcp.tool-heading');
       await rendered('mcp.tool-hint');
       final Finder dropdown = find.byWidgetPredicate((Widget w) => w.key is ValueKey<String> &&
@@ -304,7 +354,7 @@ void main() {
       expect(tester.getTopLeft(find.byKey(const ValueKey<String>('mcp.tool-hint'))).dy,
         greaterThanOrEqualTo(tester.getBottomLeft(dropdown).dy));
       expect(tester.takeException(), isNull);
-      service.background(); await tester.pumpWidget(const SizedBox.shrink());
+      await finish(tester);
     });
   }
 }

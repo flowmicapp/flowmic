@@ -1,6 +1,6 @@
 {
   "name": "@flowmic/protocol",
-  "version": "0.3.95",
+  "version": "0.3.102",
   "description": "FlowMic wire protocol — socket.io event whitelist, zod payload schemas, error codes, and shared types.",
   "license": "Apache-2.0",
   "type": "module",

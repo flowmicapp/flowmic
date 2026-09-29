@@ -129,7 +129,7 @@ describe('settings:list — the mobile arm', () => {
     h.db.settings.write(U, 'stt.polish', { enabled: false });
     h.db.settings.write(U, 'stt.routings', []);
     const listed = await h.list();
-    expect(listed.items).toEqual([{ key: 'capability.llm', value: { usable: expect.any(Boolean) } }]);
+    expect(listed.items).toEqual([{ key: 'capability.llm', value: { usable: expect.any(Boolean), rejected: expect.any(Boolean) } }]);
   });
 
   it('the PC arm is unchanged: stored rows plus the synthesised stt.polish default plus capability.llm', async () => {

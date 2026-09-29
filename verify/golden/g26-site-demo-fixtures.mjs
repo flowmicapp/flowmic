@@ -101,7 +101,7 @@ export function startSiteverifyStub() {
         res.writeHead(200, { 'content-type': 'application/json' });
         // `success` follows the token, so the negative control below exercises
         // the SAME code path a real failed solve does.
-        res.end(JSON.stringify({ success: !body.includes('response=bad') }));
+        res.end(JSON.stringify({ success: !body.includes('response=bad'), hostname: 'localhost', action: '' }));
       });
     });
     srv.listen(0, '127.0.0.1', () => resolve({ srv, port: srv.address().port }));

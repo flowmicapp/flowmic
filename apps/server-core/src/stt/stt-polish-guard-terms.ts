@@ -105,6 +105,13 @@ export function isClosedClassGuarded(lang: string | undefined): boolean {
   return (CLOSED_CLASS_GUARDED_LANGS as readonly string[]).includes(base);
 }
 
+export const CLOSED_CLASS_CATEGORIES = {
+  numeral: ZH_NUMERALS, digit: DIGITS,
+  negation: [...new Set([...ZH_NEGATION, ...EN_NEGATION, ...FR_NEGATION, ...ES_NEGATION, ...DE_NEGATION, ...JA_NEGATION, ...KO_NEGATION, ...RU_NEGATION])],
+  quantifier: [...new Set([...ZH_QUANTIFIER, ...EN_QUANTIFIER, ...FR_QUANTIFIER, ...ES_QUANTIFIER, ...DE_QUANTIFIER, ...JA_QUANTIFIER, ...KO_QUANTIFIER, ...RU_QUANTIFIER])],
+  modal: [...new Set([...ZH_MODAL, ...EN_MODAL, ...FR_MODAL, ...ES_MODAL, ...DE_MODAL, ...JA_MODAL, ...KO_MODAL, ...RU_MODAL])],
+} as const;
+
 // Re-exported so the langs test can quote what was added, verbatim, without
 // duplicating the arrays. Not a public API.
 export const CLOSED_CLASS_ADDED = {

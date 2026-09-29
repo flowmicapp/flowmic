@@ -8,6 +8,7 @@ part of 'chat_controller.dart';
 // what `class ChatController extends ChangeNotifier with _ChatControllerState`
 // already satisfies, so there is no reason to widen the constraint.
 mixin _ChatControllerState on ChangeNotifier {
+  final Map<String, ({String text, int committed, int offsetMs})> _articleDrafts = {};
   // Per-utterance snapshot: delivery + mode are FIXED at audio:start and must
   // NOT follow a later destination/mode toggle (§4.0 B).
   String? _activeClientId;
@@ -40,7 +41,21 @@ mixin _ChatControllerState on ChangeNotifier {
   // (integration, 2026-07-24): the mark is SESSION-PERSISTENT — it stays on the
   // affected bubble for the whole app session (in-memory only, never persisted),
   // NOT a few-seconds toast; an honest failure signal must not quietly vanish.
-  final Set<String> _polishSkippedEntryIds = <String>{};
+  final Map<String, PolishBadge> _polishBadges = <String, PolishBadge>{};
+
+  // NR-123 — the one-time 「set a model up on the computer」 hint. Raised and
+  // cleared only in chat_notices.dart (`raisePolishNoModelHintRouted` and its
+  // two siblings); [_polishNoModelHintShownFor] holds the PCs it was already
+  // raised for in this app run, so it is said once per PC, not once per row.
+  //
+  // NR-130 — the same slot carries the "the model on the computer was refused"
+  // hint: [_polishNoModelHint] says WHICH one is up ([PolishBadge.noModel] or
+  // [PolishBadge.modelRejected]), null when none is. One slot, because both say
+  // "fix the model settings on the computer" and the newer fact replaces the
+  // older one; [_polishNoModelHintShownFor] keys on both the kind and the PC.
+  PolishBadge? _polishNoModelHint;
+  String? _polishNoModelHintInstanceId;
+  final Set<String> _polishNoModelHintShownFor = <String>{};
   /// GA-13: rows whose CURRENT compose run is a reprocess, mapped to the mode
   /// the run was started with. The terminal takes the rewrite fork instead of
   /// the deliver fork — and it must stamp THAT mode, not `_activeMode`, which is

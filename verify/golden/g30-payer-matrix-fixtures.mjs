@@ -69,7 +69,7 @@ export function startSiteverifyStub() {
       req.on('data', (c) => { body += c; });
       req.on('end', () => {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ success: !body.includes('response=bad') }));
+        res.end(JSON.stringify({ success: !body.includes('response=bad'), hostname: 'localhost', action: '' }));
       });
     });
     srv.listen(0, '127.0.0.1', () => resolve({ srv, port: srv.address().port }));

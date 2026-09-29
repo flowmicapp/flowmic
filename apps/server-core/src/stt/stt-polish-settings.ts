@@ -13,25 +13,21 @@
 // throw (SETTINGS_SCHEMA_INVALID) so a corrupt profile surfaces, not silently
 // degrades.
 //
-// 🔴 THE DEFAULT IS NO LONGER A CONSTANT as of 2026-08-09 (card POLISH-CFG, owner
-// ruling docs/decisions/2026-08-09-owner-polish-follows-llm-configuration.md).
-// It is a FUNCTION of "whether there is a usable llm.config" — see [resolveSttPolishDefault].
-// owner, verbatim: "when a polish/correction LLM model is configured, the
-// smoothing feature follows it; if none is configured, it defaults to not
-// enabled".
+// 🔴 NR-132 (2026-09-29): THE DEFAULT IS A CONSTANT AGAIN — ON — and no longer
+// follows the model. Full reasoning on [STT_POLISH_DEFAULT]. The history below is
+// kept because it was true when written and explains the shape it replaced:
 //
-// WHY IT COULD NOT STAY A CONSTANT. 2026-08-08 flipped it to ON ("AI smoothing
-// defaults to fully on")
-// while `llm.config` was still seeded for every account, so "on by default" and
-// "there is a model to call" were the same fact. OSS-DEFAULTS then stopped seeding
-// an LLM, and the two facts came apart: a fresh install got a switch reading ON
-// that could never do anything — the 0.2.27 "a control that changes nothing" shape, which
-// is the very thing the ruling cites. A constant cannot answer a question whose
-// answer now varies per account.
+// (2026-08-09, card POLISH-CFG, owner ruling
+// docs/decisions/2026-08-09-owner-polish-follows-llm-configuration.md) the
+// default became a FUNCTION of "whether there is a usable llm.config". owner,
+// verbatim: "when a polish/correction LLM model is configured, the smoothing
+// feature follows it; if none is configured, it defaults to not enabled". The
+// problem it solved was a DESKTOP switch reading ON over a PC that had no model
+// — a control that changes nothing (0.2.27). That switch was deleted on
+// 2026-09-03 when polish became a phone-owned setting; the phone renders an
+// untouched switch as ON and has no way to learn this server's model state, so
+// the function recreated the same split with the sides swapped (0.3.101 T2).
 //
-// ⚠️ This changes what leaves the user's device by default, so the same ordering
-// rule as the 08-08 flip applies: the four-language disclosure on both clients and
-// the toggle hint are made true in the SAME round, never after.
 // ⚠️ SCOPE (ruling §implementation-boundary 1): this is only the "not
 // configured" branch. A configured LLM
 // that FAILS AT RUNTIME must still fail loudly — engine/stt-factory.ts
@@ -42,90 +38,87 @@
 
 import { SttPolishSchema, type SttPolish } from '@flowmic/protocol';
 import { resolveLlmConfigWithSource } from '../compose/llm-config';
+import { isLlmConfigRejected } from './llm-reject-latch';
 import type { SettingRow, SettingsRepo } from '../db/repos/settings.repo';
 import { ServerError } from '../errors';
 
 /**
- * The value every account gets when it has no `stt.polish` row — and there is no
- * seeding, so that is MOST accounts.
+ * The value a session gets when nobody said anything about `stt.polish`: no
+ * phone bundle key, no stored row. ON, unconditionally.
  *
- * 🔴 EXPORTED, AND THE EXPORT IS THE POINT. While this was a file-private `const`
- * the desktop could not learn it, so `settings-model.ts` carried its own
- * hard-coded `false` and adopted the server's answer only when a ROW existed. For
- * an account that never touched the switch that produced a control rendering OFF
- * while the server polished every closing final — doc 15 R11 ("every status
- * word must be able to answer 'on what basis'") in its purest form, and the
- * 0.2.27 "a control that changes nothing" with
- * the sign flipped. The read path now hands this value out (settings.handler.ts
- * `settings:list`) so the switch reports the EFFECTIVE value rather than
- * "whether that row exists". Do not re-privatise it without removing that consumer first.
+ * 🔴 NR-132 (2026-09-29, MAIN decision after the 0.3.101 device test T2):
+ * THE DEFAULT NO LONGER FOLLOWS THE MODEL. Until this card it was
+ * 「on when a usable model resolves, off when none does」 (POLISH-CFG,
+ * docs/decisions/2026-08-09-owner-polish-follows-llm-configuration.md), and it
+ * was right when the switch that rendered it lived on the desktop and was fed
+ * this value. Since 2026-09-03 the switch lives on the PHONE (and the web
+ * client), both render an untouched switch as ON
+ * (`prefs_controller.dart` `kPolishDefault`; web `SettingsPolish.vue`
+ * `props.value?.enabled ?? true`), and neither receives this value. So on a PC
+ * with no usable model the phone said ON while this said OFF, the session
+ * armed nothing, and `not_configured` — the NR-123 badge and one-time hint —
+ * was never emitted: one switch answering two ways on two sides.
+ * The phone's displayed value is the truth (phone-owned settings); this
+ * constant is now the same answer, so a phone too old to carry its default
+ * gets what its own screen shows. With no model that means an armed request
+ * that degrades to `polish:'skipped'` + `not_configured` (engine/stt-factory.ts
+ * `resolvePolishDep`); with a model it means polish, exactly as before.
  *
- * ⚠️ Two questions live one line apart and must not be merged: this is what the
- * server DOES when the row is absent; whether the row exists is a different fact
- * and stays visible to callers that need it.
+ * ⚠️ Nothing new leaves the device: without a usable model there is nothing to
+ * send to, and with one the old default was already ON.
+ * ⚠️ `capability.llm` (below) is untouched and still drives the desktop's
+ * LAN-card line (LanPolishNotice.vue); it is a fact about the PC, not a default.
+ * ⚠️ The phone's twin is `kPolishDefault` in
+ * apps/mobile/lib/src/settings/prefs_controller.dart. Two languages, so no
+ * import can bind them; `apps/server-core/test/stt-polish-default-truth.test.ts`
+ * reads that Dart constant and fails if the two disagree.
+ *
+ * 🔴 EXPORTED because settings.handler.ts `withEffectiveDefaults` hands the same
+ * value out on `settings:list` (PC arm), so the list and the session cannot
+ * disagree. Do not re-privatise it without removing that consumer first.
  */
-export const STT_POLISH_DEFAULT_WITH_LLM: SttPolish = { enabled: true };
-
-/** The other half of the same answer: no usable model ⇒ the feature does not
- *  arm, so nothing is promised and no amber mark is owed. */
-export const STT_POLISH_DEFAULT_WITHOUT_LLM: SttPolish = { enabled: false };
-
-/**
- * 🔴 THE ONE PLACE that answers "when this row has never been set, is
- * smoothing on or off". Both readers call it —
- * [readSttPolish] (what the server DOES) and settings.handler.ts
- * `withEffectiveDefaults` (what the switch SHOWS). They must not compute it
- * separately: the previous bug was exactly a second copy of the answer, and the
- * export above exists because of it.
- *
- * 🔴 WHY THIS ASKS `resolveLlmConfigWithSource` AND NOT "whether there is an
- * llm.config row".
- * The resolver's order is user row → MANAGED DEFAULT (env-gated) → seed → throw.
- * On flowmic.app `FLOWMIC_MANAGED_LLM_ENABLED=1`, so an account with NO row
- * still has a perfectly usable model. Deciding from the row alone would answer
- * "off" for every cloud account while the server polished for them anyway —
- * re-creating, one release after it was fixed, the very split this module's
- * header describes. The question is "can a usable model be resolved", not
- * "did the user fill it in themself".
- *
- * ⚠️ A present-but-malformed row also lands here as "nothing usable", because it
- * resolves to nothing usable. That is the DEFAULT question only; it does not
- * soften any runtime failure (see the SCOPE note in the header).
- */
-export function resolveSttPolishDefault(repo: SettingsRepo, userId: string): SttPolish {
-  return sttPolishDefaultFrom(llmCapabilityUsable(repo, userId));
-}
+export const STT_POLISH_DEFAULT: SttPolish = { enabled: true };
 
 /**
  * 🔴 THE FACT ITSELF — "can a usable language model be resolved", and the ONLY place that asks.
  *
- * Split out of [resolveSttPolishDefault] for card POLISH-CFG so that the value the
- * server DEFAULTS from and the `capability.llm` fact the desktop RENDERS are the
- * same boolean, computed once, rather than two answers to one question that agree
- * today. The settings handler resolves this a single time and derives both; that
- * is a constraint on the design, not an optimisation — a second call site would
- * re-open exactly the split this card was written to close.
+ * Split out for card POLISH-CFG, when the polish default was derived from it too.
+ * Since NR-132 the default is the constant above and this fact feeds only
+ * `capability.llm` (settings.handler.ts `settings:list`, `notifyLlmCapability`),
+ * which the desktop renders on the LAN card. Resolve it once per read; a second
+ * call site would be a second answer to the same question.
  *
  * ⚠️ It answers only "whether one exists". Not which model, not whose key, not whether the
  * model will actually respond — a configured model that fails at runtime is a
  * different question with the opposite handling, and it stays where it is.
  */
-export function llmCapabilityUsable(repo: SettingsRepo, userId: string): boolean {
+export interface LlmCapabilityFact {
+  /** A usable model resolves for this account (the fact documented above). */
+  usable: boolean;
+  /**
+   * NR-130 — the provider refused the config that resolves NOW (bad key or a
+   * model/endpoint it does not know), as last seen by a polish run on this
+   * server (stt/llm-reject-latch.ts). Always false when `usable` is false:
+   * "not set up" and "set up but refused" are two facts, never both at once.
+   */
+  rejected: boolean;
+}
+
+/**
+ * The ONE resolution behind `capability.llm` (NR-130 widened the answer, not
+ * the number of resolutions). `rejected` is compared against the config this
+ * very call resolved, so a config edited since the refusal is not reported.
+ */
+export function llmCapabilityFact(repo: SettingsRepo, userId: string): LlmCapabilityFact {
   try {
-    resolveLlmConfigWithSource(repo, userId);
-    return true;
+    const selected = resolveLlmConfigWithSource(repo, userId);
+    return { usable: true, rejected: isLlmConfigRejected(userId, selected.cfg) };
   } catch {
-    return false;
+    return { usable: false, rejected: false };
   }
 }
 
-/** The pure half: fact → default. Separated so the handler can derive the default
- *  from an ALREADY-RESOLVED fact instead of resolving a second time. */
-export function sttPolishDefaultFrom(llmUsable: boolean): SttPolish {
-  return llmUsable ? STT_POLISH_DEFAULT_WITH_LLM : STT_POLISH_DEFAULT_WITHOUT_LLM;
-}
-
-/** Read + validate the `stt.polish` value. Absent → [resolveSttPolishDefault];
+/** Read + validate the `stt.polish` value. Absent → [STT_POLISH_DEFAULT];
  *  present but schema-invalid → throw (fail loud).
  *
  *  ⚠️ A row that EXISTS is returned untouched, at either value (ruling §implementation-boundary 2):
@@ -139,7 +132,7 @@ export function readSttPolish(repo: SettingsRepo, userId: string): SttPolish {
   // variable-key read() — this closure only exposes the ONE literal.
   const readSetting = (key: string): SettingRow | null => repo.read(userId, key);
   const row = readSetting('stt.polish');
-  if (row === null || row.value === null || row.value === undefined) return resolveSttPolishDefault(repo, userId);
+  if (row === null || row.value === null || row.value === undefined) return STT_POLISH_DEFAULT;
   const parsed = SttPolishSchema.safeParse(row.value);
   if (!parsed.success) {
     throw new ServerError('SETTINGS_SCHEMA_INVALID', `stt.polish failed schema validation: ${parsed.error.issues[0]?.message ?? 'invalid'}`);

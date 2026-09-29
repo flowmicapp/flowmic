@@ -215,6 +215,7 @@ void _ucDone(ChatController c, String entryId, String processedText) {
   );
   if (entry == null) return;
   c._liveText = '';
+  if (c._activeSendPolicy == SendPolicy.manual || entry.delivery == Delivery.none || entry.origin == 'cloud') c.session.timings.forRequest(entry.clientId)?.finish();
   // manual policy: the FINISHED text is what folds into the buffer. Folding the
   // raw transcript would hand the user back the very text the mode exists to
   // replace.

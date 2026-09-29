@@ -28,6 +28,10 @@ Future<void> _onLongPressRouted(
   TimelineEntry entry,
   AppStrings strings,
 ) async {
+  if (s.controller.articleActionHeld(entry)) {
+    s._toast(context, strings.articleBusyFinishing);
+    return;
+  }
   final EntryAction? action = await showEntryContextMenu(
     context,
     entry,

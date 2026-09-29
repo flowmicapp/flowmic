@@ -317,3 +317,44 @@ void dismissRetainedAudioNoticeRouted(ChatController c) {
   c._retainedAudioNoticeCode = null;
   c.notifyUi();
 }
+
+/// NR-123 (owner 2026-09-29) — a terminal final said polish was skipped because
+/// NO model is configured (`polish_reason:'not_configured'`). The row badge
+/// already says so on every row; this raises the one chat hint that says WHERE
+/// to set one up — once per PC per app run, never once per row.
+///
+/// 🔴 LAN ONLY. On the local-network route the server that answered IS the
+/// desktop's own service, so 「set it up on the computer」 is where the fix is.
+/// On the cloud relay (or when the route is unknown) that sentence would point
+/// at the wrong machine, so only the row badge speaks there.
+///
+/// NR-130 — the same mechanism for [PolishBadge.modelRejected] (a model IS set
+/// up and its provider refused it). Same LAN gate for the same reason: on the
+/// cloud relay the model is the managed one (a refusal of our key reaches the
+/// phone as `llm_error`, server-core stt/stt-polish.ts `polishWireSignalFor`)
+/// and the cloud has no user model setting to point at (the console's own-key
+/// editor is speech-to-text only, server-core http/byok-routes.ts), so only the
+/// row badge speaks there. Once per kind per PC per app run.
+void raisePolishNoModelHintRouted(ChatController c, [PolishBadge kind = PolishBadge.noModel]) {
+  if (c.session.serverChannel.value != ServerChannel.lan) return;
+  final String key = '${kind.name}|${c.session.pcId ?? c.session.connectedInstanceId ?? ''}';
+  if (!c._polishNoModelHintShownFor.add(key)) return;
+  c._polishNoModelHint = kind;
+  c._polishNoModelHintInstanceId = c.session.connectedInstanceId;
+  c.notifyUi();
+}
+
+/// NR-123 — the hint is a STATE (「this computer has no model」), so it also
+/// clears itself when a later final proves polish ran after all.
+void clearPolishNoModelHintOnAppliedRouted(ChatController c) {
+  if (c._polishNoModelHint == null) return;
+  c._polishNoModelHint = null;
+  c.notifyUi();
+}
+
+/// NR-123 — ✕ or a tap on the hint. It stays down for that PC for this run.
+void dismissPolishNoModelHintRouted(ChatController c) {
+  if (c._polishNoModelHint == null) return;
+  c._polishNoModelHint = null;
+  c.notifyUi();
+}

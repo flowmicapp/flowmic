@@ -2,6 +2,7 @@
 
 import 'package:flowmic/src/settings/app_settings.dart';
 import 'package:flowmic/src/settings/app_strings.dart';
+import 'package:flowmic/src/session/polish_badge.dart';
 import 'package:flowmic/src/stt/stt_stream.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -55,14 +56,34 @@ void main() {
     expect(f.polishReason, isNull);
   });
 
-  test('AppStrings polishSkipped is bilingual (explicit locale)', () {
-    expect(
-      AppStrings.of(AppLocale.zh).polishSkipped,
-      'AI 润色未完成 · 已保留识别原文',
-    );
-    expect(
-      AppStrings.of(AppLocale.en).polishSkipped,
-      'Polish skipped · raw text kept',
-    );
+  test('polishSkipped badge matches AppStrings in en and zh-CN', () {
+    final AppStrings zhCnStrings = AppStrings.of(AppLocale.zh);
+    final AppStrings enStrings = AppStrings.of(AppLocale.en);
+    final String zhCn = PolishBadge.skipped.label(zhCnStrings);
+    final String en = PolishBadge.skipped.label(enStrings);
+    expect(zhCn, zhCnStrings.polishSkipped);
+    expect(en, enStrings.polishSkipped);
+    expect(zhCn, isNotEmpty);
+    expect(en, isNotEmpty);
+    expect(zhCn, isNot(en));
+  });
+
+  test('polish badge getters never expose development placeholders', () {
+    for (final AppLocale locale in AppLocale.values) {
+      final AppStrings strings = AppStrings.of(locale);
+      for (final String label in <String>[
+        strings.polishNotApplied,
+        strings.polishTimedOut,
+        strings.polishUnavailable,
+        strings.polishSkipped,
+      ]) {
+        expect(
+          label,
+          isNot(startsWith('DEV:')),
+          reason:
+              '${locale.name} polish badge copy must not be a DEV placeholder',
+        );
+      }
+    }
   });
 }

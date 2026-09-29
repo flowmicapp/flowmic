@@ -67,9 +67,9 @@ pub fn short_digest(machine_id: &str) -> String {
     format!("{:02x}{:02x}", digest[0], digest[1])
 }
 
-/// This machine's stable id. On Windows that is the Cryptography MachineGuid,
-/// which survives renames and reboots; anywhere else (and on a locked-down box
-/// where the read fails) the hostname stands in, which still beats a constant.
+/// This machine's stable id. Windows uses the Cryptography MachineGuid, macOS
+/// uses IOPlatformUUID, and Linux uses the system machine-id. If the platform
+/// read fails, the hostname stands in, which still beats a constant.
 ///
 /// 🔴 In-place correction (MAC-02, 2026-08-07) —「anywhere else … the hostname stands in,
 /// which still beats a constant」**the original text is kept**: it is true against
@@ -100,8 +100,8 @@ pub fn short_digest(machine_id: &str) -> String {
 /// owner 2026-07-29 saw the sum as 「N black-screen flashes at startup」.
 ///
 /// Caching is safe because the value is a property of the machine, not of the
-/// session: a MachineGuid does not change while a process is running, and the
-/// hostname fallback is re-read only if the whole process restarts.
+/// session: MachineGuid and machine-id do not change while a process is running,
+/// and the hostname fallback is re-read only if the whole process restarts.
 pub fn machine_id() -> String {
     static CACHED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CACHED.get_or_init(read_machine_id_uncached).clone()
@@ -120,7 +120,55 @@ fn read_machine_id_uncached() -> String {
             return uuid;
         }
     }
-    hostname()
+    #[cfg(target_os = "linux")]
+    {
+        read_machine_id_uncached_with(|path| std::fs::read_to_string(path), hostname)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        hostname()
+    }
+}
+
+/// The Linux machine-id is a better identity seed than hostname: it stays
+/// stable across hostname/network changes, and systemd documents it as the
+/// unique identity of the local system (`machine-id(5)`). Its raw value stays
+/// local; only digest-derived values are used in a proposed name or machine uid.
+/// Caveat: cloned VMs share it unless it is regenerated; with the same OS user,
+/// the phone will group those VMs' LAN and cloud rows as one PC.
+#[cfg(target_os = "linux")]
+fn read_machine_id_uncached_with(
+    read_file: impl FnMut(&str) -> std::io::Result<String>,
+    fallback_hostname: impl FnOnce() -> String,
+) -> String {
+    read_linux_machine_id_with(read_file).unwrap_or_else(fallback_hostname)
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_machine_id_with(
+    mut read_file: impl FnMut(&str) -> std::io::Result<String>,
+) -> Option<String> {
+    for path in ["/etc/machine-id", "/var/lib/dbus/machine-id"] {
+        if let Ok(contents) = read_file(path) {
+            if let Some(machine_id) = parse_linux_machine_id(&contents) {
+                return Some(machine_id);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_machine_id(contents: &str) -> Option<String> {
+    let value = contents.trim();
+    if value.len() != 32
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return None;
+    }
+    Some(value.to_string())
 }
 
 /// macOS's board-level machine id (MAC-02). Read via `ioreg` for the same reason
@@ -211,18 +259,21 @@ fn read_machine_guid() -> Option<String> {
 // lesson of the 0.2.1 `device_name` split — two credential files, two answers,
 // and a reconciliation pass that had to be written to heal it afterwards.
 //
-// SEED = MachineGuid + the WINDOWS USER, and the second half is load-bearing.
-// The server resolves a returning machine by this uid when the instance id
-// misses (registry.registerPc ②). Without the user in the seed, two Windows
-// accounts on one PC under one FlowMic account would resolve onto each other's
-// row and rotate each other's token forever. The credential store is already
-// user-scoped (DPAPI), so 「this Windows account on this machine」 is the honest
-// unit regardless.
+// SEED = the OS machine id + the OS user where readable. On Windows the user
+// half is load-bearing: the server resolves a returning machine by this uid
+// when the instance id misses (registry.registerPc ②), and without the user in
+// the seed two Windows accounts on one PC under one FlowMic account would
+// resolve onto each other's row and rotate each other's token forever. The
+// credential store is user-scoped (DPAPI), so 「this Windows account on this
+// machine」 is the honest unit there.
 //
-// The raw MachineGuid NEVER travels — only 8 bytes of its SHA-256, the same
-// rule device_label.dart applies to ANDROID_ID on the phone.
+// The raw machine id (MachineGuid, IOPlatformUUID, or Linux machine-id) NEVER
+// travels or gets logged. The machine uid contains only 8 bytes of a
+// domain-separated SHA-256 digest, the same rule device_label.dart applies to
+// ANDROID_ID on the phone. The default display name also uses only its
+// separate four-hex-character digest.
 
-/// The Windows account this process runs as, or empty when unreadable.
+/// The OS account this process runs as, or empty when unreadable.
 pub fn os_user() -> String {
     for key in ["USERNAME", "USER"] {
         if let Ok(v) = std::env::var(key) {
@@ -235,7 +286,7 @@ pub fn os_user() -> String {
 }
 
 /// Build the uid from its two parts. Pure, so the derivation is provable
-/// without a registry — and so the 「two Windows users must not collide」
+/// without a platform read — and so the 「two Windows users must not collide」
 /// property is a unit test rather than a hope.
 ///
 /// `None` when there is no machine id at all. Deliberate: a uid derived from
@@ -259,9 +310,9 @@ pub fn compose_machine_uid(machine_id: &str, os_user: &str) -> Option<String> {
 
 /// This machine's cross-channel identity, or `None` when it cannot be derived.
 ///
-/// Resolved ONCE per process. The MachineGuid and the Windows user cannot change
-/// while this process runs, so re-deriving is pure cost — and on Windows it is
-/// not even cheap cost: `machine_id()` shells out to `reg.exe`. v0.2.4 called
+/// Resolved ONCE per process. The OS machine id and user cannot change while
+/// this process runs, so re-deriving is pure cost — and on Windows it is not
+/// even cheap cost: `machine_id()` shells out to `reg.exe`. v0.2.4 called
 /// this on every register, every reconnect and every `pairing_code` invoke, and
 /// the device page invokes that on mount and on every connection-state change.
 /// owner saw the result as 「N black-screen flashes at startup」.
@@ -272,8 +323,17 @@ pub fn compose_machine_uid(machine_id: &str, os_user: &str) -> Option<String> {
 pub fn machine_uid() -> Option<String> {
     static CACHED: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     CACHED
-        .get_or_init(|| compose_machine_uid(&machine_id(), &os_user()))
+        .get_or_init(|| machine_uid_with(machine_id, os_user))
         .clone()
+}
+
+fn machine_uid_with(
+    read_machine_id: impl FnOnce() -> String,
+    read_os_user: impl FnOnce() -> String,
+) -> Option<String> {
+    let machine_id = read_machine_id();
+    let os_user = read_os_user();
+    compose_machine_uid(&machine_id, &os_user)
 }
 
 /// The OS host name, or an empty string when it cannot be read.
@@ -282,6 +342,15 @@ pub fn hostname() -> String {
         if let Ok(v) = std::env::var(key) {
             if !v.trim().is_empty() {
                 return v.trim().to_string();
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(value) = std::fs::read_to_string("/proc/sys/kernel/hostname") {
+            let value = value.trim();
+            if !value.is_empty() {
+                return value.to_string();
             }
         }
     }

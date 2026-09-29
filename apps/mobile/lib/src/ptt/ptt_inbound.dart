@@ -175,6 +175,7 @@ extension PttSessionInbound on PttSession {
           audio.noteSegmentObserved(p.segmentIdx); // N1-B3, see the interim arm
           // Only the TERMINAL final (is_segment=false) closes the utterance and
           // drives PROCESSING → JUST_DONE; soft-segment finals keep recording.
+          if (!recoveryOwnsSession) timings.active?.finalReceived(p);
           if (!p.isSegment) fsm.onSttFinal();
         }
         break;

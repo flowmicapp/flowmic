@@ -32,6 +32,7 @@ import type { PaddleSubRow } from '../src/db/repos/billing.repo';
 import { CLOUD_INSTANCE_ID } from '../src/room/registry';
 import { mintIntegratorRoom, INTEGRATOR_ROOM_TTL_MS } from '../src/room/integrator-room';
 import { log } from '../src/log';
+import { pruneVisitorDays } from '../src/billing/integrator-session-caps';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const T0 = Date.UTC(2026, 6, 25, 12, 0, 0);
@@ -400,7 +401,7 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
     expect(peeked.paddleSubscriptions.map((s) => s.subscription_id)).toEqual(['sub_old']);
 
     const dry = r.runOnce({ dryRun: true });
-    expect(dry).toEqual({ pcDevices: 1, paddleSubscriptions: 1, integratorRooms: 0 });
+    expect(dry).toEqual({ pcDevices: 1, paddleSubscriptions: 1, integratorRooms: 0, integratorVisitorDays: 0 });
 
     // NOTHING was actually deleted.
     expect(db.pcs.findById('stale')).not.toBeNull();
@@ -408,7 +409,7 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
 
     // A REAL run right after reports the identical counts, and NOW deletes.
     const real = r.runOnce();
-    expect(real).toEqual({ pcDevices: 1, paddleSubscriptions: 1, integratorRooms: 0 });
+    expect(real).toEqual({ pcDevices: 1, paddleSubscriptions: 1, integratorRooms: 0, integratorVisitorDays: 0 });
     expect(db.pcs.findById('stale')).toBeNull();
     expect(db.billing.getSubscription('sub_old')).toBeNull();
     r.stop();
@@ -418,8 +419,8 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
     seedPc('stale', { createdAtMs: T0 - 200 * DAY_MS, lastSeenAtMs: T0 - (DEFAULT_REAPER_POLICY.pcStaleDays + 1) * DAY_MS, online: false });
     const r = reaper();
 
-    expect(r.runOnce()).toEqual({ pcDevices: 1, paddleSubscriptions: 0, integratorRooms: 0 });
-    expect(r.runOnce()).toEqual({ pcDevices: 0, paddleSubscriptions: 0, integratorRooms: 0 });
+    expect(r.runOnce()).toEqual({ pcDevices: 1, paddleSubscriptions: 0, integratorRooms: 0, integratorVisitorDays: 0 });
+    expect(r.runOnce()).toEqual({ pcDevices: 0, paddleSubscriptions: 0, integratorRooms: 0, integratorVisitorDays: 0 });
     r.stop();
   });
 
@@ -463,7 +464,7 @@ describe('D11 reaper — dry-run, idempotency, per-row isolation, timer wiring',
     const r = reaper({ pcs: explodingPcs });
 
     expect(() => r.runOnce()).not.toThrow();
-    expect(r.runOnce()).toEqual({ pcDevices: 0, paddleSubscriptions: 0, integratorRooms: 0 });
+    expect(r.runOnce()).toEqual({ pcDevices: 0, paddleSubscriptions: 0, integratorRooms: 0, integratorVisitorDays: 0 });
     expect(errors).toHaveBeenCalled();
     const [msg] = errors.mock.calls[0] as [string];
     expect(msg).toContain('sweep aborted');
@@ -552,6 +553,7 @@ function seedIntegratorRoom(id: string, opts: { expiresAtMs: number; userId?: st
   const out = mintIntegratorRoom(
     {
       pcs: db.pcs,
+      mobiles: db.mobiles,
       allocateCode: () => opts.code,
       stampCode: () => undefined,
       stampPcid: () => undefined,
@@ -640,5 +642,81 @@ describe('MP-11 / G-5 reaper — expired integrator rooms', () => {
     // with `expected undefined to be 1`, and the row assertion red with the row
     // still present. Restored immediately after; measured 2026-09-11.
     expect(true).toBe(true);
+  });
+});
+
+// card EMB-15 (privacy draft C-3) — per-visitor daily totals leave with their
+// UTC day. Real sqlite table, the real prune function the bootstrap wires, an
+// injected clock. Each case seeds a row that MUST survive next to the one that
+// must go, so "deleted everything" and "deleted nothing" are both red.
+describe('EMB-15 reaper — integrator_visitor_days', () => {
+  const TODAY = Math.floor(T0 / DAY_MS);
+  const visitorDays = { prune: (beforeDay: number, dryRun: boolean): number => pruneVisitorDays(db.raw, beforeDay, dryRun) };
+  const daysLeft = (): number[] => (db.raw.prepare('SELECT day FROM integrator_visitor_days ORDER BY day').all() as Array<{ day: number }>).map((r) => r.day);
+
+  beforeEach(() => {
+    db.integratorKeys.insert({ id: 'k1', user_id: 'u1', publishable_key: 'fmpk_k1', origins: ['https://example.com'], quota_minutes: null, label: 'k1', created_at: T0 });
+    const ins = db.raw.prepare('INSERT INTO integrator_visitor_days (key_id,bucket,day,used_ms) VALUES (?,?,?,?)');
+    ins.run('k1', 'bucket-a', TODAY - 2, 60_000);
+    ins.run('k1', 'bucket-a', TODAY - 1, 60_000);
+    ins.run('k1', 'bucket-b', TODAY - 1, 90_000);
+    ins.run('k1', 'bucket-a', TODAY, 30_000);
+  });
+
+  it("a sweep removes every visitor total older than today (UTC) and keeps today's", () => {
+    const r = reaper({ visitorDays });
+    // The startup purge in `startGrowthReaper` already ran once at arming (see
+    // the next case); re-seed one stale row so THIS case measures the daily tick.
+    db.raw.prepare('INSERT INTO integrator_visitor_days (key_id,bucket,day,used_ms) VALUES (?,?,?,?)').run('k1', 'bucket-c', TODAY - 1, 1);
+
+    const counts = r.runOnce();
+
+    expect(counts.integratorVisitorDays).toBe(1);
+    expect(daysLeft()).toEqual([TODAY]);
+    r.stop();
+  });
+
+  it('positive control: with the dep absent nothing is deleted and nothing is counted', () => {
+    const r = reaper();
+    expect(r.runOnce().integratorVisitorDays).toBe(0);
+    expect(daysLeft()).toEqual([TODAY - 2, TODAY - 1, TODAY - 1, TODAY]);
+    r.stop();
+  });
+
+  it('arming purges once at startup, so a relay redeployed faster than 24 h still drops yesterday', () => {
+    const r = reaper({ visitorDays });
+    expect(daysLeft()).toEqual([TODAY]);
+    r.stop();
+  });
+
+  it('the day boundary is UTC: one ms before midnight keeps the day, the first ms after drops it', () => {
+    const r = reaper({ visitorDays, nowMs: () => (TODAY + 1) * DAY_MS - 1 });
+    r.stop();
+    expect(daysLeft()).toEqual([TODAY]);
+    const later = reaper({ visitorDays, nowMs: () => (TODAY + 1) * DAY_MS });
+    later.stop();
+    expect(daysLeft()).toEqual([]);
+  });
+
+  it('a dry run counts the stale rows without deleting them', () => {
+    // The stub deletes nothing on a real call, so the arming-time purge leaves the seeded rows alone.
+    const r = startGrowthReaper({
+      pcs: db.pcs, billing: db.billing, nowMs: () => T0,
+      setIntervalFn: () => ({}), clearIntervalFn: () => {},
+      visitorDays: { prune: (beforeDay, dryRun) => (dryRun ? pruneVisitorDays(db.raw, beforeDay, true) : 0) },
+    });
+    expect(r.runOnce({ dryRun: true }).integratorVisitorDays).toBe(3);
+    expect(daysLeft()).toHaveLength(4);
+    r.stop();
+  });
+
+  it('a prune that throws is logged and does not cost the other sweeps their run', () => {
+    seedPc('stale', { createdAtMs: T0 - 200 * DAY_MS, lastSeenAtMs: T0 - (DEFAULT_REAPER_POLICY.pcStaleDays + 1) * DAY_MS, online: false });
+    const err = vi.spyOn(log, 'error').mockImplementation(() => {});
+    const r = reaper({ visitorDays: { prune: () => { throw new Error('locked'); } } });
+    expect(r.runOnce().pcDevices).toBe(1);
+    expect(err).toHaveBeenCalledWith('reaper: failed to prune per-visitor daily totals', expect.objectContaining({ error: 'locked' }));
+    err.mockRestore();
+    r.stop();
   });
 });

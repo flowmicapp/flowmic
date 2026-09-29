@@ -62,7 +62,9 @@ export const name = 'settings-key-drift';
 // (`readSetting(CONSENT_KEY)` in apps/server-core/src/compose/scenario-infer-store.ts)
 // and this lint answers, verbatim:
 //   {"status":"FAIL","detail":"1 drift: set-only 'scenario.inference' @
-//    apps/mobile/lib/src/settings/phone_prefs_payload.dart:102"}
+//    apps/mobile/lib/src/settings/phone_prefs_payload.dart:<line>"}
+// (the line number the lint printed is elided since 2026-09-29, NR-132 moved
+// that file's lines; the site is the `carrySetting('scenario.inference', …)` call)
 // Restored: PASS, 6 set / 6 get keys matched. Both halves land together or
 // neither does - which is what the note in scenario-infer-store.ts asked for
 // by name, a month before it was possible.

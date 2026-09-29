@@ -53,6 +53,14 @@ export const SITE_PATH_ALLOWLIST = Object.freeze([
   '/faq',
   '/pricing',
   '/try',
+  // The two embed pages (EMB-10). Both are REGISTERED in the website's page table
+  // but NOT indexable yet (owner approval of the visitor-privacy text is pending;
+  // the website's src/views/forsites/gate.ts holds that switch), and the browser
+  // beacon counts every registry page whether or not it is indexable, so a visit
+  // to either would otherwise be filed under (other). `/docs/web-voice` is the
+  // English-only developer guide: one URL, no locale variants.
+  '/for-websites',
+  '/docs/web-voice',
   // Legal, English-only, unprefixed (owner 2026-08-27).
   '/privacy',
   '/terms',
@@ -95,6 +103,9 @@ export const SITE_PATH_ALLOWLIST = Object.freeze([
   '/download',
   '/download/windows',
   '/download/macos',
+  // The Linux page (NR-108) was in the website's registry and not on this list:
+  // site-path-allowlist-mirror named it when the embed pages were added.
+  '/download/linux',
   '/download/android',
   '/download/ios',
   // Use cases: `/use-cases` is the overview, the rest are one situation each.

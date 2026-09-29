@@ -20,7 +20,7 @@ import type { StartInput } from '../stt/orchestrator-types';
 
 // Moved VERBATIM to ./stt-session-pcm.ts (800-line cap — see that file's header).
 import { peakSample16 } from './stt-session-pcm';
-import { polishFinalText, polishWireSignal, type PolishSkipReason, type PolishWireSignal } from '../stt/stt-polish';
+import { observedPolishFinalText } from '../obs/terminal-polish-timing'; import { polishWireSignalFor, type PolishSkipReason, type PolishWireSignal } from '../stt/stt-polish'; import { observePolishSignal } from '../stt/llm-reject-latch';
 import { resolveByokLlm, type SelectedLlmConfig } from '../compose/llm-config';
 import { log } from '../log';
 import { trace, traceEnabled, tracedText } from '../trace/pipeline-trace';
@@ -74,7 +74,7 @@ export class SttSessionBridge implements SttOrchestrator {
   private readonly gated: boolean;
   private readonly startPromise: Promise<void>;
   private readonly now: () => number;
-  private totalAudioMs = 0;
+  private totalAudioMs = 0; get receivedAudioMs(): number { return this.totalAudioMs; }
   private lastLevelMs = Number.NEGATIVE_INFINITY;
   private billed = false;
   private readonly intake = new FrameTally(); // audit F3 — fed vs dropped frames; the counting rule is argued in stt-session-intake.ts
@@ -383,14 +383,17 @@ export class SttSessionBridge implements SttOrchestrator {
     // surfaces as a real failure signal, never a silent 'applied' (red line).
     let signal: PolishWireSignal = { polish: 'skipped', polish_reason: 'llm_error' };
     try {
-      const result = await polishFinalText(pureText, polish.llm.cfg, polish.deps ?? {});
+      const result = await observedPolishFinalText(pureText, polish.llm, polish.deps ?? {}, base.utterance_id);
       text = result.text;
-      signal = polishWireSignal(result);
+      // NR-130: `model_rejected` only for a config the user owns (not our managed key).
+      signal = polishWireSignalFor(result, polish.llm.source);
+      // NR-130: the desktop's `capability.llm.rejected` fact (stt/llm-reject-latch.ts).
+      observePolishSignal(this.deps.userId, polish.llm.cfg, signal);
       this.meterPolish(polish, result);
       if (signal.polish === 'skipped') {
         // Forensic (WP-R4-6 ④): the internal fine-grained reason stays here; only
         // the normalized 4-value reason reaches the wire.
-        log.warn('stt.polish skipped — delivering pure two-stage text', { reason: result.reason, wire: signal.polish_reason });
+        log.warn('stt.polish skipped — delivering pure two-stage text', { wire: signal.polish_reason });
       }
     } catch (err) {
       text = pureText;
@@ -587,8 +590,8 @@ export class SttSessionBridge implements SttOrchestrator {
     const peak = peakSample16(payload);
     if (peak > this.peakSample) this.peakSample = peak;
     this.totalAudioMs += payload.length / BYTES_PER_MS;
-    // VAD gate (real caller): update gate state + amplitude + billing meter
-    // BEFORE the orchestrator's engine feed reads vad.open (single-threaded).
+    // VAD gate: update state + amplitude + billing BEFORE the orchestrator
+    // reads vad.admitChunk; retain earlier speech/padding even if it ends closed.
     this.vad.process(payload);
     this.maybeEmitLevel(tsMs);
     // 🔴 Audit F3 — COUNTED ON THE PIPELINE'S ANSWER, not before asking it. The

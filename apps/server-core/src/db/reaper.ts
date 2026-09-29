@@ -113,6 +113,8 @@ export interface GrowthReaperCounts {
   paddleSubscriptions: number;
   /** card MP-11 / gap G-5 — expired `room_kind:'integrator'` rows. */
   integratorRooms: number;
+  /** card EMB-15 — per-visitor daily totals older than today (UTC). */
+  integratorVisitorDays: number;
 }
 
 export interface GrowthReaperPeek {
@@ -125,6 +127,14 @@ export interface GrowthReaperPeek {
 export interface GrowthReaperDeps {
   pcs: Pick<PcRepo, 'listStaleOffline' | 'listByRoomKind' | 'remove'>;
   billing: Pick<BillingRepo, 'listSupersededSubscriptions' | 'removeSubscription'>;
+  /**
+   * card EMB-15 (privacy draft C-3) — the per-visitor daily-total table
+   * (`integrator_visitor_days`, EMB-14). `prune(beforeDay, dryRun)` deletes rows
+   * whose UTC day number is < `beforeDay` and returns how many (dry run: how
+   * many WOULD go). Optional: a deployment without the integrator tables has
+   * nothing to prune, and ABSENT means 「no such table here」, never 「skip」.
+   */
+  visitorDays?: { prune(beforeDay: number, dryRun: boolean): number };
   /** Overrides merged onto {@link DEFAULT_REAPER_POLICY}; absent fields keep
    *  the default. */
   policy?: Partial<GrowthReaperPolicy>;
@@ -148,7 +158,7 @@ export interface GrowthReaper {
 }
 
 function zero(): GrowthReaperCounts {
-  return { pcDevices: 0, paddleSubscriptions: 0, integratorRooms: 0 };
+  return { pcDevices: 0, paddleSubscriptions: 0, integratorRooms: 0, integratorVisitorDays: 0 };
 }
 
 /**
@@ -254,9 +264,28 @@ export function startGrowthReaper(deps: GrowthReaperDeps): GrowthReaper {
     return n;
   }
 
+  /**
+   * card EMB-15 — yesterday's (and older) per-visitor daily totals. The cutoff is
+   * the current UTC day number, the unit `IntegratorSessionCaps.take()` writes,
+   * so a total is deleted on the first sweep after its UTC day ends. Its own
+   * try/catch: a failure here must not cost the other sweeps their run.
+   */
+  function sweepVisitorDays(dryRun: boolean): number {
+    if (!deps.visitorDays) return 0;
+    try {
+      return deps.visitorDays.prune(Math.floor(now() / DAY_MS), dryRun);
+    } catch (err) {
+      log.error('reaper: failed to prune per-visitor daily totals', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return 0;
+    }
+  }
+
   function sweep(dryRun: boolean): GrowthReaperCounts {
     const candidates = peek();
     return {
+      integratorVisitorDays: sweepVisitorDays(dryRun),
       pcDevices: sweepPcDevices(candidates.pcDevices, dryRun, 'stale_offline'),
       paddleSubscriptions: sweepSubscriptions(candidates.paddleSubscriptions, dryRun),
       // 🔴 THROUGH `pcs.remove`, WHICH IS WHAT RELEASES THE PAIRING CODE.
@@ -276,7 +305,7 @@ export function startGrowthReaper(deps: GrowthReaperDeps): GrowthReaper {
     const dryRun = opts.dryRun ?? false;
     try {
       const counts = sweep(dryRun);
-      if (counts.pcDevices > 0 || counts.paddleSubscriptions > 0 || counts.integratorRooms > 0) {
+      if (counts.pcDevices > 0 || counts.paddleSubscriptions > 0 || counts.integratorRooms > 0 || counts.integratorVisitorDays > 0) {
         log.info(dryRun ? 'reaper: dry-run would sweep' : 'reaper: swept', { ...counts, dryRun });
       }
       return counts;
@@ -290,6 +319,14 @@ export function startGrowthReaper(deps: GrowthReaperDeps): GrowthReaper {
       return zero();
     }
   }
+
+  // 🔴 card EMB-15 — ONE startup purge, for the visitor totals ONLY. The daily
+  // timer restarts from zero on every boot, so a relay redeployed more often than
+  // every 24 h would never reach a tick and the privacy promise 「gone by the end
+  // of the following UTC day」 would depend on deploy cadence. The other tables
+  // keep the no-startup-sweep rule above (their windows are days, not hours);
+  // this DELETE is one indexed statement on a table of at most a few hundred rows.
+  if (deps.visitorDays) sweepVisitorDays(false);
 
   const handle = setI(() => void runOnce(), REAPER_SWEEP_INTERVAL_MS);
   // A 24h timer must never be the reason a process (or a vitest worker)

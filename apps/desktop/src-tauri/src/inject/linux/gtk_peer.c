@@ -15,6 +15,38 @@ static char *copy_override;
 static char *last_text, *undo_text;
 static gboolean undoing;
 static guchar large[1024 * 1024];
+static char *metadata_fault;
+static guint timestamp_requests;
+static void put(const char *name, const void *data, gssize length);
+
+/* Intercept real X requests before GTK's built-in metadata handler. */
+static GdkFilterReturn metadata_filter(GdkXEvent *native, GdkEvent *event, gpointer unused) {
+    (void)event; (void)unused;
+    XEvent *request = native;
+    if (!metadata_fault || request->type != SelectionRequest) return GDK_FILTER_CONTINUE;
+    XSelectionRequestEvent *r = &request->xselectionrequest;
+    gboolean stamp = r->target == XInternAtom(r->display, "TIMESTAMP", False);
+    gboolean targets = r->target == XInternAtom(r->display, "TARGETS", False);
+    if (stamp) ++timestamp_requests;
+    gboolean refuse = (stamp && !strcmp(metadata_fault, "timestamp-refused")) ||
+        (stamp && !strcmp(metadata_fault, "timestamp-second") && timestamp_requests >= 2) ||
+        (stamp && !strcmp(metadata_fault, "timestamp-third") && timestamp_requests >= 3) ||
+        (targets && !strcmp(metadata_fault, "targets-refused"));
+    gboolean invalid = (stamp && !strcmp(metadata_fault, "timestamp-invalid")) ||
+        (targets && !strcmp(metadata_fault, "targets-invalid"));
+    if (!refuse && !invalid) return GDK_FILTER_CONTINUE;
+    Atom property = r->property ? r->property : r->target;
+    if (invalid) XChangeProperty(r->display, r->requestor, property,
+        XInternAtom(r->display, "STRING", False), 8, PropModeReplace, (const unsigned char *)"bad", 3);
+    XEvent reply = {0};
+    reply.xselection = (XSelectionEvent){.type=SelectionNotify, .display=r->display,
+        .requestor=r->requestor, .selection=r->selection, .target=r->target,
+        .property=invalid ? property : None, .time=r->time};
+    XSendEvent(r->display, r->requestor, False, 0, &reply);
+    XFlush(r->display);
+    put("metadata-fault-hit", metadata_fault, -1);
+    return GDK_FILTER_REMOVE;
+}
 
 static void put(const char *name, const void *data, gssize length) {
     char *path = g_build_filename(directory, name, NULL);
@@ -89,6 +121,12 @@ static gboolean command(gpointer unused) {
             put("format", info, -1);
         } else put("result-error", "conversion refused", -1);
         if (data) gtk_selection_data_free(data);
+    } else if (g_str_has_prefix(body, "metadata-fault:")) {
+        g_free(metadata_fault); metadata_fault = g_strdup(body + 15);
+        timestamp_requests = 0;
+    } else if (!strcmp(body, "empty-clipboard")) {
+        gdk_selection_owner_set(NULL, GDK_SELECTION_CLIPBOARD, GDK_CURRENT_TIME, FALSE);
+        gdk_display_sync(gdk_display_get_default());
     } else if (g_str_has_prefix(body, "copy-same-timestamp:")) {
         /* A real server ownership generation with the same GTK window and
          * owner's cached TIMESTAMP. Only XFixes can close this race. */
@@ -121,6 +159,7 @@ int main(int argc, char **argv) {
     directory = argv[1]; started = g_get_monotonic_time();
     for (guint i = 0; i < sizeof(large); ++i) large[i] = i % 251;
     clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    gdk_window_add_filter(NULL, metadata_filter, NULL);
     GtkTargetEntry targets[] = {{"UTF8_STRING",0,0},{"text/html",0,1},
         {"application/x-flowmic16",0,2},{"application/x-flowmic32",0,3},
         {"application/x-flowmic-large",0,4},{"DELETE",0,5},{"PIXMAP",0,6}};

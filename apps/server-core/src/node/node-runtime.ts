@@ -35,6 +35,9 @@ import { makeWriterOnlyGuard, NODE_CAN_WRITE, type WriterOnlyGuard } from './wri
 import { makeTokenReadThrough, type TokenReadThrough } from './token-read-through';
 import { applyTokenResolution } from './token-rows';
 import {
+  makePcIdentityClock, makePcIdentityForwarder, type NotePcIdentity, type PcIdentityClock,
+} from './pc-identity-forward';
+import {
   isReleaseMobileResult, isSettingsUpdateResult, isUnpairMobileResult,
   type SettingsUpdateRequest, type SettingsUpdateResult,
 } from './forward-sync-types';
@@ -125,6 +128,20 @@ export interface NodeRuntime {
    * diagnosis of this gap was wrong and what measuring the read path changed.
    */
   stampPresence: ((pcId: string, isOnline: boolean, lastSeenAtMs: number) => void) | null;
+
+  /**
+   * card NR-131 — what a PC declared about itself (machine uid, client /
+   * client_version / target_caps). REPLICA: forwarded through the outbox as
+   * `pc.identity`, because the local stamp is erased by the next pull. WRITER:
+   * notes the instant on `pcIdentityClock`, so a forwarded declaration that is
+   * older than this direct one cannot overwrite it. `null` on a single node,
+   * where the registry's own write is the only copy. See pc-identity-forward.ts.
+   */
+  notePcIdentity: NotePcIdentity | null;
+  /** WRITER ONLY — the last-writer-wins clock the `pc.identity` apply target
+   *  reads and `notePcIdentity` advances. One instance, or the two would each
+   *  answer 「which declaration is newer」 alone. */
+  pcIdentityClock: PcIdentityClock | null;
 
   /**
    * 2026-08-29 — 「must this node refuse a writer-only socket event?」
@@ -504,6 +521,17 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
       // would be one fact with two authors.
       : null;
 
+  // card NR-131 — see the two fields' doc on NodeRuntime.
+  const pcIdentityClock = nodeConfig.role === 'writer' ? makePcIdentityClock() : null;
+  const now = deps.now ?? Date.now;
+  const notePcIdentity: NotePcIdentity | null = nodeConfig.nodeId === null
+    ? null
+    : replicaOutbox
+      ? makePcIdentityForwarder({ outbox: replicaOutbox, nodeId: nodeConfig.nodeId, log, now })
+      : pcIdentityClock
+        ? (pc) => pcIdentityClock.noteDirect(pc.id, now())
+        : null;
+
   // A replica refuses writer-only events by name; everyone else serves them.
   // Keyed off `writerUrl` and not off `role` on purpose: the refusal has to be
   // able to SAY where to go, so a role with no writer URL could not produce an
@@ -585,7 +613,7 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
 
   return {
     nodeConfig, usageTracker, outboxDrainer, replicaPuller, snapshot, replayUsage,
-    wrapQuota, stampHomeNode, stampPresence, writerOnly, mintCodeOnWriter,
+    wrapQuota, stampHomeNode, stampPresence, notePcIdentity, pcIdentityClock, writerOnly, mintCodeOnWriter,
     resolveTokenOnWriter, forwardSyncOnWriter, forwardReleaseMobileOnWriter,
     forwardUnpairMobileOnWriter, forwardSettingsUpdateOnWriter,
   };

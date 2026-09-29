@@ -167,9 +167,12 @@ extension PttSessionContinuous on PttSession {
     required Duration cap,
     required void Function() onWarning,
   }) {
-    if (continuousStillCapturing) {
+    if (continuousStillCapturing ||
+        (articles.attempts.liveHold &&
+            (fsm.session == SessionState.processing ||
+                fsm.session == SessionState.justDone))) {
       diag('audio.continuous.begin_refused', <String, Object?>{
-        'reason': 'already_capturing',
+        'reason': continuousStillCapturing ? 'already_capturing' : 'finishing',
         'recorder': audio.currentState.name,
         'article': articles.liveArticleId,
       });

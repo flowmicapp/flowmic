@@ -22,6 +22,7 @@
 //     FAIL  session-overlay > 🔴 bundle present but key ABSENT ⇒ null, and the database row is NOT read
 //       AssertionError: expected { user_id: 'u', …(3) } to be null
 //     FAIL  session-overlay > a bundle without stt.polish resolves the DEFAULT from the (database) llm.config, not from a stored polish row
+//       (renamed 2026-09-29, NR-132: 「… resolves the DEFAULT, not a stored polish row」)
 //       AssertionError: expected { enabled: false } to deeply equal { enabled: true }
 //     FAIL  settings-effect-probe > probe 7 > 🔴 REVERSE CONTROL — the bundle WINS over a contradicting stored row, and an absent bundle key never falls through to one
 //       AssertionError: expected '{"StaleRowTerm":20}' to be undefined
@@ -185,15 +186,13 @@ describe('the production readers over the overlay — validation stays in the re
     }
   });
 
-  it('a bundle without stt.polish resolves the DEFAULT from the (database) llm.config, not from a stored polish row', () => {
+  it('a bundle without stt.polish resolves the DEFAULT, not a stored polish row', () => {
     const reads: string[] = [];
-    const db = recordingRepo(
-      { 'stt.polish': { enabled: false }, 'llm.config': { protocol: 'openai-compatible', endpoint: 'http://x/v1', model: 'm', api_key: '' } },
-      reads,
-    );
-    // Default WITH an LLM is ON — the stored OFF must not be what answers.
+    const db = recordingRepo({ 'stt.polish': { enabled: false } }, reads);
+    // The default is ON (NR-132) — the stored OFF must not be what answers. Until
+    // NR-132 the default was derived from the database llm.config, so this case
+    // also asserted that llm.config was read; the default no longer reads it.
     expect(readSttPolish(overlaySettings(db, {}), U)).toEqual({ enabled: true });
     expect(reads).not.toContain('stt.polish');
-    expect(reads).toContain('llm.config');
   });
 });

@@ -1,7 +1,7 @@
 // GENERATED — DO NOT EDIT BY HAND.
 // Source: packages/protocol/src/locales.ts (UI_LOCALES) + i18n/desktop-rust/<code>.json
 // Regenerate: node scripts/i18n/gen-desktop-rust.mjs
-// Count: 9 locale(s) x 27 message(s) = 243 cell(s).
+// Count: 9 locale(s) x 28 message(s) = 252 cell(s).
 // Every registry row has a data file on this surface.
 //
 // `include!`d by src/ui_i18n.rs, so this shares that module's namespace: `Msg`
@@ -137,6 +137,7 @@ impl Msg {
     /// A slice for the same reason `UiLocale::ALL` is one — the count of keys
     /// is data, not type information.
     pub const ALL: &'static [Msg] = &[
+        Msg::SidecarBundledFileMissing,
         Msg::TrayShowMain,
         Msg::TrayShowCapsule,
         Msg::TrayQuit,
@@ -171,6 +172,17 @@ impl Msg {
 /// fallback, not a test — is what refuses an incomplete table.
 fn table(locale: UiLocale, msg: Msg) -> &'static str {
     match msg {
+        Msg::SidecarBundledFileMissing => match locale {
+            UiLocale::En => "FlowMic's installation is incomplete and missing the built-in file {path}. Please reinstall FlowMic.",
+            UiLocale::ZhCn => "FlowMic 安装不完整，缺少自带文件 {path}，请重新安装 FlowMic。",
+            UiLocale::ZhTw => "FlowMic 安裝不完整，缺少隨附檔案 {path}，請重新安裝 FlowMic。",
+            UiLocale::Fr => "L'installation de FlowMic est incomplète et le fichier intégré {path} est manquant. Veuillez réinstaller FlowMic.",
+            UiLocale::Es => "La instalación de FlowMic está incompleta y falta el archivo integrado {path}. Vuelve a instalar FlowMic.",
+            UiLocale::De => "FlowMic ist unvollständig installiert und die mitgelieferte Datei {path} fehlt. Bitte installieren Sie FlowMic neu.",
+            UiLocale::Ja => "FlowMic のインストールが不完全なため、付属ファイル {path} が見つかりません。FlowMic を再インストールしてください。",
+            UiLocale::Ko => "FlowMic 설치가 불완전하여 내장된 {path} 파일이 없습니다. FlowMic을 다시 설치해 주세요.",
+            UiLocale::Ru => "FlowMic установлен не полностью, отсутствует встроенный файл {path}. Пожалуйста, переустановите FlowMic.",
+        },
         Msg::TrayShowMain => match locale {
             UiLocale::En => "Show main window",
             UiLocale::ZhCn => "显示主窗口",

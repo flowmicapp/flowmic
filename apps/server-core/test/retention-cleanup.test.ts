@@ -579,4 +579,32 @@ describe('GA-06 bootstrap wiring', () => {
     server = null;
     await boot.close();
   });
+
+  // card EMB-15 (privacy draft C-3) — the WIRING of the visitor-total purge:
+  // `visitorDays` is an optional dep of the reaper, so a bootstrap that forgot to
+  // pass it would keep every unit test in reaper.test.ts green while yesterday's
+  // per-visitor totals lived on until the next admission.
+  it('🔴 per-visitor daily totals from yesterday are pruned on the real boot timer; today stay', async () => {
+    const config = loadConfig({ port: 0, dbPath: ':memory:', secret: 'reaper-boot-secret-32-bytes-long!' });
+    const boot = await startServer(config, {
+      now: () => T0,
+      setIntervalFn: sched.setIntervalFn,
+      clearIntervalFn: sched.clearIntervalFn,
+    });
+    server = boot;
+    boot.db.integratorKeys.insert({ id: 'k1', user_id: STANDALONE_USER_ID, publishable_key: 'fmpk_k1',
+      origins: ['https://example.com'], quota_minutes: null, label: 'k1', created_at: T0 });
+    const today = Math.floor(T0 / DAY_MS);
+    const ins = boot.db.raw.prepare('INSERT INTO integrator_visitor_days (key_id,bucket,day,used_ms) VALUES (?,?,?,?)');
+    ins.run('k1', 'b', today - 1, 1000);
+    ins.run('k1', 'b', today, 1000);
+
+    sched.tick();
+
+    const days = (boot.db.raw.prepare('SELECT day FROM integrator_visitor_days').all() as Array<{ day: number }>).map((r) => r.day);
+    expect(days).toEqual([today]);
+
+    server = null;
+    await boot.close();
+  });
 });

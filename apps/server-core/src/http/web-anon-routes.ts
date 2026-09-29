@@ -212,7 +212,15 @@ async function handle(
 
   // ── ④ IS THERE A PERSON ─────────────────────────────────────────────────
   const body = await readJsonBody(req);
-  const solved = await deps.captcha.verify(str(body.turnstile), ip);
+  const solved = await deps.captcha.verify(str(body.turnstile), ip, {
+    // `origin` already passed demoOriginOf's exact host allow-list. Bind the
+    // provider's hostname to that same page, including explicit local dev mode.
+    hostnames: [new URL(origin).hostname],
+    // NR-121 relay-first rollout: deployed cards omit action. Remove '' only
+    // after the new renderer is deployed and cached old cards have drained.
+    // TODO(NR-121 F-B1): remove legacy empty action after rollout and old tabs drain.
+    actions: ['', 'try', 'home-try'],
+  });
   if (!solved) {
     // Recorded against the burst brake even though nothing was minted: a script
     // failing the challenge repeatedly is exactly what that brake is for, and a

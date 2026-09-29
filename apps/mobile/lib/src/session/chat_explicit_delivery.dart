@@ -120,6 +120,7 @@ extension ChatExplicitDelivery on ChatController {
     required String? text,
     required List<TimelineEntry> images,
   }) async {
+    if (store.articleHolds.isNotEmpty) await store.articleHolds.waitForAll();
     if (text != null && exceedsInjectTextCap(text)) {
       delivery.raise(ComposeSendFailure.tooLong);
       return;
@@ -154,5 +155,12 @@ extension ChatExplicitDelivery on ChatController {
   /// resend / long-press deferred-delivery / resend-after-edit / banner
   /// resend) fire and forget, and the outcome is told on the row and in the
   /// banner, never in a return.
-  void reInject(TimelineEntry entry) => unawaited(delivery.reInject(entry));
+  void reInject(TimelineEntry entry) {
+    if (store.articleHolds.contains(entry.articleId)) {
+      unawaited(store.articleHolds.waitFor(entry.articleId)
+          .then((_) => delivery.reInject(entry)));
+    } else {
+      unawaited(delivery.reInject(entry));
+    }
+  }
 }

@@ -15,6 +15,7 @@ part of 'ptt_session.dart';
 
 extension PttSessionDispose on PttSession {
   Future<void> _disposeRouted() async {
+    timings.dispose();
     _stopHeartbeat();
     // CR-9 (C8, exit 5 of 5): a live ceiling timer would outlive this object
     // and reach back into a session being torn down; a wake lock would simply

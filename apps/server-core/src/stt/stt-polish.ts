@@ -24,6 +24,7 @@
 //        skip is (a) surfaced on the wire by the bridge via `polishWireSignal` and
 //        (b) forensically logged through the server `log`, never a bare console.
 
+import { logPolishGuard, guardFamily } from '../obs/polish-telemetry';
 import { randomUUID, createHash } from 'node:crypto';
 import { DEFAULT_POLISH_STRENGTH, type LlmConfig, type LlmProtocol, type PolishStrength } from '@flowmic/protocol';
 import {
@@ -31,6 +32,9 @@ import {
   type LlmStreamer,
   type LlmStreamOpts,
 } from '../compose/llm';
+import { toLlmFinishReason, type LlmFinishReason } from '../compose/llm/types';
+import { LLM_ROUTE_FATAL_CODES } from '../compose/llm-health';
+import type { LlmConfigSource } from '../compose/llm-config';
 import { log } from '../log';
 import { checkMeaningPreserved } from './stt-polish-guard';
 import { trace, traceEnabled, tracedList, tracedText } from '../trace/pipeline-trace';
@@ -249,9 +253,34 @@ export function polishBudgetMs(chars: number): number {
 const POLISH_CACHE_MAX = 200;
 
 // ─── §wire mapping (the lead's clarification, 2026-07-24) ─────────────────────
-/** The 4 canonical `polish_reason` wire values a skip normalizes to (internal
- *  fine-grained detail stays in the forensic log, never on the wire). */
-export type PolishSkipReason = 'timeout' | 'llm_error' | 'empty_output' | 'guard_reject';
+/** The canonical `polish_reason` wire values a skip normalizes to (internal
+ *  fine-grained detail stays in the forensic log, never on the wire).
+ *  `not_configured` (NR-123) is produced only at arming time, by
+ *  engine/stt-factory.ts `resolvePolishDep`, never by a polish run.
+ *  `model_rejected` (NR-130) is produced only BY a polish run: the provider
+ *  refused the configured model for a configuration reason (see
+ *  [polishSkipReasonForCode]). */
+export type PolishSkipReason = 'timeout' | 'llm_error' | 'empty_output' | 'guard_reject' | 'not_configured' | 'model_rejected';
+
+/**
+ * NR-130 (MAIN 2026-09-29) — the wire reason for a streamer error code.
+ *
+ * `model_rejected` = the provider answered and refused THIS configuration: a key
+ * it does not accept (`LLM_AUTH_FAIL`) or a model/endpoint it does not know
+ * (`LLM_INVALID_MODEL`). Those are the two codes llm-health.ts
+ * `LLM_ROUTE_FATAL_CODES` already names as "broken until someone changes the
+ * config" — the same line, read from the same set, so the two cannot drift.
+ * The fix is in the model settings, which is what the phone's hint says.
+ *
+ * 🔴 Everything else stays where it was, and that split is the point (one value,
+ * one question): `LLM_TIMEOUT` ⇒ `timeout`; `LLM_RATE_LIMITED`, transport and
+ * overload failures ⇒ `llm_error`. Waiting can fix those, so "check your model
+ * settings" would be a false instruction for them.
+ */
+export function polishSkipReasonForCode(code: string): PolishSkipReason {
+  if (code === 'LLM_TIMEOUT') return 'timeout';
+  return LLM_ROUTE_FATAL_CODES.has(code) ? 'model_rejected' : 'llm_error';
+}
 
 /** The honest signal the bridge stamps onto stt:final. A REASON in the result ⇒
  *  the attempt did not succeed ⇒ 'skipped'; NO reason ⇒ polish ran and succeeded
@@ -330,6 +359,7 @@ function cacheKey(model: string, system: string, text: string): string {
 }
 
 export interface PolishResult {
+  timing?: { elapsedMs: number; ttfbMs: number | null; budgetMs: number; cacheHit: boolean; charsOut: number; finishReason: LlmFinishReason };
   /** Either the guard-accepted polished text, or the untouched INPUT (the pure
    *  two-stage text) when skipped/failed/rejected — delivery is never blocked. */
   text: string;
@@ -358,6 +388,7 @@ export interface PolishResult {
 }
 
 export interface PolishDeps {
+  utteranceId?: string;
   /** Injectable fetch (LAN smoke / tests). Forwarded to the streamer. */
   fetch?: typeof globalThis.fetch;
   /** Test seam: override the AbortController timeout. */
@@ -475,10 +506,17 @@ export async function polishFinalText(
   deps: PolishDeps = {},
 ): Promise<PolishResult> {
   const trimmed = text.trim();
+  const attemptAt = Date.now();
+  const budgetMs = deps.budgetMs ?? polishBudgetMs(trimmed.length);
+  let ttfbMs: number | null = null, cacheHit = false, charsOut = 0, finishReason: LlmFinishReason = 'none';
+  const finish = (r: PolishResult): PolishResult => {
+    try { return { ...r, timing: { elapsedMs: Date.now() - attemptAt, ttfbMs, budgetMs, cacheHit, charsOut, finishReason } }; }
+    catch { return r; } // Missing telemetry must not become a polish exception.
+  };
   // DIVERGENCE (reversal 2): empty input is a degenerate skip → normalized to the
   // 'empty_output' wire reason (the lead's clarification). Legacy kept only the internal
   // 'empty-input' label; the internal label is retained for the ported vector.
-  if (trimmed.length === 0) return { text, applied: false, reason: 'empty-input', skipReason: 'empty_output' };
+  if (trimmed.length === 0) return finish({ text, applied: false, reason: 'empty-input', skipReason: 'empty_output' });
 
   const protectedTerms = deps.protectedTerms ?? [];
   // Resolved ONCE, here, at the boundary — every line below sees a total value
@@ -489,6 +527,7 @@ export async function polishFinalText(
   const key = cacheKey(cfg.model, system, trimmed);
   const cached = polishCache.get(key);
   if (cached !== undefined) {
+    cacheHit = true; charsOut = cached.length;
     polishCache.delete(key);
     polishCache.set(key, cached);
     // Cache hit ⇒ a previously guard-accepted output ⇒ SUCCESS (no reason) —
@@ -498,14 +537,13 @@ export async function polishFinalText(
     // stays cached (it remains valid for sessions without that term).
     const cachedDrift = protectedTermDrift(trimmed, cached, protectedTerms);
     if (cachedDrift !== null) {
-      log.warn('stt.polish cached output drifts a protected dictionary term — pure two-stage text kept', { term: cachedDrift, wire: 'guard_reject' });
-      return { text, applied: false, reason: `dict-term-drift:${cachedDrift}`, skipReason: 'guard_reject' };
+      log.warn('stt.polish cached output drifts a protected dictionary term — pure two-stage text kept', { family: 'dict', wire: 'guard_reject' });
+      return finish({ text, applied: false, reason: `dict-term-drift:${cachedDrift}`, skipReason: 'guard_reject' });
     }
     // Even if it equals the input (LLM echoed), the wire signal is 'applied'.
-    return { text: cached, applied: cached !== text };
+    return finish({ text: cached, applied: cached !== text });
   }
 
-  const budgetMs = deps.budgetMs ?? polishBudgetMs(trimmed.length);
   const startedAt = Date.now();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), budgetMs);
@@ -542,10 +580,12 @@ export async function polishFinalText(
     let errored: string | null = null;
     let usage: { tokensIn: number; tokensOut: number } | undefined;
     for await (const ev of streamer(opts)) {
-      if (ev.kind === 'delta') full += ev.text;
+      if (ev.kind !== 'delta') finishReason = toLlmFinishReason(ev.finish_reason);
+      // Billing facts are captured before either terminal path can reject the output.
+      if (ev.kind !== 'delta' && ev.usage) usage = { tokensIn: ev.usage.tokens_in, tokensOut: ev.usage.tokens_out };
+      if (ev.kind === 'delta') { if (ev.text.length) ttfbMs ??= Date.now() - startedAt; full += ev.text; }
       else if (ev.kind === 'done') {
-        full = ev.full;
-        if (ev.usage) usage = { tokensIn: ev.usage.tokens_in, tokensOut: ev.usage.tokens_out };
+        full = ev.full; if (full.length) ttfbMs ??= Date.now() - startedAt;
         break;
       }
       else { errored = ev.code; break; }
@@ -569,7 +609,8 @@ export async function polishFinalText(
     if (errored) {
       // The compose/llm streamer maps an abort (budget exceeded) → LLM_TIMEOUT and
       // transport/HTTP failures → other LLM_* codes; timeout is its own wire value.
-      const skipReason: PolishSkipReason = errored === 'LLM_TIMEOUT' ? 'timeout' : 'llm_error';
+      // NR-130: a config refusal (bad key / unknown model) is `model_rejected`.
+      const skipReason: PolishSkipReason = polishSkipReasonForCode(errored);
       // The budget and the elapsed time are the two numbers that make a timeout
       // DIAGNOSABLE. Without them this line said "timed out" and nothing else, which
       // is why a budget that could never fit the job survived a whole release —
@@ -584,15 +625,15 @@ export async function polishFinalText(
         budgetMs,
         elapsedMs: Date.now() - startedAt,
       });
-      return { text, applied: false, reason: errored, skipReason };
+      return finish({ text, applied: false, reason: errored, skipReason, ...(usage ? { usage } : {}) });
     }
 
-    const cleaned = stripWrapping(full);
+    const cleaned = stripWrapping(full); charsOut = cleaned.length;
     if (cleaned.length === 0) {
       log.warn('stt.polish empty output — pure two-stage text kept', { wire: 'empty_output' });
       // The model RESPONDED — those tokens were spent whatever we then did
       // with the text. Billing must reflect the cost, not the verdict.
-      return { text, applied: false, reason: 'empty-output', skipReason: 'empty_output', ...(usage ? { usage } : {}) };
+      return finish({ text, applied: false, reason: 'empty-output', skipReason: 'empty_output', ...(usage ? { usage } : {}) });
     }
 
     // The lead's ruling (2026-07-24): dictionary-canonical protection runs FIRST — it is
@@ -602,8 +643,9 @@ export async function polishFinalText(
     // here in the caller.
     const drift = protectedTermDrift(trimmed, cleaned, protectedTerms);
     if (drift !== null) {
-      log.warn('stt.polish output drifts a protected dictionary term — pure two-stage text kept', { term: drift, wire: 'guard_reject' });
-      return { text, applied: false, reason: `dict-term-drift:${drift}`, skipReason: 'guard_reject', ...(usage ? { usage } : {}) };
+      try { logPolishGuard(trimmed, cleaned, { ok: false, reason: 'dict-term-drift:' }, deps); } catch { /* Observation only. */ }
+      log.warn('stt.polish output drifts a protected dictionary term — pure two-stage text kept', { family: 'dict', wire: 'guard_reject' });
+      return finish({ text, applied: false, reason: `dict-term-drift:${drift}`, skipReason: 'guard_reject', ...(usage ? { usage } : {}) });
     }
 
     // `declaredTerms` = the SAME per-session canonicals the drift check above
@@ -611,9 +653,10 @@ export async function polishFinalText(
     // drift check refuses an output that DROPPED a declared term, this tells
     // the cardinality budget that an output which INTRODUCED one is not drift.
     const guard = checkMeaningPreserved(trimmed, cleaned, { strength, declaredTerms: protectedTerms });
+    try { logPolishGuard(trimmed, cleaned, guard, deps); } catch { /* Observation only. */ }
     if (!guard.ok) {
-      log.warn('stt.polish guard rejected — pure two-stage text kept', { reason: guard.reason, language: deps.language, wire: 'guard_reject' });
-      return { text, applied: false, reason: guard.reason, skipReason: 'guard_reject', ...(usage ? { usage } : {}) };
+      try { log.warn('stt.polish guard rejected — pure two-stage text kept', { family: guardFamily(guard.reason), wire: 'guard_reject' }); } catch { /* Observation only. */ }
+      return finish({ text, applied: false, reason: guard.reason, skipReason: 'guard_reject', ...(usage ? { usage } : {}) });
     }
 
     polishCache.set(key, cleaned);
@@ -621,14 +664,14 @@ export async function polishFinalText(
       const oldest = polishCache.keys().next().value;
       if (oldest !== undefined) polishCache.delete(oldest);
     }
-    return { text: cleaned, applied: cleaned !== text, ...(usage ? { usage } : {}) };
+    return finish({ text: cleaned, applied: cleaned !== text, ...(usage ? { usage } : {}) });
   } catch (err) {
     // The streamer is contracted never to throw (transport failures become error
     // events), so this is defense-in-depth. An aborted signal ⇒ timeout; else a
     // generic llm_error. Never silent (red line) — forensically logged, pure text kept.
     const skipReason: PolishSkipReason = ctrl.signal.aborted ? 'timeout' : 'llm_error';
-    log.error('stt.polish exception — pure two-stage text kept', { error: err instanceof Error ? err.message : String(err), wire: skipReason });
-    return { text, applied: false, reason: 'exception', skipReason };
+    log.error('stt.polish exception — pure two-stage text kept', { outcome: 'exception', wire: skipReason });
+    return finish({ text, applied: false, reason: 'exception', skipReason });
   } finally {
     clearTimeout(timer);
   }
@@ -645,6 +688,24 @@ export async function polishFinalText(
 export function polishWireSignal(r: PolishResult): PolishWireSignal {
   if (r.reason === undefined) return { polish: 'applied' };
   return { polish: 'skipped', polish_reason: r.skipReason ?? 'llm_error' };
+}
+
+/**
+ * NR-130 — the wire signal as the USER may read it, given WHO supplied the model.
+ *
+ * `model_rejected` tells the phone "the model set up for you was refused — check
+ * its settings". That is only true of a config the user (or the seeder on their
+ * own computer) put there. The managed default is OUR key on OUR account
+ * (llm-config.ts `LlmConfigSource`): if a vendor refuses it, the user has
+ * nothing to check, so the phone gets the plain `llm_error` and the operator
+ * alarm is llm-health.ts's job. The forensic `outcome` keeps the raw reason.
+ */
+export function polishWireSignalFor(r: PolishResult, source: LlmConfigSource): PolishWireSignal {
+  const signal = polishWireSignal(r);
+  if (signal.polish === 'skipped' && signal.polish_reason === 'model_rejected' && source === 'managed-default') {
+    return { polish: 'skipped', polish_reason: 'llm_error' };
+  }
+  return signal;
 }
 
 /** Test-only cache reset so guard/latency tests don't leak state across cases. */

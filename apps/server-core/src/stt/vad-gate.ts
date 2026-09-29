@@ -10,23 +10,33 @@
 // STREAMING engine the bridge forwards audio ONLY while the gate is open, so
 // silence never accumulates billed streaming-session time.
 //
-// Metric (master-plan §2.3): ratio = sessionMs / voicedMs, where sessionMs is
-// the wall-time the gate held open (billed) and voicedMs is the actual spoken
-// audio. Hangover padding is the only overhead → ratio ≈ 1 + hangover/voiced.
+// sessionMs is analysed gate-open audio time, not vendor wall time or labelled
+// speech. Settlement also caps it by unique accepted-and-answered audio.
 
 import { MIN_PAUSE_MS } from './segment-boundary';
 import { DEFAULT_ENGINE_IDLE_HANGUP_MS } from './orchestrator-types';
 
-const BYTES_PER_SAMPLE = 2;
-const FLOOR_DB = -100;
+// NR-103: local retained quiet/noisy material A measured 28.67%/23.28%
+// gate-open time at -45 dBFS. A 1 s minimum window with 6/3 dB open/hold
+// margins recovers >65%/>63%, while seeded stationary hiss (including a
+// silence-to-hiss step) admits <3%. The -62 dBFS bound excludes near-silence
+// after digital zero. These are corpus bounds, not universal speech labels.
+// Keep the measured baseline's 20 ms analysis and 300 ms hangover: the
+// fixtures do not justify longer padding. Existing 400 ms pre-roll remains
+// owned by gate-preroll.ts. PCM format and -100 dB meter floor are unchanged.
+const GATE = {
+  bytesPerSample: 2, sampleScale: 32768, sampleRate: 16_000,
+  frameMs: 20, hangoverMs: 300, fixedThresholdDb: -45, meterFloorDb: -100,
+  absoluteFloorDb: -62, noiseWindowMs: 1000, openMarginDb: 6, holdMarginDb: 3,
+} as const;
 
 export interface VadGateOptions {
   /** PCM sample rate (16 kHz mono s16le fixed by 06 §1). */
   sampleRate?: number;
   /** Analysis frame length in ms (default 20 → 320 samples @16k). */
   frameMs?: number;
-  /** Voiced threshold in dBFS. Digital silence (zeros) is -inf → always below;
-   *  clean speech sits well above (default -45). Env: FLOWMIC_STT_VAD_THRESHOLD_DB. */
+  /** Always-admit threshold in dBFS (default -45); adaptive detection may
+   *  admit quieter audio. Env: FLOWMIC_STT_VAD_THRESHOLD_DB. */
   thresholdDb?: number;
   /** Keep the gate open this long after the last voiced frame (default 300 ms).
    *  Env: FLOWMIC_STT_VAD_HANGOVER_MS. */
@@ -57,12 +67,12 @@ function envNum(name: string, fallback: number): number {
 function frameDb(pcm: Buffer, startSample: number, sampleCount: number): number {
   let sumSq = 0;
   for (let i = 0; i < sampleCount; i++) {
-    const s = pcm.readInt16LE((startSample + i) * BYTES_PER_SAMPLE) / 32768;
+    const s = pcm.readInt16LE((startSample + i) * GATE.bytesPerSample) / GATE.sampleScale;
     sumSq += s * s;
   }
   const rms = Math.sqrt(sumSq / Math.max(1, sampleCount));
-  if (rms <= 0) return FLOOR_DB;
-  return Math.max(FLOOR_DB, 20 * Math.log10(rms));
+  if (rms <= 0) return GATE.meterFloorDb;
+  return Math.max(GATE.meterFloorDb, 20 * Math.log10(rms));
 }
 
 export class VadGate {
@@ -76,20 +86,27 @@ export class VadGate {
   private silenceRunMs = 0;
   private _voicedMs = 0;
   private _sessionMs = 0;
-  private _lastDb = FLOOR_DB;
+  private _lastDb: number = GATE.meterFloorDb;
+  private readonly noiseFrames: number;
+  private readonly noiseHistory: number[] = [];
+  private noiseIndex = 0;
+  private _admitChunk = false;
   /** card RC-6 — the running closure (ms of gate time since it closed), or -1 while open / before first voice. */
   private closedRunMs = -1;
   private readonly _closures: GateClosureCounts = { count: 0, ge_600ms: 0, ge_3s: 0 };
 
   constructor(opts: VadGateOptions = {}) {
-    this.sampleRate = opts.sampleRate ?? 16_000;
-    this.frameMs = opts.frameMs ?? 20;
+    this.sampleRate = opts.sampleRate ?? GATE.sampleRate;
+    this.frameMs = opts.frameMs ?? GATE.frameMs;
     this.frameSamples = Math.max(1, Math.round((this.sampleRate * this.frameMs) / 1000));
-    this.thresholdDb = opts.thresholdDb ?? envNum('FLOWMIC_STT_VAD_THRESHOLD_DB', -45);
-    this.hangoverMs = opts.hangoverMs ?? envNum('FLOWMIC_STT_VAD_HANGOVER_MS', 300);
+    this.thresholdDb = opts.thresholdDb ?? envNum('FLOWMIC_STT_VAD_THRESHOLD_DB', GATE.fixedThresholdDb);
+    this.hangoverMs = opts.hangoverMs ?? envNum('FLOWMIC_STT_VAD_HANGOVER_MS', GATE.hangoverMs);
+    this.noiseFrames = Math.max(1, Math.ceil(GATE.noiseWindowMs / this.frameMs));
   }
 
   get open(): boolean { return this._open; }
+  /** Any admitted frame in the latest chunk, including padding before closure. */
+  get admitChunk(): boolean { return this._admitChunk; }
   get voicedMs(): number { return this._voicedMs; }
   get sessionMs(): number { return this._sessionMs; }
   get lastAmplitudeDb(): number { return this._lastDb; }
@@ -108,19 +125,37 @@ export class VadGate {
    */
   process(chunk: Buffer): VadFrameResult[] {
     const buf = this.residual.length > 0 ? Buffer.concat([this.residual, chunk]) : chunk;
-    const frameBytes = this.frameSamples * BYTES_PER_SAMPLE;
+    const frameBytes = this.frameSamples * GATE.bytesPerSample;
     const results: VadFrameResult[] = [];
+    this._admitChunk = false;
     let offset = 0;
     while (offset + frameBytes <= buf.length) {
-      const db = frameDb(buf, offset / BYTES_PER_SAMPLE, this.frameSamples);
+      const db = frameDb(buf, offset / GATE.bytesPerSample, this.frameSamples);
       this._lastDb = db;
-      const voiced = db > this.thresholdDb;
+      const voiced = this.classify(db);
       this.step(voiced);
+      this._admitChunk ||= this._open;
       results.push({ voiced, gateOpen: this._open, amplitudeDb: db });
       offset += frameBytes;
     }
     this.residual = offset < buf.length ? buf.subarray(offset) : Buffer.alloc(0);
+    // A sub-frame chunk cannot yet be classified; keep it when the gate is
+    // already open. Full-frame timing/estimation still runs exactly once.
+    if (results.length === 0) this._admitChunk = this._open;
     return results;
+  }
+
+  private classify(db: number): boolean {
+    // A rolling minimum falls immediately and rises only once old low frames
+    // expire. Compare BEFORE inserting this frame: an uncertain onset must not
+    // train its own threshold. At startup keep audio above the absolute floor.
+    const noiseDb = this.noiseHistory.length === 0
+      ? GATE.meterFloorDb : Math.min(...this.noiseHistory);
+    const margin = this._open ? GATE.holdMarginDb : GATE.openMarginDb;
+    const threshold = Math.max(GATE.absoluteFloorDb, Math.min(this.thresholdDb, noiseDb + margin));
+    this.noiseHistory[this.noiseIndex] = db;
+    this.noiseIndex = (this.noiseIndex + 1) % this.noiseFrames;
+    return db > threshold;
   }
 
   /** Advance the gate FSM by one frame; account voiced/session ms. */
@@ -140,11 +175,11 @@ export class VadGate {
 
   /** Flush any residual tail as a final (short) frame and close the gate. */
   finish(): void {
-    if (this.residual.length >= BYTES_PER_SAMPLE) {
+    if (this.residual.length >= GATE.bytesPerSample) {
       const samples = this.residual.length >> 1;
       const db = frameDb(this.residual, 0, samples);
       this._lastDb = db;
-      const voiced = db > this.thresholdDb;
+      const voiced = this.classify(db);
       const partialMs = (samples / this.sampleRate) * 1000;
       if (voiced) { this._voicedMs += partialMs; if (!this._open) this._open = true; }
       if (this._open) this._sessionMs += partialMs;

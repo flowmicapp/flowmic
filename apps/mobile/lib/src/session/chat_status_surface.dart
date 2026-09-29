@@ -56,7 +56,25 @@ extension ChatStatusSurface on ChatController {
 
   /// Entry ids whose bubbles show the polish-skipped corner mark. In-memory for
   /// the session; cleared only on dispose (app restart drops it naturally).
-  Set<String> get polishSkippedEntryIds => _polishSkippedEntryIds;
+  Map<String, PolishBadge> get polishBadges => Map<String, PolishBadge>.unmodifiable(_polishBadges);
+
+  /// NR-123 — whether the one-time 「set an AI model up on the computer」 hint is
+  /// up for the instance whose screen is asking (G-20 scope, hidden not dropped).
+  /// Consumer: chat_banner_sources.dart → `buildChatBanners(polishNoModelHint:)`.
+  bool get polishNoModelHint =>
+      _polishNoModelHint == PolishBadge.noModel && _noticeOnScreen(_polishNoModelHintInstanceId);
+
+  /// Put the hint away (✕ or tap). Body: chat_notices.dart.
+  void dismissPolishNoModelHint() => dismissPolishNoModelHintRouted(this);
+
+  /// NR-130 — the one-time "the model set up on the computer was refused"
+  /// hint, same slot and scope as [polishNoModelHint].
+  /// Consumer: chat_banner_sources.dart → `buildChatBanners(polishModelRejectedHint:)`.
+  bool get polishModelRejectedHint =>
+      _polishNoModelHint == PolishBadge.modelRejected && _noticeOnScreen(_polishNoModelHintInstanceId);
+
+  /// Put the NR-130 hint away (✕ or tap). Same body as [dismissPolishNoModelHint].
+  void dismissPolishModelRejectedHint() => dismissPolishNoModelHintRouted(this);
 
   /// True while the fail-loud "recording auto-stopped at the 5-min cap" banner
   /// should show. Transient UI signal only — never touches the timeline schema.

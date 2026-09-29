@@ -71,13 +71,17 @@ function assertTrue(cond, label) {
   else { console.log(`  FAIL  ${label}`); failures += 1; }
 }
 
+// Generous: only reached when concurrency has truly regressed (then it is the
+// failure), never as a timing bet. Slow start-up under load must not trip it.
+const BARRIER_TIMEOUT_MS = 30000;
+
 const tempDirs = [];
 const makeTempDir = (p) => { const d = mkdtempSync(join(tmpdir(), p)); tempDirs.push(d); return d; };
 
 /** A step that is a real child process: it sleeps, writes its own start/end
  *  into a marker file, and exits with the code we asked for. The marker is the
  *  evidence — not a callback this file could have fired itself. */
-function fakeNode({ name, needs = [], ms = 120, exit = 0, heavy = false, priority = 0, dir }) {
+function fakeNode({ name, needs = [], ms = 120, exit = 0, heavy = false, priority = 0, dir, barrier = [] }) {
   const marker = join(dir, `${name}.json`);
   return {
     name, needs, heavy, priority, target: 'fake', marker,
@@ -85,7 +89,17 @@ function fakeNode({ name, needs = [], ms = 120, exit = 0, heavy = false, priorit
       const code = [
         'const fs=require("fs");',
         `const start=Date.now();`,
-        `setTimeout(()=>{fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({name:${JSON.stringify(name)},start,end:Date.now()}));process.exit(${exit});},${ms});`,
+        // Barrier (T-1): overlap is PROVEN, not inferred from wall-clock. The
+        // step announces it started, then waits until every peer in its barrier
+        // has announced too. Both sides reaching that point means both were
+        // alive at the same moment however slow process start-up was. If the
+        // orchestrator truly stopped running them together, the peer never
+        // starts, this times out and exits 97: red, loudly.
+        `fs.writeFileSync(${JSON.stringify(join(dir, `${name}.started`))},'1');`,
+        `const peers=${JSON.stringify(barrier.map((p) => join(dir, `${p}.started`)))};`,
+        `const dl=Date.now()+${BARRIER_TIMEOUT_MS};`,
+        `(function w(){if(peers.every(p=>fs.existsSync(p)))return go();if(Date.now()>dl)process.exit(97);setTimeout(w,5);})();`,
+        `function go(){setTimeout(()=>{fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({name:${JSON.stringify(name)},start,end:Date.now(),peersSeen:peers.length}));process.exit(${exit});},${ms});}`,
       ].join('');
       const c = spawn(process.execPath, ['-e', code], { windowsHide: true });
       c.on('error', () => done(-1));
@@ -98,7 +112,6 @@ function fakeNode({ name, needs = [], ms = 120, exit = 0, heavy = false, priorit
 // than one that fails a named assertion, and the reverse control below is
 // precisely the case where markers go missing.
 const readMarker = (n) => (existsSync(n.marker) ? JSON.parse(readFileSync(n.marker, 'utf8')) : null);
-const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
 const runShip = (args) => spawnSync(process.execPath, [SHIP, ...args], { cwd: ROOT, encoding: 'utf8', windowsHide: true });
 
@@ -208,20 +221,21 @@ try {
   section('§3 independent steps really overlap, the heavy cap holds, and GATE takes the first slot');
   {
     const dir = makeTempDir('ship-drill-par-');
+    const first3 = ['GATE', 'H1', 'H2'];
     const pre = fakeNode({ name: 'PRE', dir, ms: 40, priority: 0 });
-    const heavies = ['GATE', 'H1', 'H2', 'H3', 'H4'].map((n, i) => fakeNode({ name: n, needs: ['PRE'], dir, ms: 200, heavy: true, priority: i }));
+    const heavies = ['GATE', 'H1', 'H2', 'H3', 'H4'].map((n, i) => fakeNode({ name: n, needs: ['PRE'], dir, ms: 200, heavy: true, priority: i, barrier: first3.filter((x) => x !== n) }));
     const res = await runGraph([pre, ...heavies], { maxHeavy: 3 });
     assertTrue(res.ok === true, 'all five heavy steps succeeded');
     assertTrue(res.order[0] === 'PRE' && res.order[1] === 'GATE', `GATE takes the first heavy slot (order: ${res.order.join(',')})`);
     const m = heavies.map(readMarker);
     assertTrue(m.every(Boolean), "every heavy step actually started");
     if (m.every(Boolean)) {
-    assertTrue(overlaps(m[0], m[1]) && overlaps(m[1], m[2]), 'the first three heavy steps genuinely ran at the same time (intervals intersect)');
+    assertTrue(m.slice(0, 3).every((x) => x.peersSeen === 2), 'the first three heavy steps genuinely ran at the same time (each saw both peers started before finishing; barrier, not wall-clock)');
     // At no instant may more than three be in flight. Sweep every start.
     let worst = 0;
     for (const p of m) worst = Math.max(worst, m.filter((q) => q.start <= p.start && q.end > p.start).length);
     assertTrue(worst <= 3, `never more than 3 heavy steps at once (peak observed: ${worst})`);
-    assertTrue(worst === 3, `and the cap was actually reached, so this is a measurement and not an empty schedule (peak ${worst})`);
+    assertTrue(worst === 3 && m.slice(0, 3).every((x) => x.peersSeen === 2), `and the cap was actually reached, so this is a measurement and not an empty schedule (peak ${worst}; the barrier held three at once)`);
     }
   }
 
@@ -237,15 +251,15 @@ try {
     const dir = makeTempDir('ship-drill-gate-desktop-');
     const pre = fakeNode({ name: 'PRE', dir, ms: 30, priority: 0 });
     const dist = fakeNode({ name: 'DIST', needs: ['PRE'], dir, ms: 60, priority: 0 });
-    const gate = fakeNode({ name: 'GATE', needs: ['PRE', 'DIST'], dir, ms: 300, heavy: true, priority: 0 });
-    const desktop = fakeNode({ name: 'BUILD_DESKTOP', needs: ['PRE', 'DIST'], dir, ms: 200, heavy: true, priority: 1 });
+    const gate = fakeNode({ name: 'GATE', needs: ['PRE', 'DIST'], dir, ms: 300, heavy: true, priority: 0, barrier: ['BUILD_DESKTOP'] });
+    const desktop = fakeNode({ name: 'BUILD_DESKTOP', needs: ['PRE', 'DIST'], dir, ms: 200, heavy: true, priority: 1, barrier: ['GATE'] });
     const res = await runGraph([pre, dist, gate, desktop], { maxHeavy: 3 });
     assertTrue(res.ok === true, 'PRE -> DIST -> {GATE, BUILD_DESKTOP} all four succeeded');
     const [mDist, mGate, mDesk] = [readMarker(dist), readMarker(gate), readMarker(desktop)];
     assertTrue(mDist && mGate && mDesk, 'all three later steps actually started');
     if (mDist && mGate && mDesk) {
       assertTrue(mGate.start >= mDist.end && mDesk.start >= mDist.end, 'both of them really waited for DIST to finish (the dist is written before either reader opens it)');
-      assertTrue(overlaps(mGate, mDesk), 'and then the gate and the desktop build really ran AT THE SAME TIME — the overlap this whole chain is built around, measured from the timestamps the children wrote themselves');
+      assertTrue(mGate.peersSeen === 1 && mDesk.peersSeen === 1, 'and then the gate and the desktop build really ran AT THE SAME TIME — the overlap this whole chain is built around; each child saw the other alive before finishing (barrier, not wall-clock)');
     }
   }
 

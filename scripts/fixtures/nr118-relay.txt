@@ -1,0 +1,5 @@
+[INFO] latency.segment {"tcorr":"abcdef","mode":"realtime","send_policy":"direct","delivery":"inject","continuous":false,"audio_ms":5000,"uplink_lag_ms":12,"backlog_ms":0,"inj_source":"stt","inj_origin":"live","stt_ms":1200,"stt_to_flush_ms":20,"stt_from_flush_ms":1180,"phone_turnaround_ms":220,"inject_ms":400,"server_total_ms":1820}
+[INFO] stt.polish.timing {"tcorr":"abcdef","outcome":"applied","elapsed_ms":1100,"ttfb_ms":200,"budget_ms":2000}
+[INFO] latency.segment {"tcorr":"000123","mode":"realtime","stt_ms":1800,"stt_to_flush_ms":30,"stt_from_flush_ms":1770}
+[INFO] stt.cut {"kind":"stop","flush_ms":100,"backlog_ms":0}
+[INFO] latency.segment {"tcorr":"999999","mode":"organize","stt_ms":1100,"entry_id":"private-entry-id"}

@@ -9,15 +9,17 @@
 //
 // POST {endpoint}/chat/completions with stream:true, parse `data:` SSE frames
 // terminated by `data: [DONE]`. HTTP status map: 401/403→LLM_AUTH_FAIL,
-// 429→LLM_RATE_LIMITED, other/transport→LLM_TIMEOUT. api_key '' or 'EMPTY'
+// 429→LLM_RATE_LIMITED, 404→LLM_INVALID_MODEL, other/transport→LLM_TIMEOUT. api_key '' or 'EMPTY'
 // (platform sentinel, 06 §4) sends no Authorization header.
 
 import {
   type LlmEvent,
+  type LlmFinishReason,
   type LlmStreamOpts,
   type LlmUsage,
   parseSseStream,
   stripTrailingSlash,
+  toLlmFinishReason,
 } from './types';
 import { mergeVendorBody, vendorRequestBody } from './vendor-body';
 
@@ -109,12 +111,17 @@ function buildHeaders(apiKey: string): Record<string, string> {
 function mapHttpStatus(status: number): { code: string; message: string } {
   if (status === 401 || status === 403) return { code: 'LLM_AUTH_FAIL', message: `openai-compatible http ${status}` };
   if (status === 429) return { code: 'LLM_RATE_LIMITED', message: `openai-compatible http ${status}` };
+  if (status === 404) return { code: 'LLM_INVALID_MODEL', message: `openai-compatible http ${status}` };
   return { code: 'LLM_TIMEOUT', message: `openai-compatible http ${status}` };
 }
 
 function usageOf(frame: OaiStreamFrame): LlmUsage | undefined {
   if (!frame.usage) return undefined;
   return { tokens_in: frame.usage.prompt_tokens ?? 0, tokens_out: frame.usage.completion_tokens ?? 0 };
+}
+
+function telemetryFinishReason(reason: string | null): LlmFinishReason {
+  return toLlmFinishReason(reason);
 }
 
 export async function* streamOpenAiCompatible(opts: LlmStreamOpts): AsyncGenerator<LlmEvent> {
@@ -140,6 +147,7 @@ export async function* streamOpenAiCompatible(opts: LlmStreamOpts): AsyncGenerat
     stream: true,
     stream_options: { include_usage: true },
     temperature: FAITHFULNESS_TEMPERATURE,
+    ...(opts.maxTokens !== undefined ? { max_tokens: opts.maxTokens } : {}),
     messages: [
       { role: 'system', content: opts.system },
       { role: 'user', content: opts.user },
@@ -162,14 +170,20 @@ export async function* streamOpenAiCompatible(opts: LlmStreamOpts): AsyncGenerat
   let full = '';
   let usage: LlmUsage | undefined;
   let served: string | undefined;
+  let finishReason: string | null = null;
+  let sawDone = false;
   try {
     for await (const frame of parseSseStream(res.body)) {
-      if (frame === '[DONE]') break;
+      if (frame === '[DONE]') { sawDone = true; break; }
       let parsed: OaiStreamFrame;
       try { parsed = JSON.parse(frame) as OaiStreamFrame; } catch { continue; }
       if (served === undefined && typeof parsed.model === 'string' && parsed.model.length > 0) served = parsed.model;
       const u = usageOf(parsed);
       if (u) usage = u; // usage frame arrives with empty choices, at/near the end
+      const reason = parsed.choices?.[0]?.finish_reason;
+      // Keep reading: the separate usage frame usually follows finish_reason.
+      // A later frame must not turn an already rejected finish into success.
+      if (typeof reason === 'string' && reason.length > 0 && (finishReason === null || finishReason === 'stop')) finishReason = reason;
       const delta = parsed.choices?.[0]?.delta?.content;
       if (typeof delta === 'string' && delta.length > 0) {
         full += delta;
@@ -177,8 +191,19 @@ export async function* streamOpenAiCompatible(opts: LlmStreamOpts): AsyncGenerat
       }
     }
   } catch (err) {
-    yield { kind: 'error', code: 'LLM_TIMEOUT', message: (err as Error)?.message ?? 'stream read failed' };
+    yield { kind: 'error', code: 'LLM_TIMEOUT', message: (err as Error)?.message ?? 'stream read failed', ...(usage ? { usage } : {}), ...(finishReason !== null ? { finish_reason: telemetryFinishReason(finishReason) } : {}) };
     return;
+  }
+
+  // Plain LlmError events intentionally take the ordinary ServerError route,
+  // not the handler's instanceof ComposeOutputRejectedError guard branch.
+  if (finishReason !== null && finishReason !== 'stop') {
+    return void (yield { kind: 'error', code: 'COMPOSE_OUTPUT_REJECTED', message: `openai finish_reason ${finishReason}`, ...(usage ? { usage } : {}), finish_reason: telemetryFinishReason(finishReason) });
+  }
+  // Some compatible providers send only [DONE]; others send only stop.
+  // With neither proof of completion, EOF is an interrupted answer.
+  if (finishReason === null && !sawDone) {
+    return void (yield { kind: 'error', code: 'LLM_TIMEOUT', message: 'openai stream ended without finish_reason or [DONE]', ...(usage ? { usage } : {}), finish_reason: 'none' });
   }
 
   yield {
@@ -186,5 +211,6 @@ export async function* streamOpenAiCompatible(opts: LlmStreamOpts): AsyncGenerat
     full,
     ...(usage ? { usage } : {}),
     ...(served !== undefined ? { model: served } : {}),
+    finish_reason: telemetryFinishReason(finishReason),
   };
 }

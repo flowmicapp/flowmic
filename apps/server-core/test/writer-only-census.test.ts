@@ -118,7 +118,10 @@ const CENSUS: Record<string, { verdict: Verdict; why: string }> = {
   // ── 🔴 LOST: accepted on a replica and erased by the next pull ────────────
   'registry.reconnectPc': {
     verdict: 'lost',
-    why: 'pc:reconnect — claimClientInstance/setOnline/stampMachineUid/stampPcid. Refusing it would stop a replica serving live sessions. setOnline in particular means a PC on a replica reads OFFLINE to its phone, which asks the writer.',
+    // NR-131 (2026-09-29): stampMachineUid and the client declaration are no
+    // longer lost — pc.handler also hands them to notePcIdentity, which forwards
+    // a `pc.identity` record. claimClientInstance still is, so the row stays.
+    why: 'pc:reconnect — claimClientInstance/setOnline/stampPcid (stampMachineUid now also forwarded as pc.identity, NR-131). Refusing it would stop a replica serving live sessions. setOnline in particular means a PC on a replica reads OFFLINE to its phone, which asks the writer.',
   },
   'registry.reconnectMobile': {
     verdict: 'lost',

@@ -461,7 +461,7 @@ export function tryHandleInjectRoutes(
     }
     if (attempt.kind === 'armed') {
       // First sight of this request_id: this is the ONE emit it ever gets.
-      markInjectRequest(pc.room_uuid, request.data.entry_id ?? null);
+      markInjectRequest(pc.room_uuid, request.data.entry_id ?? null, undefined, { source: request.data.source, origin: request.data.inject_origin });
       pcSocket.emit('inject:request', request.data);
     } else {
       // `joined`: an identical request_id is already at the PC. A second frame

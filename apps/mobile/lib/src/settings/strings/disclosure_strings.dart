@@ -158,6 +158,10 @@
 // ⇒ The copy this block defends was written to be true at BOTH values, and that
 // is the only reason the flip cost nothing here. See the STAGE 3 block below,
 // where the hypothetical 「would have made it a lie」 is now a past tense.】
+// 【NR-132, 2026-09-29 — it moved a third time: a constant again, ON
+// (`STT_POLISH_DEFAULT` in the same file; `resolveSttPolishDefault` and the two
+// WITH/WITHOUT constants are deleted), and this phone now carries its switch's
+// value on every request. The copy is still true at both values.】
 //   apps/server-core/src/engine/stt-factory.ts  resolvePolishDep()
 //     — resolves through the SAME resolveLlmConfigWithSource() the compose turn
 //       uses, and never reads `mode` at all

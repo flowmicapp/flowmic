@@ -13,7 +13,7 @@
 // and writing it to localKv would reintroduce it one restart later.
 
 import { onMounted, onUnmounted, ref, watch, type Ref } from 'vue';
-import { CH, fetchCloudAccount, onChannel } from './bridge';
+import { appendForensic, CH, fetchCloudAccount, onChannel } from './bridge';
 import {
   deriveAccountCard,
   parseLiveAccount,
@@ -95,6 +95,11 @@ export function useCloudAccount(cloud: Ref<CloudStatus>): CloudAccountBinding {
       if (parsed !== null) {
         lastLive = { account: parsed, at: next.fetched_at ?? Math.floor(Date.now() / 1000) };
         tick.value += 1;
+      } else {
+        // NR-109 item 2: Rust logged this read as `ok` (both routes answered 200),
+        // and the card now says the answer was unusable — so the log has to say
+        // why, or the one line a user can send us contradicts the screen.
+        appendForensic('cloud', 'account read → ok but the summary carried no plan (card: unexpected answer)');
       }
     }
     loading.value = false;

@@ -41,12 +41,12 @@ import { SttConfigMissingError } from '../../stt/engine-router';
 import { errorPayload, type ErrorPayload } from '../../errors';
 import type { VerificationGraceGuard } from '../../auth/verification-grace';
 import type { AnonymousRowReader } from '../../auth/metering-principal';
-import { principalRefOf, secondLedgerFor, targetEndUserId, type PcRoomReader } from './audio-metering';
+import { isIntegratorSession, principalRefOf, secondLedgerFor, targetEndUserId, type PcRoomReader } from './audio-metering';
 import type { RecoveryOperationsRepo } from '../../db/repos/recovery-operations.repo';
 import { getAuth, getClientCaps, getRoomUuid, safeAck, setSessionPrefs } from '../wire';
 import type { BudgetPusher } from '../../billing/budget-push';
 import { makeAudioBudgetPushes } from './budget-frames';
-import { markAudioStop } from '../../obs/latency';
+import { markAudioStop, markAudioStartMeta } from '../../obs/latency';
 import { log } from '../../log';
 import { createRefuseStart, integratorKeyRefusal, type StartRefusalGate } from './audio-start-quota';
 // 🔴 STRUCTURAL SPLIT (card MP-1) — `SttStartArgs` and `AudioHandlerDeps` moved
@@ -531,7 +531,7 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     // "we got one and the engine failed"; it is non-null for every line that
     // reads it below.
     let state: AudioSessionState | null = null;
-    try {
+    try { if (roomUuid !== null) markAudioStartMeta(roomUuid, { ...parsed.data, delivery });
       if (fannedOut && roomUuid) {
         const startPc = store.getPc(roomUuid);
         if (startPc) {
@@ -581,6 +581,7 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
         // card MP-6 — the hard stop is the LOWER of the two (capped-remaining.ts).
         ...(auth.capUserId !== undefined ? { capUserId: auth.capUserId } : {}),
         ...(auth.integratorKeyId !== undefined ? { integratorKeyId: auth.integratorKeyId } : {}),
+        ...(isIntegratorSession(deps, auth.deviceId ?? '') ? { integratorRoom: true as const } : {}), // card EMB-15: no LLM leg
         mode: parsed.data.mode,
         delivery,
         sourceLang: parsed.data.source_lang,
@@ -705,7 +706,7 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
     // here, on this clock only; see obs/latency.ts for why no phone timestamp is
     // ever subtracted from a server one.
     const latencyRoom = getRoomUuid(socket);
-    if (latencyRoom !== null) markAudioStop(latencyRoom);
+    if (latencyRoom !== null) markAudioStop(latencyRoom, undefined, ((keyOf() !== null && sessions ? sessions.get(keyOf()!) : local)?.orchestrator as { receivedAudioMs?: number } | undefined)?.receivedAudioMs ?? null);
     const key = keyOf();
     // Detach (not dispose): the orchestrator is handed to the finish → dispose
     // chain below, and the slot must be free for the next utterance.

@@ -58,6 +58,7 @@ import { makeResolveUserId } from './http/account-auth';
 import type { NodeRuntime } from './node/node-runtime';
 import { makeForwardReceiver } from './node/forward-receiver';
 import type { ForwardLedger } from './node/forward-ledger';
+import { makePcIdentityApplier, type PcIdentityClock } from './node/pc-identity-forward';
 import { resolveTokenRows } from './node/token-rows';
 import { makeForwardSyncDispatcher } from './node/forward-sync';
 import { diagLogPathBeside } from './http/diag-routes';
@@ -437,6 +438,9 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
                         db.pcs.setOnline(pc_id, is_online);
                         db.pcs.touchLastSeen(pc_id, new Date(last_seen_at).toISOString());
                       },
+                      // NR-131 — the SAME clock the writer's pc handler notes direct declarations on;
+                      // non-null here for the reason `w.forwardLedger` is (writer-gated branch).
+                      setPcIdentity: makePcIdentityApplier({ pcs: db.pcs, clock: w.nodeRuntime.pcIdentityClock as PcIdentityClock, log }),
                     },
                     ...(w.nodeRuntime.replayUsage
                       ? { pinClock: w.nodeRuntime.replayUsage.pinClock }

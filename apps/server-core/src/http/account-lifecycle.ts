@@ -208,6 +208,9 @@ export const USER_RETAINED_TABLES = [
   // of its own precisely so it cannot outlive them — a third path to the same
   // account would be a third thing to remember.
   'integrator_rooms',
+  // EMB-14: indirect cascades through the key (and room), same census meaning.
+  'integrator_visitor_days',
+  'integrator_visitor_rooms',
   // 2026-08-29 — paid one-time services (the $200 Guided Setup).
   //
   // 🔴 RETAINED BECAUSE MONEY CHANGED HANDS, which is a different reason from

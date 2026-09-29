@@ -333,6 +333,29 @@ describe('console: device + pairing management (④)', () => {
     expect(summary.json.devices).toEqual({ pc_count: 1, mobile_count: 1, pc_limit: 2, mobile_limit: 2 });
   });
 
+  // 🔴 card EMB-6 — a visitor's phone paired into a third-party host page's
+  // integrator room is not one of the account's phones: not counted in the
+  // summary, not listed as a pairing. Positive control = the account's own seeded
+  // phone on a real PC row, still counted and listed in the same response.
+  it('EMB-6: a visitor phone in an integrator room is neither counted nor listed among the account phones', async () => {
+    const { url, handle } = await saasServer();
+    const { token, id } = await registerUser(url, 'emb6@b.co');
+    const { pcId, pairingId } = seedPair(handle, id);
+    handle.db.pcs.insert({
+      id: 'room-int-1', user_id: id, device_name: 'Host page', room_kind: 'integrator',
+      device_token: newToken(), room_uuid: 'room-uuid-int-1', short_code: '4321',
+    });
+    handle.db.mobiles.insert({
+      id: 'visitor-pair', user_id: id, pc_device_id: 'room-int-1', mobile_token: newToken(),
+      mobile_name: 'Visitor Phone', device_uid: 'visitor-uid-1',
+    });
+    const { json } = await get(`${url}/api/cloud/devices`, bearer(token));
+    expect(json.mobile_pairings).toHaveLength(1);
+    expect(json.mobile_pairings[0]).toMatchObject({ pairing_id: pairingId, pc_id: pcId });
+    const summary = await get(`${url}/api/cloud/summary`, bearer(token));
+    expect(summary.json.devices).toMatchObject({ mobile_count: 1, mobile_limit: 2 });
+  });
+
   // 🔴 owner 2026-08-02 (PC instances 2/3/10) — "counts and ceilings must share one source, must not drift"
   // (room/registry-shared.ts:92 `isRealPc`, written after the console and the quota path disagreed
   // about what a PC even is; moved out of registry.ts verbatim by WP-9's file-size split). The console cannot derive the ceiling from the tier

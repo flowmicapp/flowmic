@@ -111,7 +111,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, rmSync, statSync } fr
 import { join } from 'node:path';
 
 import { refuseDirectRun } from './module-entrypoint-guard.mjs';
-import { DEFAULT_PORTABLE_PLATFORM, PORTABLE_PLATFORMS, parsePortableZipName } from './pack-portable.mjs';
+import { DEFAULT_PORTABLE_PLATFORM, PORTABLE_PLATFORMS, parseLinuxDebName, parsePortableZipName } from './pack-portable.mjs';
 
 refuseDirectRun(import.meta.url, 'node scripts/publish.mjs (or import verifyAdoptedArtifactsSurvive)');
 
@@ -134,6 +134,13 @@ const VERSION_TOKEN_RE = /\d+\.\d+\.\d+/;
  *   set — see the BOUNDARY note in the header).
  */
 export function classifyEntry(name, { version, roundPlatform = ROUND_PLATFORM } = {}) {
+  // NR-107: the Linux .deb is adopted from WSL next to the Linux portable zip
+  // (adopt-artifact.mjs), so the clean step must see it the same way.
+  const deb = parseLinuxDebName(name);
+  if (deb) {
+    if (deb.platform === roundPlatform) return null;
+    return { name, platforms: [deb.platform], version: deb.version, atRisk: deb.version === version };
+  }
   if (!/\.zip$/i.test(name)) return null;
   const platforms = [...PORTABLE_PLATFORMS].filter((p) => name.includes(p));
   if (platforms.length === 0) return null;

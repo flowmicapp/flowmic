@@ -130,9 +130,15 @@ const SRC = path.join(ROOT, 'apps', 'desktop', 'src-tauri', 'src');
 const EXPECTED = {
   // L-1 Linux directory roles: both sides of the new platform split are counted.
   // These are a tripwire only; the implementation needs a real Linux test run.
-  'cfg(target_os = "linux")': 33,
-  'cfg(not(target_os = "linux"))': 14,
-  'cfg linux compound': 32,
+  // NR-117: strict installed runtime + payload checks; see the tracked Linux
+  // runtime test in apps/desktop/src-tauri/src/sidecar/node_runtime.rs.
+  // NR-122: Stage-1 cold foreground lookup and tracker startup seed (38 -> 40).
+  // Real Linux GTK/Xvfb named tests and reverse controls: NR-122a dispatch report.
+  // NR-125: Linux machine-id identity and proc hostname fallback (40 -> 46; not-linux 14 -> 15).
+  // Injected-file Linux tests and the machine_uid reverse control ran in WSL; see the NR-125 report.
+  'cfg(target_os = "linux")': 46,
+  'cfg(not(target_os = "linux"))': 15,
+  'cfg linux compound': 33,
   // Non-Windows: not compiled on the lead box. These are the ones that matter.
   //
   // 23 → 24 (2026-09-02, B2-X): `portable::commands::main_window_hwnd` gained
@@ -301,7 +307,10 @@ const EXPECTED = {
   // non-Windows row that does, so the Mac run this file's tests demand covers
   // both.
   // L-1 adds a Windows-only subprocess regression test module for APPDATA.
-  'cfg(windows)': 76,
+  // 76 → 77 (2026-09-27): the CREATE_NO_WINDOW flag on the child process that
+  // single_instance_tests.rs now runs the lock test in. Windows-SIDE row; the
+  // test itself is unconditional and was run on the Mac.
+  'cfg(windows)': 77,
   // 26 → 31 (2026-08-22): five new Windows-only sites in `inject/readback.rs` —
   // the UIA `watch`, its bounded read, the read itself, `POLL_INTERVAL` and the
   // `Duration` import. Windows-SIDE row, so it owes no Mac run; it is here as the

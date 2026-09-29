@@ -25,6 +25,10 @@
 // admitted site ②. Pinned like the other two: its file and its expression.
 // A fourth site, or this one moving, still fails.
 //
+// ⚠️ 更正（NR-115 Round 2，2026-09-27）：原为只扫描 liveText 的三个位置。
+// The retained snapshot is the same fact under another name: exactly one
+// articleDraft( read is allowed, in the same article page, never a fourth face.
+//
 // Shape: scan lib/, strip line comments first (a comment is not a render
 // site). Same family as ka_chat_controller_no_subtype_gate_test.dart.
 
@@ -47,83 +51,123 @@ Iterable<File> _dartFiles(String root) => Directory(root)
     .where((File f) => f.path.endsWith('.dart'));
 
 void main() {
-  test('🔴 PA-5 + CR-12-C: lib/src/ui has exactly three liveText render sites — the live draft row, the edit-sheet append highlight, the live article page\'s draft', () {
-    final List<String> hits = <String>[];
+  test(
+    '🔴 PA-5 + CR-12-C: lib/src/ui has exactly three liveText render sites — the live draft row, the edit-sheet append highlight, the live article page\'s draft',
+    () {
+      final List<String> hits = <String>[];
+      for (final File f in _dartFiles('lib/src/ui')) {
+        final List<String> lines = _stripLineComments(
+          f.readAsStringSync(),
+        ).split('\n');
+        for (int i = 0; i < lines.length; i++) {
+          if (RegExp(r'\bliveText\b').hasMatch(lines[i])) {
+            hits.add('${f.path}:${i + 1}: ${lines[i].trim()}');
+          }
+        }
+      }
+      expect(
+        hits,
+        hasLength(3),
+        reason:
+            '🔴 `liveText` has ${hits.length} render sites in the UI layer; '
+            'the Plan A′ contract (§7 gate rewrite) plus CR-12-C allow **exactly '
+            'three named sites**. Hits:\n${hits.join('\n')}\n'
+            '⚠️ If the new one is "might as well also show the words being '
+            'spoken somewhere else", that is exactly the face T-4 deleted: '
+            'one fact, two faces, and one of them is worse.',
+      );
+      // Named site ①: the timeline's live draft row — visible whenever the dock
+      // is (the sheet is closed).
+      final String tile = hits.firstWhere(
+        (String h) => h.contains('chat_flow_scroll.dart'),
+        orElse: () => '',
+      );
+      expect(
+        tile,
+        contains('text: controller.liveText'),
+        reason:
+            'the live-draft-row site is no longer LiveDraftTile\'s body ⇒ '
+            '"two named sites" is no longer talking about the same thing',
+      );
+      // Named site ②: the sheet's append highlight — visible only while the
+      // sheet covers the timeline (A7), i.e. exactly when site ① is not.
+      // (It lives in the sheet's 800-cap split-out append part file.)
+      final String sheet = hits.firstWhere(
+        (String h) => h.contains('chat_flow_edit_sheet_append.dart'),
+        orElse: () => '',
+      );
+      expect(
+        sheet,
+        contains('s.controller.liveText'),
+        reason:
+            'the edit-sheet site no longer reads the controller\'s liveText ⇒ '
+            'the append highlight is painting something else',
+      );
+      // NR-115 keeps this same site, selecting the retained draft after Stop.
+      // Named site ③ (CR-12-C): the in-progress article page's draft — a route
+      // over the light-record screen, so never visible together with site ①.
+      final String livePage = hits.firstWhere(
+        (String h) => h.contains('article_page_live.dart'),
+        orElse: () => '',
+      );
+      expect(
+        livePage,
+        contains(
+          'text: completion == null ? c.liveText : '
+          'retainedDraft!.text',
+        ),
+        reason:
+            'the live article page site is no longer LiveDraftTile\'s body ⇒ '
+            '"three named sites" is no longer talking about the same thing',
+      );
+    },
+  );
+
+  test('NR-115: retained snapshot has exactly one named UI read site', () {
+    final List<String> hits = [];
     for (final File f in _dartFiles('lib/src/ui')) {
-      final List<String> lines =
-          _stripLineComments(f.readAsStringSync()).split('\n');
-      for (int i = 0; i < lines.length; i++) {
-        if (RegExp(r'\bliveText\b').hasMatch(lines[i])) {
-          hits.add('${f.path}:${i + 1}: ${lines[i].trim()}');
+      for (final String line in _stripLineComments(
+        f.readAsStringSync(),
+      ).split('\n')) {
+        for (final _ in RegExp(r'\barticleDraft\s*\(').allMatches(line)) {
+          hits.add('${f.path}: ${line.trim()}');
         }
       }
     }
     expect(
       hits,
-      hasLength(3),
-      reason: '🔴 `liveText` has ${hits.length} render sites in the UI layer; '
-          'the Plan A′ contract (§7 gate rewrite) plus CR-12-C allow **exactly '
-          'three named sites**. Hits:\n${hits.join('\n')}\n'
-          '⚠️ If the new one is "might as well also show the words being '
-          'spoken somewhere else", that is exactly the face T-4 deleted: '
-          'one fact, two faces, and one of them is worse.',
+      hasLength(1),
+      reason: 'The retained live text cannot gain another UI face',
     );
-    // Named site ①: the timeline's live draft row — visible whenever the dock
-    // is (the sheet is closed).
-    final String tile = hits.firstWhere(
-      (String h) => h.contains('chat_flow_scroll.dart'),
-      orElse: () => '',
-    );
+    expect(hits.single, contains('article_page_live.dart'));
     expect(
-      tile,
-      contains('text: controller.liveText'),
-      reason: 'the live-draft-row site is no longer LiveDraftTile\'s body ⇒ '
-          '"two named sites" is no longer talking about the same thing',
-    );
-    // Named site ②: the sheet's append highlight — visible only while the
-    // sheet covers the timeline (A7), i.e. exactly when site ① is not.
-    // (It lives in the sheet's 800-cap split-out append part file.)
-    final String sheet = hits.firstWhere(
-      (String h) => h.contains('chat_flow_edit_sheet_append.dart'),
-      orElse: () => '',
-    );
-    expect(
-      sheet,
-      contains('s.controller.liveText'),
-      reason: 'the edit-sheet site no longer reads the controller\'s liveText ⇒ '
-          'the append highlight is painting something else',
-    );
-    // Named site ③ (CR-12-C): the in-progress article page's draft — a route
-    // over the light-record screen, so never visible together with site ①.
-    final String livePage = hits.firstWhere(
-      (String h) => h.contains('article_page_live.dart'),
-      orElse: () => '',
-    );
-    expect(
-      livePage,
-      contains('text: c.liveText'),
-      reason: 'the live article page site is no longer LiveDraftTile\'s body ⇒ '
-          '"three named sites" is no longer talking about the same thing',
+      hits.single,
+      contains('final draft = c.articleDraft(widget.articleId)'),
     );
   });
 
-  test('🔴 T-4 ②: the `interimText` parameter is gone from lib/ entirely (R8: leave no dead content)', () {
-    final List<String> hits = <String>[];
-    for (final File f in _dartFiles('lib')) {
-      final List<String> lines =
-          _stripLineComments(f.readAsStringSync()).split('\n');
-      for (int i = 0; i < lines.length; i++) {
-        if (RegExp(r'\binterimText\b').hasMatch(lines[i])) {
-          hits.add('${f.path}:${i + 1}: ${lines[i].trim()}');
+  test(
+    '🔴 T-4 ②: the `interimText` parameter is gone from lib/ entirely (R8: leave no dead content)',
+    () {
+      final List<String> hits = <String>[];
+      for (final File f in _dartFiles('lib')) {
+        final List<String> lines = _stripLineComments(
+          f.readAsStringSync(),
+        ).split('\n');
+        for (int i = 0; i < lines.length; i++) {
+          if (RegExp(r'\binterimText\b').hasMatch(lines[i])) {
+            hits.add('${f.path}:${i + 1}: ${lines[i].trim()}');
+          }
         }
       }
-    }
-    expect(
-      hits,
-      isEmpty,
-      reason: '🔴 `interimText` is back: ${hits.join('\n')}\n'
-          '⚠️ A parameter no branch reads is the door through which that '
-          'face quietly comes back next time.',
-    );
-  });
+      expect(
+        hits,
+        isEmpty,
+        reason:
+            '🔴 `interimText` is back: ${hits.join('\n')}\n'
+            '⚠️ A parameter no branch reads is the door through which that '
+            'face quietly comes back next time.',
+      );
+    },
+  );
 }

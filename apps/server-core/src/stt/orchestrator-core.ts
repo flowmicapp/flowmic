@@ -599,7 +599,7 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  `mergeOnlineDraft` — which exist to pick between two hypotheses OF THE SAME
    *  span — were discarding confirmed speech here. This string is the terminal
    *  transcript, not a preview: see `flush-final.ts:104-109`. */
-  flushSentHook: (() => void) | undefined = undefined; // WP2-6a: stt-factory → markFlushSent; raceFlushFinal is the one author
+  flushSentHook: ((backlog?: number | null) => void) | undefined = undefined; // WP2-6a: stt-factory → markFlushSent; raceFlushFinal is the one author
   /** card HANGUP-3 — the client declared `stt.segment_not_transcribed` at admission. Written ONLY by
    *  stt-factory.ts (from `audio:start`'s socket); read by the owed-voice verdict. Default false = today's behaviour. */
   segmentNotTranscribedDeclared = false;
@@ -608,10 +608,10 @@ export class SttEngineOrchestrator extends EventEmitter {
    *  Only the silence hang-up passes it, for a leg that was handed no audio — see
    *  `flushAndCloseLegForSilence` in orchestrator-rollover.ts for the ruling and why. */
   private flushFinal(askEngine = true, withholdOnTimeout = false): Promise<FlushOutcome> {
-    const startedMs = this.now(), leg = this.engine; // card RC-6; leg: card RC-L — the flush facts the `stt.cut` line reads (cut-log.ts), recorded at the ONE flush chokepoint
+    const startedMs = this.now(), leg = this.engine, backlogMs = engineBacklogMs(this.engine, this.legFedBytes); // card RC-6; leg: card RC-L — the flush facts the `stt.cut` line reads (cut-log.ts), recorded at the ONE flush chokepoint
     this.lastFlushCapMs = this.flushCapMs(); // card RC-2: the cap actually raced, for the refusal's message
-    return raceFlushFinal({ engine: askEngine ? this.engine : null, getOfflineText: () => foldConfirmedWithDraft(this.offlineAccum, this.onlineDraft), language: this.startInput?.language ?? '', timeoutMs: this.lastFlushCapMs, setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout, onFlushSent: this.flushSentHook, withholdOnTimeout })
-      .then((o) => { this.lastFlush = { startedMs, endedMs: this.now(), timedOut: o.timedOut, lastWordMs: typeof o.result.last_word_ms === 'number' ? o.result.last_word_ms : null, legFedMs: this.legFedBytes / PCM_BYTES_PER_MS }; if (askEngine && leg !== null && !o.engineFinal) this.noteLegUnanswered(leg); return o; }); // RC-L
+    return raceFlushFinal({ engine: askEngine ? this.engine : null, getOfflineText: () => foldConfirmedWithDraft(this.offlineAccum, this.onlineDraft), language: this.startInput?.language ?? '', timeoutMs: this.lastFlushCapMs, setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout, onFlushSent: () => this.flushSentHook?.(backlogMs), withholdOnTimeout })
+      .then((o) => { this.lastFlush = { backlogMs, startedMs, endedMs: this.now(), timedOut: o.timedOut, lastWordMs: typeof o.result.last_word_ms === 'number' ? o.result.last_word_ms : null, legFedMs: this.legFedBytes / PCM_BYTES_PER_MS }; if (askEngine && leg !== null && !o.engineFinal) this.noteLegUnanswered(leg); return o; }); // RC-L
   }
 
   /** NR-50 — the cap this leg's flush races. `engineFedBytes` is exactly the

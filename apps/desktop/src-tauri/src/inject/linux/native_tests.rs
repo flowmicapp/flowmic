@@ -3,6 +3,90 @@ use super::tests::Peer;
 use super::*;
 use crate::inject::{self, ClipboardFallbackClient};
 
+#[test]
+#[ignore = "requires a real GTK X11 peer and exclusive keyboard focus"]
+fn linux_paste_timestamp_unavailable_restores_original() {
+    for fault in ["timestamp-refused", "timestamp-invalid", "timestamp-second", "timestamp-third"] {
+        let peer = Peer::start();
+        let mut owner = Owner::open().unwrap();
+        let target = activate(&peer, &mut owner);
+        peer.command(&format!("metadata-fault:{fault}"));
+        peer.wait_ack(&mut owner);
+        let result = ClipboardFallbackClient::for_linux_target(target).paste_text("timestamp paste");
+        assert!(result.is_ok(), "{fault}: {result:?}");
+        assert_eq!(peer.wait_file("metadata-fault-hit"), fault.as_bytes());
+        text_is(&peer, "timestamp paste");
+        assert_eq!(peer.read(&mut owner, "UTF8_STRING").0, "original 中文 😀".as_bytes());
+        assert_eq!(peer.read(&mut owner, "text/html").0, b"<b>original</b>");
+    }
+    println!("PASS NR122 TIMESTAMP: refusal, invalid type, post-snapshot refusal, pre-paste refusal; real GTK paste and original text/html restored");
+}
+
+#[test]
+#[ignore = "requires a real GTK X11 peer and exclusive keyboard focus"]
+fn linux_paste_targets_unreadable_matches_empty() {
+    let mut empty_targets = None;
+    for fault in ["empty-clipboard", "targets-refused", "targets-invalid"] {
+        let peer = Peer::start();
+        let mut owner = Owner::open().unwrap();
+        let target = activate(&peer, &mut owner);
+        let command = if fault == "empty-clipboard" { fault.into() } else { format!("metadata-fault:{fault}") };
+        peer.command(&command);
+        peer.wait_ack(&mut owner);
+        let result = ClipboardFallbackClient::for_linux_target(target).paste_text("empty paste");
+        assert!(result.is_ok(), "{fault}: {result:?}");
+        if fault != "empty-clipboard" {
+            assert_eq!(peer.wait_file("metadata-fault-hit"), fault.as_bytes());
+        }
+        text_is(&peer, "empty paste");
+        let targets = peer.read(&mut owner, "TARGETS");
+        if let Some(expected) = &empty_targets { assert_eq!(&targets, expected); }
+        else { empty_targets = Some(targets); }
+        peer.command("read:UTF8_STRING");
+        peer.wait_ack(&mut owner);
+        assert_eq!(peer.wait_file("result-error"), b"conversion refused");
+    }
+    println!("PASS NR122 TARGETS: refused and non-ATOM match empty clipboard; real GTK paste lands; borrowed text removed");
+}
+
+#[test]
+#[ignore = "requires a real GTK X11 peer and exclusive keyboard focus"]
+fn linux_first_inject_queries_current_foreground() {
+    let peer = Peer::start();
+    let mut owner = Owner::open().unwrap();
+    let target = activate(&peer, &mut owner);
+    assert_eq!(crate::focus::current_foreground_target().unwrap().0, target);
+    // No tracker is started and no foreground event is delivered to the pipeline.
+    let result = inject::pipeline::inject_text_with_probe("first utterance", None, None,
+        crate::focus::set_foreground_window, inject::target_probe::focused_input_state,
+        inject::self_focus::never_ours);
+    assert!(result.ok, "first inject without focus event: {result:?}");
+    text_is(&peer, "first utterance");
+    assert_eq!(peer.read(&mut owner, "UTF8_STRING").0, "original 中文 😀".as_bytes());
+    println!("PASS NR122 FIRST_FOCUS: first inject without tracker/event queries actual X11 foreground and lands in GTK");
+}
+
+#[test]
+#[ignore = "requires a real GTK X11 peer and exclusive keyboard focus"]
+fn linux_tracker_seeds_current_foreground() {
+    use crate::focus::tracker::{HookHandle, WinEventSource};
+    struct SilentSource;
+    struct Handle;
+    impl HookHandle for Handle {}
+    impl WinEventSource for SilentSource {
+        fn install(&self, _: std::sync::mpsc::SyncSender<crate::focus::FocusEvent>) -> Box<dyn HookHandle> { Box::new(Handle) }
+        fn seed_current(&self) -> Option<crate::focus::FocusEvent> {
+            crate::focus::WindowsWinEventSource.seed_current()
+        }
+    }
+    let peer = Peer::start();
+    let mut owner = Owner::open().unwrap();
+    let target = activate(&peer, &mut owner);
+    let tracker = crate::focus::FocusTracker::start(SilentSource);
+    assert!(matches!(tracker.try_next_event(), Some(crate::focus::FocusEvent::ForegroundChanged { hwnd, .. }) if hwnd == target), "startup must queue current foreground before any event");
+    println!("PASS NR122 STARTUP_SEED: tracker cold-read queues actual X11 foreground with silent event source");
+}
+
 fn activate(peer: &Peer, owner: &mut Owner) -> u64 {
     peer.command("focus");
     peer.wait_ack(owner);

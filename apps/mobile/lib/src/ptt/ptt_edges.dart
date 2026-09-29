@@ -212,7 +212,7 @@ extension PttSessionEdges on PttSession {
     final CapturedChunk? residual = audio.takeResidualChunk();
     if (residual != null) _emitChunk(residual); // braces collapsed: line budget
     _stopHeartbeat();
-    _safeEmit(FlowMicEvents.audioStop, const <String, Object?>{});
+    if (_safeEmit(FlowMicEvents.audioStop, const <String, Object?>{})) timings.active?.mark(UtteranceMark.stopEmit);
     fsm.onPttUp(netAtLeast: net);
     await audio.stop();
   }

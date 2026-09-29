@@ -717,7 +717,7 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
     isCloudInstance: widget.isCloudInstance,
     onBack: onBack == null ? null : _attemptBack,
     onOpenSettings: onOpenSettings,
-    onClearHistory: onClearHistory,
+    onClearHistory: controller.articleFinishing ? null : onClearHistory,
     hasUpdate: widget.hasUpdate,
   );
 

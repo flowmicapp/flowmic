@@ -24,12 +24,6 @@ mixin RecordingStrings on AppStringsLeaves {
   // only declares the signature (the same cross-shard pattern as pairError).
   String get recordOnly;
 
-  // ── STT polish honest signal (WP-R4-6 ⑦) ────────────────────────────────
-  /// Transient chat-bubble corner mark when stt:final arrives with
-  /// polish:'skipped'. Delivery still happened (two-stage text); this only
-  /// tells the user the LLM polish layer did not apply. Never a status five-state.
-  String get polishSkipped => _lfPolishSkipped;
-
   // ── auto-stop fail-loud banner (R6 P0-R3 / W8-4) ─────────────────────────
   //
   // 🔴 W8-4 (card fix-020): `audio:auto-stopped` now carries WHY. The server

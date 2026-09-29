@@ -141,20 +141,24 @@ describe('PairingModal channel switch (N5, component-level)', () => {
     expect(lanBadge).not.toBe(cloudBadge);
   });
 
-  it('cloud has no key configured → that option is disabled + states why, and no QR', async () => {
+  // 🔴 NR-109 (owner 2026-09-26): this used to assert the cloud tab was
+  // `disabled`, with its reason only in a hover title. That made the body written
+  // for a blocked tab unreachable and told nobody 「sign in first」 — the owner read
+  // it as the QR 「not being selectable」. The tab is now selectable and marked
+  // `blocked`; the reason is still on its title as well.
+  it('cloud has no key configured → that option stays SELECTABLE, is marked blocked, states why, and no QR', async () => {
     const html = await render({ cloud: { ...EMPTY_CLOUD_STATUS } });
-    expect(tabsOf(html)).toContain('disabled');
-    // The reason is on the disabled option itself (title), reusing the device page's
-    // wording for the same fact instead of inventing a second sentence.
+    expect(tabsOf(html)).not.toContain('disabled');
+    expect(tabsOf(html)).toContain('blocked');
     expect(html).toContain(S.dev_chan_cloud_no_key);
     expect(hasQr(html)).toBe(false);
   });
 
-  it('cloud key is available → that option is no longer disabled (reverse assertion)', async () => {
-    // Without this the previous test would also pass for a modal that disabled the
+  it('cloud key is available → that option is not marked blocked (reverse assertion)', async () => {
+    // Without this the previous test would also pass for a modal that marked the
     // cloud option unconditionally.
     const html = await render({ cloud: CLOUD_READY });
-    expect(tabsOf(html)).not.toContain('disabled');
+    expect(tabsOf(html)).not.toContain('blocked');
     expect(html).not.toContain(S.dev_chan_cloud_no_key);
   });
 
@@ -315,9 +319,17 @@ describe('N5 wiring anchors (source literals — the click→re-read path)', () 
     expect(page).toContain('refreshPairingCode(pairTarget.value)');
   });
 
-  it('the disabled cloud option is really disabled, not merely styled', () => {
-    expect(tpl).toContain(":disabled=\"id === 'cloud' && cloudBlock !== null\"");
-    expect(src).toContain("if (id === 'cloud' && cloudBlock.value !== null) return;");
+  it('NR-109: a blocked cloud option is NOT disabled and a click on it is honoured', () => {
+    // The two lines that made it unreachable. Asserted absent on the source, since
+    // SSR cannot click: a `disabled` tab, or a pickChannel that drops the click.
+    expect(tpl).not.toContain(":disabled=\"id === 'cloud' && cloudBlock !== null\"");
+    expect(src).not.toContain("if (id === 'cloud' && cloudBlock.value !== null) return;");
+    expect(tpl).toContain("blocked: id === 'cloud' && cloudBlock !== null");
+  });
+
+  it("NR-109: the embedded sign-in reports through the page's ONE cloud-state handler", () => {
+    expect(tpl).toContain("@saved=\"(next: CloudStatus) => emit('cloudSaved', next)\"");
+    expect(page).toContain('@cloud-saved="applyCloud"');
   });
 
   it('the modal never opens on a tab it would disable', () => {
@@ -461,18 +473,36 @@ describe('U8 — pairing dialog is no longer a dead end for a first-time user', 
     expect(html).not.toMatch(/<a[^>]*>[^<]*<\/a>/);
   });
 
-  it('cloud tab with no Cloud Key points at the real console, not just "needed"', async () => {
-    const html = await render({ channel: 'cloud', info: { channel: 'cloud' } });
-    // Still shows the sibling-owned reason (this modal does not rewrite it)…
+  // NR-109: U8's console pointer (「get a key from the console, paste it on the
+  // Devices page」) is replaced by the sign-in itself, right here.
+  it('cloud tab with no Cloud Key offers the sign-in in place: reason + browser sign-in + key field', async () => {
+    const html = plain(await render({ channel: 'cloud', info: { channel: 'cloud' } }));
     expect(html).toContain(S.dev_chan_cloud_no_key);
-    // …AND now also says where to get one.
-    expect(html).toContain(S.pair_cloud_console_hint);
-    expect(S.pair_cloud_console_hint).toContain('flowmic.app/console');
+    expect(html).toContain(S.cloud_signin_browser);
+    expect(html).toContain(S.cloud_key_label);
+    expect(hasQr(html)).toBe(false);
   });
 
-  it('a WORKING cloud channel does not need the console pointer (no ambient nagging)', async () => {
-    const html = await render({ channel: 'cloud', info: { channel: 'cloud' }, cloud: CLOUD_READY });
-    expect(html).not.toContain(S.pair_cloud_console_hint);
+  it('a key the relay refused and this PC cleared also gets the sign-in, under the matching reason', async () => {
+    const html = plain(await render({
+      channel: 'cloud',
+      info: { channel: 'cloud' },
+      cloud: { ...CLOUD_READY, key_set: false, readiness: 'rejected', auth_error: 'AUTH_TOKEN_EXPIRED' },
+    }));
+    expect(html).toContain(S.cloud_err_expired);
+    expect(html).toContain(S.cloud_signin_browser);
+  });
+
+  it('a WORKING cloud channel does not show the sign-in form (no ambient nagging)', async () => {
+    const html = plain(await render({ channel: 'cloud', info: { channel: 'cloud' }, cloud: CLOUD_READY }));
+    expect(html).not.toContain(S.cloud_signin_browser);
+    // Positive control: this render did produce the working-tab body.
+    expect(html).toContain(S.cloud_pair_hint);
+  });
+
+  it('the LAN tab never shows the cloud sign-in, even while signed out', async () => {
+    const html = plain(await render({ channel: 'lan' }));
+    expect(html).not.toContain(S.cloud_signin_browser);
   });
 
   it('all four languages: pair_need_app renders in every non-base locale too', async () => {

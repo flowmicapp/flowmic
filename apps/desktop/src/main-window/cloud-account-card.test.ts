@@ -16,7 +16,7 @@
 // is the real row markup, not a pre-fetch placeholder.
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setLocale } from '../lib/strings';
+import { S, setLocale } from '../lib/strings';
 import { createSSRApp } from 'vue';
 import { renderToString } from 'vue/server-renderer';
 import CloudAccountLines from './components/CloudAccountLines.vue';
@@ -380,5 +380,58 @@ describe('打桩实证: 服务端的数真的印在卡上', () => {
     expect(raw.outcome).toBe('no_bridge');
     expect(invoke).not.toHaveBeenCalled();
     (globalThis as { window?: { __TAURI_INTERNALS__?: unknown } }).window!.__TAURI_INTERNALS__ = {};
+  });
+});
+
+// ── NR-109 (owner report 2026-09-26): an unverified mailbox is not an expired sign-in ──
+//
+// A freshly registered account: the relay accepted its key (the channel card was
+// green), `/api/me` answered 200, and `/api/cloud/summary` answered
+// `403 EMAIL_NOT_VERIFIED`. The Rust read used to fold that 403 into
+// `unauthorized`, and THIS component then painted 「登录已过期，请重新登录。」 in
+// red under a green 「已就绪」. The Rust half is pinned in
+// src-tauri/src/cloud_account_outcome.rs; this is the half the owner saw — the
+// DTO Rust now sends, through the real bridge, onto the real component.
+describe('NR-109 an unverified account, rendered', () => {
+  const UNVERIFIED_DTO = { outcome: 'unverified', fetched_at: null, detail: null, me: null, summary: null };
+
+  it('no red box, no "expired" sentence — it says what actually happened and offers re-query', async () => {
+    const html = await renderThroughBridge(UNVERIFIED_DTO);
+    expect(invoke).toHaveBeenCalledWith('cloud_account_fetch', undefined);
+    expect(html).not.toContain('ca-loud');
+    expect(html).not.toContain(S.cloud_err_expired);
+    expect(html).toContain(S.cloud_acct_unverified);
+    // Verify in the browser, then press this: the one way out, so it must be there.
+    expect(html).toContain(S.cloud_acct_retry);
+    // MAIN decision ①: and the way to GET that email again, on this screen.
+    expect(html).toContain(S.cloud_verify_resend);
+    // The Cloud Key row is still the key's own truth and stays.
+    expect(html).toContain(S.cloud_key_expires);
+  });
+
+  it('positive control: the pre-NR-109 outcome for the same 403 DID paint the red "expired" box', async () => {
+    // Without this, the negatives above could pass on a component that never
+    // renders a loud line at all.
+    const html = await renderThroughBridge({ ...UNVERIFIED_DTO, outcome: 'unauthorized', detail: 'http 403' });
+    expect(html).toContain('ca-loud');
+    expect(html).toContain(S.cloud_err_expired);
+    // …and no resend offer: that action belongs to the unverified phase only.
+    expect(html).not.toContain(S.cloud_verify_resend);
+  });
+});
+
+// NR-109 item 2: an answer we could not use is rendered as that, not as "cannot reach".
+describe('NR-109 an unexpected server answer, rendered', () => {
+  it('bad_response paints the unexpected-answer line, never the unreachable one', async () => {
+    const html = await renderThroughBridge({ outcome: 'bad_response', fetched_at: null, detail: 'http 500', me: null, summary: null });
+    expect(html).toContain(S.cloud_acct_unexpected);
+    expect(html).not.toContain(S.cloud_acct_unknown);
+    expect(html).toContain(S.cloud_acct_retry);
+  });
+
+  it('positive control: unreachable still paints the unreachable line', async () => {
+    const html = await renderThroughBridge({ outcome: 'unreachable', fetched_at: null, detail: 'timeout', me: null, summary: null });
+    expect(html).toContain(S.cloud_acct_unknown);
+    expect(html).not.toContain(S.cloud_acct_unexpected);
   });
 });

@@ -386,6 +386,7 @@ describe('audit F1 — one operation, two paths to the writer, one charge', () =
         usage: replayTracker(),
         setHomeNode: () => {},
         setPresence: () => {},
+        setPcIdentity: () => {},
       },
     });
     return (rec) => receive([rec], 'node-b');

@@ -213,43 +213,57 @@ class PendingRecoveryStore implements PendingRecoverySource {
         }
         continue;
       }
-      final PendingRecoveryItem item = PendingRecoveryItem(
-        id: s.recordingId,
-        legacy: false,
-        state: _stateOf(scan: s, manifest: m, tier: tier),
-        durationMs: _journalMs(s, m),
-        recordedAtMs: recordedAtMsFromId(s.recordingId),
-        partlySaved: _partlySaved(m),
+      out.add(
+        itemOf(
+          cancelled: s.cancelled,
+          manifest: m,
+          tier: tier,
+          durationMs: _journalMs(s, m),
+          currentAccount: spill.recordingAccount.currentDigest(),
+        ),
       );
-      // Card RC-S — the same question the recovery leg asks before it opens
-      // an attempt, through the same function, so the card and the queue
-      // cannot disagree about this recording.
-      final bool otherAccount = item.awaitingTranscription &&
-          recordingOwnerOf(m.configSnapshot,
-                  spill.recordingAccount.currentDigest()) ==
-              RecordingOwner.other;
-      out.add(otherAccount
-          ? PendingRecoveryItem(
-              id: item.id,
-              legacy: false,
-              state: item.state,
-              durationMs: item.durationMs,
-              recordedAtMs: item.recordedAtMs,
-              partlySaved: item.partlySaved,
-              otherAccount: true,
-            )
-          : item);
     }
   }
 
+  /// The same recording facts for the list, tally and pre-scan article.
+  static PendingRecoveryItem itemOf({
+    required bool cancelled,
+    required RecordingManifest manifest,
+    required RecoveryTier? tier,
+    required int durationMs,
+    required String? currentAccount,
+  }) {
+    final state = stateOf(cancelled: cancelled, manifest: manifest, tier: tier);
+    final item = PendingRecoveryItem(
+      id: manifest.recordingId,
+      state: state,
+      durationMs: durationMs,
+      legacy: false,
+      recordedAtMs: recordedAtMsFromId(manifest.recordingId),
+      partlySaved: _partlySaved(manifest),
+    );
+    return PendingRecoveryItem(
+      id: item.id,
+      state: item.state,
+      durationMs: item.durationMs,
+      legacy: item.legacy,
+      recordedAtMs: item.recordedAtMs,
+      partlySaved: item.partlySaved,
+      otherAccount: item.awaitingTranscription &&
+          recordingOwnerOf(manifest.configSnapshot, currentAccount) ==
+              RecordingOwner.other,
+    );
+  }
+
   /// A5-3 / A7-3 / O-5, in precedence order. See [PendingRecoveryState] for
-  /// why the order is what it is.
-  PendingRecoveryState _stateOf({
-    required RecordingScan scan,
+  /// why the order is what it is. Shared by this list, the journal tally and
+  /// the article before its first scan; only this function derives the state.
+  static PendingRecoveryState stateOf({
+    required bool cancelled,
     required RecordingManifest manifest,
     required RecoveryTier? tier,
   }) {
-    if (scan.cancelled) return PendingRecoveryState.cancelled;
+    if (cancelled) return PendingRecoveryState.cancelled;
     final RecoveryJobStatus status = RecoveryJobStatus.fromManifest(manifest);
     if (status.state == RecoveryQueueState.settledUnverified) {
       // TWO SENTENCES BEHIND ONE QUEUE STATE, ROUTED ON THE REFUSAL THAT
@@ -342,7 +356,7 @@ class PendingRecoveryStore implements PendingRecoverySource {
   /// Two conditions, not one, because they can occur apart: a short write
   /// records a hole without changing `interruptReason`, and a capture that died
   /// on an I/O error can set the reason before any hole is filed.
-  bool _partlySaved(RecordingManifest m) =>
+  static bool _partlySaved(RecordingManifest m) =>
       m.holes.isNotEmpty || m.interruptReason == JournalInterrupt.ioError;
 
   int _journalMs(RecordingScan s, RecordingManifest m) {

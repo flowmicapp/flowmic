@@ -49,7 +49,10 @@ extension ChatControllerInboundRoutes on ChatController {
   }
 
   // inject:result → ManualDelivery claim + F3 ack→visible + bar retreat.
-  void _onInjectResult(InjectResult r) => onInjectResultRouted(this, r);
+  void _onInjectResult(InjectResult r) {
+    session.timings.result(r.requestId);
+    onInjectResultRouted(this, r);
+  }
 
   // control:key-result → the transient 「that key did nothing」 notice (MP-14).
   // Body: chat_notices.dart, with the rest of the transient page truths.

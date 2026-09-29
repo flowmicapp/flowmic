@@ -8,10 +8,10 @@
 // and the engine's word clock (which only counts what it was handed). A test that
 // stubbed any one of the three would be measuring what this file believes the
 // other two do. So: the production `VadGate` class with its production defaults
-// (−45 dBFS, 300 ms hangover), fed synthesized PCM in the production order
-// (`vad.process` BEFORE `pushChunk`, as `engine/stt-session.ts:588` does), wired
+// (adaptive, -45 dBFS ceiling, 300 ms hangover), fed synthesized PCM in the production order
+// (`vad.process` BEFORE `pushChunk`, as `engine/stt-session.ts:592` does), wired
 // exactly as `engine-factory.ts:507` wires it for a managed streaming leg
-// (`shouldFeedEngine: () => vad.open`, `idleHangupMs: DEFAULT_ENGINE_IDLE_HANGUP_MS`).
+// (`shouldFeedEngine: () => vad.admitChunk`, `idleHangupMs: DEFAULT_ENGINE_IDLE_HANGUP_MS`).
 //
 // The engine is a stand-in recogniser: it hears only what the orchestrator hands
 // it and reports word positions IN THAT AUDIO, which is precisely the property of
@@ -30,7 +30,7 @@
 //            to show.
 //
 // TOLERANCE, and why it is this: ±200 ms. The gate's verdict is taken per chunk
-// (a 200 ms chunk is fed or withheld whole — `pushChunk` reads `vad.open` once
+// (a 200 ms chunk is fed or withheld whole — `pushChunk` reads `vad.admitChunk` once
 // per chunk), the stand-in marks words per chunk, and the result is rounded to
 // the vendor's 60 ms grid. One chunk of disagreement is the finest this rig can
 // resolve; anything beyond it is a real error, and the defect this file exists
@@ -183,7 +183,7 @@ async function record(
     // an empty segment of its own. A first draft of this rig used 3 s and did
     // exactly that in the mixed room — measuring the rig, not the product.
     softSegmentMs: CADENCE_MS, softSegmentGraceMs: 15_000, engineFlushTimeoutMs: opts.flushMs ? opts.flushMs + 1_000 : 1_000,
-    shouldFeedEngine: (): boolean => vad.open,            // engine-factory.ts:507, verbatim
+    shouldFeedEngine: (): boolean => vad.admitChunk,            // engine-factory.ts:507, verbatim
     idleHangupMs: DEFAULT_ENGINE_IDLE_HANGUP_MS,          // the same line
   });
   const finals: FinalEvent[] = [];

@@ -161,6 +161,11 @@ describe('the guard', () => {
     expect(v.ok && v.key.id).toBe('ik-1');
   });
 
+  it('refuses room creation for a legacy key with an empty stored origins list', () => {
+    const row = makeKey({ origins: [] });
+    expect(guard().admit(row.publishable_key, 'https://host.example')).toEqual({ ok: false, reason: 'origin' });
+  });
+
   it('🔴 unknown, revoked and wrong-origin are THREE reasons and only TWO answers', () => {
     const row = makeKey();
     const g = guard();

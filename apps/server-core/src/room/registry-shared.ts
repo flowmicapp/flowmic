@@ -199,10 +199,12 @@ export function isWebRoom(pc: { room_kind?: string | null }): boolean {
  *  `registry.ts` `ensurePcSlot`, and the console's device list/counter
  *  (`console-routes.ts`).
  *
- *  ⚠️ NOT the mobile ceiling. A phone paired to a web room is a real handset
- *  using the account, so it is counted — see `ensureMobileSlot`, which walks
- *  `isRealPc` rows on purpose. Sharing one predicate there would have made
- *  「pair everything to the browser room」 a way around the phone limit. */
+ *  ⚠️ NOT the mobile ceiling. A phone paired to the account's OWN web room is
+ *  a real handset using the account, so it is counted — see `ensureMobileSlot`,
+ *  which walks `isRealPc` rows on purpose. Sharing one predicate there would
+ *  have made 「pair everything to the browser room」 a way around the phone
+ *  limit. The one exception is a THIRD-PARTY host page's room —
+ *  `isIntegratorRoom` below, card EMB-6. */
 export function occupiesPcSlot(pc: { client_instance_id: string | null; room_kind?: string | null }): boolean {
   return isRealPc(pc) && !isBrowserMintedRoom(pc);
 }
@@ -226,11 +228,38 @@ export function occupiesPcSlot(pc: { client_instance_id: string | null; room_kin
  *  on a page that has nothing to do with their own devices.
  *
  *  ⚠️ THE MOBILE ceiling is NOT this question — `occupiesMobileSlot` reads
- *  `client` and already excludes every browser end. A phone that scans an
- *  integrator page's QR is a real handset and still counts, which is correct:
- *  it is a device on somebody's account either way. */
+ *  `client` and already excludes every browser end, and the integrator half of
+ *  that ceiling is `isIntegratorRoom` below (card EMB-6). This predicate is
+ *  deliberately NOT used for it: it is also true of the account's OWN web room,
+ *  whose phones stay counted. */
 export function isBrowserMintedRoom(pc: { room_kind?: string | null }): boolean {
   return pc.room_kind === WEB_ROOM_KIND || pc.room_kind === INTEGRATOR_ROOM_KIND;
+}
+
+/** Is this row a THIRD-PARTY host page's room (`room_kind='integrator'`)?
+ *
+ *  🔴 card EMB-6 (sensitive: device slots / plan limits — audit queue
+ *  `### EMB-6`). A visitor who opens an integrator page and scans its QR with
+ *  the FlowMic APP is a stranger's handset, not a device of the site owner's
+ *  account. It used to count against the HOST's `mobiles` ceiling (the
+ *  comment here said 「still counts, which is correct」), so a Free host (2
+ *  phones) was walled off by two visitors, and the slot stayed held until the
+ *  daily reaper removed the 10-minute room. Measured in
+ *  `_dispatch/2026-09-29-emb-0.report.md` item 6.
+ *
+ *  A SECOND PREDICATE, not a wider `isBrowserMintedRoom`, for the reason that
+ *  one exists: the account's OWN web room (`'web'`) keeps counting its phones —
+ *  those are the account's own handsets and excluding them would make 「pair
+ *  everything to the browser room」 a way around the phone limit.
+ *
+ *  CALLERS (anti-façade — the ceiling and every displayed count must read the
+ *  same set): `device-slots.ts` `countMobileDevices` (the arithmetic both the
+ *  ceiling and the console's `mobile_count` share), `registry.ts` `pairMobile`
+ *  (skips the ceiling for a pairing into such a room), and
+ *  `http/console-routes.ts` `/api/cloud/devices` (visitor phones are not
+ *  「your phones」). Test: `test/device-limits.test.ts` `EMB-6`. */
+export function isIntegratorRoom(pc: { room_kind?: string | null }): boolean {
+  return pc.room_kind === INTEGRATOR_ROOM_KIND;
 }
 
 /** Does this pairing row spend one of the account's MOBILE slots?

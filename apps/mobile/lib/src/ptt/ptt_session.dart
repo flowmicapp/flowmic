@@ -32,6 +32,7 @@ import '../audio/retained_audio_spill.dart';
 import '../audio/audio_emitter.dart';
 import '../auth/token_storage.dart';
 import '../diag/diag_log.dart';
+import '../diag/utterance_timing.dart';
 import '../session/endpoint_candidates.dart';
 import '../session/engine_reconnect_state.dart';
 import '../session/instance_probe.dart';
@@ -314,6 +315,7 @@ class PttSession {
   /// real one, and it
   /// stays `null` rather than guessing when the probe cannot answer: a chip that
   /// is absent tells the truth, a chip that is wrong does not.
+  final UtteranceTimings timings = UtteranceTimings();
   final ValueNotifier<ServerChannel?> serverChannel =
       ValueNotifier<ServerChannel?>(null);
 

@@ -74,6 +74,31 @@ pub const BUNDLED_NODE_NAME: &str = if cfg!(windows) { "node.exe" } else { "node
 #[cfg(target_os = "linux")]
 const LINUX_RESOURCE_DIR_NAME: &str = "FlowMic";
 
+/// Installed Linux binaries share /usr/bin with the HOST Node. That sibling is
+/// never our portable runtime. Keep the installed layout strict even when its
+/// payload is absent, so a damaged install cannot silently use a host runtime.
+#[cfg(target_os = "linux")]
+pub fn linux_installed_resources(exe_dir: &Path) -> Option<PathBuf> {
+    exe_dir.ends_with("usr/bin").then(|| {
+        exe_dir.parent().unwrap().join("lib").join(LINUX_RESOURCE_DIR_NAME).join("resources")
+    })
+}
+
+#[cfg(target_os = "linux")]
+pub fn missing_installed_payload(node: &str) -> Option<String> {
+    let node = Path::new(node);
+    let resources = node.parent()?;
+    if !resources.ends_with("usr/lib/FlowMic/resources") {
+        return None;
+    }
+    [node.to_path_buf(), resources.join("server.js")].into_iter()
+        .find(|path| !path.is_file())
+        .map(|path| crate::ui_i18n::tr_with(
+            crate::ui_i18n::Msg::SidecarBundledFileMissing,
+            &[("path", &path.to_string_lossy())],
+        ))
+}
+
 /// P2 (2026-09-02 audit) — `sidecar/portclear.rs`'s `clear_port` used to kill
 /// whatever PID `netstat` named as the `:port` listener, having already
 /// FORENSIC-LOGGED its process name but never actually looked at it. This is
@@ -123,6 +148,10 @@ pub fn image_name_looks_like_node(process_image_name: &str) -> bool {
 /// `current_exe()`.
 pub fn bundled_node_beside(dir: &Path) -> Option<PathBuf> {
     let name = BUNDLED_NODE_NAME;
+    #[cfg(target_os = "linux")]
+    if let Some(resources) = linux_installed_resources(dir) {
+        return Some(resources.join(name));
+    }
     let mut candidates = vec![
         dir.join(name),
         dir.join("runtime").join(name),

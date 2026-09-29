@@ -16,7 +16,8 @@ import { RoomStore } from '../src/room/store';
 import { makeSttSessionFactory, resolvePolishDep } from '../src/engine/stt-factory';
 import { registerAudioHandlers, type AudioHandlerDeps, type SttStartArgs } from '../src/socket/handlers/audio.handler';
 import { seedDefaultSettings } from '../src/settings/defaults';
-import { readSttPolish, STT_POLISH_DEFAULT_WITHOUT_LLM } from '../src/stt/stt-polish-settings';
+import { llmCapabilityFact, readSttPolish, STT_POLISH_DEFAULT } from '../src/stt/stt-polish-settings';
+import { overlaySettings } from '../src/settings/session-overlay';
 import { resolveLlmConfigWithSource } from '../src/compose/llm-config';
 import { ServerError } from '../src/errors';
 import type { QuotaGuard, QuotaKind } from '../src/billing/quota-guard';
@@ -234,7 +235,7 @@ describe('M6 — the llm_tokens valve gates the polish pass (and never the recor
 //
 //   FAIL … > resolvePolishDep returns undefined … — absent row
 //   ServerError: llm.config is not configured
-//    ❯ resolveLlmConfigWithSource src/compose/llm-config.ts:216:29
+//    ❯ resolveLlmConfigWithSource src/compose/llm-config.ts (resolveLlmConfigWithSource)
 //    ❯ resolvePolishDep src/engine/stt-factory.ts (resolvePolishDep)
 //      ⚠️ RT-1 refreshed that one LINE NUMBER (was :273) because the coordinate
 //      lint walks it and a pointer that no longer points is worse than none —
@@ -247,7 +248,8 @@ describe('M6 — the llm_tokens valve gates the polish pass (and never the recor
 //      two windows is IT-50's own argument arriving on schedule — the number is
 //      not the fact here, the stack SHAPE is. 🔴 Third move (stt.error forensic
 //      log above makeSttEmitter, 2026-08-12): dropped the `:NNN` per the rule
-//      this comment already wrote for itself — symbol anchor only.
+//      this comment already wrote for itself — symbol anchor only. NR-129 did the
+//      same for the llm-config.ts frame above (was :216:29) when it added lines there.
 //
 //   FAIL … > …and for a present-but-MALFORMED llm.config too
 //   ServerError: llm.config.protocol must be one of openai-compatible|anthropic
@@ -300,7 +302,62 @@ describe('RT-1a — polish ON with no usable LLM degrades to a bare final (never
     expect(a.armed).toBe(false);
     // 🔴 RT-1 closes the account RT-1a registered: the degrade is no longer
     // silent to the user. The reason rides `polish:'skipped'` on stt:final.
-    expect(a.armed === false && a.unavailable).toBe('llm_error');
+    // NR-123: NOTHING configured is its own reason, not `llm_error` — the phone
+    // tells the user to set a model up instead of calling polish broken. The
+    // one-value-one-question control is the MALFORMED case right below, which
+    // must stay `llm_error`.
+    expect(a.armed === false && a.unavailable).toBe('not_configured');
+  });
+
+  it("NR-123: the desktop's own unconfigured face (empty endpoint + model) is not_configured too", () => {
+    // settings-model.ts LLM_UNCONFIGURED is `{protocol, endpoint:'', api_key:'', model:''}`
+    // and pushLlm() writes exactly that shape, so a user who opened the model page
+    // and left it blank has not configured anything — not a broken model.
+    const db = freshDb();
+    db.settings.write('u1', 'stt.polish', { enabled: true });
+    db.settings.write('u1', 'llm.config', { protocol: 'openai-compatible', endpoint: '', api_key: '', model: '' });
+    const a = resolvePolishDep({ settings: db.settings, quota: noopGuard }, 'u1', []);
+    expect(a.armed === false && a.unavailable).toBe('not_configured');
+  });
+
+  describe('NR-129 — a cloud vendor picked with no key is not configured', () => {
+    function armingFor(cfg: Record<string, unknown>): ReturnType<typeof resolvePolishDep> {
+      const db = freshDb();
+      db.settings.write('u1', 'stt.polish', { enabled: true });
+      db.settings.write('u1', 'llm.config', cfg);
+      return resolvePolishDep({ settings: db.settings, quota: noopGuard }, 'u1', []);
+    }
+    function usableFor(cfg: Record<string, unknown>): boolean {
+      const db = freshDb();
+      db.settings.write('u1', 'llm.config', cfg);
+      return llmCapabilityFact(db.settings, 'u1').usable;
+    }
+    // The 0.3.100 VM row, verbatim in shape: the desktop's "OpenAI" preset pushed
+    // inline with the key never filled in (diag-0100 failure 1).
+    const OPENAI_NO_KEY = { protocol: 'openai-compatible', endpoint: 'https://api.openai.com/v1', api_key: '', model: 'gpt-4o' };
+
+    it.each([
+      ['OpenAI, empty key (the VM row)', OPENAI_NO_KEY],
+      ['OpenAI, whitespace key', { ...OPENAI_NO_KEY, api_key: '   ' }],
+      ['OpenAI, the EMPTY sentinel', { ...OPENAI_NO_KEY, api_key: 'EMPTY' }],
+      ['Anthropic, no key field at all', { protocol: 'anthropic', endpoint: 'https://api.anthropic.com', model: 'claude' }],
+      ['DeepSeek, hand-typed with a trailing slash', { protocol: 'openai-compatible', endpoint: 'https://API.deepseek.com/v1/', api_key: '', model: 'deepseek-chat' }],
+      ['OpenRouter by preset_id', { preset_id: 'cloud-openrouter' }],
+    ])('%s ⇒ not_configured, and capability.llm.usable is false', (_label, cfg) => {
+      const a = armingFor(cfg);
+      expect(a.armed === false && a.unavailable).toBe('not_configured');
+      expect(usableFor(cfg)).toBe(false);
+    });
+
+    it.each([
+      ['a LAN vLLM with an empty key', { protocol: 'openai-compatible', endpoint: 'http://192.168.1.20:8000/v1', api_key: '', model: 'qwen' }],
+      ['local Ollama by preset_id (no key by design)', { preset_id: 'lan-ollama-gemma3' }],
+      ['the vLLM seed shape (EMPTY sentinel on localhost)', { protocol: 'openai-compatible', endpoint: 'http://localhost:8000/v1', api_key: 'EMPTY', model: 'm' }],
+      ['OpenAI WITH a key', { ...OPENAI_NO_KEY, api_key: 'sk-test-not-real' }],
+    ])('POSITIVE CONTROL: %s stays configured (armed, usable)', (_label, cfg) => {
+      expect(armingFor(cfg).armed).toBe(true);
+      expect(usableFor(cfg)).toBe(true);
+    });
   });
 
   it('...and for a present-but-MALFORMED llm.config too (same degrade, different cause)', () => {
@@ -358,10 +415,10 @@ describe('RT-1a — polish ON with no usable LLM degrades to a bare final (never
     const wireOf = (a: typeof offArming): unknown => (a.armed === false ? a.unavailable : 'ARMED');
     expect(wireOf(degraded)).not.toEqual(wireOf(offArming));
     expect(wireOf(offArming)).toBeUndefined();     // nothing was asked for ⇒ nothing is said
-    // The reason must stay inside the phone's FROZEN four (`kSttPolishReasons` in
-    // apps/mobile/lib/src/stt/stt_stream.dart) — a new value would parse to null
-    // there, which is the same defect one layer along.
-    expect(['timeout', 'llm_error', 'empty_output', 'guard_reject']).toContain(wireOf(degraded));
+    // The reason must stay inside the phone's known set (`kSttPolishReasons` in
+    // apps/mobile/lib/src/stt/stt_stream.dart; NR-123 added not_configured there) —
+    // a value the phone does not know parses to null, the same defect one layer along.
+    expect(['timeout', 'llm_error', 'empty_output', 'guard_reject', 'not_configured']).toContain(wireOf(degraded));
   });
 
   it('the degrade did NOT widen: a malformed stt.polish row still fails loud', () => {
@@ -397,97 +454,117 @@ describe('RT-1a — polish ON with no usable LLM degrades to a bare final (never
   });
 });
 
-// ── OSS-DEFAULTS / W4A-9 (a) — what a STRANGER'S FIRST BOOT actually gets ────
+// ── NR-132 — an UNSET polish switch means ON, on every server ───────────────
 //
-// The finding this pins: 「`stt.polish` ships as true ⇒ every stock-install final hits
-// LLM_INVALID_MODEL」 (W4A-9, 2026-08-09 registration ledger §4).
+// 0.3.101 device test T2 (dispatch report 2026-09-29-test-0-3-101, outside the repo):
+// LAN, no usable model, the phone's 「AI 润色」 switch reads ON (never touched), and
+// the rows carried no NR-123 badge and no hint. The phone rendered its untouched
+// switch as ON and sent nothing; this server, holding no row, defaulted to OFF
+// because no model resolved (POLISH-CFG); resolvePolishDep returned a SILENT
+// `{armed:false}` and `not_configured` was never emitted. One switch, two answers.
+// MAIN's NR-132 decision: the phone's displayed value is the truth, so an unset
+// switch is ON here too (stt-polish-settings.ts `STT_POLISH_DEFAULT`).
 //
-// 🔴 WHY THIS BLOCK EXISTS WHEN BOTH HALVES ARE ALREADY GREEN ELSEWHERE. The
-// default-side fix (2aa4286, POLISH-CFG) is pinned by settings-anchors.test.ts /
-// settings-effective-defaults.test.ts; the runtime-side fix (RT-1a, the block
-// above) is pinned by this file. NEITHER of them pins the COMPOSITION, and the
-// composition is the whole finding — every assertion in both places writes the
-// row it is about, so a stock account (no `stt.polish` row AND no `llm.config`
-// row at the same time) is a state no test in this repo ever constructs.
-// That is the same shape book 15 R11 keeps producing: two layers each correct
-// about its own question, and nobody asking what they answer together.
+// ⚠️ HISTORY. This block used to be 「OSS-DEFAULTS — a stock install polishes
+// nothing and says nothing about it」 and asserted the exact silence T2 measured.
+// Its premise — 「an optional feature nobody configured is not an error」 — held
+// while the only switch was the desktop's and rendered the server's value; it
+// stopped holding when the switch moved to the phone (2026-09-03) and started
+// rendering ON regardless. The composition argument it made (no test built the
+// stock state: no `stt.polish` row AND no `llm.config`) still stands, so the same
+// stock fixture is kept and its expected answer is inverted.
 //
-// 🔴 AND THE ASSERTION IS 「NOTHING IS SAID」, NOT 「NOTHING FAILS」. owner's
-// 2026-08-12 delivery principle is 「smooth, simple, easy to use」: an optional feature nobody
-// configured is not an error, so the stock session must be BYTE-IDENTICAL on the
-// wire to one where polish was never asked for — `unavailable` undefined, not
-// merely 「the recording still started」. `armed:false` alone would be green for
-// both the correct behaviour and the one where every closing final carries an
-// amber 「polish did not take effect」 mark for a feature the user never turned on.
+// Each case goes through the production composition — the audio handler's
+// overlay (settings/session-overlay.ts `overlaySettings`) over the database —
+// because that is where 「the phone sent nothing」 and 「the phone sent OFF」 are
+// told apart.
 //
-// ⚠️ The opposite arm is asserted here too, in the same block, on the same db:
-// somebody who DOES flip the switch without a model keeps the mark. Splitting
-// 「not configured」 from 「configured but this turn failed」 is this feature's founding distinction
-// (stt-polish-settings.ts header), and a test for the silent half that does not
-// also hold the loud half in place is how the loud half gets optimised away.
-describe('OSS-DEFAULTS — a stock install polishes nothing and says nothing about it', () => {
-  /** A stranger's first boot: the real seeder, and NOTHING else written. No
-   *  `llm.config` (defaults.ts seeds LLM_NOT_CONFIGURED), no `stt.polish` row.
-   *  Deliberately NOT freshDb() — that helper writes a working llm.config, which
-   *  is exactly the state this block must not be in. */
+// REVERSE CONTROLS (executed 2026-09-29, on this tree; each restored from a byte
+// copy, marker `REVERSE-CONTROL-NR132` grep = 0, same command green again):
+//   1. stt-polish-settings.ts readSttPolish absent branch put back on the model
+//      (`llmCapabilityFact(repo, userId).usable ? STT_POLISH_DEFAULT : { enabled: false }`)
+//      ⇒ `vitest run test/stt-polish-audio-start.test.ts test/emb15-integrator-no-llm.test.ts`:
+//      3 red — both 「unset + no model ⇒ not_configured」 cases here
+//      (expected undefined to be 'not_configured') and the EMB-15 normal-room
+//      NR-132 positive control.
+//   2. stt-factory.ts resolvePolishDep `if (!polishSetting.enabled && false)`
+//      (explicit OFF ignored) ⇒ `vitest run test/stt-polish-audio-start.test.ts`:
+//      3 red — this block's explicit-OFF positive control
+//      (expected 'not_configured' to be undefined), M6 「polish OFF ⇒ valve not
+//      consulted」, RT-1a 「degraded is distinguishable from OFF」.
+describe('NR-132 — unset polish is ON: stock install ⇒ not_configured, model ⇒ armed, explicit OFF ⇒ silent', () => {
+  /** A stranger's first boot / a LAN PC with no model: the real seeder and NOTHING
+   *  else written. No `llm.config` (defaults.ts seeds LLM_NOT_CONFIGURED), no
+   *  `stt.polish` row. Deliberately NOT freshDb(), which writes a working model. */
   function stockDb(): DbConnection {
     const db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('polish-stock-install-secret') });
     db.users.insert({ id: 'u1', display_name: 'U', plan: 'free' });
     seedDefaultSettings(db.settings, 'u1');
     return db;
   }
+  const arm = (repo: import('../src/db/repos/settings.repo').SettingsRepo): ReturnType<typeof resolvePolishDep> =>
+    resolvePolishDep({ settings: repo, quota: noopGuard }, 'u1', []);
+  const reasonOf = (a: ReturnType<typeof resolvePolishDep>): unknown => (a.armed ? 'ARMED' : a.unavailable);
 
-  it('the precondition really holds: a stock seed writes neither llm.config nor stt.polish', () => {
-    // Positive control for everything below. Without it, a seeder that started
-    // writing an llm.config again would make this whole block pass while testing
-    // the opposite situation — and the env gates are the other way the fixture
-    // could quietly stop being a stock install.
+  it('the precondition really holds: a stock seed writes neither llm.config nor stt.polish, and no model resolves', () => {
+    // Positive control for everything below: a seeder that started writing an
+    // llm.config again, or a leaked managed-LLM env, would turn this block into a
+    // test of the opposite situation.
     expect(process.env.FLOWMIC_MANAGED_LLM_ENABLED).toBeUndefined();
     expect(process.env.FLOWMIC_DEFAULT_LLM_PRESET).toBeUndefined();
     const db = stockDb();
     expect(db.settings.read('u1', 'llm.config')).toBeNull();
     expect(db.settings.read('u1', 'stt.polish')).toBeNull();
-    // …and the resolver really cannot produce a model from that state.
     expect(() => resolveLlmConfigWithSource(db.settings, 'u1')).toThrow(ServerError);
   });
 
-  it('🔴 polish is unarmed AND silent — no error, and no amber mark either', () => {
+  it('🔴 unset + no model (an old phone: no prefs bundle at all) ⇒ not_configured — the T2 case', () => {
     const db = stockDb();
-    const arming = resolvePolishDep({ settings: db.settings, quota: noopGuard }, 'u1', []);
-    expect(arming.armed).toBe(false);
-    // The silent half, asserted FIRST on purpose. `unavailable` is what becomes
-    // `polish:'skipped'` on every stt:final (stt-factory :295 → stt-session
-    // polishWireForFinal), so undefined here is the difference between 「nothing
-    // was asked for」 and 「you asked and it failed」 — on a feature nobody asked
-    // for. It is also the only assertion in this block that no other test in the
-    // repo makes; ordering it ahead of the default read is what makes the
-    // reverse control name the COMPOSITION rather than re-fail settings-anchors'
-    // question one file over.
-    expect(arming.armed === false && arming.unavailable).toBeUndefined();
-    // The default half (2aa4286): absent row + no model ⇒ OFF.
-    expect(readSttPolish(db.settings, 'u1')).toEqual(STT_POLISH_DEFAULT_WITHOUT_LLM);
+    expect(readSttPolish(db.settings, 'u1')).toEqual(STT_POLISH_DEFAULT);
+    expect(STT_POLISH_DEFAULT.enabled).toBe(true);
+    // prefs === null is how the handler encodes 「this request carried no bundle」.
+    expect(reasonOf(arm(overlaySettings(db.settings, null)))).toBe('not_configured');
   });
 
-  it('the recording starts and nothing is emitted on stt:error (end to end)', () => {
+  it('🔴 unset + no model (a bundle that carries other keys but not stt.polish) ⇒ not_configured', () => {
+    const db = stockDb();
+    expect(reasonOf(arm(overlaySettings(db.settings, { 'stt.refine': { enabled: false } })))).toBe('not_configured');
+  });
+
+  it('a new phone carrying its default {enabled:true, strength:strict} + no model ⇒ not_configured (same answer)', () => {
+    const db = stockDb();
+    expect(reasonOf(arm(overlaySettings(db.settings, { 'stt.polish': { enabled: true, strength: 'strict' } }))))
+      .toBe('not_configured');
+  });
+
+  it('🔴 unset + a usable model ⇒ polish is ATTEMPTED (armed, with the default strength)', () => {
+    const db = freshDb(); // freshDb writes a working llm.config and no stt.polish row
+    expect(db.settings.read('u1', 'stt.polish')).toBeNull();
+    const a = arm(overlaySettings(db.settings, null));
+    expect(a.armed).toBe(true);
+    expect(a.armed && a.deps.strength).toBe('strict');
+  });
+
+  it('🔴 POSITIVE CONTROL: an explicit OFF still means off — no polish, and NO reason (no badge, no hint)', () => {
+    // From the phone bundle (the post-09-03 carrier) …
+    expect(reasonOf(arm(overlaySettings(stockDb().settings, { 'stt.polish': { enabled: false, strength: 'strict' } }))))
+      .toBeUndefined();
+    // … from a legacy stored row read by an old phone (prefs === null, D11) …
+    const legacy = stockDb();
+    legacy.settings.write('u1', 'stt.polish', { enabled: false });
+    expect(reasonOf(arm(overlaySettings(legacy.settings, null)))).toBeUndefined();
+    // … and with a usable model too: OFF is a choice, not a missing model.
+    expect(reasonOf(arm(overlaySettings(freshDb().settings, { 'stt.polish': { enabled: false } })))).toBeUndefined();
+  });
+
+  it('the recording still starts on a stock install and nothing is emitted on stt:error (end to end)', () => {
     const mobile = wire(stockDb());
     let ack: Record<string, unknown> | undefined;
     mobile.fire('audio:start', START, (r) => { ack = r as Record<string, unknown>; });
     expect(ack?.ok).toBe(true);
-    // Asserted on the FRAMES: an implementation that acked ok while emitting
-    // stt:error(LLM_INVALID_MODEL) — the exact finding — is caught here too.
+    // Asserted on the FRAMES: the degrade is a mark on the final, never a refusal.
     expect(mobile.received('stt:error')).toEqual([]);
     mobile.fire('audio:stop', {}, () => {});
-  });
-
-  it('…but a DELIBERATE opt-in on the same stock install still gets its mark', () => {
-    // The half that must not be swallowed. Same db, one row different: the user
-    // turned the switch on. That is a choice, not an unconfigured feature, so the
-    // honest answer is the RT-1a degrade WITH its reason — 「you turned it on and it did not run」.
-    const db = stockDb();
-    db.settings.write('u1', 'stt.polish', { enabled: true });
-    const arming = resolvePolishDep({ settings: db.settings, quota: noopGuard }, 'u1', []);
-    expect(arming.armed).toBe(false);
-    expect(arming.armed === false && arming.unavailable).toBe('llm_error');
   });
 });
 
@@ -524,7 +601,7 @@ describe('RT-1 — resolveLlmConfigWithSource is called once per session, from o
       .sort();
   }
 
-  it('a census: exactly the compose turn, the polish snapshot, and the polish DEFAULT resolve it', () => {
+  it('a census: exactly the compose turn, the polish snapshot, and the capability.llm fact resolve it', () => {
     // 🔴 POLISH-CFG (2026-08-09) added the third entry deliberately, and this
     // census going red is the mechanism working, not noise: a new consumer of the
     // resolver is the actual hazard this case was built to surface, so it must be
@@ -533,7 +610,8 @@ describe('RT-1 — resolveLlmConfigWithSource is called once per session, from o
     // WHY THE THIRD SITE IS SAFE where a fourth might not be. The hazard named
     // above is DROPPING `source` and misattributing who pays. This call site
     // discards the resolved config entirely — it only asks 「did it resolve at
-    // all」 to decide a default — so there is no `source` for it to lose and no
+    // all」 (since NR-132 for `capability.llm` only; it used to decide the polish
+    // default too, stt-polish-settings.ts `llmCapabilityFact`) — so there is no `source` for it to lose and no
     // billing judgement anywhere near it. It also runs on the settings read path,
     // not inside a session, so it cannot double-charge a turn.
     expect(callSites()).toEqual([

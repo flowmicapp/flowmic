@@ -235,6 +235,10 @@ async function seedAccount(email: string): Promise<Seeded> {
     created_at: NOW,
   });
   db.integratorKeys.bindRoom(pcId, `ik-${user.id}`, NOW);
+  db.raw.prepare('INSERT INTO integrator_visitor_rooms (pc_device_id,key_id,bucket) VALUES (?,?,?)')
+    .run(pcId, `ik-${user.id}`, 'fixture-bucket');
+  db.raw.prepare('INSERT INTO integrator_visitor_days (key_id,bucket,day,used_ms) VALUES (?,?,?,?)')
+    .run(`ik-${user.id}`, 'fixture-bucket', 0, 1000);
   db.billing.upsertSubscription({
     subscription_id: `sub_${user.id}`,
     user_id: user.id,
@@ -386,6 +390,8 @@ function countsFor(userId: string, pcId: string): Record<string, number> {
     // this census's vocabulary («no FK to users») while being emphatically gone
     // after a delete — hence the exemption in the retained-survives loop below.
     integrator_rooms: rowsFor('integrator_rooms', 'pc_device_id', pcId),
+    integrator_visitor_rooms: rowsFor('integrator_visitor_rooms', 'key_id', `ik-${userId}`),
+    integrator_visitor_days: rowsFor('integrator_visitor_days', 'key_id', `ik-${userId}`),
     // Card M4-01 — the site-demo grant record. Counted per-account like its
     // neighbours, and it is the ONE cascading table this fixture cannot seed:
     // only an ANONYMOUS identity ever has a row here, and this fixture's account
@@ -461,7 +467,8 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
     // TWENTY-FOUR with that ruling's second half (usage_records_archive, NO
     // user FK either, and for the same reason: a foreign key would erase the
     // row in the DELETE that writes it).
-    expect(tables.length).toBe(24);
+    // EMB-14 adds two indirect-cascade visitor bucket tables, never raw IPs.
+    expect(tables.length).toBe(26);
 
     const cascading: string[] = [];
     const noUserFk: string[] = [];
@@ -762,8 +769,8 @@ describe('POST /api/account/delete — the cascade, per table', () => {
       // destroyed twice over. Named rather than quietly excluded, because a
       // reader arriving at a zero in the 「retained」 loop would otherwise
       // conclude the cascade had over-reached.
-      if (table === 'integrator_rooms') {
-        expect(after[table], 'integrator_rooms outlived the room and the key it hangs off').toBe(0);
+      if (table === 'integrator_rooms' || table === 'integrator_visitor_rooms' || table === 'integrator_visitor_days') {
+        expect(after[table], `${table} outlived its cascading parents`).toBe(0);
         continue;
       }
       expect(after[table], `${table} was swept — it is supposed to survive an account deletion`).toBeGreaterThan(0);

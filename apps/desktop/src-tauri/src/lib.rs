@@ -22,6 +22,9 @@ pub mod caret;
 /// --lib` covers it without dragging in the WebView2 toolchain. The Tauri
 /// commands that drive it live in `shell/cloud_signin.rs`.
 pub mod cloud_signin;
+/// What a refused account read means (401 vs the named 403s). Outside `shell`
+/// for the same reason `cloud_signin` is: the lean `cargo test --lib` pins it.
+pub mod cloud_account_outcome;
 pub mod error_codes;
 pub mod events;
 /// HOW this process ended — the classification, the declaration latch, and the
@@ -459,6 +462,8 @@ pub fn run() {
             // used to render the JWT's own frozen claims — see the long note above
             // `cloud_account_fetch`.
             shell::cloud::cloud_account_fetch,
+            // NR-109: the `unverified` card's way forward (resend the email).
+            shell::cloud::cloud_verification_resend,
             // Browser sign-in (owner 2026-08-27, the UAT correction block).
             // THREE commands rather than one, and the split is forced: a single
             // blocking「sign in」would need an async runtime this crate does not

@@ -31,6 +31,7 @@ import { shouldRefine } from '../stt/stt-refine';
 import { refineFinalText } from '../stt/stt-refine-llm';
 import { trace, traceEnabled, tracedText } from '../trace/pipeline-trace';
 import { log } from '../log';
+import { guardFamily } from '../obs/polish-telemetry';
 
 /** What one second pass needs from the bridge — parameters rather than `this.`
  *  reads, so the pass is drivable without constructing a session. */
@@ -110,10 +111,10 @@ export function kickRefine(
       ctx.meter(refine, result);
       if (result.text === null) {
         log.info('stt.refine produced nothing to deliver — the delivered text stands', {
-          reason: result.reason,
+          family: guardFamily(result.reason),
           chars: deliveredText.length,
         });
-        traceSkip(ctx, result.reason ?? 'unknown');
+        traceSkip(ctx, guardFamily(result.reason));
         return;
       }
       if (ctx.emitterClosed()) {

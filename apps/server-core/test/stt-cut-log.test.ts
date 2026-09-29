@@ -62,6 +62,7 @@ class GapLeg extends EventEmitter implements SttEngine {
   readonly interimShape = 'cumulative' as const;
   private _state: EngineState = 'closed';
   private fedMs = 0;
+  get ackedAudioMs(): number { return Math.max(0, this.fedMs - 200); }
   get state(): EngineState { return this._state; }
   async open(): Promise<void> { this._state = 'open'; }
   push(chunk: Buffer): void {
@@ -163,7 +164,9 @@ describe('RC-6 — the stt.cut line', () => {
     await driveLeg(() => new GapLeg(), 31_000);   // 3.5 s past the last word, past `due` ⇒ 'word_gap'
     await driveLeg(() => new WordLeg(), 122_000); // no ≥600 ms gap by 120 s ⇒ 'overdue'
     expect(lines.length, 'POSITIVE CONTROL: the probe saw lines at all').toBeGreaterThan(0);
-    for (const l of lines) expect(Object.keys(l).sort(), JSON.stringify(l)).toEqual([...FIELDS].sort());
+    for (const l of lines) expect(Object.keys(l).sort(), JSON.stringify(l)).toEqual([...FIELDS, ...(l.kind === 'stop' ? ['backlog_ms'] : [])].sort());
+    expect(lines.filter(l => l.kind === 'stop').some(l => typeof l.backlog_ms === 'number')).toBe(true);
+    for (const l of lines.filter(l => l.kind === 'stop')) expect(l.backlog_ms === null || Number.isFinite(l.backlog_ms)).toBe(true);
     const kinds = new Set(lines.map((l) => l.kind));
     expect([...kinds].sort()).toEqual(['hangup', 'segment', 'stop']);
     const reasons = new Set(lines.filter((l) => l.kind === 'segment').map((l) => l.reason));

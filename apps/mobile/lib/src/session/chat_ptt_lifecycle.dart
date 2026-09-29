@@ -128,6 +128,7 @@ extension ChatPttLifecycle on ChatController {
   /// not close the button — it yields to the press (ptt_backfill.dart
   /// `yieldRecoveryForLive`).
   bool get canPtt =>
+      !articleFinishing &&
       _conn == ConnectionState.connected &&
       (sessionAcceptsPttDown(_sess) || session.recoveryHoldsWire) &&
       !utteranceCompose.isRunning;
@@ -211,6 +212,7 @@ extension ChatPttLifecycle on ChatController {
     // exactly like delivery and mode. Flipping ➤/⚡ mid-sentence must not change
     // how the sentence already being spoken is delivered.
     _activeSendPolicy = foldIntoBuffer ? SendPolicy.manual : _sendPolicy;
+    session.timings.begin(mode: _activeMode.name, policy: _activeSendPolicy.name, delivery: _activeDelivery.name, route: session.serverChannel.value == ServerChannel.lan ? 'lan' : session.serverChannel.value == ServerChannel.cloudRelay ? 'cloud' : '-');
     _liveText = '';
     recording.reset();
     // Follow-up — a grace still running for the previous live final must not
@@ -232,6 +234,7 @@ extension ChatPttLifecycle on ChatController {
       prefs: phonePrefs?.call(),
     );
     if (!ok) {
+      session.timings.active?.close(incomplete: true);
       _activeClientId = null;
       // Follow-up — no press: whatever waited for the wire (a yielded
       // recovery, an owed tail's placement) gets it back.
@@ -325,8 +328,11 @@ extension ChatPttLifecycle on ChatController {
   }
 
   Future<void> pttUp() async {
+    session.timings.active?.mark(UtteranceMark.release);
+    _rememberArticleDraft();
     final int t0 = DateTime.now().millisecondsSinceEpoch;
     await session.pttUp();
+    notifyUi(); // Offline stop may not produce a new FSM snapshot.
     // F3: release → uplink (residual chunk + audio:stop leave inside pttUp).
     diag('latency.release_to_uplink_ms', <String, Object?>{
       'ms': DateTime.now().millisecondsSinceEpoch - t0,

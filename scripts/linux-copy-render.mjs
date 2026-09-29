@@ -33,6 +33,8 @@ try {
     const page = await browser.newPage({ viewport: {
       width: window.minWidth || window.width, height: window.minHeight || window.height,
     } });
+    page.setDefaultTimeout(120_000);
+    page.setDefaultNavigationTimeout(120_000);
     page.on('pageerror', error => failures.push(`${surface}: ${error.message}`));
     page.on('console', message => {
       if (message.type() === 'error') failures.push(`${surface}: console: ${message.text()}`);
@@ -41,7 +43,10 @@ try {
       localStorage.setItem('flowmic.ui.locale', 'en');
       localStorage.setItem('flowmic.ui.locale.prompt', 'settled');
     });
-    await page.goto(`${origin}/${surface === 'capsule' ? 'capsule.html' : ''}`);
+    // A concurrent gate measured 33–36 s to reach DOMContentLoaded; bound
+    // page loading at 120 s and use the surface selector below for readiness.
+    await page.goto(`${origin}/${surface === 'capsule' ? 'capsule.html' : ''}`,
+      { waitUntil: 'domcontentloaded' });
     await page.waitForSelector(surface === 'capsule' ? '#capsule .wrap' : '.app-shell .sidenav');
     if (surface === 'main') await page.locator('.sidenav .navitem').nth(1).click();
     let widest = { locale: '', width: 0 };

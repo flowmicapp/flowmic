@@ -52,11 +52,27 @@ describe('site sanitize — the whole site, not six pages (SITE-COUNT-2)', () =>
     expect(sanitizePath('/try')).toBe('/try');
   });
 
+  // EMB-10. The website counts every page in its registry, indexable or not, so
+  // the two embed pages (unindexed until the owner approves the visitor-privacy
+  // text) are counted from the day they exist. Named out loud for the reason the
+  // block above gives: a loop over the list would agree with whatever it held.
+  it('keeps the two embed pages under their own paths, and no invented sibling', () => {
+    expect(sanitizePath('/for-websites')).toBe('/for-websites');
+    expect(sanitizePath('/docs/web-voice')).toBe('/docs/web-voice');
+    expect(sanitizePath('/docs')).toBe('(other)');
+    expect(sanitizePath('/docs/web-voice/extra')).toBe('(other)');
+    expect(sanitizePath('/for-websites/pricing')).toBe('(other)');
+  });
+
   it('keeps one page from each per-slug family, root and child alike', () => {
     expect(sanitizePath('/guide')).toBe('/guide');
     expect(sanitizePath('/guide/install-win')).toBe('/guide/install-win');
     expect(sanitizePath('/download')).toBe('/download');
     expect(sanitizePath('/download/macos')).toBe('/download/macos');
+    // Linux joined the website's registry with NR-108. This file used it as the
+    // example of a slug that is NOT a page (below); it is one now, so the negative
+    // example moved to a slug no page will ever have.
+    expect(sanitizePath('/download/linux')).toBe('/download/linux');
     expect(sanitizePath('/use-cases')).toBe('/use-cases');
     expect(sanitizePath('/use-cases/ai-coding')).toBe('/use-cases/ai-coding');
     expect(sanitizePath('/vs')).toBe('/vs');
@@ -69,7 +85,7 @@ describe('site sanitize — the whole site, not six pages (SITE-COUNT-2)', () =>
   // unbounded number of invented slugs can be written. Design §2 says whitelist.
   it('a slug that is not a real page is still (other)', () => {
     expect(sanitizePath('/guide/not-a-chapter')).toBe('(other)');
-    expect(sanitizePath('/download/linux')).toBe('(other)');
+    expect(sanitizePath('/download/beos')).toBe('(other)');
     expect(sanitizePath('/use-cases/')).toBe('(other)');
     expect(sanitizePath('/vs/some-competitor')).toBe('(other)');
     expect(sanitizePath('/guide/install-win/extra')).toBe('(other)');

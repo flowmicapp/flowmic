@@ -74,7 +74,8 @@ class LiveDraftTile extends StatelessWidget {
   /// in `live_health_copy.dart`'s `liveHealthLabel`, NOT here — this widget
   /// only renders the one string it is handed (0.2.53's render-result law
   /// stays about what paints, not about who decides what to paint).
-  final String statusLabel;
+  /// Null means no supported status fact; omit the pill entirely.
+  final String? statusLabel;
 
   /// AW-1b — the ASR-leg health sentence (`live_health_copy.dart`'s
   /// `liveHealthNote`), or null when every signal is clear. It gets its OWN
@@ -134,20 +135,22 @@ class LiveDraftTile extends StatelessWidget {
                 style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
               ),
               const SizedBox(width: 7),
-              StatusDot(FlowMicColors.red),
-              const SizedBox(width: 7),
-              Flexible(
-                child: Text(
-                  statusLabel,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                  style: TextStyle(
-                    color: FlowMicColors.red,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+              if (statusLabel != null && statusLabel!.isNotEmpty) ...[
+                StatusDot(FlowMicColors.red),
+                const SizedBox(width: 7),
+                Flexible(
+                  child: Text(
+                    statusLabel!,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: FlowMicColors.red,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
+              ],
               // §4b-8 duration/word-count side by side (see class doc for
               // the real-source proof).
               // Duration is UNCONDITIONAL: [elapsed] is a real value the instant

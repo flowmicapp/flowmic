@@ -41,6 +41,7 @@ import { polishFinalText, type PolishDeps } from '../stt/stt-polish';
 import { refinedTextOrNull } from '../stt/stt-refine';
 import type { SelectedLlmConfig } from '../compose/llm-config';
 import { log } from '../log';
+import { guardFamily } from '../obs/polish-telemetry';
 
 /** ADDED BY THE SPLIT (it had no name while both halves lived in one class):
  *  the shape of [[SttSessionBridge.meterPolish]], which is passed in rather than
@@ -138,7 +139,7 @@ export async function runDetachedPolish(
   if (result.reason !== undefined) {
     // timeout / llm_error / empty_output / guard_reject.
     log.warn('stt.polish produced nothing to deliver — the bare final stands', {
-      reason: result.reason,
+      family: guardFamily(result.reason),
       wire: result.skipReason,
       chars: pureText.length,
       elapsedMs,

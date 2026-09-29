@@ -27,6 +27,7 @@ import { authMiddleware, type JwtHandshakeConfig, type TokenLookup } from './aut
 import { SocketConnectionGuard, resolveSocketMaxPerIp, resolveSocketUnauthTtlMs } from './socket/connection-guard';
 import { makeAuthService } from './auth/auth-service';
 import { makeAuthRateLimiters } from './auth/register-rate-limit';
+import { IntegratorRoomRateLimiter } from './auth/integrator-room-rate-limit';
 import { QrGrantStore } from './auth/qr-grant';
 import { VerificationSendLimiter } from './auth/email-verification';
 import { wireVerificationGrace } from './auth/verification-grace';
@@ -36,6 +37,7 @@ import { wireNodeRuntime } from './node/node-runtime';
 import { parseNodeHostMap } from './node/node-identity';
 import { makeQuotaGuard } from './billing/quota-guard';
 import { makeIntegratorKeyGuard } from './billing/integrator-quota';
+import { IntegratorSessionCaps } from './billing/integrator-session-caps';
 import { makeBudgetPusher, budgetReaderFrom, resolveBudgetHeartbeatMs } from './billing/budget-push';
 import { BillingService } from './billing/billing-service';
 import { makeTrialLedger } from './billing/trial-ledger';
@@ -49,7 +51,7 @@ import { composeHttpDeps } from './bootstrap-http-deps';
 import type { ActingIdentity } from './socket/wire';
 import { resolveSaasActingUser } from './socket/acting-identity';
 import type { AuthExpiryClock } from './socket/handlers/auth-expiry';
-import { broadcastUpdated } from './socket/handlers/settings.handler';
+import { broadcastUpdated, wireLlmCapabilityPush } from './socket/handlers/settings.handler';
 import { GrantPendingStore, GrantRequestRateLimiter } from './socket/handlers/grant.handler';
 import { InjectPendingRegistry } from './socket/inject-pending';
 import { makeCloudImagePolicy } from './socket/cloud-image-policy';
@@ -78,7 +80,7 @@ import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 import { startLatencyReader } from './obs/latency';
 
-export const SERVER_VERSION = '0.3.95';
+export const SERVER_VERSION = '0.3.102';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -398,6 +400,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
   // reason there is one `Registry`: 「how much has this key left」 is asked by the
   // frame, by the recording's hard stop and by the admission gate, and three
   // instances would be three reads of a counter that moves.
+  const integratorSessions = new IntegratorSessionCaps(db.raw, config.secret, Date.now, nodeRuntime.nodeConfig.role !== 'replica');
   const integratorKeys = makeIntegratorKeyGuard({
     keys: db.integratorKeys,
     // THE SAME cycle key the meter writes with and the quota guard reads — never
@@ -420,7 +423,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // registry's other seams are: this file hands over one CAPABILITY, so a
     // reader of `web-room-routes.ts` can see the complete list of things that
     // route can do to the database.
-    integrator: { keys: integratorKeys, mint: (u, k, o) => registry.mintIntegratorRoom(u, k, o) },
+    integrator: { keys: integratorKeys, sessions: integratorSessions, limiter: new IntegratorRoomRateLimiter(), mint: (u, k, o) => registry.mintIntegratorRoom(u, k, o) },
   });
   // Card R-1 — the unsigned-web trial identity, on the SOCKET side. Same ledger
   // instance, same salt, same allowance as the marketing site: owner §10 asks for
@@ -625,6 +628,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     cors: { origin: config.mode === 'saas' ? integratorOrigin.corsOrigin : socketCorsOrigin(config.mode, config.corsOrigins) },
   });
   ioRef = io; // WP-W1b: arm the console REST settings fan-out hook
+  const unwireLlmCapabilityPush = wireLlmCapabilityPush(io, db.settings); // NR-130: the desktop's model-refused line follows the latch
 
   // Truthful acting-user resolution (04 §3.1 / F-2094): standalone collapses to
   // 'default'; saas derives from the verified handshake JWT / in-session login,
@@ -652,7 +656,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // through. Three instances would be three reads of a counter that moves
     // while a recording runs, and the hard stop would stop disagreeing with the
     // meter only by luck.
-    integratorKeys,
+    integratorKeys, integratorSessions,
   });
 
   // GA-04: audio sessions belong to the (room, pairing), not to the socket. One
@@ -774,6 +778,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     // timing log — naming it as a step there is a follow-up in shutdown.ts,
     // which this card does not own.
     close: async (): Promise<void> => {
+      unwireLlmCapabilityPush();
       if (lanTls) await lanTls.close();
       await stop();
     },

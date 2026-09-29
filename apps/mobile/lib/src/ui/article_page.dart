@@ -45,6 +45,7 @@ import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart' show articleMembersOf;
 import 'chat_message_tile.dart' show LiveDraftTile, entryMetricsLine;
 import 'live_health_copy.dart';
+import 'article_recovery_presentation.dart';
 import 'search_highlight.dart';
 import 'tokens.dart';
 
@@ -157,6 +158,7 @@ class ArticlePage extends StatelessWidget {
     this.pendingBackfillFromOutage = false,
     this.focusRowId,
     this.highlight,
+    this.recoveryStatus,
   }) : _live = null;
 
   /// Card CR-12-C — the same page while the recording is still running. Only
@@ -166,11 +168,12 @@ class ArticlePage extends StatelessWidget {
     required this.rows,
     required this.strings,
     required _ArticleLiveFace live,
+    this.focusRowId,
+    this.highlight,
     this.pendingBackfillMs = 0,
     this.pendingBackfillFromOutage = false,
   }) : _live = live,
-       focusRowId = null,
-       highlight = null;
+       recoveryStatus = null;
 
   /// Card CR-12-C — open [articleId] while it is being recorded (design §4.2:
   /// one page, two forms). The rows are read from [controller]'s store on
@@ -186,16 +189,21 @@ class ArticlePage extends StatelessWidget {
     required String articleId,
     required AppStrings strings,
     required Widget? Function() bar,
+    String? focusRowId,
+    String? highlight,
   }) => _ArticleLiveHost(
     key: key,
     controller: controller,
     articleId: articleId,
     strings: strings,
     bar: bar,
+    focusRowId: focusRowId,
+    highlight: highlight,
   );
 
   /// Null on the read-back form.
   final _ArticleLiveFace? _live;
+  final Widget? recoveryStatus;
 
   /// Card CR-12-G — the member row a search matched. The paragraph holding it
   /// is scrolled to the top after the first frame; which paragraph that is,
@@ -248,7 +256,7 @@ class ArticlePage extends StatelessWidget {
       appBar: AppBar(
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
-      bottomNavigationBar: _live?.bar,
+      bottomNavigationBar: _live?.bar ?? recoveryStatus,
       body: _liveFrame(ListView(
         key: const Key('article.body'),
         controller: _live?.scroll,

@@ -17,10 +17,9 @@
 // read-back page's own code, so the two forms cannot drift apart — which is
 // the reason design §4.2 gives for refusing a separate 「recording」 page.
 //
-// The page turns into the read-back page IN PLACE when the recording stops:
-// the bar builder answers null, the fold switches from `paragraphs` (last one
-// open) to `paragraphsOf` (everything closed), and the head row's own title is
-// what the app bar was already reading.
+// NR-115: Stop now retains the open draft and a status in the control slot.
+// The terminal row, not capture ending, removes the draft. An owed tail or
+// scanned debt keeps a recovery status here after the live stop wait ends.
 //
 // A `part` so the live form can reach the page's private constructor: nothing
 // outside this library can build an `ArticlePage` with a live face.
@@ -44,7 +43,7 @@ class _ArticleLiveFace {
   /// `LiveDraftTile`, under the open paragraph. Not a row, never folded.
   final Widget? draft;
 
-  /// The dock's `ContinuousLiveBar`, or null once the recording is over.
+  /// The dock's live bar, then its finishing/recovery status until resolved.
   final Widget? bar;
 
   /// Status lines pinned above the list (link lost while recording; an
@@ -63,12 +62,16 @@ class _ArticleLiveHost extends StatefulWidget {
     required this.articleId,
     required this.strings,
     required this.bar,
+    this.focusRowId,
+    this.highlight,
   });
 
   final ChatController controller;
   final String articleId;
   final AppStrings strings;
   final Widget? Function() bar;
+  final String? focusRowId;
+  final String? highlight;
 
   @override
   State<_ArticleLiveHost> createState() => _ArticleLiveHostState();
@@ -98,10 +101,15 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
   @override
   void initState() {
     super.initState();
+    _follow = widget.focusRowId == null;
     _scroll.addListener(_onScroll);
     _startedAt =
         widget.controller.session.articles.startedAt ?? DateTime.now().toUtc();
     _stopSub = widget.controller.session.autoStopped.listen((String reason) {
+      if (widget.controller.session.articles.liveArticleId !=
+          widget.articleId) {
+        return;
+      }
       if (mounted) setState(() => _stopReason = reason);
     });
   }
@@ -158,26 +166,54 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
       ]),
       builder: (BuildContext context, _) {
         final bool recording = c.session.recordingArticleId == widget.articleId;
+        final ArticleCompletion? completion = c.articleCompletion(
+          widget.articleId,
+        );
+        final bool finishing = completion == ArticleCompletion.finishing;
+        final draft = c.articleDraft(widget.articleId);
         final List<TimelineEntry> rows = articleMembersOf(
           c.store,
           widget.articleId,
         );
         final Widget? bar = widget.bar();
         // Card RC-G — this piece's debt, not the phone's.
-        final ArticleBackfill owed =
-            c.backfill.progress.value.forArticle(widget.articleId);
+        final ArticleBackfill owed = c.backfill.progress.value.forArticle(
+          widget.articleId,
+        );
+        final recovery = articleRecoveryPresentation(
+          owed,
+          widget.strings,
+          completion: completion,
+          item: c.articleRecoveryItem(widget.articleId),
+        );
         WidgetsBinding.instance.addPostFrameCallback((_) => _followToEnd());
         return ArticlePage._live(
           head: c.store.findByClientId(widget.articleId) ?? _unmintedHead(),
           rows: rows,
+          focusRowId: widget.focusRowId,
+          highlight: widget.highlight,
           strings: widget.strings,
-          pendingBackfillMs: owed.pendingMs,
+          pendingBackfillMs: recovery.pendingMs,
           pendingBackfillFromOutage: owed.fromOutage,
           live: _ArticleLiveFace(
-            paragraphs: recording ? _foldOpen(rows) : paragraphsOf(rows),
+            paragraphs: recording || finishing
+                ? _foldOpen(rows)
+                : paragraphsOf(rows),
             scroll: _scroll,
-            draft: recording && c.hasLiveDraft ? _draft(c) : null,
-            bar: bar == null ? null : _barSlot(bar),
+            draft:
+                recording && c.hasLiveDraft ||
+                    completion != null && draft != null
+                ? _draft(c, completion, draft, recovery.sentence)
+                : null,
+            bar: completion != null && recovery.sentence != null
+                ? ArticleRecoveryStatus(
+                    completion: completion,
+                    sentence: recovery.sentence!,
+                    detail: recovery.detail,
+                  )
+                : bar == null
+                ? null
+                : _barSlot(bar),
             banner: _statusLines(c),
           ),
         );
@@ -197,17 +233,31 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
 
   /// Wired the way the light-record list wires it (`chat_flow_scroll.dart`),
   /// off the same controller getters.
-  Widget _draft(ChatController c) => Padding(
+  Widget _draft(
+    ChatController c,
+    ArticleCompletion? completion,
+    ({String text, int committed, int offsetMs})? retainedDraft,
+    String? recoverySentence,
+  ) => Padding(
     key: const Key('article.live.draft'),
     padding: const EdgeInsets.only(top: 10),
     child: LiveDraftTile(
-      text: c.liveText,
-      committedChars: c.liveCommittedChars,
+      text: completion == null ? c.liveText : retainedDraft!.text,
+      committedChars: completion == null
+          ? c.liveCommittedChars
+          : retainedDraft!.committed,
       mode: c.mode,
       strings: widget.strings,
       elapsed: c.recordingElapsed,
-      statusLabel: widget.strings.liveTranscribing,
-      healthNote: liveHealthNote(c.asrHealth.value, widget.strings),
+      statusLabel: completion == null
+          ? widget.strings.liveTranscribing
+          : (completion == ArticleCompletion.finishing ||
+                completion == ArticleCompletion.recovering)
+          ? widget.strings.articleDraftFinishing
+          : recoverySentence,
+      healthNote: completion == null
+          ? liveHealthNote(c.asrHealth.value, widget.strings)
+          : null,
     ),
   );
 
@@ -244,11 +294,27 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
   /// ④ Card RC-3 — ① is the LINK cause only (its sentence says 「link down」),
   /// and ③ takes the kept form when this phone is really keeping the audio
   /// (`ContinuousOffline.engineKept`) — SEG-2's kept/plain pair.
+  ///
+  /// NR-115 Round 3: the current article's stall takes this slot first because
+  /// it explains the draft disappearing. Read the chat fact and selector;
+  /// its existing four-second timer/dismiss/new-press edges own both faces.
   Widget? _statusLines(ChatController c) {
     final String? stop = _stopReason;
-    final ContinuousOffline cause = c.session.continuousOffline;
+    final bool current = c.session.articles.liveArticleId == widget.articleId;
+    final stall = current ? c.sttStalled : null;
+    if (stall != null) {
+      return _line(
+        const Key('article.live.stall'),
+        widget.strings.sttStallBannerMessage(stall),
+      );
+    }
+    final ContinuousOffline cause = current
+        ? c.session.continuousOffline
+        : ContinuousOffline.none;
     final bool offline = cause == ContinuousOffline.linkKept;
-    final EngineReconnectFace? engine = c.session.engineReconnect.value;
+    final EngineReconnectFace? engine = current
+        ? c.session.engineReconnect.value
+        : null;
     if (stop == null && !offline && engine == null) return null;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -263,7 +329,9 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
           _line(
             const Key('article.live.engineReconnecting'),
             cause == ContinuousOffline.engineKept
-                ? widget.strings.articleLiveEngineReconnectingKept(engine.attempt)
+                ? widget.strings.articleLiveEngineReconnectingKept(
+                    engine.attempt,
+                  )
                 : widget.strings.articleLiveEngineReconnecting(engine.attempt),
           ),
         if (stop != null)

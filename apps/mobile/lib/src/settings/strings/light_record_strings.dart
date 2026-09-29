@@ -32,6 +32,11 @@
 part of '../app_strings.dart';
 
 mixin LightRecordStrings on AppStringsLeaves {
+  // NR-115 Round 2: MAIN-defined slots; copy supplied through the catalogues.
+  String get articleFinishingStatus => _lfArticleFinishingStatus;
+  String get articleDraftFinishing => _lfArticleDraftFinishing;
+  String get articleTailOwedWaiting => _lfArticleTailOwedWaiting;
+  String get articleBusyFinishing => _lfArticleBusyFinishing;
 
   /// Between opening the tab and the disk answering. Deliberately NOT 「暂无轻
   /// 记录」 ("no light records for now"): at this instant we do not yet know whether there are any, and a

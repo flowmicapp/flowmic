@@ -37,11 +37,13 @@ extension PttSessionWireKeepAlive on PttSession {
     _heartbeatTimer = null;
   }
 
-  void _safeEmit(String event, Object? payload) {
+  bool _safeEmit(String event, Object? payload) {
     try {
       transport.emit(event, payload);
+      return true;
     } on Object {
       // Best-effort; a closed transport is recovered by the reconnect ladder.
+      return false;
     }
   }
 }

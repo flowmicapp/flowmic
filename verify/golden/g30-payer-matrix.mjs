@@ -194,7 +194,7 @@ export const G30 = {
       // A's stand still (owner §9 as MP-0 read it). owner's own last word —
       // 「「已登录用户默认也是扣对端」也包括自家 PC」 — bills A. The seeds swap
       // with the rule: it is the PAYER that must sit near its ceiling, because
-      // nothing in this golden emits `audio:stop`, so a recording settles (and
+      // this quota case omits `audio:stop`, so a recording settles (and
       // therefore meters) only when the quota deadline fires.
       seedUsedMs(ownerId, PLAN_MS - SEEDED_HEADROOM_MS);
       seedUsedMs(phoneId, 0);
@@ -358,6 +358,10 @@ export const G30 = {
       if (stillRefused) {
         return FAIL('the press was still refused for quota after BOTH accounts had head-room — the refusal above was not a money one');
       }
+      // EMB-14: the full-budget positive control is still recording. Finish it
+      // before later cases reseed the payer's ledger; otherwise its legitimate
+      // reservation owns all of the artificial 1500 ms remainder in section 7.
+      await ack(phone, 'audio:stop', {});
 
       // ── 6 · the LEDGER says why, not just how much (MP-6, design §10-3) ──
       // 🔴 THE POINT OF THE TWO COLUMNS IS THAT `user_id` ALONE CANNOT ANSWER
@@ -462,7 +466,7 @@ export const G30 = {
       // model owner §11 replaced. They now spend the computer owner's allowance,
       // and the owner is TOLD, which is the half that makes it defensible.
       // 🔴 THE OWNER IS SEEDED NEAR ITS CEILING, and that is a property of the
-      // harness rather than of the card: nothing in this golden emits
+      // harness rather than of the card: this quota case deliberately omits
       // `audio:stop`, so a recording SETTLES — and therefore meters — when the
       // quota deadline fires. An account with five whole minutes in hand records
       // nothing inside a 1.5-second press, and 「the owner's ledger did not move」

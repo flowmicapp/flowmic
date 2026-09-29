@@ -9,6 +9,8 @@ import { streamOpenAiCompatible, streamAnthropic, type LlmEvent } from '../src/c
 // By path, not through the compose barrel: re-exporting names nothing production
 // consumes is how a barrel turns into a façade (src/compose/index.ts says so).
 import { PROTECTED_BODY_KEYS, mergeVendorBody } from '../src/compose/llm/vendor-body';
+import { anthropicMessagesUrl, ANTHROPIC_MODEL_EXTRAS } from '../src/compose/llm/anthropic';
+import { findLlmPreset } from '@flowmic/protocol';
 
 function sseResponse(frames: string[], status = 200): Response {
   const body = new ReadableStream<Uint8Array>({
@@ -221,5 +223,135 @@ describe('anthropic streamer', () => {
     const headers = (fetchImpl.mock.calls[0]?.[1] as RequestInit).headers as Record<string, string>;
     expect(headers['x-api-key']).toBe('user-key-abc');
     expect(headers['anthropic-version']).toBe('2023-06-01');
+  });
+});
+
+describe('anthropicMessagesUrl (BYOK-ANT-1)', () => {
+  // The preset ships the bare host; MAIN measured /messages → 404 and
+  // /v1/messages → 401 (invalid key) on the real API.
+  it.each([
+    'https://api.anthropic.com',
+    'https://api.anthropic.com/',
+    'https://api.anthropic.com/v1',
+    'https://api.anthropic.com/v1/',
+    'https://api.anthropic.com/v1/messages',
+  ])('%s → https://api.anthropic.com/v1/messages', (base) => {
+    expect(anthropicMessagesUrl(base)).toBe('https://api.anthropic.com/v1/messages');
+  });
+
+  it('a third-party base without /v1 gets /v1/messages appended', () => {
+    expect(anthropicMessagesUrl('https://proxy.example/anthropic')).toBe('https://proxy.example/anthropic/v1/messages');
+  });
+
+  it('the streamer POSTs to the built URL (the adapter uses the builder, not its own concatenation)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(sseResponse([JSON.stringify({ type: 'message_stop' })]));
+    await collect(streamAnthropic({ cfg: ANT, system: 's', user: 'u', fetch: fetchImpl }));
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe('https://api.anthropic.com/v1/messages');
+  });
+
+  it('HTTP 404 → LLM_INVALID_MODEL (a config fault), 401 → LLM_AUTH_FAIL, 500 → LLM_TIMEOUT', async () => {
+    const codes: string[] = [];
+    for (const status of [404, 401, 500]) {
+      const fetchImpl = vi.fn().mockResolvedValue(sseResponse([], status));
+      const evs = await collect(streamAnthropic({ cfg: ANT, system: 's', user: 'u', fetch: fetchImpl }));
+      codes.push((evs.at(-1) as { code: string }).code);
+    }
+    expect(codes).toEqual(['LLM_INVALID_MODEL', 'LLM_AUTH_FAIL', 'LLM_TIMEOUT']);
+  });
+});
+
+describe('anthropic streamer — stop reasons and stream errors are loud (BYOK-ANT-1)', () => {
+  const start = JSON.stringify({ type: 'message_start', message: { model: 'claude-x', usage: { input_tokens: 5 } } });
+  const text = (t: string) => JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } });
+  const delta = (stop_reason: string) => JSON.stringify({ type: 'message_delta', delta: { stop_reason }, usage: { output_tokens: 3 } });
+  const stop = JSON.stringify({ type: 'message_stop' });
+  async function run(frames: string[]): Promise<LlmEvent[]> {
+    const fetchImpl = vi.fn().mockResolvedValue(sseResponse(frames));
+    return collect(streamAnthropic({ cfg: ANT, system: 's', user: 'u', fetch: fetchImpl }));
+  }
+
+  it('end_turn → done (positive control: a finished answer still finishes)', async () => {
+    const evs = await run([start, text('Hallo'), delta('end_turn'), stop]);
+    expect(evs.at(-1)).toMatchObject({ kind: 'done', full: 'Hallo' });
+  });
+
+  it('stop_reason refusal (HTTP 200) → error, never done', async () => {
+    const evs = await run([start, text('I can'), delta('refusal'), stop]);
+    expect(evs.some((e) => e.kind === 'done')).toBe(false);
+    expect(evs.at(-1)).toMatchObject({ kind: 'error', code: 'COMPOSE_OUTPUT_REJECTED' });
+  });
+
+  it('stop_reason max_tokens (cut off) → error, never done', async () => {
+    const evs = await run([start, text('half of the ans'), delta('max_tokens'), stop]);
+    expect(evs.some((e) => e.kind === 'done')).toBe(false);
+    expect(evs.at(-1)).toMatchObject({ kind: 'error', code: 'COMPOSE_OUTPUT_REJECTED' });
+  });
+
+  it('a mid-stream SSE error frame (overloaded_error) → error, never done', async () => {
+    const errFrame = JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } });
+    const evs = await run([start, text('partial'), errFrame, stop]);
+    expect(evs.some((e) => e.kind === 'done')).toBe(false);
+    expect(evs.at(-1)).toMatchObject({ kind: 'error', code: 'LLM_TIMEOUT' });
+  });
+
+  it('a mid-stream rate_limit_error frame keeps its diagnosis (LLM_RATE_LIMITED)', async () => {
+    const errFrame = JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'slow down' } });
+    const evs = await run([start, errFrame]);
+    expect(evs.at(-1)).toMatchObject({ kind: 'error', code: 'LLM_RATE_LIMITED' });
+  });
+
+  it('a body that closes without message_stop → error, never done', async () => {
+    const evs = await run([start, text('partial')]);
+    expect(evs.some((e) => e.kind === 'done')).toBe(false);
+    expect(evs.at(-1)).toMatchObject({ kind: 'error', code: 'LLM_TIMEOUT' });
+  });
+
+  it('a stream that opens with a thinking block → only the text reaches full', async () => {
+    const evs = await run([
+      start,
+      JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }),
+      JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'SECRET-REASONING' } }),
+      JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig' } }),
+      JSON.stringify({ type: 'content_block_stop', index: 0 }),
+      JSON.stringify({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }),
+      text('Bonjour'),
+      JSON.stringify({ type: 'content_block_stop', index: 1 }),
+      delta('end_turn'),
+      stop,
+    ]);
+    expect(evs.filter((e) => e.kind === 'delta').map((e) => (e as { text: string }).text)).toEqual(['Bonjour']);
+    expect(evs.at(-1)).toMatchObject({ kind: 'done', full: 'Bonjour' });
+  });
+});
+
+describe('anthropic request body — capability extras only for known models (BYOK-ANT-1)', () => {
+  async function bodyFor(model: string): Promise<string> {
+    const fetchImpl = vi.fn().mockResolvedValue(sseResponse([JSON.stringify({ type: 'message_stop' })]));
+    await collect(streamAnthropic({ cfg: { ...ANT, model }, system: 's', user: 'u', fetch: fetchImpl }));
+    return (fetchImpl.mock.calls[0]?.[1] as RequestInit).body as string;
+  }
+
+  it('claude-sonnet-5-5 gets thinking {type:between_tools} (and nothing else inside it) + max_tokens 16000', async () => {
+    const body = JSON.parse(await bodyFor('claude-sonnet-5-5')) as Record<string, unknown>;
+    expect(body['thinking']).toEqual({ type: 'between_tools' });
+    expect(body['max_tokens']).toBe(16000);
+  });
+
+  it('claude-opus-5-5 gets NO thinking field (cannot be disabled there) + max_tokens 16000', async () => {
+    const body = JSON.parse(await bodyFor('claude-opus-5-5')) as Record<string, unknown>;
+    expect('thinking' in body).toBe(false);
+    expect(body['max_tokens']).toBe(16000);
+  });
+
+  it('an unknown / proxy model id gets the body byte-identical to before (no thinking, 4096)', async () => {
+    expect(await bodyFor('some-proxy-model')).toBe(
+      '{"model":"some-proxy-model","system":"s","messages":[{"role":"user","content":"u"}],"stream":true,"max_tokens":4096}',
+    );
+  });
+
+  it('the shipped preset model is a row of the extras table (the preset gets thinking off)', () => {
+    const model = findLlmPreset('cloud-anthropic-claude')?.model ?? '';
+    expect(model).toBe('claude-sonnet-5-5');
+    expect(ANTHROPIC_MODEL_EXTRAS[model]?.thinking).toEqual({ type: 'between_tools' });
   });
 });

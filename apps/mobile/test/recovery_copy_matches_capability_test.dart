@@ -7,7 +7,7 @@
 //
 // 🔴 IT MOUNTS THE REAL SCREEN. `PendingRecoveryPage` over a fake source, one
 // state at a time — CLAUDE.md anti-façade ⑥: 「验收用例必须挂载 X 屏」. Asserting
-// the switch in `PendingRecoveryCard.sentenceFor` directly would prove that a
+// the switch in `recoveryStatusSentence` directly would prove that a
 // pure function returns five different strings, which nobody doubted, and would
 // have stayed green through the defect that rule was written for (the model was
 // right and the screen never rendered it).

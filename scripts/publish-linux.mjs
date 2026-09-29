@@ -14,9 +14,11 @@ export function publishLinuxArtifacts({ root, outDir, version, log = console.log
     targetDir: resolve(process.env.CARGO_TARGET_DIR ?? join(root, 'apps/desktop/src-tauri/target')),
     outDir: staging, log });
   mkdirSync(outDir, { recursive: true });
-  // Copy only the three validated artifacts and their hashes; never clean the
+  // Copy only the two validated artifacts and their hashes; never clean the
   // multi-platform publish directory or replace another platform's artifacts.
-  for (const name of [result.appImage.name, result.deb.name, result.portable.zipName]) {
+  // No AppImage (NR-107): it needs libfuse2, absent on a stock Ubuntu 22.04
+  // desktop, so it failed silently there; it is no longer built.
+  for (const name of [result.deb.name, result.portable.zipName]) {
     for (const suffix of ['', '.sha256']) {
       copyFileSync(join(staging, name + suffix), join(outDir, name + suffix));
     }

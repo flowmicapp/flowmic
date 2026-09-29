@@ -6,6 +6,99 @@
 
 use super::*;
 
+#[cfg(target_os = "linux")]
+mod linux_machine_id_tests {
+    use super::*;
+
+    const MACHINE_ID: &str = "0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn accepts_a_valid_machine_id() {
+        assert_eq!(
+            parse_linux_machine_id(MACHINE_ID).as_deref(),
+            Some(MACHINE_ID)
+        );
+    }
+
+    #[test]
+    fn accepts_a_machine_id_with_a_trailing_newline() {
+        assert_eq!(
+            parse_linux_machine_id(&format!("{MACHINE_ID}\n")).as_deref(),
+            Some(MACHINE_ID)
+        );
+    }
+
+    #[test]
+    fn rejects_garbage_machine_ids() {
+        let invalid_hex = "g".repeat(32);
+        for value in [
+            "not-an-id",
+            "ABCDEF0123456789ABCDEF0123456789",
+            invalid_hex.as_str(),
+        ] {
+            assert_eq!(parse_linux_machine_id(value), None, "{value:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_an_empty_machine_id() {
+        assert_eq!(parse_linux_machine_id(""), None);
+        assert_eq!(parse_linux_machine_id(" \n\t"), None);
+    }
+
+    #[test]
+    fn falls_back_to_the_dbus_file_when_the_primary_is_invalid() {
+        let mut paths = Vec::new();
+        let actual = read_linux_machine_id_with(|path| {
+            paths.push(path.to_string());
+            match path {
+                "/etc/machine-id" => Ok("invalid".to_string()),
+                "/var/lib/dbus/machine-id" => Ok(format!("{MACHINE_ID}\n")),
+                _ => Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "unexpected path",
+                )),
+            }
+        });
+        assert_eq!(actual.as_deref(), Some(MACHINE_ID));
+        assert_eq!(paths, ["/etc/machine-id", "/var/lib/dbus/machine-id"]);
+    }
+
+    #[test]
+    fn machine_uid_is_present_when_the_machine_id_file_is_present() {
+        let uid = machine_uid_with(
+            || {
+                read_machine_id_uncached_with(
+                    |path| match path {
+                        "/etc/machine-id" => Ok(format!("{MACHINE_ID}\n")),
+                        _ => Err(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "unexpected path",
+                        )),
+                    },
+                    || String::new(),
+                )
+            },
+            || "linux-test-user".to_string(),
+        );
+        let uid = uid.expect("valid local machine-id must yield a machine uid");
+        assert!(uid.starts_with("pc-"), "{uid}");
+        assert_eq!(uid.len(), 19, "pc- plus 16 digest hex characters");
+        assert!(!uid.contains(MACHINE_ID), "raw machine-id leaked into uid");
+    }
+
+    #[test]
+    fn discovering_the_hostname_does_not_replace_a_stored_linux_name() {
+        let (name, conflicted) = reconcile_machine_name(
+            Some("FlowMic-0000"),
+            Some("FlowMic-0000"),
+            "FlowMic-LINUX-TESTVM-1234",
+        );
+        assert_eq!(name, "FlowMic-0000");
+        assert!(!conflicted);
+    }
+}
+
 // ── v0.2.4 machine uid ────────────────────────────────────────────────
 
 #[test]

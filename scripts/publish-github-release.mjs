@@ -61,6 +61,8 @@ import { fileURLToPath } from 'node:url';
 // two hand-kept copies of one string, and the web repo's QR code a third.
 import { LATEST_APK_ASSET_NAME, latestApkDownloadUrl } from './update-manifest-lib.mjs';
 import { scanZipForCjk, zipCjkRefusalMessage, zipUnreadableRefusalMessage } from './release-portable-cjk-scan.mjs';
+import { isLinuxDebName } from './pack-portable.mjs';
+import { verifyLinuxZipsHaveNoDevCopy } from './linux-dev-copy-gate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Override for the ./publish root: scripts/it07-publish-github-release-flags.test.mjs
@@ -194,7 +196,9 @@ function collectArtifacts() {
   // same .sha256 sidecar discipline as the installers — the 0.3.0 milestone
   // release would have silently shipped without its mac half under the old
   // msi|apk filter.
-  const files = readdirSync(OUT).filter((f) => /\.(msi|apk|zip)$/i.test(f) && f.includes(VERSION));
+  // NR-107 (2026-09-25): the Linux .deb ships next to the Linux portable zip.
+  // Narrow shape (Tauri's exact name), same VERSION guard and sidecar rule.
+  const files = readdirSync(OUT).filter((f) => (/\.(msi|apk|zip)$/i.test(f) || isLinuxDebName(f)) && f.includes(VERSION));
   if (files.length === 0) {
     console.error(`✗ no ${VERSION} installers in ./publish — run \`node scripts/publish.mjs\` first (did the version just bump? artifacts need rebuilding).`);
     process.exit(1);
@@ -462,7 +466,9 @@ async function deleteAssetsNamed(repo, token, release, name) {
 
 const contentTypeFor = (name) => (name.toLowerCase().endsWith('.apk')
   ? 'application/vnd.android.package-archive'
-  : 'application/x-msi');
+  : name.toLowerCase().endsWith('.deb')
+    ? 'application/vnd.debian.binary-package'
+    : 'application/x-msi');
 
 async function uploadAsset(repo, token, release, uploadBase, { assetName, path, size }) {
   const blob = await openAsBlob(path, { type: contentTypeFor(assetName) });
@@ -654,6 +660,14 @@ async function main() {
       console.error(zipCjkRefusalMessage(a.name, findings));
       process.exit(1);
     }
+  }
+
+  // NR-107: no `DEV:` placeholder ships in a Linux portable zip.
+  try {
+    verifyLinuxZipsHaveNoDevCopy(OUT, artifacts.map((a) => a.name));
+  } catch (e) {
+    console.error(`✗ ${e.message}`);
+    process.exit(1);
   }
 
   // Card M-3: the same bytes, attached a second time under a fixed name.

@@ -43,6 +43,7 @@
 import type { UsageTracker, EngineUsageMeta, MeteredPrincipalRef } from '../billing/usage-tracker';
 import type { SttCharCounts } from '../engine/stt-session-deps';
 import type { UsageEventKind } from '../db/repos/usage-events.repo';
+import { CLIENT_VERSION_MAX_LENGTH, ClientOriginSchema, TargetCapsSchema, type TargetCaps } from '@flowmic/protocol';
 
 export interface ForwardedStt {
   kind: 'usage.stt';
@@ -159,17 +160,40 @@ export interface ForwardedPresence {
   last_seen_at: number;
 }
 
+/** card NR-131 — a PC machine uid (`pc-` + hex). Stricter than protocol
+ *  `DEVICE_UID_RE`, which also admits a phone's `mb-` prefix: a `pc.identity`
+ *  record only ever describes a PC. */
+export const PC_MACHINE_UID_RE = /^pc-[0-9a-f]{16,48}$/;
+
+/** card NR-131 — what a PC declared about itself on a replica's `pc:reconnect`:
+ *  its machine uid and its client declaration. The rules the writer applies
+ *  (account binding, never blank a uid, last writer wins by `declared_at`) are
+ *  in node/pc-identity-forward.ts. `machine_uid` is OMITTED when the PC sent
+ *  none — absent must never reach the column as a blank. */
+export interface ForwardedPcIdentity {
+  kind: 'pc.identity';
+  pc_id: string;
+  user_id: string;
+  declared_at: number;
+  machine_uid?: string;
+  client: string | null;
+  client_version: string | null;
+  target_caps: TargetCaps | null;
+}
+
 export type ForwardedWrite =
   | ForwardedStt
   | ForwardedLlm
   | ForwardedQuotaRefusal
   | ForwardedHomeNode
-  | ForwardedPresence;
+  | ForwardedPresence
+  | ForwardedPcIdentity;
 
 export interface ForwardTargets {
   usage: UsageTracker;
   setHomeNode(pc_id: string, home_node: string): void;
   setPresence(pc_id: string, is_online: boolean, last_seen_at: number): void;
+  setPcIdentity(w: ForwardedPcIdentity): void;
 }
 
 /** Thrown when a body does not describe any forwardable write. The writer turns
@@ -286,9 +310,39 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
         is_online: b.is_online, last_seen_at: b.last_seen_at,
       };
     }
+    case 'pc.identity':
+      return parsePcIdentity(b);
     default:
       throw new UnknownForwardedWrite(b.kind);
   }
+}
+
+/** card NR-131 — the same shape checks the socket applies to `pc:reconnect`
+ *  (protocol `PcReconnectSchema`): an ill-formed declaration field rejects the
+ *  record, as it would reject the frame; an ill-formed uid degrades to ABSENT,
+ *  as protocol `DeviceUid` does, but here only a PC-shaped (`pc-`) uid passes. */
+function parsePcIdentity(b: Record<string, unknown>): ForwardedPcIdentity {
+  const nullOr = <T>(v: unknown, ok: (x: unknown) => T | undefined): T | null | undefined =>
+    v === null ? null : ok(v);
+  const client = nullOr(b.client, (v) => {
+    const r = ClientOriginSchema.safeParse(v);
+    return r.success ? r.data : undefined;
+  });
+  const clientVersion = nullOr(b.client_version, (v) =>
+    (isNonEmpty(v) && v.length <= CLIENT_VERSION_MAX_LENGTH ? v : undefined));
+  const targetCaps = nullOr(b.target_caps, (v) => {
+    const r = TargetCapsSchema.safeParse(v);
+    return r.success ? r.data : undefined;
+  });
+  if (!isNonEmpty(b.pc_id) || !isNonEmpty(b.user_id) || !isFiniteNumber(b.declared_at)
+    || client === undefined || clientVersion === undefined || targetCaps === undefined) {
+    throw new UnknownForwardedWrite(b.kind);
+  }
+  return {
+    kind: 'pc.identity', pc_id: b.pc_id, user_id: b.user_id, declared_at: b.declared_at,
+    ...(typeof b.machine_uid === 'string' && PC_MACHINE_UID_RE.test(b.machine_uid) ? { machine_uid: b.machine_uid } : {}),
+    client, client_version: clientVersion, target_caps: targetCaps,
+  };
 }
 
 /** Perform a forwarded write on the writer, through the same seams a local
@@ -309,6 +363,9 @@ export function applyForwardedWrite(w: ForwardedWrite, t: ForwardTargets): void 
       return;
     case 'pc.presence':
       t.setPresence(w.pc_id, w.is_online, w.last_seen_at);
+      return;
+    case 'pc.identity':
+      t.setPcIdentity(w);
       return;
     default: {
       const never: never = w;

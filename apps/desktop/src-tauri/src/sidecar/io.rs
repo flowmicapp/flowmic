@@ -587,6 +587,14 @@ impl BringUp {
 /// phase (Healthy / AdoptedExternal / Failed). This is the ONE place spawn/probe/
 /// kill IO is sequenced — always in the order the FSM dictates.
 pub fn bring_up(opts: &BringUpOptions) -> BringUp {
+    #[cfg(target_os = "linux")]
+    if let Some(detail) = super::node_runtime::missing_installed_payload(&opts.node_exe) {
+        return BringUp {
+            phase: Phase::Failed { reason: FailReason::SpawnFailed { detail } },
+            child: None,
+            stderr_tail: None,
+        };
+    }
     let base_endpoint = format!("http://{}:{}", opts.host, opts.port);
     let mut m = SidecarMachine::new(base_endpoint);
     let mut child: Option<Child> = None;

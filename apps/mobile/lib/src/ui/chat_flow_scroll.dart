@@ -57,7 +57,7 @@ extension _ChatFlowScroll on _ChatFlowPageState {
   ) {
     final bool live = controller.hasLiveDraft;
     final int liveCount = live ? 1 : 0;
-    final Set<String> skippedIds = controller.polishSkippedEntryIds;
+    final badges = controller.polishBadges;
     return Stack(
       children: <Widget>[
         if (iid == null)
@@ -151,9 +151,7 @@ extension _ChatFlowScroll on _ChatFlowPageState {
                 // source — the queue is the only thing that knows.
                 canResendImage:
                     controller.resendableImageEntryIds.contains(entry.id),
-                polishSkippedLabel: skippedIds.contains(entry.id)
-                    ? strings.polishSkipped
-                    : null,
+                polishSkippedLabel: badges[entry.id]?.label(strings),
                 // F-5 exact match — the same text the panel would send.
                 isFavorite: controller.favorites.contains(entry.displayText),
                 // 🔴 Card FB-7 — under multi-select mode, three gestures are

@@ -318,6 +318,11 @@ export const G24 = {
         return FAIL(`the ledger never reached the ceiling after ${rounds} rounds: ${usedMinutes()}/${limitMin} minutes`);
       }
 
+      // EMB-14: settlement can fill the ledger while the old recording still
+      // owns its socket slot. Drain that slot before clearing the recorder:
+      // late chunks from the previous pump must not be counted as budget
+      // frames produced by the refused press. The ack is a wire barrier.
+      await ack(mobile, 'audio:stop', { discard: true });
       rec.frames.length = 0;
       mobile.emit('audio:start', AUDIO_START);
       await sleep(600);
@@ -327,7 +332,7 @@ export const G24 = {
         return FAIL(`the refusal code is ${refusal.args[0].code}, want the EXISTING QUOTA_EXCEEDED (this card adds no error code)`);
       }
       if (budgets(rec).length !== 0) {
-        return FAIL('a refused press still produced a budget frame — the push must sit after the gate');
+        return FAIL(`a refused press still produced a budget frame — the push must sit after the gate: ${JSON.stringify(budgets(rec))}`);
       }
 
       // ── 6 · §1.5: a reconnect ack carries the same shape

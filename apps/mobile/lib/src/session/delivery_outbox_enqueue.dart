@@ -185,6 +185,7 @@ Future<OutboxItem?> _admit(DeliveryOutbox box, OutboxItem item) async {
   // KEEPS GOING — the four call sites' contract is 「degrade durability, never
   // delivery」, and before this card a throw here aborted the whole send.
   await box._persistItem(item, op: 'enqueue');
+  if (!box._unpersisted.containsKey(item.requestId)) box.onPersisted?.call(item.requestId);
   // ⚠️ SELF-EXPOSING LINE — 「which parts of this item's addressing are
   // empty」. Ids and booleans
   // only: never the text, never the picture. A queued delivery whose

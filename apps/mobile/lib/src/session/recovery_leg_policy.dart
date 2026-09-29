@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart';
 
 import '../ptt/ptt_session.dart' show kBackfillChunkBytes;
 import 'recovery_gate.dart';
+import 'pending_recovery.dart' show PendingRecoveryItem;
 
 /// The server's verdict when a recovery `audio:start` reused an `operation_id`
 /// while describing different audio (owner-approved 2026-09-06; producer
@@ -218,7 +219,15 @@ class RecoveryTimeouts {
 /// Card RC-G — what one session key still owes, in journal bytes.
 @immutable
 class SessionDebtBytes {
-  const SessionDebtBytes({required this.pendingBytes, required this.outageBytes});
+  const SessionDebtBytes({
+    required this.pendingBytes,
+    required this.outageBytes,
+    this.waitingAuto = false,
+    this.recoveryItem,
+  });
+
+  final bool waitingAuto;
+  final PendingRecoveryItem? recoveryItem;
 
   final int pendingBytes;
 

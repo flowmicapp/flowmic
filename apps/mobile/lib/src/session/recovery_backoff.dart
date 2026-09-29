@@ -229,6 +229,10 @@ class RecoveryJobStatus {
     return due == null || nowMs >= due;
   }
 
+  // NR-115: waiting on a due time is still automatic; manual/tier-C is not.
+  bool get waitingAuto => state != RecoveryQueueState.awaitingServerCapability &&
+      mayAutoAttemptAt(nextEligibleAtMs ?? 0);
+
   /// The state to persist after an automatic attempt failed.
   String stateAfterAutoFailure() => failedAutoAttempts + 1 >=
           kRecoveryMaxAutoAttempts

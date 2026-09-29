@@ -129,7 +129,7 @@ class _PendingRecoveryPageState extends State<PendingRecoveryPage> {
     return null;
   }
 
-  /// 🔴 EXHAUSTIVE, NO DEFAULT — see [PendingRecoveryCard.sentenceFor] for the
+  /// 🔴 EXHAUSTIVE, NO DEFAULT — see `recovery_status_sentence.dart` for the
   /// same rule and the same reason.
   ///
   /// 🔴 CARD WB-6 — EVERY PRESS NOW PRODUCES SOMETHING THE PERSON CAN READ, and

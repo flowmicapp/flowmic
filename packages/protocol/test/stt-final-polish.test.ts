@@ -46,8 +46,8 @@ describe('WP-R4-6 stt:final polish additive fields', () => {
     }
   });
 
-  it("accepts polish: 'skipped' with each of the 4 canonical wire reasons", () => {
-    for (const reason of ['timeout', 'llm_error', 'empty_output', 'guard_reject'] as const) {
+  it("accepts polish: 'skipped' with each of the 6 canonical wire reasons (NR-123 not_configured, NR-130 model_rejected)", () => {
+    for (const reason of ['timeout', 'llm_error', 'empty_output', 'guard_reject', 'not_configured', 'model_rejected'] as const) {
       const r = parse({ polish: 'skipped', polish_reason: reason });
       expect(r.success).toBe(true);
       if (r.success) {

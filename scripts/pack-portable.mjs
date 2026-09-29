@@ -154,6 +154,26 @@ export function isPortableZipName(name) {
   return parsePortableZipName(name) !== null;
 }
 
+/** NR-107: the Linux .deb, under Tauri's exact file name. It is the only Linux
+ *  artifact whose installer pulls the system libraries a stock Ubuntu 22.04
+ *  desktop lacks. One spelling, shared by adopt-artifact, the adopted-artifact
+ *  gate, the download center and the GitHub Release; the shape is narrow (no
+ *  loose `\.deb$`) so a stray .deb from another window cannot ride along. */
+const LINUX_DEB_RE = /^FlowMic_(\d+\.\d+\.\d+)_amd64\.deb$/;
+
+export function linuxDebName(version) {
+  return `FlowMic_${version}_amd64.deb`;
+}
+
+export function parseLinuxDebName(name) {
+  const m = LINUX_DEB_RE.exec(name);
+  return m ? { version: m[1], platform: 'linux-x64' } : null;
+}
+
+export function isLinuxDebName(name) {
+  return parseLinuxDebName(name) !== null;
+}
+
 /** The sidecar format is a CONTRACT, not a convenience: scripts/publish.mjs
  *  `stage()` writes it and three other places parse it back with
  *  `.trim().split(/\s+/)[0]` (publish-download-center.mjs `collectArtifacts`,

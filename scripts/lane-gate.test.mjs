@@ -335,6 +335,18 @@ check(
   'the cargo step keeps its CARGO_BUILD_JOBS cap (hazard 5 in run-delivery-fast.mjs)',
 );
 check(lanesFor([]).length === 0, 'an empty selection produces no lanes');
+// The analyzer stage (trial 3, 2026-09-29) must resolve to a real step in the
+// lane table, not only to a name in lane-map's rows: `lanesFor` drops anything
+// the MOBILE lane does not carry, and a stage selected here but carried by no
+// lane would read as "not needed" while the analyzer never ran. Same shape as
+// the drill header's "names a stage that does not exist", from the lane side.
+const analyzeLanes = lanesFor(['verify:mobile-analyze']);
+check(
+  analyzeLanes.length === 1 && analyzeLanes[0]?.name === 'MOBILE'
+    && analyzeLanes[0]?.steps.length === 1
+    && analyzeLanes[0]?.steps[0]?.args[0] === 'verify:mobile-analyze',
+  'verify:mobile-analyze rides the MOBILE lane as a real step',
+);
 
 // ---------------------------------------------------------------------------
 section('7 T0: the commit hook and its incremental type check');

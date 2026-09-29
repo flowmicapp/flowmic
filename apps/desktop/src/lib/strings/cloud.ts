@@ -198,6 +198,37 @@ export const CLOUD_KEYS = [
   // when it was last fetched (unknown ≠ error ≠ stale value).
   'cloud_acct_stale',
   'cloud_acct_unknown',
+  // 🔴 NR-109 item 2: the server ANSWERED and the answer was not usable (an
+  // unexpected HTTP status, or a body without the plan). The two lines above say
+  // 「cannot reach the server」, which is false here, so they may not be reused.
+  // `{t}` in the stale twin is the same HH:mm the line above carries. The HTTP
+  // status is in the forensic log, never on screen.
+  'cloud_acct_unexpected',
+  'cloud_acct_stale_unexpected',
+  // 🔴 NR-109 (owner report 2026-09-26): the server answered and withheld the
+  // plan/usage read because this account's mailbox is not verified yet
+  // (`403 EMAIL_NOT_VERIFIED`). NOT an expiry — the key is valid and the relay
+  // accepts it — so it may never borrow [cloud_err_expired]'s 「sign in again」,
+  // and NOT "couldn't reach it" either. It sits in the as-of slot with the
+  // re-query button beside it: verifying in the browser and pressing that
+  // button is the whole way out.
+  'cloud_acct_unverified',
+  // NR-109 (MAIN decision ①): the way forward from the line above — resend the
+  // verification email from this PC. Button + its busy label, then ONE line per
+  // answer (lib/verification-resend.ts `resendFeedback` picks). 🔴 Only `_sent`
+  // may say a mail went out; `_no_answer` must say it is UNKNOWN whether one did
+  // (the request may have arrived and the answer did not); `_unreachable` says
+  // nothing was sent (the connection was never made). `{s}` in `_cooldown` is
+  // whole seconds from the server's own `retry_after_ms`.
+  'cloud_verify_resend',
+  'cloud_verify_resend_sending',
+  'cloud_verify_resend_sent',
+  'cloud_verify_resend_cooldown',
+  'cloud_verify_resend_limited',
+  'cloud_verify_resend_failed',
+  'cloud_verify_resend_unreachable',
+  'cloud_verify_resend_no_answer',
+  'cloud_verify_resend_unexpected',
   'cloud_acct_retry',
   'cloud_pair_hint',
   'cloud_pair_offline',
@@ -293,10 +324,14 @@ export const CLOUD_KEYS = [
   // different next actions, and this one has to leave the user a route (the
   // address in words) rather than just naming a fault.
   'cloud_signin_browser_failed',
-  // Waiting, and a way out of waiting. A three-minute window with no visible
+  // Waiting, and a way out of waiting. A fifteen-minute window with no visible
   // state and no cancel is indistinguishable from a frozen button.
   'cloud_signin_waiting',
   'cloud_signin_cancel',
+  // NR-112 — the line under the waiting row: a new account confirms its email
+  // in the browser first (NR-111), and this PC keeps waiting `{min}` minutes
+  // (filled from the Rust window by SignInWaiting.vue, never typed).
+  'cloud_signin_waiting_hint',
   // The page the BROWSER lands on. It lives in this catalogue — and is handed
   // to Rust as an argument — so this flow adds no second locale pipeline and
   // no English literal inside the listener.
@@ -304,6 +339,13 @@ export const CLOUD_KEYS = [
   'cloud_signin_page_ok_body',
   'cloud_signin_page_fail_title',
   'cloud_signin_page_fail_body',
+  // NR-110 (owner 2026-09-26) — the success page's actions: a button that asks
+  // the browser to close the tab, a link to the web console, and the line the
+  // page reveals when the browser refuses (the ordinary case for a tab a script
+  // did not open). `cloud_signin_page_ok_body` is untouched.
+  'cloud_signin_page_close',
+  'cloud_signin_page_console',
+  'cloud_signin_page_closed',
   // 🔴 SIX FAILURE SENTENCES, ONE PER `SignInFailure` VARIANT, because the
   // person's next move differs in every one of them: wait / start again /
   // check the address / use the paste below. `cloud-signin.ts` maps them

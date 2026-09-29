@@ -191,12 +191,18 @@ class StatusPill extends StatelessWidget {
           Icon(m.icon, size: 12, color: m.color),
           const SizedBox(width: 3),
         ],
-        Text(
-          m.glyph.isEmpty ? m.label : '${m.glyph} ${m.label}',
-          style: TextStyle(
-            color: m.color,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
+        // The status word is never truncated (R11: a state word must say the
+        // whole fact). Flexible lets it WRAP to a second line when the pill is
+        // wider than the card, instead of overflowing the row: `fr`
+        // "Enregistrement seul" at 360 dp / text scale 1.3 overflowed by 27 px.
+        Flexible(
+          child: Text(
+            m.glyph.isEmpty ? m.label : '${m.glyph} ${m.label}',
+            style: TextStyle(
+              color: m.color,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],

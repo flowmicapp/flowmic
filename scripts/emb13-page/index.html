@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- EMB-13 test site page. A third-party page as a site owner would write it:
+     ordinary fields, one script tag with a key, and a few lines that read what
+     window.flowmic reports. The %%NAME%% tokens are filled in by
+     scripts/emb13-live-rig.mjs per request; nothing else is templated. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acme Support</title>
+<style>
+  /* Fixed geometry on purpose: the layout-shift observer must see the SDK's
+     own movement, not the page's. One row of fields so the popover, which opens
+     below the target, never covers another field. */
+  body { font: 16px/1.4 system-ui, sans-serif; margin: 0; padding: 24px; background: #fff; color: #111; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  #row { display: flex; gap: 12px; align-items: flex-start; width: 1360px; }
+  .cell { width: 208px; flex: none; }
+  .cell label { display: block; font-size: 13px; margin-bottom: 4px; }
+  input[type="text"], input[type="password"], textarea, #f-ce {
+    box-sizing: border-box; width: 208px; padding: 6px 8px; font: inherit; border: 1px solid #888; border-radius: 4px; background: #fff;
+  }
+  input[type="text"], input[type="password"] { height: 36px; }
+  textarea, #f-ce { height: 96px; overflow: auto; }
+  #f-ce { white-space: pre-wrap; }
+  #below { margin-top: 520px; font-size: 13px; color: #555; }
+</style>
+</head>
+<body>
+<h1>Acme Support</h1>
+<form id="ticket" autocomplete="off" onsubmit="return false">
+  <div id="row">
+    <div class="cell"><label for="f-input">Subject</label><input id="f-input" type="text"></div>
+    <div class="cell"><label for="f-textarea">Comment</label><textarea id="f-textarea"></textarea></div>
+    <div class="cell"><label id="l-ce">Notes</label><div id="f-ce" contenteditable="true" role="textbox" aria-labelledby="l-ce"></div></div>
+    <div class="cell"><label for="f-react">Reference</label><div id="react-root"></div></div>
+    <div class="cell"><label for="f-password">Password</label><input id="f-password" type="password"></div>
+    <div class="cell"><label for="f-off">Internal code</label><input id="f-off" type="text" data-flowmic="off"></div>
+  </div>
+</form>
+<div id="below">Acme Support &middot; test page</div>
+%%REACT_TAGS%%
+<script>
+  // The React-controlled input. The component owns the value; if the SDK wrote
+  // it without going through the native setter and an input event, React would
+  // repaint the old value on the next render and the field would snap back.
+  window.__reactValue = '';
+  if (window.React && window.ReactDOM) {
+    const h = React.createElement;
+    function Reference() {
+      const [value, setValue] = React.useState('');
+      window.__reactValue = value;
+      return h('input', { id: 'f-react', type: 'text', value, onChange: (e) => setValue(e.target.value) });
+    }
+    ReactDOM.createRoot(document.getElementById('react-root')).render(h(Reference));
+  }
+</script>
+<script src="/probe.js"></script>
+<script src="%%SDK_SRC%%" data-publishable-key="%%KEY%%" data-endpoint="%%ENDPOINT%%" data-lang="en"%%TARGET_ATTR%%></script>
+<script>
+  // What a site developer writes to watch the widget.
+  if (window.flowmic) {
+    for (const name of ['ready', 'text', 'budget', 'error', 'target', 'listening', 'stopped']) {
+      window.flowmic.on(name, (payload) => window.__mark('flowmic:' + name, payload));
+    }
+  }
+</script>
+</body>
+</html>

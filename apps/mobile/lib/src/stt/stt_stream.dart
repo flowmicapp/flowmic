@@ -55,12 +55,20 @@ class SttInterim {
 /// was not enabled for the session; mobile never invents a default.
 enum SttPolish { applied, skipped }
 
-/// Frozen polish_reason values when [SttPolish.skipped] (WP-R4-6 ②).
+/// Known polish_reason values when [SttPolish.skipped] (WP-R4-6 ②). A value
+/// outside this set parses to null and paints the generic skipped mark.
+/// NR-123 added `not_configured` (no AI model set up on that server; producer:
+/// server-core engine/stt-factory.ts `resolvePolishDep`). NR-130 added
+/// `model_rejected` (a model IS set up and its provider refused it: bad key or
+/// unknown model; producer: server-core stt/stt-polish.ts
+/// `polishSkipReasonForCode`).
 const Set<String> kSttPolishReasons = <String>{
   'timeout',
   'llm_error',
   'empty_output',
   'guard_reject',
+  'not_configured',
+  'model_rejected',
 };
 
 /// stt:final — SttFinalSchema. [isSegment] true = a soft-segment boundary

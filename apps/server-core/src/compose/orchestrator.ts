@@ -24,6 +24,14 @@ import { COMPOSE_BUDGET_MS } from './mode';
 import { guardComposeOutput, ComposeOutputRejectedError } from './output-guard';
 import { log } from '../log';
 import { trace, traceEnabled, tracedText } from '../trace/pipeline-trace';
+import { toLlmFinishReason, type LlmFinishReason } from './llm/types';
+
+/**
+ * A normal 30-minute recording is documented as 5,000–8,000 characters. At the
+ * report's approximate 1.5 CJK characters per token, that is about 3,333–5,333
+ * output tokens; 8,192 leaves room above that estimate.
+ */
+export const COMPOSE_MAX_OUTPUT_TOKENS = 8192;
 
 export interface ComposeUsage {
   tokensIn: number;
@@ -36,12 +44,16 @@ export interface ComposeUsage {
  *  and reads usage() best-effort via readComposeUsage. */
 export interface ComposeRun extends ComposeOrchestrator {
   usage(): ComposeUsage;
+  timingModel(): { llm_source: string; model: string };
+  /** The last terminal event's finish reason for the most recent run(); 'none' until one arrives. */
+  timingFinishReason(): LlmFinishReason;
   /** The guard-approved output text, or null if the run did not complete
    *  cleanly. See readComposeOutput for the best-effort read the handler uses. */
   deliverableText(): string | null;
 }
 
 export interface ComposeRunDeps {
+  llmSource?: 'managed-default' | 'user' | 'seed';
   streamerFor: (protocol: LlmConfig['protocol']) => LlmStreamer;
   fetch?: typeof globalThis.fetch;
   /** Per-turn budget (ms). Exceeding it aborts the fetch → LLM_TIMEOUT. */
@@ -83,6 +95,7 @@ class ComposeRunImpl implements ComposeRun {
     const budgetMs = this.deps.budgetMs ?? COMPOSE_BUDGET_MS;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), budgetMs);
+    this._finishReason = 'none';
     let sawTerminal = false;
     // What the wire actually carried. The handler builds compose:done's
     // output_text by concatenating exactly these yields, so this string — not
@@ -99,6 +112,7 @@ class ComposeRunImpl implements ComposeRun {
         system: this.system,
         user,
         signal: ctrl.signal,
+        ...(input.task === 'organize' || input.task === 'translate' ? { maxTokens: COMPOSE_MAX_OUTPUT_TOKENS } : {}),
         ...(this.deps.fetch ? { fetch: this.deps.fetch } : {}),
       };
       // What actually goes to the vendor for this turn. `dict_replaced` is the
@@ -120,14 +134,16 @@ class ComposeRunImpl implements ComposeRun {
         });
       }
       for await (const ev of streamer(opts)) {
+        if (ev.kind !== 'delta') this._finishReason = toLlmFinishReason(ev.finish_reason);
+        // Capture billing facts before either terminal path can reject output.
+        if (ev.kind !== 'delta' && ev.usage) {
+          this._usage.tokensIn = ev.usage.tokens_in;
+          this._usage.tokensOut = ev.usage.tokens_out;
+        }
         if (ev.kind === 'delta') {
           streamed += ev.text;
           yield ev.text;
         } else if (ev.kind === 'done') {
-          if (ev.usage) {
-            this._usage.tokensIn = ev.usage.tokens_in;
-            this._usage.tokensOut = ev.usage.tokens_out;
-          }
           sawTerminal = true;
           // W2-2 (FB-5 second knife): translate/organize had NO output
           // validation at all — whatever the model produced went straight to
@@ -173,6 +189,8 @@ class ComposeRunImpl implements ComposeRun {
       clearTimeout(timer);
     }
   }
+
+  private _finishReason: LlmFinishReason = 'none';
 
   /**
    * Run the W2-2 output guard, or throw.
@@ -250,6 +268,15 @@ class ComposeRunImpl implements ComposeRun {
       output_chars: [...complete].length,
     });
     throw new ComposeOutputRejectedError(verdict.rule, verdict.detail);
+  }
+
+  timingFinishReason(): LlmFinishReason {
+    return this._finishReason;
+  }
+
+  timingModel(): { llm_source: string; model: string } {
+    const source = this.deps.llmSource ?? (this.isByok ? 'user' : 'managed-default');
+    return { llm_source: source === 'managed-default' ? 'managed' : source, model: source === 'managed-default' ? this.cfg.model : 'byok' };
   }
 
   usage(): ComposeUsage {

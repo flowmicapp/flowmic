@@ -145,4 +145,17 @@ CREATE TABLE IF NOT EXISTS integrator_rooms (
 -- 「every room this key minted」 — what a revocation sweep and an operator's
 -- 「which pages is this key live on」 question both walk.
 CREATE INDEX IF NOT EXISTS idx_integrator_rooms_key ON integrator_rooms(key_id);
+-- EMB-14: only salted key × IP buckets; no raw IPs. Replayed on every boot.
+CREATE TABLE IF NOT EXISTS integrator_visitor_rooms (
+  pc_device_id TEXT PRIMARY KEY REFERENCES pc_devices(id) ON DELETE CASCADE,
+  key_id TEXT NOT NULL REFERENCES integrator_keys(id) ON DELETE CASCADE,
+  bucket TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS integrator_visitor_days (
+  key_id TEXT NOT NULL REFERENCES integrator_keys(id) ON DELETE CASCADE,
+  bucket TEXT NOT NULL,
+  day INTEGER NOT NULL,
+  used_ms INTEGER NOT NULL,
+  PRIMARY KEY (key_id, bucket, day)
+);
 `;

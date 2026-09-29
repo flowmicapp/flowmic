@@ -46,7 +46,6 @@
   font-size: 12px; color: var(--t1); }
 .sc-inline.bad { background: var(--red-soft); }
 .sc-status { color: var(--t2); font-size: 12px; }
-.sc-detail { margin-top: 8px; font-size: 11.5px; color: var(--red); word-break: break-all; }
 /* U11: a persistent small-print note, not an error — font size/colour follow the
    same 「弱提示」("weak hint") language as .fld-hint, but with its own margin
    (.fld-hint's -4px was tuned to sit tight under an input field, which does not

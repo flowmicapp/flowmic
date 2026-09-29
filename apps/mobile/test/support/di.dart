@@ -191,6 +191,9 @@ PttSession newTestSession({
   );
   session.lanFingerprintLearner =
       lanFingerprintLearner ?? (Uri url, Duration timeout) async => null;
+  // Plain data-layer tests have no scheduler; their frame completes inline.
+  // Screen/timing wiring tests explicitly restore the real frame hook.
+  session.timings.frameHook = (void Function() callback) => callback();
   return session;
 }
 

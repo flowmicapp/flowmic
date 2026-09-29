@@ -128,6 +128,13 @@ export function signInPageCopy(): SignInPageCopy {
     ok_body: S.cloud_signin_page_ok_body,
     fail_title: S.cloud_signin_page_fail_title,
     fail_body: S.cloud_signin_page_fail_body,
+    // NR-110 (owner 2026-09-26): 「close this page」 and 「go to the console」.
+    ok_close: S.cloud_signin_page_close,
+    ok_console: S.cloud_signin_page_console,
+    ok_closed: S.cloud_signin_page_closed,
+    // The ORIGIN of the page this sign-in opens, from the same constant — so the
+    // link can only point where the sign-in itself went.
+    console_origin: new URL(CONSOLE_SIGNIN_URL).origin,
   };
 }
 

@@ -196,6 +196,12 @@ BannerQueue _liveSources({
   // earned their own fields above).
   retainedAudioNotice: controller.retainedAudioNotice,
   onDismissRetainedAudioNotice: controller.dismissRetainedAudioNotice,
+  // 🔴 Card NR-123 — THE PRODUCTION READER of `ChatStatusSurface.polishNoModelHint`.
+  polishNoModelHint: controller.polishNoModelHint,
+  onDismissPolishNoModelHint: controller.dismissPolishNoModelHint,
+  // NR-130 — THE PRODUCTION READER of `ChatStatusSurface.polishModelRejectedHint`.
+  polishModelRejectedHint: controller.polishModelRejectedHint,
+  onDismissPolishModelRejectedHint: controller.dismissPolishModelRejectedHint,
   onDismissAutoStop: controller.dismissAutoStopped,
   onDismissSttStalled: controller.dismissSttStalled,
   onDismissControlKeyRefusal: controller.dismissControlKeyRefusal,

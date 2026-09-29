@@ -390,12 +390,22 @@ export const LLM_PRESETS: readonly LlmPreset[] = [
     id: 'cloud-anthropic-claude',
     label: 'Anthropic Claude',
     // The one non-OpenAI-shaped protocol in the catalogue: Anthropic's native
-    // Messages API, and the endpoint carries NO `/v1` — that path segment is part
-    // of the route the adapter builds, not of the base URL.
+    // Messages API. The endpoint is a BASE; the route is built by
+    // `anthropicMessagesUrl` (apps/server-core/src/compose/llm/anthropic.ts),
+    // which appends `/v1/messages` here and only `/messages` to a base that
+    // already ends in `/v1`. Pinned by compose-llm-protocols.test.ts.
+    // ⚠️ CORRECTED (BYOK-ANT-1): this comment used to say "`/v1` is part of the
+    // route the adapter builds" while the adapter appended a bare `/messages`,
+    // so every request from this preset hit `https://api.anthropic.com/messages`
+    // and 404'd.
     protocol: 'anthropic',
     endpoint: 'https://api.anthropic.com',
     api_key: '',
-    model: 'claude-sonnet-4-5',
+    // BYOK-ANT-1: the current Sonnet. Only the MODEL changes — the preset `id`
+    // above must not (stored `preset_id`s name it). This id is also a row in
+    // `ANTHROPIC_MODEL_EXTRAS` (server-core compose/llm/anthropic.ts), which is
+    // what turns its default thinking off for compose.
+    model: 'claude-sonnet-5-5',
     group: 'cloud',
   },
   {

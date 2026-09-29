@@ -1,4 +1,5 @@
 {
+  "SidecarBundledFileMissing": "FlowMic のインストールが不完全なため、付属ファイル {path} が見つかりません。FlowMic を再インストールしてください。",
   "TrayShowMain": "メインウィンドウを表示",
   "TrayShowCapsule": "カプセルを表示",
   "TrayQuit": "終了",

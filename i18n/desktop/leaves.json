@@ -415,6 +415,18 @@
       "name": "dev_lan_nonstandard"
     },
     {
+      "key": "dev_lan_polish_no_model",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_lan_polish_no_model"
+    },
+    {
+      "key": "dev_lan_polish_model_rejected",
+      "shard": "devices",
+      "kind": "string",
+      "name": "dev_lan_polish_model_rejected"
+    },
+    {
       "key": "dev_fold_more",
       "shard": "devices",
       "kind": "string",
@@ -709,6 +721,78 @@
       "name": "cloud_acct_unknown"
     },
     {
+      "key": "cloud_acct_unexpected",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_acct_unexpected"
+    },
+    {
+      "key": "cloud_acct_stale_unexpected",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_acct_stale_unexpected"
+    },
+    {
+      "key": "cloud_acct_unverified",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_acct_unverified"
+    },
+    {
+      "key": "cloud_verify_resend",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_verify_resend"
+    },
+    {
+      "key": "cloud_verify_resend_sending",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_verify_resend_sending"
+    },
+    {
+      "key": "cloud_verify_resend_sent",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_verify_resend_sent"
+    },
+    {
+      "key": "cloud_verify_resend_cooldown",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_verify_resend_cooldown"
+    },
+    {
+      "key": "cloud_verify_resend_limited",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_verify_resend_limited"
+    },
+    {
+      "key": "cloud_verify_resend_failed",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_verify_resend_failed"
+    },
+    {
+      "key": "cloud_verify_resend_unreachable",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_verify_resend_unreachable"
+    },
+    {
+      "key": "cloud_verify_resend_no_answer",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_verify_resend_no_answer"
+    },
+    {
+      "key": "cloud_verify_resend_unexpected",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_verify_resend_unexpected"
+    },
+    {
       "key": "cloud_acct_retry",
       "shard": "cloud",
       "kind": "string",
@@ -793,6 +877,12 @@
       "name": "cloud_signin_cancel"
     },
     {
+      "key": "cloud_signin_waiting_hint",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_waiting_hint"
+    },
+    {
       "key": "cloud_signin_page_ok_title",
       "shard": "cloud",
       "kind": "string",
@@ -815,6 +905,24 @@
       "shard": "cloud",
       "kind": "string",
       "name": "cloud_signin_page_fail_body"
+    },
+    {
+      "key": "cloud_signin_page_close",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_page_close"
+    },
+    {
+      "key": "cloud_signin_page_console",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_page_console"
+    },
+    {
+      "key": "cloud_signin_page_closed",
+      "shard": "cloud",
+      "kind": "string",
+      "name": "cloud_signin_page_closed"
     },
     {
       "key": "cloud_signin_err_timeout",
@@ -1091,12 +1199,6 @@
       "shard": "pairing",
       "kind": "string",
       "name": "pair_get_app"
-    },
-    {
-      "key": "pair_cloud_console_hint",
-      "shard": "pairing",
-      "kind": "string",
-      "name": "pair_cloud_console_hint"
     },
     {
       "key": "settings_title",

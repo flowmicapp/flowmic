@@ -60,6 +60,8 @@ export const TABLES = [
   // with the room row and with the key row, both of which cascade).
   'integrator_keys',
   'integrator_rooms',
+  'integrator_visitor_rooms',
+  'integrator_visitor_days',
   'timeline_blobs',
   'timeline_keymeta',
   'timeline_grants',

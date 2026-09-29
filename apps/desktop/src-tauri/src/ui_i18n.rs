@@ -175,6 +175,8 @@ pub fn init_from_disk() {
 /// generator before it emits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Msg {
+    /// Installed Linux sidecar payload missing; `{path}` identifies the file.
+    SidecarBundledFileMissing,
     /// Tray menu「显示主窗口」("Show main window") — shell/tray.rs `setup_tray`.
     TrayShowMain,
     /// Tray menu「显示胶囊」("Show capsule") — shell/tray.rs `setup_tray`.
@@ -241,6 +243,7 @@ impl Msg {
     /// and silently render a literal count-less sentence.
     pub fn placeholders(self) -> &'static [&'static str] {
         match self {
+            Msg::SidecarBundledFileMissing => &["{path}"],
             Msg::TrayStatusConnected | Msg::TrayTooltipConnected => &["{n}"],
             Msg::AutostartWriteFailed
             | Msg::AutostartRemoveFailed

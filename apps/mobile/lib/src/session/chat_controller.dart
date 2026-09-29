@@ -24,6 +24,8 @@
 // routes inject:result / focus:state / connection edges.
 
 import 'dart:async';
+import '../diag/utterance_timing.dart';
+import 'polish_badge.dart';
 
 import 'package:clock/clock.dart' show clock;
 import 'package:flutter/foundation.dart';
@@ -118,6 +120,7 @@ part 'chat_mode_chip.dart';
 // for the queue's user-visible surface. Same reason as the parts above.
 part 'chat_notices.dart';
 part 'chat_pending_recovery.dart'; // RC-1b the pending-recovery source
+part 'chat_article_completion.dart';
 // Window C-5 — the banner auto-hide reconciler (new) + the OLD dispose() body
 // (moved verbatim, minus its trailing super.dispose() — see that file's
 // header for why both live together and what is new vs. moved).
@@ -621,6 +624,10 @@ class ChatController extends ChangeNotifier
   /// reaching into every producer individually.
   @override
   void notifyListeners() {
+    _rememberArticleDraft();
+    // F5: completion can end on a background article without a mounted route.
+    for (final id in _articleDrafts.keys.toList()) { articleCompletion(id); }
+    store.articleHolds.set(this, articleFinishing ? session.articles.liveArticleId : null);
     reconcileBannerAutoHideRouted(this);
     super.notifyListeners();
   }

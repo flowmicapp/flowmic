@@ -39,6 +39,7 @@ import {
 } from './paired-mobiles';
 import { asCloudStatus, cloudEndpointSsot, type ChannelId, type CloudStatus } from './channel';
 import { asCloudAccountRaw, type CloudAccountRaw } from './cloud-account';
+import { asResendRaw, type ResendRaw } from './verification-resend';
 import { asPairingInfo } from './pairing-info';
 
 // The bridge channel names live in their own module (see its header); they are
@@ -352,6 +353,14 @@ export async function fetchCloudAccount(): Promise<CloudAccountRaw> {
     return { outcome: 'no_bridge', fetched_at: null, detail: null, me: null, summary: null };
   }
   return asCloudAccountRaw(raw);
+}
+
+/** NR-109 — ask the relay to send the verification email again (the key stays in
+ *  Rust). `no_bridge` = the command could not be invoked, never 「sent」. */
+export async function resendVerificationEmail(): Promise<ResendRaw> {
+  const raw = await invokeSafe<unknown>('cloud_verification_resend');
+  if (raw === undefined) return { outcome: 'no_bridge', retry_after_ms: null };
+  return asResendRaw(raw);
 }
 
 /** Sign out of the relay: deletes the Cloud Key stored on THIS PC and drops the

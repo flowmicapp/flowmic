@@ -504,7 +504,7 @@ export function makeSttOrchestratorFactory(
       ...(((ms) => (ms === undefined ? {} : { engineSpawnTimeoutMs: ms }))(
         spawnTimeoutForEngine(selected.routing.engine_id))),
       ...(deps.orchestratorOptions ?? {}),
-      ...(gated ? { shouldFeedEngine: (): boolean => vad!.open, idleHangupMs: DEFAULT_ENGINE_IDLE_HANGUP_MS } : {}),
+      ...(gated ? { shouldFeedEngine: (): boolean => vad!.admitChunk, idleHangupMs: DEFAULT_ENGINE_IDLE_HANGUP_MS } : {}),
       // card RC-1 — the long-recording ladder; the ONE production writer of this option. Strictly `true`:
       // anything else is push-to-talk, which is what an old phone (no field) must get.
       ...(overrides?.continuous === true ? { reconnectUnbounded: true, continuous: true } : {}), // RC-E: `continuous` too

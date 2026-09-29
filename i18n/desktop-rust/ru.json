@@ -1,4 +1,5 @@
 {
+  "SidecarBundledFileMissing": "FlowMic установлен не полностью, отсутствует встроенный файл {path}. Пожалуйста, переустановите FlowMic.",
   "TrayShowMain": "Показать главное окно",
   "TrayShowCapsule": "Показать капсулу",
   "TrayQuit": "Выход",

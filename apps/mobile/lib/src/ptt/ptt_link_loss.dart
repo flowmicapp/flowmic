@@ -249,6 +249,7 @@ extension PttSessionLinkLoss on PttSession {
     final String reason =
         kept ? kLocalStopReasonLinkLossKept : kLocalStopReasonLinkLoss;
     if (!_autoStoppedCtl.isClosed) _autoStoppedCtl.add(reason);
+    timings.active?.close(incomplete: true);
     return true;
   }
 

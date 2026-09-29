@@ -1,11 +1,11 @@
 {
-  "total": 1091,
+  "total": 1103,
   "generated": "scripts/i18n/gen-mobile-dart.mjs",
   "locales": [
     {
       "code": "en",
       "endonym": "English",
-      "translated": 1091,
+      "translated": 1103,
       "placeholders": 0,
       "inheritsBase": 0,
       "percent": 100,
@@ -14,7 +14,7 @@
     {
       "code": "zh-CN",
       "endonym": "中文",
-      "translated": 1091,
+      "translated": 1103,
       "placeholders": 0,
       "inheritsBase": 0,
       "percent": 100,
@@ -23,7 +23,7 @@
     {
       "code": "zh-TW",
       "endonym": "繁體中文",
-      "translated": 1091,
+      "translated": 1103,
       "placeholders": 0,
       "inheritsBase": 0,
       "percent": 100,
@@ -32,7 +32,7 @@
     {
       "code": "fr",
       "endonym": "Français",
-      "translated": 1091,
+      "translated": 1103,
       "placeholders": 0,
       "inheritsBase": 0,
       "percent": 100,
@@ -41,7 +41,7 @@
     {
       "code": "es",
       "endonym": "Español",
-      "translated": 1091,
+      "translated": 1103,
       "placeholders": 0,
       "inheritsBase": 0,
       "percent": 100,
@@ -50,7 +50,7 @@
     {
       "code": "de",
       "endonym": "Deutsch",
-      "translated": 1091,
+      "translated": 1103,
       "placeholders": 0,
       "inheritsBase": 0,
       "percent": 100,
@@ -59,7 +59,7 @@
     {
       "code": "ja",
       "endonym": "日本語",
-      "translated": 1091,
+      "translated": 1103,
       "placeholders": 0,
       "inheritsBase": 0,
       "percent": 100,
@@ -68,7 +68,7 @@
     {
       "code": "ko",
       "endonym": "한국어",
-      "translated": 1091,
+      "translated": 1103,
       "placeholders": 0,
       "inheritsBase": 0,
       "percent": 100,
@@ -77,7 +77,7 @@
     {
       "code": "ru",
       "endonym": "Русский",
-      "translated": 1091,
+      "translated": 1103,
       "placeholders": 0,
       "inheritsBase": 0,
       "percent": 100,

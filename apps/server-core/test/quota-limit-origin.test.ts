@@ -523,12 +523,12 @@ describe('fix-025 ② — the census that keeps the retired name retired', () =>
 
   it('the census can actually fail (it is not matching nothing)', () => {
     expect(callSites(TEST, 'clampHardLimitMs').length).toBeGreaterThan(0);
-    // The replacement's own census: ONE production caller (the factory), plus the
-    // retired alias delegating to it inside the class. Both are intended and both
-    // are named, so 「where does a session's budget come from」 has exactly one
-    // answer and one deprecated door onto it.
+    // The factory's original declaration (extracted verbatim for EMB-14), the
+    // reserved allowance installed at that same build seam, and the retired
+    // alias inside the class. New budget authors must still cross this census.
     expect(callSites(SRC, 'setQuotaBudgetMs').sort()).toEqual([
-      'engine/stt-factory.ts',
+      'engine/stt-quota-budget.ts',
+      'engine/stt-session-allowance.ts',
       'stt/audio/session.ts',
     ]);
     expect(callSites(SRC, 'thisSeamDoesNotExist')).toEqual([]);

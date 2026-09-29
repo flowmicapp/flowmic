@@ -197,6 +197,8 @@ async function collectRootMarkdown({ root }) {
  *             The reported key is the whole path, `typing-hurts.limits`, so a
  *             `--key 'typing-hurts\.'` selects exactly one page.
  *
+ * `surface` -- which `--surface` id the row's units carry ('site' when omitted).
+ *
  * WHY THIS IS A TABLE. Until 2026-09-05 the site surface was `src/i18n` and
  * nothing else, so four directories of page copy -- the guide, the use-case,
  * comparison and download pages, ~5,200 units across nine locales -- were
@@ -205,11 +207,34 @@ async function collectRootMarkdown({ root }) {
  * two questions" shape, in the corpus.
  */
 export const WEB_COPY_DIRS = [
-  { dir: 'src/i18n', shape: 'flat', what: 'site + console catalogues' },
+  { dir: 'src/i18n', shape: 'flat', surface: 'site', what: 'site catalogues (and any console block not yet split out)' },
+  // NR-108 (2026-09-25) split the console and account blocks out of
+  // `src/i18n/<locale>.ts` (a D-14 800-line-file split, VERBATIM) into their
+  // own subdirectories. `collectWeb` only reads `<dir>/<locale>.ts` for a
+  // listed dir -- a subdirectory's locale files are never reached by walking
+  // the parent -- so each split needs its own row or its strings silently
+  // leave the corpus the day the split lands.
+  //
+  // SURFACE LABEL (2026-09-29). These two rows carry `surface: 'console'`.
+  // Until then every row here produced units labelled 'site', so the corpus
+  // reached the console catalogues (`siteVoice*` and the rest) while
+  // `--surface console` was a name that no unit ever carried: the receipt's
+  // per-surface count for it was 0 and a run scoped to it could not be told
+  // apart from a run that found nothing. The console is what a signed-in
+  // account holder sees; `account/` is that same signed-in area (verify-email,
+  // account pages), so it shares the label rather than inventing a third.
+  { dir: 'src/i18n/console', shape: 'flat', surface: 'console', what: 'console catalogues' },
+  { dir: 'src/i18n/account', shape: 'flat', surface: 'console', what: 'account catalogues' },
   { dir: 'src/views/guide/copy', shape: 'nested', what: 'user guide chapters' },
+  // Same split, same reason: the guide's `ui` block moved out of
+  // `src/views/guide/copy/<locale>.ts` into `.../copy/ui/<locale>.ts`.
+  { dir: 'src/views/guide/copy/ui', shape: 'nested', what: 'guide UI reference labels' },
   { dir: 'src/views/usecases/copy', shape: 'nested', what: 'use-case pages' },
   { dir: 'src/views/versus/copy', shape: 'nested', what: 'comparison pages' },
   { dir: 'src/views/download/copy', shape: 'nested', what: 'download pages' },
+  // EMB-10: the English developer guide at /docs/web-voice keeps its words in one
+  // `en.ts` outside src/i18n (it is not localized), so the first row cannot see it.
+  { dir: 'src/views/forsites/copy', shape: 'flat', what: 'web voice developer guide (English only)' },
 ];
 
 /** A TS/JS string or template literal, as source. Shared by both sweeps. */
@@ -332,12 +357,16 @@ function sweepNested(src) {
  * so; the surrounding neighbours are what `scripts/copy-scent-context.mjs`
  * exists to supply.
  */
-async function collectWeb({ webRoot, locales }) {
+async function collectWeb({ webRoot, locales, want = () => true }) {
   if (!webRoot) return { units: [], notes: ['no --web-root given (pass the web checkout, or set FLOWMIC_COPY_AUDIT_WEB_ROOT)'] };
   const units = [];
   const notes = [];
   let readAny = false;
-  for (const { dir, shape } of WEB_COPY_DIRS) {
+  for (const { dir, shape, surface = 'site' } of WEB_COPY_DIRS) {
+    // Only the rows of a requested surface: `--surface console` must not
+    // report the guide directories as unreadable, and `--surface site` must
+    // not quietly include console copy under a name it did not ask for.
+    if (!want(surface)) continue;
     const abs = path.join(webRoot, ...dir.split('/'));
     let names;
     try {
@@ -356,7 +385,7 @@ async function collectWeb({ webRoot, locales }) {
       for (const { key, raw, index } of shape === 'nested' ? sweepNested(src) : sweepFlat(src)) {
         const text = raw[0] === '`' ? raw.slice(1, -1) : decodeLiteral(raw);
         if (text === null || !isAuditableText(text)) continue;
-        units.push({ id: `web/${dir}/${locale}#${key}@${index}`, surface: 'site', locale, file: `web/${dir}/${name}`, key, text });
+        units.push({ id: `web/${dir}/${locale}#${key}@${index}`, surface, locale, file: `web/${dir}/${name}`, key, text });
       }
     }
   }
@@ -382,31 +411,38 @@ async function collectWeb({ webRoot, locales }) {
  * set and never a throw. A green run that quietly lost this surface is the
  * failure this table exists to refuse.
  *
- * ── 2026-09-15: THE TABLE IS EMPTY, AND THAT IS A STATEMENT ─────────────────
+ * ── 2026-09-15: THE TABLE WAS EMPTY, AND THAT WAS A STATEMENT ───────────────
  * It held one row, `apps/mic/src/i18n/missingWebCopy.ts` -- English drafts for
  * keys the nine-locale subset did not yet name, rendered as an obvious
  * scaffold. THAT FILE WAS DELETED in the web client's `d9ed4ac`, when its five
  * sentences moved into `@flowmic/i18n-web` -- where this corpus already
  * collects them, as `app`. The row outlived the file, so EVERY `copy:audit`
- * run printed
- *     SKIP: web-client corpus reduced — not readable: ...missingWebCopy.ts
- * A SKIP that fires on every run is a SKIP nobody reads: it announced a hole
- * that did not exist, and trained the reader to scroll past the one line that
- * would announce a hole that did.
+ * run printed a SKIP for a hole that did not exist, and trained the reader to
+ * scroll past the one line that would announce a hole that did. The table
+ * was emptied, and a drill pins that a stale row cannot come back unnoticed.
  *
- * WHY THE MECHANISM BELOW STAYS ANYWAY. "Nothing is authored there" is a fact
- * about today, not a property of that repository. Keeping the sweep armed (its
- * drill passes a synthetic table of its own, for exactly this reason) makes one
- * row here the whole fix on the day a sentence IS typed over there.
+ * ── 2026-09-29: ONE ROW, BECAUSE A SENTENCE IS NOW TYPED OVER THERE ─────────
+ * The embed widget's visitor copy (AGY job 16, 26 keys x 9 locales) lives in
+ * `packages/sdk/src/dev-copy.json` in the web client and comes from no
+ * catalogue this corpus reads. Until this row, `--surface webclient` audited
+ * nothing (measured: 0 units) while the widget shipped nine languages of
+ * hand-landed sentences past the copy-scent gate. Its shape is
+ * locale -> key -> sentence, declared as `localeKeyJson`.
  *
- * AND WHAT MAKES THIS ZERO HONEST IS NOT THIS FILE. An empty table cannot
- * notice a sentence typed straight into a `.vue` template; a declaration only
- * ever finds what it was pointed at. The instrument that can is in the other
- * repository -- `scripts/corpus-honesty.mjs` there sweeps its own tree
- * (`sweepAuthoredCopy()`), asks THIS audit what it sees, and fails when the two
- * answers disagree. Two instruments, two trees, one question.
+ * TWO COUPLINGS, BOTH GREPPABLE. (1) The web client's own
+ * `scripts/corpus-honesty.mjs` mirrors this list by regex on `file: '...'`
+ * (single quotes, one per row) and reports DISAGREE until it names the same
+ * file: keep this literal shape. (2) Other sdk files (`copy-keys.json`,
+ * `loader-copy-keys.json`) are key SELECTIONS, not copy, and are deliberately
+ * not declared; `signInErrorCopy.ts`-style files select from i18n-web.
+ *
+ * WHY THE MECHANISM STAYS SHAPE-GENERIC. "Authored there" is a fact about a
+ * repository that changes; a new authored catalogue over there is one row
+ * here, and its drill supplies a synthetic table of its own.
  */
-export const WEB_CLIENT_COPY_FILES = [];
+export const WEB_CLIENT_COPY_FILES = [
+  { file: 'packages/sdk/src/dev-copy.json', shape: 'localeKeyJson', what: 'embed widget visitor copy: locale -> key -> sentence' },
+];
 
 const WEB_CLIENT_SKIP =
   'SKIP: web-client corpus omitted — sibling checkout not found (pass --web-client-root or set FLOWMIC_COPY_AUDIT_WEB_CLIENT_ROOT). This run audited a reduced corpus; a green here is not a green on the web client.';
@@ -423,7 +459,7 @@ function sweepEnglishDrafts(src) {
 }
 
 async function collectWebClient({ clientRoot, locales, files = WEB_CLIENT_COPY_FILES }) {
-  // Nothing declared: a STATED zero, and the one state here that gets no note.
+  // Nothing declared (a caller-supplied empty table): a STATED zero, and the one state here that gets no note.
   // It is asked before the checkout is even looked for, because with no
   // declaration the sibling's presence answers nothing -- and because a note
   // printed on every run is the defect this branch exists to remove, not a
@@ -443,20 +479,38 @@ async function collectWebClient({ clientRoot, locales, files = WEB_CLIENT_COPY_F
   const notes = [];
   let readAny = false;
   for (const { file, shape, locale } of files) {
-    if (locales && !locales.includes(locale)) continue;
+    if (shape === 'englishDrafts' && locales && !locales.includes(locale)) continue;
     const abs = path.join(clientRoot, ...file.split('/'));
-    let src;
+    let raw;
     try {
-      src = maskTsComments(await readFile(abs, 'utf8'));
+      raw = await readFile(abs, 'utf8');
     } catch {
       notes.push(`SKIP: web-client corpus reduced — not readable: ${abs} (declared authored-there file).`);
       continue;
     }
     readAny = true;
+    if (shape === 'localeKeyJson') {
+      let table;
+      try {
+        table = JSON.parse(raw);
+      } catch {
+        notes.push(`SKIP: web-client corpus reduced — not valid JSON: ${abs} (declared authored-there file).`);
+        continue;
+      }
+      for (const [loc, row] of Object.entries(table)) {
+        if (locales && !locales.includes(loc)) continue;
+        for (const [key, text] of Object.entries(row ?? {})) {
+          if (typeof text !== 'string' || !isAuditableText(text)) continue;
+          units.push({ id: `web-client/${file}/${loc}#${key}`, surface: 'webclient', locale: loc, file: `web-client/${file}`, key, text });
+        }
+      }
+      continue;
+    }
     if (shape !== 'englishDrafts') continue;
-    for (const { keyRaw, raw, index } of sweepEnglishDrafts(src)) {
+    const src = maskTsComments(raw);
+    for (const { keyRaw, raw: lit, index } of sweepEnglishDrafts(src)) {
       const key = decodeLiteral(keyRaw);
-      const text = raw[0] === '`' ? raw.slice(1, -1) : decodeLiteral(raw);
+      const text = lit[0] === '`' ? lit.slice(1, -1) : decodeLiteral(lit);
       if (key === null || text === null || !isAuditableText(text)) continue;
       units.push({
         id: `web-client/${file}/${locale}#${key}@${index}`,
@@ -621,7 +675,7 @@ export async function collectUnits({ root = ROOT, surfaces = null, locales = nul
     units = units.concat(md.filter((u) => want(u.surface)));
   }
   if (want('site') || want('console')) {
-    const web = await collectWeb({ webRoot, locales });
+    const web = await collectWeb({ webRoot, locales, want });
     for (const reason of web.notes) notes.push(`site/console NOT fully audited -- ${reason}`);
     units = units.concat(web.units);
   }

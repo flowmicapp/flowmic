@@ -98,18 +98,12 @@ export const PAIRING_KEYS = [
   // Link LABEL only — the href comes from `PAIR_APP_URL` below (a plain
   // constant, NOT a locale key: see its comment for why).
   'pair_get_app',
-  // The cloud tab's Cloud-Key dead end: `dev_chan_cloud_no_key` (owned by
-  // devices.ts, sibling card F5+U11) says a key is needed but not where one
-  // comes from. This modal does not own that string, so it adds the pointer
-  // as a second line instead of rewriting sibling copy. Domain confirmed LIVE
-  // in code: apps/server-core/src/config.ts symbol `DEFAULT_CORS_ORIGIN =
-  // 'https://flowmic.app'` (symbol anchor, not a line number: IT-50 —
-  // server-core legitimately edits that file and a line-numbered reference
-  // from here turns their normal edit into everyone's failing gate);
-  // the `/console` path is the one real-device
-  // testers actually opened in a browser (docs/strategy/2026-08-02-a2-real-
-  // device-sheet.md:348,508 — [measured]) rather than a guess.
-  'pair_cloud_console_hint',
+  // `pair_cloud_console_hint` (U8, 「get a Cloud Key from the console, then paste
+  // it on the Devices page」) was RETIRED by NR-109 (2026-09-26): the blocked
+  // cloud tab now embeds the sign-in form itself (CloudSignInGuide), so a line
+  // sending the user elsewhere to do it had no producer left, and a string with
+  // no producer goes with it (the INJECT_NO_RECEIPT precedent). Its reasoning
+  // (the /console domain evidence) is in git history at this line.
 ] as const;
 
 // Notes that were recorded against a TRANSLATION rather than against the

@@ -7,7 +7,9 @@
 // The streamer contract shared by both protocol implementations. A streamer is
 // an async generator that yields `delta` events as text arrives and terminates
 // with EXACTLY ONE `done` (carrying the accumulated text + best-effort token
-// usage) OR ONE `error` (a whitelisted @flowmic/protocol LLM_* code). A streamer
+// usage) OR ONE `error` (a whitelisted @flowmic/protocol code: an LLM_* code for
+// transport/provider faults, or COMPOSE_OUTPUT_REJECTED when the provider itself
+// reports the answer is not a complete answer — anthropic.ts `incompleteStop`). A streamer
 // NEVER throws — transport/parse failures become an `error` event — and NEVER
 // yields the raw input back as output on failure (the red line lives one layer up in
 // the orchestrator, which turns an `error` event into a thrown ServerError so
@@ -25,6 +27,14 @@ export interface LlmUsage {
   tokens_out: number;
 }
 
+/** Privacy-safe finish classification shared by provider events and timing logs. */
+export type LlmFinishReason = 'stop' | 'length' | 'content_filter' | 'none' | 'other';
+
+export function toLlmFinishReason(value: unknown): LlmFinishReason {
+  if (value === 'stop' || value === 'length' || value === 'content_filter' || value === 'other') return value;
+  return value == null ? 'none' : 'other';
+}
+
 export interface LlmStreamOpts {
   cfg: LlmConfig;
   /** Stable system prompt (scenario prefix + task template). */
@@ -33,6 +43,8 @@ export interface LlmStreamOpts {
   user: string;
   /** Budget/cancel signal; abort surfaces as an LLM_TIMEOUT error event. */
   signal?: AbortSignal;
+  /** Compose-only output cap. STT polish leaves this absent. */
+  maxTokens?: number;
   /** Injectable fetch (tests). Defaults to node-native globalThis.fetch. */
   fetch?: typeof globalThis.fetch;
   /**
@@ -60,8 +72,9 @@ export interface LlmDelta { kind: 'delta'; text: string }
  *  nothing. Absent whenever the provider does not say (→ the UI shows "not provided",
  *  never a fabricated value). Additive + optional: the compose orchestrator
  *  ignores it, so no existing consumer changes. */
-export interface LlmDone { kind: 'done'; full: string; usage?: LlmUsage; model?: string }
-export interface LlmError { kind: 'error'; code: string; message: string }
+export interface LlmDone { kind: 'done'; full: string; usage?: LlmUsage; model?: string; finish_reason?: LlmFinishReason }
+/** A failed answer can still cost tokens. Carry only usage the provider reported. */
+export interface LlmError { kind: 'error'; code: string; message: string; usage?: LlmUsage; finish_reason?: LlmFinishReason }
 export type LlmEvent = LlmDelta | LlmDone | LlmError;
 
 export type LlmStreamer = (opts: LlmStreamOpts) => AsyncGenerator<LlmEvent>;

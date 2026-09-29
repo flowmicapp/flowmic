@@ -298,17 +298,17 @@ describe('probe 4 — professions / domains (scenario.card)', () => {
 });
 
 describe('probe 5 — AI polish (stt.polish)', () => {
-  it('absent row reads OFF; the desktop value round-trips with its strength', () => {
+  it('absent row reads ON (NR-132); an explicit value round-trips with its strength', () => {
     const db = freshDb();
-    const off = readSttPolish(db.settings, U);
+    const dflt = readSttPolish(db.settings, U);
     rec({
       setting: 'stt.polish (absent row)',
       consumer: 'polishArming',
-      reached: off.enabled,
-      evidence: JSON.stringify(off),
-      note: 'absent row => DEFAULT {enabled:false}: a server that never received the key runs bare STT',
+      reached: dflt.enabled,
+      evidence: JSON.stringify(dflt),
+      note: 'absent row => DEFAULT {enabled:true} (NR-132: matches the untouched phone switch); with no usable model the session degrades to polish_reason not_configured',
     });
-    expect(off.enabled).toBe(false);
+    expect(dflt.enabled).toBe(true);
 
     db.settings.write(U, 'stt.polish', { enabled: true, strength: 'smooth' });
     const on = readSttPolish(db.settings, U);

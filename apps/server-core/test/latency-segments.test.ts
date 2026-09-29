@@ -51,7 +51,7 @@ describe('latency segmentation (server clock only)', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]?.msg).toBe('latency.segment');
     expect(lines[0]?.fields).toMatchObject({
-      entry_id: 'e1',
+      entry_id: null,
       stt_ms: 400,
       phone_turnaround_ms: 120,
       inject_ms: 80,
@@ -117,7 +117,7 @@ describe('latency segmentation (server clock only)', () => {
     // B's numbers must be B's. If A's t0 had been reused the total would be
     // ~10 650 ms — a plausible number that is simply not true.
     expect(lines).toHaveLength(1);
-    expect(lines[0]?.fields).toMatchObject({ entry_id: 'eB', stt_ms: 200, server_total_ms: 350 });
+    expect(lines[0]?.fields).toMatchObject({ entry_id: null, stt_ms: 200, server_total_ms: 350 });
   });
 
   it('only the FIRST stt:final of a leg is timed (soft segments do not restamp)', () => {
@@ -212,4 +212,33 @@ describe('WP2-6b latency.summary production-leg reader', () => {
     reader.stop();
     expect(cleared).toBe(true);
   });
+});
+
+
+// NR118 exercises the actual production emitter, including a rollover after stop.
+import { makeSttEmitter } from '../src/engine/stt-factory';
+import { markAudioStartMeta, markFlushBacklog } from '../src/obs/latency';
+it('NR118 terminal-only t1 and tcorr survive a segment final after stop', () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+  const emitter = makeSttEmitter({ resolveSocket: () => null, store: {} as never, roomUuid: ROOM, delivery: 'none' });
+  markAudioStartMeta(ROOM, { mode: 'realtime', delivery: 'none', send_policy: 'direct' });
+  clock.mockReturnValue(2000); markAudioStop(ROOM, undefined, 800);
+  markFlushBacklog(ROOM, 400); markFlushSent(ROOM);
+  clock.mockReturnValue(2100); emitter.emit('stt:final', { is_segment: true });
+  clock.mockReturnValue(2400); emitter.emit('stt:final', { is_segment: false, utterance_id: 'abcdef0123456789' });
+  clock.mockReturnValue(2500); markInjectRequest(ROOM, 'entry');
+  clock.mockReturnValue(2600); markInjectResult(ROOM, 'entry');
+  expect(lines.find(l => l.msg === 'latency.segment')?.fields).toMatchObject({ stt_ms: 400, tcorr: 'abcdef', audio_ms: 800, uplink_lag_ms: 200, backlog_ms: 400 });
+  emitLatencySummary();
+  expect(lines.find(l => l.msg === 'latency.summary')?.fields).toMatchObject({ stt_ms_p90: 400, n_stop: 1, n_final: 1, n_inject_result: 1 });
+});
+it('NR118 deferred-origin inject never stamps t2', () => {
+  const c = clockFrom(0);
+  markAudioStop(ROOM, c.now);
+  c.advance(100); markSttFinal(ROOM, c.now);
+  c.advance(100); markInjectRequest(ROOM, 'retry', c.now, { source: 'stt', origin: 'deferred' });
+  markInjectResult(ROOM, 'retry', c.now); // its result must not consume the live leg either
+  c.advance(100); markInjectRequest(ROOM, 'live', c.now, { source: 'stt', origin: 'live' });
+  c.advance(100); markInjectResult(ROOM, 'live', c.now);
+  expect(lines.find(l => l.msg === 'latency.segment')?.fields).toMatchObject({ phone_turnaround_ms: 200, inject_ms: 100, inj_origin: 'live' });
 });

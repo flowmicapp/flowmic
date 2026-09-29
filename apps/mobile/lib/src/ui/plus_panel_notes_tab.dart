@@ -44,9 +44,11 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import '../session/backfill_runner.dart';
+import '../session/chat_controller.dart';
 import '../timeline/entry_metrics.dart';
 import 'article_copy.dart' show articleCopyText;
 import 'article_page.dart';
+import 'article_recovery_presentation.dart';
 
 import '../settings/app_strings.dart';
 import '../timeline/cloud/light_record_query.dart';
@@ -73,6 +75,7 @@ class PlusPanelNotesTab extends StatefulWidget {
     this.selection,
     this.imageSendable,
     this.backfill,
+    this.articleController,
   }) : assert(
          selection == null || imageSendable != null,
          'REQ-12-09 09-G: see PlusPanel\'s own assert — a tick box over a '
@@ -121,6 +124,7 @@ class PlusPanelNotesTab extends StatefulWidget {
   /// Null ⇒ no recovery channel is wired (test shapes), and the article page
   /// says nothing about catching up. Absence, never a fabricated zero.
   final ValueListenable<BackfillProgress>? backfill;
+  final ChatController? articleController;
 
   @override
   State<PlusPanelNotesTab> createState() => _PlusPanelNotesTabState();
@@ -690,24 +694,56 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
     final List<TimelineEntry> rows =
         await widget.query.membersOf(head.clientId);
     if (!mounted) return;
-    // Card RC-G — this piece's debt, not the phone's (BackfillProgress.forArticle).
-    final ArticleBackfill owed =
-        widget.backfill?.value.forArticle(head.articleId ?? head.clientId) ??
-            ArticleBackfill.none;
+    Widget page(BackfillProgress progress) {
+      final String id = head.articleId ?? head.clientId;
+      final controller = widget.articleController;
+      // The current article includes unpersisted draft/stop facts. Use the
+      // same host as the chat route, including the pre-scan recovery state.
+      if (controller != null && controller.session.articles.liveArticleId == id) {
+        return ArticlePage.live(
+          controller: controller,
+          articleId: id,
+          strings: widget.strings,
+          bar: () => null,
+          focusRowId: focusRowId,
+          highlight: highlight,
+        );
+      }
+      final ArticleBackfill owed = progress.forArticle(id);
+      final recovery = articleRecoveryPresentation(
+        owed,
+        widget.strings,
+        recovering: progress.recoveringArticleId == id,
+      );
+      return ArticlePage(
+        head: head,
+        rows: rows,
+        strings: widget.strings,
+        pendingBackfillMs: recovery.pendingMs,
+        pendingBackfillFromOutage: owed.fromOutage,
+        recoveryStatus: recovery.sentence == null || recovery.completion == null
+            ? null
+            : ArticleRecoveryStatus(
+                completion: recovery.completion!,
+                sentence: recovery.sentence!,
+                detail: recovery.detail,
+              ),
+        focusRowId: focusRowId,
+        highlight: highlight,
+      );
+    }
+
     // The ROOT navigator: this tab lives inside a modal sheet, and pushing
     // onto the sheet's own navigator would open a transcript inside a
     // half-height panel.
     await Navigator.of(context, rootNavigator: true).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => ArticlePage(
-          head: head,
-          rows: rows,
-          strings: widget.strings,
-          pendingBackfillMs: owed.pendingMs,
-          pendingBackfillFromOutage: owed.fromOutage,
-          focusRowId: focusRowId,
-          highlight: highlight,
-        ),
+        builder: (_) => widget.backfill == null
+            ? page(BackfillProgress.idle)
+            : ValueListenableBuilder<BackfillProgress>(
+                valueListenable: widget.backfill!,
+                builder: (_, progress, _) => page(progress),
+              ),
       ),
     );
   }

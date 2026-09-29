@@ -23,6 +23,7 @@
 // Merging them would force one of the two semantics onto the other.
 
 import 'dart:async';
+import '../diag/utterance_timing.dart';
 
 import '../signaling/inbound_payloads.dart';
 import '../signaling/wire_payloads.dart' show ComposeStartPayload, ComposeTask;
@@ -90,6 +91,7 @@ class UtteranceComposeController {
   ComposeTask? _task;
   String _live = '';
   Timer? _timer;
+  UtteranceTiming? _timing;
 
   bool get isRunning => _entryId != null;
 
@@ -107,6 +109,7 @@ class UtteranceComposeController {
   /// [requestId] is the utterance client id, so chunk/done/error echoes
   /// correlate exactly like the inject path does (A-58, no FIFO guessing).
   AiComposeFailure? start({
+    UtteranceTiming? timing,
     required String entryId,
     required String requestId,
     required ComposeTask task,
@@ -125,6 +128,8 @@ class UtteranceComposeController {
     // happened") is exactly the shape the
     // "no silent failure" red line forbids.
     if (isRunning) return AiComposeFailure.busy;
+    _timing = timing;
+    _timing?.mark(UtteranceMark.composeStart);
     _entryId = entryId;
     _requestId = requestId;
     _task = task;
@@ -162,6 +167,7 @@ class UtteranceComposeController {
         _live = '$_live$delta';
         _host.ucNotify();
       case AiComposeDone(:final String outputText):
+        _timing?.mark(UtteranceMark.composeDone);
         _end();
         // done carries the WHOLE result — take it verbatim rather than trusting
         // the accumulated chunks, so a dropped chunk cannot leave torn text.
@@ -209,6 +215,7 @@ class UtteranceComposeController {
   void _end() {
     _timer?.cancel();
     _timer = null;
+    _timing = null;
     _entryId = null;
     _requestId = null;
     _task = null;

@@ -43,6 +43,7 @@ import { registerPcListMobilesHandler } from './pc-list-mobiles';
 import { dropAbsentPairingOnReplica, dropRevokedPairingsOnReplica } from '../../node/replica-row-reconcile';
 import { dropDisplacedPc } from './pc-slot-displacement';
 import { clientDeclarationOf } from './client-declaration'; // card S2-01
+import type { NotePcIdentity } from '../../node/pc-identity-forward'; // card NR-131
 import { budgetAckFields, pushJoinBudget, type BudgetHandlerDeps } from './budget-frames';
 
 export interface PcHandlerDeps extends BudgetHandlerDeps {
@@ -73,6 +74,11 @@ export interface PcHandlerDeps extends BudgetHandlerDeps {
    * 「there is no such fact here」, never 「skip recording it」.
    */
   stampHomeNode?: (pcId: string) => void;
+  /** card NR-131 — node-runtime `notePcIdentity`: on a replica it forwards the
+   *  uid + declaration this leg just stamped locally (the next pull erases the
+   *  local copy); on the writer it notes the instant for last-writer-wins.
+   *  Absent on a single node, where the registry write is the only copy. */
+  notePcIdentity?: NotePcIdentity;
   liveness?: LivenessDeps;
   /** GA-08: the shared reconnect-suppression window "disconnect" writes and
    *  `mobile:reconnect` reads. Omitted → a release still disconnects, but the
@@ -236,6 +242,7 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
       });
       setAuth(socket, { userId, deviceId: pc.id, kind: 'pc' });
       deps.stampHomeNode?.(pc.id);
+      deps.notePcIdentity?.(pc, { ...(parsed.data.machine_uid !== undefined ? { machine_uid: parsed.data.machine_uid } : {}), ...clientDeclarationOf(parsed.data) });
       setRoomUuid(socket, pc.room_uuid);
       dropDisplacedPc(pc.room_uuid, store.joinPc(pc.room_uuid, socket).previous, socket);
       // card ACC-1 — this machine now serves THIS account, so its rows under
@@ -464,6 +471,7 @@ export function registerPcHandlers(socket: Socket, deps: PcHandlerDeps): void {
       // collected only at register reaches almost nobody (`pcid`, fixed in 0.3.1).
       registry.notePcClientDeclaration(pc.id, clientDeclarationOf(parsed.data));
       deps.stampHomeNode?.(pc.id);
+      deps.notePcIdentity?.(pc, { ...(parsed.data.machine_uid !== undefined ? { machine_uid: parsed.data.machine_uid } : {}), ...clientDeclarationOf(parsed.data) });
       setRoomUuid(socket, pc.room_uuid);
       dropDisplacedPc(pc.room_uuid, store.joinPc(pc.room_uuid, socket).previous, socket);
       // book 18 §7.3 — back in the room ⇒ any recorded reason for its absence is

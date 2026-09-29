@@ -35,6 +35,8 @@
 // (the relay's flush), never by a process: after a restart there is no wire
 // session it could belong to. [kLedgerCapacity] is far above one sweep's worth.
 
+import 'package:flutter/foundation.dart';
+
 import 'article_replay.dart';
 
 /// Where a frame of a known attempt goes now. See [RecoveryAttemptLedger.routeOf].
@@ -83,6 +85,15 @@ class _Attempt {
 const int kLedgerCapacity = 32;
 
 class RecoveryAttemptLedger {
+  final ValueNotifier<String?> _recoveringArticle = ValueNotifier(null);
+  ValueListenable<String?> get recoveringArticle => _recoveringArticle;
+
+  void _publishRecovery() {
+    _recoveringArticle.value = wireAttemptInFlight
+        ? cursorOf(_wireAttemptId!)?.articleId
+        : null;
+  }
+
   final Map<String, _Attempt> _attempts = <String, _Attempt>{};
 
   /// How a late settle is run. `BackfillRunner` installs its single-flight
@@ -107,6 +118,7 @@ class RecoveryAttemptLedger {
   void openedLive() {
     _wireAttemptId = null;
     _wireIsLive = true;
+    _publishRecovery();
   }
 
   /// A recovery without an identity opened the wire (the legacy segment leg,
@@ -115,6 +127,7 @@ class RecoveryAttemptLedger {
     _wireAttemptId = null;
     _wireIsLive = null;
     _wireYielded = false;
+    _publishRecovery();
   }
 
   // ── Follow-up (MAIN 2026-09-24): LIVE SPEECH OWNS THE WIRE ────────────────
@@ -199,6 +212,7 @@ class RecoveryAttemptLedger {
     _yieldedAttemptId = id;
     _discardUntilAck = true;
     _heldSweep = true;
+    _publishRecovery();
   }
 
   String? _yieldedAttemptId;
@@ -251,6 +265,7 @@ class RecoveryAttemptLedger {
     _wireAttemptId = attemptId;
     _wireIsLive = false;
     _wireYielded = false;
+    _publishRecovery();
   }
 
   /// The attempt id the session open on the wire answers to — the live
@@ -318,6 +333,7 @@ class RecoveryAttemptLedger {
     final _Attempt? a = _attempts[attemptId];
     if (a == null) return;
     a.concluded = true;
+    _publishRecovery();
     if (awaitingVerdict && !a.superseded) {
       a
         ..failed = true
@@ -337,6 +353,7 @@ class RecoveryAttemptLedger {
       ..failed = true
       ..pendingVerdict = false
       ..onLate = a.superseded ? null : onLate;
+    _publishRecovery();
     final (List<String>, Object)? b = a.buffered;
     a.buffered = null;
     if (b != null) lateResultLanded(attemptId, b.$1, b.$2);

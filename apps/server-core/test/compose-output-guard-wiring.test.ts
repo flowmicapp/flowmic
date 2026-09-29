@@ -31,13 +31,14 @@
 // prose — that discipline outlives the registration state, which is why
 // nothing below needed to change.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Socket } from 'socket.io';
 import { safeParseEvent } from '@flowmic/protocol';
 import { createComposeRun, ComposeOutputRejectedError, COMPOSE_OUTPUT_REJECTED_CODE } from '../src/compose';
 import type { LlmEvent, LlmStreamer } from '../src/compose';
 import type { LlmConfig } from '@flowmic/protocol';
 import { registerComposeHandlers } from '../src/socket/handlers/compose.handler';
+import { log } from '../src/log';
 
 const CFG: LlmConfig = {
   protocol: 'openai-compatible',
@@ -265,5 +266,46 @@ describe('W2-2 — a guard rejection reaches the phone as compose:error', () => 
     expect(done).toBeDefined();
     expect(done!.payload['output_text']).toBe('季度报告周五上午到期。');
     expect(emitted.filter((e) => e.event === 'compose:chunk').length).toBeGreaterThan(0);
+  });
+
+  it('a throwing compose timing logger leaves the compose:done payload unchanged', async () => {
+    const request = {
+      request_id: 'req-timing',
+      entry_id: 'entry-timing',
+      task: 'translate',
+      source_text: SOURCE_EN,
+      source_lang: 'en',
+      target_lang: 'zh-CN',
+    };
+    const run = async (throwOnTiming: boolean): Promise<{ payload: Record<string, unknown>; timingCalls: number }> => {
+      const { socket, emitted, fire } = fakeSocket();
+      const info = vi.spyOn(log, 'info');
+      if (throwOnTiming) {
+        info.mockImplementation((name) => {
+          if (name === 'compose.timing') throw new Error('timing logger failed');
+        });
+      }
+      try {
+        registerComposeHandlers(socket, depsWith('季度报告周五上午到期。'));
+        await fire(request);
+        return {
+          payload: emitted.find((e) => e.event === 'compose:done')?.payload ?? {},
+          timingCalls: info.mock.calls.filter(([name]) => name === 'compose.timing').length,
+        };
+      } finally {
+        info.mockRestore();
+      }
+    };
+
+    const baselinePayload = await run(false);
+    const throwingLoggerPayload = await run(true);
+    expect(throwingLoggerPayload.timingCalls).toBeGreaterThan(0);
+    expect(throwingLoggerPayload.payload).toEqual(baselinePayload.payload);
+    expect(throwingLoggerPayload.payload).toEqual({
+      output_text: '季度报告周五上午到期。',
+      task: 'translate',
+      request_id: 'req-timing',
+      entry_id: 'entry-timing',
+    });
   });
 });

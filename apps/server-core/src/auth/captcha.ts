@@ -51,6 +51,12 @@ import { log } from '../log';
 /** Cloudflare's server-side verification endpoint. */
 export const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
+/** Server-owned context; never read these expectations from the request body. */
+export interface CaptchaContext {
+  readonly hostnames: readonly string[];
+  readonly actions: readonly string[];
+}
+
 /**
  * 「Is this challenge token good」 — the ONE question the registration surge
  * gate asks of a captcha provider.
@@ -77,7 +83,7 @@ export interface CaptchaVerifier {
    * @param remoteIp the caller's address, passed through to the provider as a
    *   corroborating signal. Optional because it is optional to Turnstile.
    */
-  verify(token: string, remoteIp?: string): Promise<boolean>;
+  verify(token: string, remoteIp?: string, context?: CaptchaContext): Promise<boolean>;
 }
 
 /** The subset of `fetch` this module uses. Injected so a test can drive the
@@ -136,7 +142,7 @@ export function makeTurnstileVerifier(deps: {
   return {
     id: 'turnstile',
     configured: true,
-    async verify(captchaToken: string, remoteIp?: string): Promise<boolean> {
+    async verify(captchaToken: string, remoteIp?: string, context?: CaptchaContext): Promise<boolean> {
       if (captchaToken === '') return false;
       const form = new URLSearchParams();
       form.set('secret', deps.secret);
@@ -166,10 +172,26 @@ export function makeTurnstileVerifier(deps: {
         });
         return false;
       }
-      const parsed = body as { success?: unknown; 'error-codes'?: unknown } | null;
+      const parsed = body as { success?: unknown; hostname?: unknown; action?: unknown; 'error-codes'?: unknown } | null;
       // `=== true`, never truthiness: a body that carries `success: "false"`
       // (a string) or any other shape must not open the gate.
-      if (parsed?.success === true) return true;
+      if (parsed?.success === true) {
+        if (context !== undefined) {
+          // Old demo cards omit action. Siteverify represents that as an empty
+          // action (or no action); only a caller explicitly allowing '' accepts it.
+          const action = parsed.action === undefined ? '' : parsed.action;
+          if (typeof parsed.hostname !== 'string' || !context.hostnames.includes(parsed.hostname) ||
+              typeof action !== 'string' || !context.actions.includes(action)) {
+            log.warn('captcha: token context rejected', {
+              provider: 'turnstile',
+              hostname: typeof parsed.hostname === 'string' ? parsed.hostname.slice(0, 100).replace(/[^a-zA-Z0-9.-]/g, '') : '',
+              action: typeof action === 'string' ? action.slice(0, 100).replace(/[^a-zA-Z0-9_-]/g, '') : '',
+            });
+            return false;
+          }
+        }
+        return true;
+      }
       // The provider's error codes go to OUR log and never onto the wire — an
       // anonymous caller learning which check failed is being handed a tuning
       // signal for the next attempt (the rule google-auth-routes.ts states).

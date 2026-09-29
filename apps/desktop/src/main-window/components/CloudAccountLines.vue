@@ -19,6 +19,10 @@
 import { computed } from 'vue';
 import { S } from '../../lib/strings';
 import type { AccountCard } from '../../lib/cloud-account';
+// NR-109: the `unverified` phase's way forward. It re-uses this component's
+// `retry` for its 「already verified ⇒ read again」 case, so neither embedding page
+// had to learn a second event.
+import VerificationResend from './VerificationResend.vue';
 
 // 🔴 M3-8: this component used to take a second prop, `cloud: CloudStatus`, and the
 // Account row read `card.account?.email ?? card.account?.account_id ?? cloud.subject`.
@@ -151,6 +155,7 @@ const hasRowsAbove = computed(
         {{ S.cloud_acct_retry }}
       </button>
     </div>
+    <VerificationResend v-if="card.phase === 'unverified'" @recheck="emit('retry')" />
   </div>
 </template>
 

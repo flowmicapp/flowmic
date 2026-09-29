@@ -21,6 +21,8 @@
 // production one (`unconfiguredCaptchaVerifier`), not a copy of it.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { log } from '../src/log';
+import { vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createDbConnection, type DbConnection } from '../src/db/connection';
@@ -30,7 +32,7 @@ import { RegisterRateLimiter } from '../src/auth/register-rate-limit';
 import { makeBudgetPusher, budgetReaderFrom } from '../src/billing/budget-push';
 import { planLimits } from '../src/billing/plans';
 import { makeTrialLedger, type TrialLedger } from '../src/billing/trial-ledger';
-import { unconfiguredCaptchaVerifier, type CaptchaVerifier } from '../src/auth/captcha';
+import { makeTurnstileVerifier, unconfiguredCaptchaVerifier, type CaptchaVerifier } from '../src/auth/captcha';
 import { Registry } from '../src/room/registry';
 import {
   tryHandleWebAnonRoutes, ANON_TOKEN_TTL_MS, type WebAnonRoutesDeps,
@@ -137,6 +139,67 @@ beforeEach(async () => {
 afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
+});
+
+describe('NR-121 provider context on the real anonymous route', () => {
+  function provider(body: unknown): CaptchaVerifier {
+    return makeTurnstileVerifier({
+      secret: 'test-secret',
+      fetchImpl: async () => ({ ok: true, status: 200, json: async () => body }),
+    });
+  }
+
+  it.each(['try', 'home-try', '', undefined])('accepts the supported or legacy action %s', async (action) => {
+    anonDeps = makeAnonDeps({ captcha: provider({ success: true, hostname: 'flowmic.app', action }) });
+    expect((await mint()).status).toBe(200);
+    expect(db.users.listAll()).toHaveLength(1);
+  });
+
+  it.each([
+    { hostname: 'evil.example', action: 'try' },
+    { hostname: 'flowmic.app.evil.example', action: 'try' },
+    { hostname: 'www.flowmic.app', action: 'try' },
+    { hostname: undefined, action: 'try' },
+    { hostname: 'flowmic.app', action: 'signup' },
+    { hostname: 'flowmic.app', action: 'unknown' },
+    { hostname: 'flowmic.app', action: null },
+    { hostname: 'flowmic.app', action: 0 },
+  ])('rejects a successful token for the wrong context: %j', async (context) => {
+    anonDeps = makeAnonDeps({ captcha: provider({ success: true, ...context }) });
+    const result = await mint();
+    expect(result.status).toBe(400);
+    expect(result.json.error).toBe('WEB_ROOM_TURNSTILE_FAILED');
+    expect(db.users.listAll()).toHaveLength(0);
+  });
+
+  it.each([
+    { hostname: 'wrong.example', action: 'signup', expectedHost: 'wrong.example', expectedAction: 'signup' },
+    { hostname: 'evil.<\n/>例'.repeat(20), action: 'bad:_/<\n>例'.repeat(20), expectedHost: ('evil.<\n/>例'.repeat(20)).slice(0, 100).replace(/[^a-zA-Z0-9.-]/g, ''), expectedAction: ('bad:_/<\n>例'.repeat(20)).slice(0, 100).replace(/[^a-zA-Z0-9_-]/g, '') },
+    { hostname: 'x'.repeat(150), action: 'y'.repeat(150), expectedHost: 'x'.repeat(100), expectedAction: 'y'.repeat(100) },
+    { hostname: null, action: { injected: 'value' }, expectedHost: '', expectedAction: '' },
+  ])('logs bounded sanitized rejected context: $expectedHost', async ({ hostname, action, expectedHost, expectedAction }) => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    try {
+      anonDeps = makeAnonDeps({ captcha: provider({ success: true, hostname, action }) });
+      expect((await mint()).status).toBe(400);
+      expect(warn).toHaveBeenCalledWith('captcha: token context rejected', {
+        provider: 'turnstile', hostname: expectedHost, action: expectedAction,
+      });
+      expect(db.users.listAll()).toHaveLength(0);
+    } finally { warn.mockRestore(); }
+  });
+
+  it('accepts www only for a www page', async () => {
+    anonDeps = makeAnonDeps({ captcha: provider({ success: true, hostname: 'www.flowmic.app', action: 'try' }) });
+    expect((await mint({ origin: 'https://www.flowmic.app' })).status).toBe(200);
+  });
+
+  it('requires explicit development mode for localhost', async () => {
+    anonDeps = makeAnonDeps({ allowLocalhost: false, captcha: provider({ success: true, hostname: 'localhost', action: 'try' }) });
+    expect((await mint({ origin: 'http://localhost:5173' })).status).toBe(403);
+    anonDeps.allowLocalhost = true;
+    expect((await mint({ origin: 'http://localhost:5173' })).status).toBe(200);
+  });
 });
 
 describe('the master switch', () => {

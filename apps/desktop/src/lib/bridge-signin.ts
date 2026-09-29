@@ -49,6 +49,13 @@ export interface SignInPageCopy {
   ok_body: string;
   fail_title: string;
   fail_body: string;
+  /** NR-110 — the success page's two actions and its 「you can close this page now」 line. */
+  ok_close: string;
+  ok_console: string;
+  ok_closed: string;
+  /** NR-110 — the console ORIGIN this sign-in is started against; Rust draws the
+   *  console link from it only if it is a bare https origin. */
+  console_origin: string;
 }
 
 export interface SignInBegun {

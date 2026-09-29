@@ -12,15 +12,33 @@
 //      SET anchors — are the SAME strings the generated SSOT constants carry
 //      (the equality the drift-lint ruling rests on; the anchors MOVED here
 //      from settings_client.dart's deleted `push*` methods);
-//   ② a never-set key is ABSENT, and a phone that has set nothing sends no
-//      `prefs` key at all (a fresh install's frames are unchanged);
+//   ② a never-set key is ABSENT — except `stt.polish`, which since NR-132
+//      (2026-09-29) always travels as what the switch shows (⑦ below);
 //   ③ `audio:start` and `compose:start` carry the SAME bundle — if they could
 //      disagree, one sentence would be polished one way when spoken and another
 //      way when organised;
 //   ④ a settings change is on the NEXT `audio:start` with no reconnect, which
 //      is the whole point of moving the carrier off the admission edge;
 //   ⑤ NO `settings:update` is ever emitted, for these keys or any other —
-//      apps/mobile has no settings writer left at all.
+//      apps/mobile has no settings writer left at all;
+//   ⑦ NR-132: the polish value the switch SHOWS and the one the request
+//      CARRIES are the same constant (`kPolishDefault`), so an untouched switch
+//      reading ON can no longer meet a server that silently answers OFF
+//      (0.3.101 device test T2: LAN, no model, no NR-123 badge, no hint).
+//
+// ── REVERSE CONTROLS NR-132 (executed 2026-09-29, on this tree) ────────────
+// Break 1: phone_prefs_payload.dart back to the pre-NR-132 carrier,
+//   `b.carrySetting('stt.polish', held.polish?.toJson());`
+// OBSERVED (`flutter test test/phone_prefs_payload_test.dart`): 5 red —
+//   (2) Expected: {'stt.polish': {'enabled': true, 'strength': 'strict'}}
+//       Actual: <null>
+//   (2b) Expected: equals ['stt.refine', 'stt.polish'] unordered
+//        Actual: _CompactKeysIterable<String>:['stt.refine']
+//   (2c), (4), (7a) [E]
+// Break 2: prefs_controller.dart display drifts off the constant,
+//   `bool get polishEnabled => _prefs.polish?.enabled ?? false;`
+// OBSERVED: (7a) red — Expected: <true> Actual: <false>.
+// Both reverted from a byte copy (marker greps to 0); same command, 10/10 green.
 //
 // ── REVERSE CONTROL (executed 2026-09-03, on this tree) ────────────────────
 // Break: put the deleted push back on the wire — two lines in `pttDown`
@@ -228,34 +246,45 @@ void main() {
     scenario.dispose();
   });
 
-  // ── ② never-set is absent ─────────────────────────────────────────────────
-  test('(2) a phone that has set nothing sends NO prefs key at all', () async {
+  // ── ② never-set is absent (polish excepted, NR-132) ───────────────────────
+  test('(2) a phone that has set nothing carries ONLY stt.polish — as the '
+      'default its switch shows', () async {
     final _Rig r = await _Rig.create();
-    expect(await r.speak(), isNull,
-        reason: 'a fresh install\'s audio:start is byte-for-byte what it was');
-    expect(r.compose(), isNull);
+    const Map<String, Object?> expected = <String, Object?>{
+      'stt.polish': <String, Object?>{'enabled': true, 'strength': 'strict'},
+    };
+    expect(await r.speak(), expected,
+        reason: 'NR-132: an untouched polish switch reads ON, so the request '
+            'says ON — the server no longer has to guess');
+    expect(r.compose(), expected);
+    // Carrying the default does not WRITE it: the row is still untouched, so
+    // the store and the settings backup still say 「never set」.
+    expect(r.prefs.prefs.polish, isNull);
     await r.dispose();
   });
 
-  test('(2b) only the keys the user has actually set travel', () async {
+  test('(2b) only the keys the user has actually set travel — plus polish',
+      () async {
     final _Rig r = await _Rig.create(
       held: const PhonePrefs(refine: RefinePrefs(enabled: false)),
     );
-    expect((await r.speak())!.keys, <String>['stt.refine'],
-        reason: 'polish and the consent were never touched — the server '
-            'applies ITS default, which this phone cannot compute');
+    expect((await r.speak())!.keys,
+        unorderedEquals(<String>['stt.refine', 'stt.polish']),
+        reason: 'the consent was never touched and its untouched answer (no '
+            'consent) is the server\'s too, so it stays absent');
     await r.dispose();
   });
 
   test('(2c) an empty card is not carried, a non-empty one is', () async {
     final _Rig empty = await _Rig.create();
-    expect(await empty.speak(), isNull);
+    expect((await empty.speak())!.keys, <String>['stt.polish']);
     await empty.dispose();
 
     final _Rig full = await _Rig.create(
       card: const ScenarioCard(domains: <String>['frontend']),
     );
-    expect((await full.speak())!.keys, <String>['scenario.card']);
+    expect((await full.speak())!.keys,
+        unorderedEquals(<String>['scenario.card', 'stt.polish']));
     await full.dispose();
   });
 
@@ -286,7 +315,7 @@ void main() {
   test('(4) a settings change is on the NEXT audio:start — no reconnect, no '
       'room join, no push', () async {
     final _Rig r = await _Rig.create();
-    expect(await r.speak(), isNull);
+    expect((await r.speak())!.keys, <String>['stt.polish']);
 
     // The user taps the switch. Nothing else happens: the socket is not
     // touched, no admission edge fires.
@@ -352,6 +381,40 @@ void main() {
     ]) {
       expect(wire.contains(forbidden), isFalse, reason: forbidden);
     }
+    await r.dispose();
+  });
+
+  // ── ⑦ NR-132: what the switch shows IS what the request carries ───────────
+  test('(7a) untouched: the displayed polish and the carried polish are the '
+      'SAME constant, kPolishDefault', () async {
+    final _Rig r = await _Rig.create();
+    // Displayed (what the settings switch reads) …
+    expect(r.prefs.polishEnabled, kPolishDefault.enabled);
+    expect(r.prefs.polishStrength, kPolishDefault.strength);
+    expect(identical(r.prefs.effectivePolish, kPolishDefault), isTrue,
+        reason: 'the display must be built on the constant, not a copy of it');
+    // … and carried (what the real ChatController puts on audio:start).
+    final Map<String, Object?>? frame = await r.speak();
+    expect(frame!['stt.polish'], kPolishDefault.toJson());
+    expect(frame['stt.polish'], <String, Object?>{
+      'enabled': r.prefs.polishEnabled,
+      'strength': r.prefs.polishStrength.name,
+    });
+    // The product default itself, pinned so a flip is a decision, not a drift.
+    expect(kPolishDefault.enabled, isTrue);
+    expect(kPolishDefault.strength, PolishStrength.strict);
+    await r.dispose();
+  });
+
+  test('(7b) POSITIVE CONTROL: an explicit OFF travels as OFF (no badge, no '
+      'hint on the server side)', () async {
+    final _Rig r = await _Rig.create();
+    r.prefs.setPolishEnabled(false);
+    final Map<String, Object?>? frame = await r.speak();
+    expect(frame!['stt.polish'],
+        <String, Object?>{'enabled': false, 'strength': 'strict'});
+    expect(r.prefs.polishEnabled, isFalse);
+    expect(r.compose()!['stt.polish'], frame['stt.polish']);
     await r.dispose();
   });
 }

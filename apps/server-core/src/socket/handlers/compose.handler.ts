@@ -23,9 +23,10 @@ import { EngineNotWiredError } from '../../engine/orchestrator';
 import { type ComposeStartArgs, readComposeUsage, readComposeOutput, ComposeOutputRejectedError } from '../../compose';
 import { errorPayload } from '../../errors';
 import type { VerificationGraceGuard } from '../../auth/verification-grace';
+import { ComposeTiming } from '../../obs/compose-timing';
 import { log } from '../../log';
 import { getAuth, getRoomUuid, safeAck, setSessionPrefs } from '../wire';
-import { principalRefOf } from './audio-metering';
+import { isIntegratorSession, principalRefOf, type PcRoomReader } from './audio-metering';
 
 export type { ComposeStartArgs };
 
@@ -45,6 +46,9 @@ export interface ComposeHandlerDeps {
    *  Absent ⇒ no gate (pre-NR-2a behaviour); standalone is exempt inside the
    *  guard, not by being unwired. */
   verificationGrace?: VerificationGraceGuard;
+  /** card EMB-15 — the room-kind reader `audio.handler.ts` uses; absent ⇒ no
+   *  integrator refusal (pre-EMB-15 behaviour). Production wires the same one. */
+  pcRoom?: PcRoomReader;
 }
 
 /** 🔴 Card F3 defect ③ — the echo for a frame we refused BEFORE parsing it.
@@ -143,6 +147,33 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
       ...(entryId !== undefined ? { entry_id: entryId } : {}),
     };
 
+    // 🔴 card EMB-15 — NO LANGUAGE MODEL IN AN EMBEDDED ROOM. A visitor's own
+    // FlowMic app paired to a host page's room reaches this handler with the
+    // HOST as payer, and the run would go to the host's model on the visitor's
+    // words (privacy draft C-2). Refused BEFORE any quota read, so nothing is
+    // metered and nothing is sent. Both channels, like the other refusals here.
+    // ⚠️ No new error code (owner-gated, D-32): the existing `WEB_EVENT_NOT_ALLOWED`
+    // ("This cannot be done from the web page.") is used because the visitor IS
+    // speaking into a web page, so the sentence is true. `LLM_INVALID_MODEL`
+    // ("Specified model is unavailable.") was the first choice and was rejected: it
+    // blames a model that is fine, when the truth is that the feature is not
+    // offered on a website's voice input (one code answering two questions, R11).
+    // The phone renders it from its own compose copy table (compose_strings.dart
+    // aiErrorCode, the `WEB_EVENT_NOT_ALLOWED` arm); the binding test
+    // compose_error_copy_binding_test.dart lists this handler's code literals.
+    if (isIntegratorSession(deps, auth.deviceId ?? '')) {
+      log.warn('compose:start refused — integrator (embedded) rooms never reach a language model', {
+        user_id: auth.userId,
+        gate: 'integrator_room',
+      });
+      socket.emit('compose:error', {
+        code: 'WEB_EVENT_NOT_ALLOWED',
+        message: 'AI actions are not available in a website voice-input room',
+        ...echo,
+      });
+      return safeAck(ack, { error: 'WEB_EVENT_NOT_ALLOWED', message: 'AI actions are not available in a website voice-input room' });
+    }
+
     // *** NR-2a — the 3-day unverified grace, enforcement site 2 of 2 ***
     //
     // Before the quota gate, for the reason audio.handler.ts states.
@@ -214,6 +245,7 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
     // `undefined` here means "the vendor was never called" (EngineNotWiredError
     // fires before this line), which is exactly the case the usage commit below
     // must NOT cover — a quota refusal or a missing engine spent no tokens.
+    const timing = new ComposeTiming(parsed.data.task, parsed.data.source_text.length);
     let orchestrator: ComposeOrchestrator | undefined;
     try {
       if (!deps.composeFactory) throw new EngineNotWiredError('compose');
@@ -237,6 +269,7 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
         ...(parsed.data.source_lang !== undefined ? { source_lang: parsed.data.source_lang } : {}),
         ...(parsed.data.target_lang !== undefined ? { target_lang: parsed.data.target_lang } : {}),
       })) {
+        timing.chunk(delta);
         output += delta;
         socket.emit('compose:chunk', { delta, ...echo });
       }
@@ -251,9 +284,11 @@ export function registerComposeHandlers(socket: Socket, deps: ComposeHandlerDeps
       // they accumulated. Falls back to the accumulated text when the
       // orchestrator has nothing to say, so a non-ComposeRun seam is unaffected.
       const finalText = readComposeOutput(orchestrator) ?? output;
+      timing.finish(orchestrator, 'done', null, finalText.length);
       socket.emit('compose:done', { output_text: finalText, task: parsed.data.task, ...echo });
       safeAck(ack, { ok: true });
     } catch (err) {
+      timing.finish(orchestrator, err instanceof ComposeOutputRejectedError ? 'rejected' : 'error', err instanceof ComposeOutputRejectedError ? 'COMPOSE_OUTPUT_REJECTED' : errorPayload(err).error);
       // AUD-2 P1 (2026-09-02) — commit vendor-billed tokens on EVERY path where
       // the vendor answered, not only on the happy path.
       //

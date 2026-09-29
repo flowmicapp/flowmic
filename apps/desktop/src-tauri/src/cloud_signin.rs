@@ -47,7 +47,7 @@
 //! browser that retries a request (or a person pressing the fallback link twice)
 //! from starting a second exchange whose refusal would look like a bug.
 //!
-//! 🔴 ④ THE WINDOW IS OURS AND IS NOT THE GRANT'S. 180 s here bounds 「how long
+//! 🔴 ④ THE WINDOW IS OURS AND IS NOT THE GRANT'S. 15 min here bounds 「how long
 //! we wait for a person to finish signing in」. The 60 s in `qr-grant.ts` bounds
 //! 「how long a minted grant stays redeemable」, and the console mints it AFTER
 //! the sign-in completes, one redirect before it is spent. Widening either one
@@ -59,7 +59,12 @@
 //! `@flowmic/protocol` is the SSOT, so the console origin and the API endpoint
 //! both arrive from the frontend on the `begin` call.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crate::forensic;
 
 /// The path the console redirects to. ONE literal, mirrored in
 /// the web console repo's `src/lib/signin-handoff.ts` (`DESKTOP_CALLBACK_PATH`) and
@@ -69,7 +74,18 @@ pub const CALLBACK_PATH: &str = "/cb";
 
 /// How long we wait for the person to finish in the browser. See ④ above for
 /// why this is not the grant's TTL.
-pub const SIGNIN_WINDOW_MS: u64 = 180_000;
+///
+/// NR-112 (2026-09-26): 15 minutes, up from 180 s. Since NR-111 the console asks
+/// a new account to confirm its email BEFORE it hands the sign-in to this PC
+/// (web console repo, `src/lib/desktop-handoff-ledger.ts`, which mirrors this
+/// constant as `DESKTOP_SIGNIN_WINDOW_MS` and pins it with a test that reads
+/// this line). Registering, opening a mailbox and clicking a link did not fit in
+/// 180 s, so the common first sign-in ran out and had to be started twice. The
+/// waiting row on the PC keeps a Cancel button for the whole window
+/// (`CloudSignInGuide.vue` → `SignInWaiting.vue`), and cancel closes the
+/// listener at once (`await_callback` below), so a longer window is a longer
+/// offer, not a longer open port nobody can shut.
+pub const SIGNIN_WINDOW_MS: u64 = 900_000;
 
 /// A request line longer than this is not one of ours. The whole legitimate
 /// request is `GET /cb?t=<32 hex>&state=<32 hex> HTTP/1.1` — about 80 bytes.
@@ -345,18 +361,93 @@ pub fn escape_html(s: &str) -> String {
     out
 }
 
+/// NR-110 (owner 2026-09-26) — the two actions on the SUCCESS page: 「close this
+/// page」 and 「go to the console」. Labels are the desktop catalogue's, handed in
+/// like every other sentence on this page (`shell/cloud_signin.rs` `PageCopy`).
+pub struct PageActions<'a> {
+    pub close_label: &'a str,
+    pub console_label: &'a str,
+    /// Revealed only if the page is still open shortly after `window.close()`.
+    pub closed_fallback: &'a str,
+    /// The console ORIGIN the frontend sent at sign-in start. The link is built
+    /// from it by [`console_home_url`] and is omitted if it is not a bare https
+    /// origin — this crate holds no endpoint literal (`socket/channel.rs`).
+    pub console_origin: &'a str,
+}
+
+/// The ONE inline script the page may carry, verbatim. It only calls
+/// `window.close()` and, if the page is still there 400 ms later, reveals the
+/// 「you can close this page now」 line. Browsers refuse `window.close()` for a
+/// tab they did not open by script and whose history is more than one document
+/// — which is exactly this tab (sign-in → maybe Google → here) — so the fallback
+/// line is the ordinary outcome, not an error. A constant, not a template: the
+/// CSP header carries its hash (`page_csp`), and nothing handed in can reach the
+/// script body.
+pub const CLOSE_SCRIPT: &str = "document.getElementById('fm-close').onclick=function(){window.close();\
+setTimeout(function(){document.getElementById('fm-closed').hidden=false},400)};";
+
+/// `{origin}/console` when `origin` is a bare https origin (`https://host[:port]`,
+/// ASCII, no path, no userinfo, no whitespace or quotes), else `None`.
+///
+/// 🔴 HTTPS ONLY and REFUSED RATHER THAN REPAIRED — same rule as [`exchange_url`]
+/// and `shell/external_open.rs`. A page that says 「go to the console」 must not
+/// take the person anywhere this sign-in did not start against.
+pub fn console_home_url(origin: &str) -> Option<String> {
+    let o = origin.trim().trim_end_matches('/');
+    if !o.is_ascii() || o.len() <= 8 || !o[..8].eq_ignore_ascii_case("https://") {
+        return None;
+    }
+    let host = &o[8..];
+    if host.is_empty()
+        || !host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b':')
+    {
+        return None;
+    }
+    Some(format!("https://{host}/console"))
+}
+
 /// The page the browser lands on.
 ///
-/// 🔴 NOT ONE EXTERNAL ASSET — no stylesheet, no font, no image, no script. Two
-/// reasons, and the second is the one that would bite: a request that fails
-/// would leave a broken page as the last thing the person sees of a SUCCESSFUL
-/// sign-in; and the listener is closed the instant this response is written, so
-/// anything the page asked us for would be refused by a socket that no longer
-/// exists. Inline style, one document, done.
+/// 🔴 NOT ONE EXTERNAL ASSET — no stylesheet, no font, no image, no external
+/// script. Two reasons, and the second is the one that would bite: a request
+/// that fails would leave a broken page as the last thing the person sees of a
+/// SUCCESSFUL sign-in; and the listener is closed the instant this response is
+/// written, so anything the page asked us for would be refused by a socket that
+/// no longer exists. Inline style, one document, done.
+///
+/// NR-110 narrowed 「nothing from outside」 to what it was for — nothing is
+/// FETCHED. A link the person may choose to follow is not a fetch, and neither
+/// is an inline script. With `actions` the page carries exactly one anchor (to
+/// the console, and only when [`console_home_url`] accepts the origin) and
+/// exactly one inline script ([`CLOSE_SCRIPT`]). Failure pages pass `None`.
 ///
 /// `lang` is stamped so a screen reader announces the sentence in the language
 /// it is written in.
-pub fn callback_page(lang: &str, title: &str, body: &str) -> String {
+pub fn callback_page(lang: &str, title: &str, body: &str, actions: Option<&PageActions>) -> String {
+    let actions_html = match actions {
+        None => String::new(),
+        Some(a) => {
+            let link = console_home_url(a.console_origin)
+                .map(|url| {
+                    format!(
+                        "<a href=\"{url}\" style=\"color:#8fb4ff\">{label}</a>",
+                        url = escape_html(&url),
+                        label = escape_html(a.console_label),
+                    )
+                })
+                .unwrap_or_default();
+            format!(
+                "<p style=\"margin:1.25rem 0 0;display:flex;gap:1rem;justify-content:center;align-items:center;flex-wrap:wrap\">\
+<button id=\"fm-close\" type=\"button\" style=\"font:inherit;padding:.4rem 1rem;border-radius:.5rem;border:1px solid #3a4150;\
+background:#1b1f27;color:#e6e8ee;cursor:pointer\">{close}</button>{link}</p>\
+<p id=\"fm-closed\" hidden style=\"margin:.75rem 0 0;color:#9aa3b2\">{fallback}</p>\
+<script>{script}</script>",
+                close = escape_html(a.close_label),
+                fallback = escape_html(a.closed_fallback),
+                script = CLOSE_SCRIPT,
+            )
+        }
+    };
     format!(
         "<!doctype html><html lang=\"{lang}\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
@@ -365,11 +456,47 @@ pub fn callback_page(lang: &str, title: &str, body: &str) -> String {
 background:#0f1115;color:#e6e8ee;font:16px/1.6 system-ui,-apple-system,Segoe UI,sans-serif\">\
 <main style=\"max-width:32rem;padding:2rem;text-align:center\">\
 <h1 style=\"margin:0 0 .5rem;font-size:1.25rem\">{title}</h1>\
-<p style=\"margin:0;color:#9aa3b2\">{body}</p></main></body></html>",
+<p style=\"margin:0;color:#9aa3b2\">{body}</p>{actions_html}</main></body></html>",
         lang = escape_html(lang),
         title = escape_html(title),
         body = escape_html(body),
     )
+}
+
+/// The page's Content-Security-Policy.
+///
+/// `default-src 'none'` is the header-level form of 「nothing is fetched」: even a
+/// later edit that slipped an asset in would be refused by the browser. Inline
+/// `style` attributes are the page's only styling, hence `style-src
+/// 'unsafe-inline'`. 🔴 SCRIPTS: exactly [`CLOSE_SCRIPT`], by its SHA-256, and
+/// only when the page actually carries it — never `'unsafe-inline'` for
+/// scripts, never a nonce.
+pub fn page_csp(html: &str) -> String {
+    let mut csp = String::from(
+        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    );
+    if html.contains(&format!("<script>{CLOSE_SCRIPT}</script>")) {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(CLOSE_SCRIPT.as_bytes());
+        csp.push_str(&format!("; script-src 'sha256-{}'", base64_std(&digest)));
+    }
+    csp
+}
+
+/// Standard base64 with padding — the encoding CSP hashes use. A dozen lines
+/// here instead of a new crate for one call site; pinned by RFC 4648 vectors.
+pub fn base64_std(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { T[n as usize & 63] as char } else { '=' });
+    }
+    out
 }
 
 /// A complete HTTP/1.1 response. `Connection: close` because this socket serves
@@ -379,10 +506,12 @@ pub fn http_response(status: &str, html: &str) -> Vec<u8> {
     let head = format!(
         "HTTP/1.1 {status}\r\n\
 Content-Type: text/html; charset=utf-8\r\n\
+Content-Security-Policy: {csp}\r\n\
 Content-Length: {len}\r\n\
 Cache-Control: no-store\r\n\
 Connection: close\r\n\r\n",
         status = status,
+        csp = page_csp(html),
         len = html.len(),
     );
     let mut out = head.into_bytes();
@@ -420,6 +549,135 @@ pub fn exchange_url(endpoint: &str) -> Result<String, SignInFailure> {
         return Err(SignInFailure::BadEndpoint);
     }
     Ok(format!("{e}/api/auth/qr-exchange"))
+}
+
+// ── the wait itself ─────────────────────────────────────────────────────────
+//
+// NR-112 moved the accept loop here from `shell/cloud_signin.rs`, VERBATIM in
+// its decisions, so that 「after cancel or after the window, a late callback is
+// refused and signs nobody in」 is something `cargo test --lib` drives on a real
+// socket instead of a claim about a loop only a real browser could reach. The
+// Tauri half keeps what needs an `AppHandle`: the phase, the exchange and the
+// key store.
+
+/// The two pages the listener can answer with, built ONCE by the caller from
+/// the desktop catalogue's sentences (`shell/cloud_signin.rs` `PageCopy`), so
+/// this module holds no user-facing words and no second locale pipeline.
+pub struct CallbackPages {
+    pub ok: String,
+    pub fail: String,
+}
+
+/// How one wait for the browser ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WaitEnd {
+    /// Cancelled on the PC (the button, or leaving the screen). No nonce leaves
+    /// this function, and the caller writes no phase: `cancel` already did.
+    Cancelled,
+    /// The window closed, a callback was refused, or the socket failed.
+    Failed(SignInFailure),
+    /// A good callback, already answered with the success page. Spend this.
+    Accepted(String),
+}
+
+/// Wait for the console's callback on `listener`.
+///
+/// 🔴 THE LISTENER IS TAKEN BY VALUE, and that is the property: every return
+/// drops it, so the port is closed the moment the wait ends by ANY route —
+/// cancel, window, refusal or success. A callback that arrives after that finds
+/// nothing listening (connection refused), which is the strongest 「refused」
+/// there is: no byte of it is read.
+///
+/// 🔴 CANCEL IS RE-CHECKED AFTER A CONNECTION IS ACCEPTED, not only at the top
+/// of the loop. The flag can flip between that check and `accept()` returning;
+/// without the second check a callback that raced a cancel would be judged,
+/// accepted and spent, and the PC would sign itself in after the person said
+/// stop. The expiry half of the same race is `Flow::offer`'s own freshness step.
+pub fn await_callback(
+    listener: TcpListener,
+    flow: &mut Flow,
+    cancel: &AtomicBool,
+    pages: &CallbackPages,
+    poll: Duration,
+    read_timeout: Duration,
+) -> WaitEnd {
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return WaitEnd::Cancelled;
+        }
+        if flow.expired(now_ms()) {
+            forensic::record("cloud", "browser sign-in: window closed with no callback");
+            return WaitEnd::Failed(SignInFailure::Timeout);
+        }
+        let (mut sock, peer) = match listener.accept() {
+            Ok(pair) => pair,
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(poll);
+                continue;
+            }
+            Err(e) => {
+                forensic::record("cloud", &format!("browser sign-in: accept failed ({e})"));
+                return WaitEnd::Failed(SignInFailure::Listen);
+            }
+        };
+        // 🔴 RE-CHECKED PER CONNECTION even though the bind is loopback-only. The
+        // bind is a claim made once at start-up; this is the fact about THIS
+        // peer. It costs one comparison and it is the last line of the property
+        // the whole design rests on.
+        if !peer.ip().is_loopback() {
+            forensic::record("cloud", "browser sign-in: dropped a non-loopback peer");
+            continue;
+        }
+        // ⚠️ BLOCKING AGAIN, explicitly. The listener is non-blocking so the loop
+        // can wake for cancel, and on Windows a socket accepted from a
+        // non-blocking listener inherits that mode (Linux `accept4` does not).
+        // A non-blocking read returns `WouldBlock` at once when the request line
+        // has not arrived yet, which the arm below would treat as 「said
+        // nothing」 and drop a real callback. `read_timeout` only means anything
+        // on a blocking socket.
+        let _ = sock.set_nonblocking(false);
+        let _ = sock.set_read_timeout(Some(read_timeout));
+
+        let mut buf = [0u8; MAX_REQUEST_LINE];
+        let n = match sock.read(&mut buf) {
+            Ok(n) if n > 0 => n,
+            // Connected and said nothing, or said nothing readable. Not our
+            // callback; do not let it end a sign-in still in progress.
+            _ => continue,
+        };
+        if cancel.load(Ordering::SeqCst) {
+            forensic::record("cloud", "browser sign-in: callback arrived after cancel, refused");
+            let _ = sock.write_all(&http_response("400 Bad Request", &pages.fail));
+            return WaitEnd::Cancelled;
+        }
+        let head = String::from_utf8_lossy(&buf[..n]);
+        let line = head.lines().next().unwrap_or("");
+        let verdict = match parse_request_line(line) {
+            Some((method, target)) => flow.offer(method, target, now_ms()),
+            None => Verdict::Ignore,
+        };
+
+        match verdict {
+            Verdict::Ignore => {
+                let _ = sock.write_all(&http_response("404 Not Found", &pages.fail));
+                continue;
+            }
+            Verdict::Refused(f) => {
+                forensic::record("cloud", &format!("browser sign-in: callback refused ({})", f.code()));
+                let _ = sock.write_all(&http_response("400 Bad Request", &pages.fail));
+                return WaitEnd::Failed(f);
+            }
+            Verdict::Accepted(nonce) => {
+                // 🔴 ANSWER THE BROWSER FIRST, THEN EXCHANGE (the caller does the
+                // exchange). The person is looking at a loading tab; making them
+                // watch it spin through a 12-second server round trip would put
+                // OUR latency on THEIR screen, in a page we do not control.
+                let _ = sock.write_all(&http_response("200 OK", &pages.ok));
+                let _ = sock.flush();
+                return WaitEnd::Accepted(nonce);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

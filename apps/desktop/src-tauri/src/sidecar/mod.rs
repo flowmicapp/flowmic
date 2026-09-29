@@ -21,6 +21,8 @@ pub mod network;
 /// Which host Node to run `server.js` on, and whether it is new enough to run it
 /// at all (`node:sqlite` sets a hard floor). The MSI ships no Node of its own.
 pub mod node_runtime;
+#[cfg(all(test, target_os = "linux"))]
+mod linux_runtime_tests;
 /// Which TCP port the local server is on, and `FLOWMIC_SIDECAR_PORT` — the named
 /// way to move it. Its own module because a silent fallback to the fixed port is
 /// what puts two copies on one port, and `portclear` below is what happens next.

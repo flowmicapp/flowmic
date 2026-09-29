@@ -214,6 +214,15 @@ export const model = reactive({
    * so there is nothing to write back either.
    */
   llmCapabilityUsable: true,
+  /**
+   * NR-130 — `capability.llm.rejected`: the model set up on this computer was
+   * refused by its provider (bad key, or a model/endpoint it does not know), as
+   * last seen by a phone's polish on the LAN server. Same stance as the field
+   * above: `false` before the first sync is the absence of a claim, and it is
+   * not cached. Never true while `llmCapabilityUsable` is false (the server
+   * reports "not set up" and "refused" as two facts, never both).
+   */
+  llmModelRejected: false,
   llm: loadWith<LlmConfigModel>(K_LLM, { ...LLM_UNCONFIGURED }, asLlmConfig),
 });
 
@@ -359,7 +368,12 @@ export function applyServerSettings(items: ServerSettingItem[]): void {
         // here puts "not configured" on screen for a configured account.
         if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
           const usable = (value as { usable?: unknown }).usable;
-          if (typeof usable === 'boolean') model.llmCapabilityUsable = usable;
+          if (typeof usable === 'boolean') {
+            model.llmCapabilityUsable = usable;
+            // NR-130: one snapshot is one whole fact. A server that predates
+            // `rejected` sends none, and "not said" is "not refused".
+            model.llmModelRejected = (value as { rejected?: unknown }).rejected === true;
+          }
         }
         break;
       }

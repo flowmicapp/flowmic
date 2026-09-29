@@ -376,14 +376,14 @@ void main() {
     // Delivery truth unchanged — polish is NOT a fifth status.
     expect(marked.status, EntryStatus.cached);
     expect(marked.edited, isFalse);
-    expect(h.controller.polishSkippedEntryIds, contains(marked.id));
+    expect(h.controller.polishBadges.keys.toSet(), contains(marked.id));
 
     // Applied / absent finals get NO mark — and (lead ruling: session-persistent)
     // they do NOT clear the earlier entry's mark.
     await h.speak('润色成功', polish: 'applied');
     await h.speak('未启用润色');
     expect(h.store.entries, hasLength(3));
-    expect(h.controller.polishSkippedEntryIds, <String>{marked.id});
+    expect(h.controller.polishBadges.keys.toSet(), <String>{marked.id});
     await h.dispose();
   });
 
@@ -408,10 +408,10 @@ void main() {
         'polish_reason': 'llm_error',
       });
       async.flushMicrotasks();
-      expect(h.controller.polishSkippedEntryIds, hasLength(1));
+      expect(h.controller.polishBadges.keys.toSet(), hasLength(1));
       // A fake-clock hour passes: the honest signal must still be there.
       async.elapse(const Duration(hours: 1));
-      expect(h.controller.polishSkippedEntryIds, hasLength(1));
+      expect(h.controller.polishBadges.keys.toSet(), hasLength(1));
       expect(h.store.entries, hasLength(1));
       h.controller.dispose();
       h.destination.dispose();

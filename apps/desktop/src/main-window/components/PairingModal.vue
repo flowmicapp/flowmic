@@ -15,8 +15,13 @@
 // re-reads that channel's code + address immediately (not on the next 3 s
 // poll) and redraws the QR from it. Two honesty gates come with that, and they
 // are the reason this file grew:
-//   • a cloud channel with no usable Cloud Key is DISABLED with its reason on
-//     screen — never an empty or relay-less QR that cannot scan (`cloudPairBlock`);
+//   • a cloud channel with no usable Cloud Key draws NO QR — never an empty or
+//     relay-less code that cannot scan (`cloudPairBlock`). 🔴 NR-109 (owner
+//     2026-09-26): it used to be a `disabled` tab whose reason lived only in a
+//     hover tooltip, so the body written for it (the reason + where a key comes
+//     from) could never be reached and nothing on screen said 「sign in first」.
+//     The tab is now SELECTABLE: picking it shows the reason and, while no key is
+//     saved, the same sign-in form the device page uses (`CloudSignInGuide`);
 //   • the snapshot carries the channel it describes, so during the async re-read
 //     nothing is drawn from the previous channel's answer (`reason === 'pending'`).
 // The LAN 「address not resolved yet」 case is unchanged and still the existing
@@ -30,6 +35,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import QRCode from 'qrcode';
 import Icon from './Icon.vue';
+import CloudSignInGuide from './CloudSignInGuide.vue';
 import { getLocale, S } from '../../lib/strings';
 import { PAIR_APP_URL } from '../../lib/strings/pairing';
 import { openExternalUrl } from '../../lib/bridge-os';
@@ -86,6 +92,9 @@ const emit = defineEmits<{
   (e: 'reload'): void;
   /** The user picked a channel — the parent re-reads THAT channel's snapshot. */
   (e: 'channel', channel: ChannelId): void;
+  /** NR-109 — the embedded sign-in form finished. Handed to the parent's ONE
+   *  cloud-state handler (`applyCloud`), exactly as the device page's own form is. */
+  (e: 'cloudSaved', next: CloudStatus): void;
 }>();
 
 const refreshing = ref(false);
@@ -206,7 +215,7 @@ const cloudBlock = computed(() =>
   }),
 );
 
-/** WHY the cloud option is unavailable — shown on the disabled tab (as its title)
+/** WHY the cloud option is unavailable — shown on the blocked tab (as its title)
  *  and, when it is the selected one, in place of the code+QR block. `null` = the
  *  cloud channel can be paired through. */
 const cloudBlockText = computed<string | null>(() => {
@@ -229,7 +238,8 @@ const cloudBlockText = computed<string | null>(() => {
  *  channel has no "not configured" state — a local server that is down is a
  *  CONNECTION problem, which `view.reason === 'disconnected'` already states, and an
  *  unresolved LAN address is the F-2346 `loopback` path. When this is non-null the
- *  modal renders the reason and nothing else: no code, no QR. */
+ *  modal renders the reason (plus the sign-in form while no key is saved, NR-109)
+ *  and nothing else: no code, no QR. */
 const tabBlocked = computed<string | null>(() =>
   props.channel === 'cloud' ? cloudBlockText.value : null,
 );
@@ -291,8 +301,9 @@ watch(
  *  on screen must both come from the new one before anything is scannable. */
 function pickChannel(id: ChannelId): void {
   if (id === props.channel) return;
-  // A disabled option is not a click we honour — see tabBlocked / the template.
-  if (id === 'cloud' && cloudBlock.value !== null) return;
+  // NR-109: a blocked cloud option IS selectable — selecting it is how the user
+  // reaches the reason and the sign-in form (tabBlocked / the template). Nothing
+  // is minted on it: `canRefresh` stays false while `tabBlocked` is set.
   refreshFailed.value = false;
   emit('channel', id);
 }
@@ -478,8 +489,8 @@ onUnmounted(() => {
 
       <!-- N5 (owner requirement ②): the channel SWITCH. Picking one re-reads
            that channel's code + address immediately and redraws the QR from
-           it. A cloud option that cannot pair is really `disabled` — the
-           reason sits right below.
+           it. A cloud option that cannot pair stays SELECTABLE (NR-109) — the
+           reason and, when signed out, the sign-in form sit right below.
            owner 2026-08-02 UI batch 1 ①: the second dot that marked the
            "primary channel" tab is GONE. Two dots on one row where only one is
            a control is a reading cost with no payoff — the `.on` tab state
@@ -491,8 +502,7 @@ onUnmounted(() => {
            lib/channel.ts's CHANNEL_VISUAL), not a second private class. -->
       <div class="tabs">
         <button v-for="id in (['lan', 'cloud'] as ChannelId[])" :key="id" class="tab"
-          :class="{ on: channel === id }"
-          :disabled="id === 'cloud' && cloudBlock !== null"
+          :class="{ on: channel === id, blocked: id === 'cloud' && cloudBlock !== null }"
           :title="id === 'cloud' && cloudBlockText ? cloudBlockText : undefined"
           @click="pickChannel(id)">
           <span class="chan-badge" :class="CHANNEL_VISUAL[id].css">
@@ -508,15 +518,18 @@ onUnmounted(() => {
              could — the exact "claiming something not actually done as done"
              shape. -->
         <div class="pair-warn">{{ tabBlocked }}</div>
-        <!-- U8: `tabBlocked`'s text (dev_chan_cloud_no_key, owned by the sibling
-             F5+U11 card's devices.ts) says a Cloud Key is needed but never says
-             where one comes from. This modal does not own that string, so the
-             pointer is a second line here rather than a rewrite of sibling copy.
-             `no-key` only: 'rejected'/'no-endpoint' are not fixed by visiting the
-             console, so this stays out of those cases. -->
-        <div v-if="channel === 'cloud' && cloudBlock === 'no-key'" class="pair-note">
-          {{ S.pair_cloud_console_hint }}
-        </div>
+        <!-- NR-109 (owner 2026-09-26): the reason says a sign-in is needed; the
+             sign-in itself sits right under it — the SAME component the device
+             page renders when no key is saved, so there is one sign-in journey,
+             not a second copy. It replaces U8's console pointer, which sent the
+             user back to the device page to do what they can now do here.
+             Keyed on `!cloud.key_set`, not on the block tag: a key the relay
+             refused and this PC cleared ('rejected') needs a sign-in too. -->
+        <CloudSignInGuide
+          v-if="channel === 'cloud' && !cloud.key_set"
+          :endpoint="cloud.endpoint"
+          @saved="(next: CloudStatus) => emit('cloudSaved', next)"
+        />
       </template>
       <template v-else-if="view.reason === 'pending'">
         <!-- the snapshot on hand still describes the other channel (async re-read) -->
@@ -734,9 +747,10 @@ onUnmounted(() => {
 .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
 .tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--t2); padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 .tab.on { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
-/* N5: a channel that cannot pair reads as unavailable rather than merely unselected
-   — the reason is on its title and, once it can be selected, in the body. */
-.tab:disabled { opacity: .5; cursor: default; }
+/* N5 → NR-109: a channel that cannot pair reads as unavailable rather than merely
+   unselected, but stays clickable — the reason and the sign-in form are in the
+   body once it is picked. Full strength once it IS the picked tab. */
+.tab.blocked:not(.on) { opacity: .6; }
 /* `.tab-dot` was removed along with the "primary channel" it marked (owner 2026-08-02 UI batch 1 ①). */
 .btn.pri:disabled, .btn.ghost:disabled { opacity: .5; cursor: default; }
 </style>

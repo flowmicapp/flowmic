@@ -54,6 +54,7 @@
 // gap beats a plausible mis-attribution — mis-attributed provenance is the exact
 // defect book 13 §3 D4 records.
 
+import { tcorr, enumValue, finiteMs, uplinkLagMs } from './utterance-timing';
 import { log } from '../log.js';
 
 /** How long a half-finished measurement may wait before it is abandoned. Longer
@@ -65,6 +66,7 @@ const PENDING_TTL_MS = 120_000;
 const MAX_PENDING = 256;
 
 interface PendingLeg {
+  meta: Record<string, unknown>;
   /** t0 — audio:stop received. */
   audioStopAt: number;
   /**
@@ -84,6 +86,24 @@ const pending = new Map<string, PendingLeg>();
 /** entry_id → the leg it was promoted to at t2, so t3 can close it. */
 const byEntry = new Map<string, PendingLeg>();
 let dropped = 0;
+let counts = { n_stop: 0, n_final: 0, n_inject_result: 0 };
+const starts = new Map<string, { at: number; meta: Record<string, unknown> }>();
+
+export function markAudioStartMeta(room: string, meta: { mode?: unknown; send_policy?: unknown; delivery?: unknown; continuous?: unknown }, now: Now = defaultNow): void {
+  if (starts.size >= MAX_PENDING) starts.delete(starts.keys().next().value!);
+  starts.set(room, { at: now(), meta: {
+    mode: enumValue(meta.mode, ['realtime', 'translate', 'organize']),
+    send_policy: enumValue(meta.send_policy, ['direct', 'manual']),
+    delivery: enumValue(meta.delivery, ['none', 'inject']),
+    continuous: meta.continuous === true,
+  } });
+}
+
+export function markFlushBacklog(room: string, ms: number | null): void {
+  const leg = pending.get(room);
+  if (leg && leg.flushSentAt === null) leg.meta.backlog_ms = finiteMs(ms);
+}
+
 
 /** Injectable so tests do not depend on the wall clock. */
 export type Now = () => number;
@@ -101,7 +121,8 @@ function sweep(now: number): void {
 
 /** t0. A new utterance leg starts; any leg still pending for this room is
  *  abandoned rather than merged (see the correlation note above). */
-export function markAudioStop(room: string, now: Now = defaultNow): void {
+export function markAudioStop(room: string, now: Now = defaultNow, audioMs: number | null = null): void {
+  counts.n_stop += 1;
   const t = now();
   sweep(t);
   const stale = pending.get(room);
@@ -113,7 +134,12 @@ export function markAudioStop(room: string, now: Now = defaultNow): void {
     dropped += 1;
     return; // refuse to grow without bound; the miss is counted, not hidden
   }
-  pending.set(room, { audioStopAt: t, flushSentAt: null, sttFinalAt: null, injectRequestAt: null, entryId: null });
+  const start = starts.get(room);
+  starts.delete(room);
+  const meta = { tcorr: null, mode: null, send_policy: null, delivery: null, continuous: null,
+    audio_ms: finiteMs(audioMs), uplink_lag_ms: start && audioMs !== null ? uplinkLagMs(start.at, t, audioMs) : null,
+    backlog_ms: null, inj_source: null, inj_origin: null, ...start?.meta };
+  pending.set(room, { meta, audioStopAt: t, flushSentAt: null, sttFinalAt: null, injectRequestAt: null, entryId: null });
 }
 
 /** WP2-6a — the flush-sent instant. One author: `raceFlushFinal` calls this
@@ -125,20 +151,31 @@ export function markFlushSent(room: string, now: Now = defaultNow): void {
   leg.flushSentAt = now();
 }
 
+export function markTerminalFinal(room: string, value: unknown, now: Now = defaultNow): void {
+  const payload = value as { is_segment?: unknown; utterance_id?: unknown; duration_ms?: unknown };
+  if (payload.is_segment !== true) markSttFinal(room, now, tcorr(payload.utterance_id), finiteMs(payload.duration_ms));
+}
+
 /** t1. */
-export function markSttFinal(room: string, now: Now = defaultNow): void {
+export function markSttFinal(room: string, now: Now = defaultNow, correlation: string | null = null, audioMs: number | null = null): void {
+  counts.n_final += 1;
   const leg = pending.get(room);
   // Soft-segment finals arrive before audio:stop; only the leg opened by an
   // audio:stop is timed, and only its FIRST final counts.
   if (leg === undefined || leg.sttFinalAt !== null) return;
   leg.sttFinalAt = now();
+  leg.meta.tcorr = correlation && /^[0-9a-f]{6}$/.test(correlation) ? correlation : null;
+  leg.meta.audio_ms ??= finiteMs(audioMs);
 }
 
 /** t2. From here the leg is addressed by entry_id, which the PC echoes back. */
-export function markInjectRequest(room: string, entryId: string | null, now: Now = defaultNow): void {
+export function markInjectRequest(room: string, entryId: string | null, now: Now = defaultNow, meta: { source?: unknown; origin?: unknown } = {}): void {
+  if (meta.origin === 'deferred') return;
   const leg = pending.get(room);
   if (leg === undefined || leg.injectRequestAt !== null) return;
   leg.injectRequestAt = now();
+  leg.meta.inj_source = enumValue(meta.source, ['stt', 'llm', 'manual', 'history', 'image']);
+  leg.meta.inj_origin = enumValue(meta.origin, ['live', 'deferred', 'manual', 'recovery']);
   if (entryId !== null && entryId !== '') {
     leg.entryId = entryId;
     byEntry.set(entryId, leg);
@@ -181,9 +218,10 @@ export function markInjectRequest(room: string, entryId: string | null, now: Now
  *  when n=0 but dropped moved, which is the half of ①-c this process can
  *  close without a journald scrape. */
 export function markInjectResult(room: string, entryId: string | null, now: Now = defaultNow): void {
+  counts.n_inject_result += 1;
   const t = now();
   const leg = (entryId !== null && entryId !== '' ? byEntry.get(entryId) : undefined) ?? pending.get(room);
-  if (leg === undefined) return;
+  if (leg === undefined || (entryId && leg.entryId !== entryId)) return;
 
   pending.delete(room);
   if (leg.entryId !== null) byEntry.delete(leg.entryId);
@@ -203,7 +241,8 @@ export function markInjectResult(room: string, entryId: string | null, now: Now 
     : leg.sttFinalAt - leg.flushSentAt;
 
   const fields: Record<string, unknown> = {
-    entry_id: leg.entryId,
+    entry_id: null, // NR118 privacy: retain the legacy key, never the identifier.
+    ...leg.meta,
     // ms, server clock, all four boundaries local. See the header for why no
     // phone timestamp appears anywhere in this line.
     stt_ms: stt,
@@ -233,6 +272,8 @@ export function __resetLatencyState(): void {
   pending.clear();
   byEntry.clear();
   dropped = 0;
+  starts.clear();
+  counts = { n_stop: 0, n_final: 0, n_inject_result: 0 };
   closed.splice(0);
   lastEmittedDropped = 0;
 }
@@ -296,6 +337,8 @@ function numericOf(samples: ClosedSegment[], key: keyof ClosedSegment): number[]
 function putPct(fields: Record<string, unknown>, name: string, values: number[]): void {
   const p50 = pct(values, 50);
   const p95 = pct(values, 95);
+  const p90 = pct(values, 90);
+  if (p90 !== null) fields[`${name}_p90`] = p90;
   if (p50 !== null) fields[`${name}_p50`] = p50;
   if (p95 !== null) fields[`${name}_p95`] = p95;
 }
@@ -307,11 +350,12 @@ function putPct(fields: Record<string, unknown>, name: string, values: number[])
  */
 export function emitLatencySummary(): void {
   const n = closed.length;
-  if (n === 0 && dropped === lastEmittedDropped) return;
+  if (n === 0 && dropped === lastEmittedDropped && Object.values(counts).every((v) => v === 0)) return;
   const samples = closed.splice(0);
   lastEmittedDropped = dropped;
   const fields: Record<string, unknown> = {
     n,
+    ...counts,
     dropped_so_far: dropped,
     window_ms: LATENCY_SUMMARY_INTERVAL_MS,
   };
@@ -322,6 +366,7 @@ export function emitLatencySummary(): void {
   putPct(fields, 'inject_ms', numericOf(samples, 'inject_ms'));
   putPct(fields, 'server_total_ms', numericOf(samples, 'server_total_ms'));
   log.info('latency.summary', fields);
+  counts = { n_stop: 0, n_final: 0, n_inject_result: 0 };
 }
 
 export function stopLatencyReader(): void {

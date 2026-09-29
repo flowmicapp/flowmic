@@ -18,7 +18,6 @@
 //! `std::thread`. This follows that, rather than introducing a second
 //! concurrency model for one feature.
 
-use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -27,8 +26,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
 use crate::cloud_signin::{
-    callback_page, exchange_url, http_response, mint_state, now_ms, parse_request_line, Flow,
-    SignInFailure, Verdict, MAX_REQUEST_LINE, SIGNIN_WINDOW_MS,
+    await_callback, callback_page, exchange_url, mint_state, now_ms, CallbackPages, Flow, PageActions,
+    SignInFailure, WaitEnd, SIGNIN_WINDOW_MS,
 };
 use crate::forensic;
 
@@ -47,7 +46,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// How often the accept loop wakes to re-check the deadline and the cancel flag.
 /// A blocking `accept()` cannot be interrupted, which is the whole reason this
 /// listener is non-blocking: without it, 「cancel」 would mean 「cancel, in up to
-/// three minutes」.
+/// fifteen minutes」 (`SIGNIN_WINDOW_MS`).
 const POLL_INTERVAL: Duration = Duration::from_millis(60);
 
 /// The localized page the browser lands on. Handed in from the frontend rather
@@ -60,6 +59,16 @@ pub struct PageCopy {
     pub ok_body: String,
     pub fail_title: String,
     pub fail_body: String,
+    /// NR-110 — the success page's two actions and the line revealed when the
+    /// browser will not let a script close the tab.
+    pub ok_close: String,
+    pub ok_console: String,
+    pub ok_closed: String,
+    /// NR-110 — the console ORIGIN this sign-in was started against (the
+    /// frontend derives it from the same constant it opens the browser at). The
+    /// link is built from it only if it is a bare https origin
+    /// (`crate::cloud_signin::console_home_url`); anything else renders no link.
+    pub console_origin: String,
 }
 
 /// What the frontend needs to build the console URL. The URL itself is built
@@ -99,8 +108,8 @@ enum Phase {
 struct Inner {
     phase: Phase,
     /// Bumped by every `begin`. A worker whose generation is stale writes
-    /// nothing — otherwise a first attempt timing out at 180 s would overwrite
-    /// the phase of a second attempt the person started at 170 s, and the UI
+    /// nothing — otherwise a first attempt timing out at its deadline would overwrite
+    /// the phase of a second attempt the person started a moment earlier, and the UI
     /// would show a failure for a sign-in that was still running.
     generation: u64,
     cancel: Arc<AtomicBool>,
@@ -242,9 +251,13 @@ pub fn cloud_browser_signin_cancel(state: State<'_, SignInState>) {
     inner.phase = Phase::Idle;
 }
 
-/// The accept loop. Runs on its own thread and owns the listener, so the
-/// listener is dropped — and the port released — the moment this returns, by any
-/// route.
+/// The worker. Runs on its own thread and hands the listener to
+/// `crate::cloud_signin::await_callback`, which owns it — so the listener is
+/// dropped, and the port released, the moment the wait ends by any route.
+///
+/// NR-112: the accept loop itself moved to the tauri-free half so the cancel and
+/// window refusals are driven on a real socket by `cargo test --lib`. What stays
+/// here is what needs an `AppHandle`: the phase, the exchange and the key store.
 fn run(
     app: AppHandle,
     generation: u64,
@@ -254,92 +267,48 @@ fn run(
     page: PageCopy,
     exchange: String,
 ) {
-    loop {
-        if cancel.load(Ordering::SeqCst) {
-            return; // `cancel` already wrote the phase; do not overwrite it.
+    let actions = PageActions {
+        close_label: &page.ok_close,
+        console_label: &page.ok_console,
+        closed_fallback: &page.ok_closed,
+        console_origin: &page.console_origin,
+    };
+    let pages = CallbackPages {
+        ok: callback_page(&page.lang, &page.ok_title, &page.ok_body, Some(&actions)),
+        fail: callback_page(&page.lang, &page.fail_title, &page.fail_body, None),
+    };
+    let nonce = match await_callback(listener, &mut flow, &cancel, &pages, POLL_INTERVAL, READ_TIMEOUT) {
+        // `cancel` already wrote the phase; do not overwrite it.
+        WaitEnd::Cancelled => return,
+        WaitEnd::Failed(f) => return settle(&app, generation, Phase::Failed(f.code())),
+        WaitEnd::Accepted(nonce) => nonce,
+    };
+    settle(&app, generation, Phase::Exchanging);
+    let phase = match exchange_nonce(&exchange, &nonce) {
+        Ok(token) => {
+            // 🔴 A CANCEL DURING THE EXCHANGE WINS. The exchange can take up to
+            // `EXCHANGE_TIMEOUT`, and the Cancel button stays on screen through
+            // it (the Vue side shows `exchanging` as waiting). Storing the key
+            // after the person pressed Cancel would sign the PC in against their
+            // last instruction, so the token is dropped unstored. The grant is
+            // already spent server-side; nothing can replay it.
+            if cancel.load(Ordering::SeqCst) {
+                forensic::record(
+                    "cloud",
+                    "browser sign-in: cancelled during the exchange, Cloud Key not stored",
+                );
+                return;
+            }
+            let dto = store_verified_key(&app, &token, endpoint_of(&exchange));
+            forensic::record("cloud", "browser sign-in: completed, Cloud Key stored");
+            Phase::Done(dto)
         }
-        if flow.expired(now_ms()) {
-            forensic::record("cloud", "browser sign-in: window closed with no callback");
-            return settle(&app, generation, Phase::Failed(SignInFailure::Timeout.code()));
+        Err(f) => {
+            forensic::record("cloud", &format!("browser sign-in: exchange failed ({})", f.code()));
+            Phase::Failed(f.code())
         }
-        let (mut sock, peer) = match listener.accept() {
-            Ok(pair) => pair,
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(POLL_INTERVAL);
-                continue;
-            }
-            Err(e) => {
-                forensic::record("cloud", &format!("browser sign-in: accept failed ({e})"));
-                return settle(&app, generation, Phase::Failed(SignInFailure::Listen.code()));
-            }
-        };
-        // 🔴 RE-CHECKED PER CONNECTION even though the bind is loopback-only. The
-        // bind is a claim made once at start-up; this is the fact about THIS
-        // peer. It costs one comparison and it is the last line of the property
-        // the whole design rests on.
-        if !peer.ip().is_loopback() {
-            forensic::record("cloud", "browser sign-in: dropped a non-loopback peer");
-            continue;
-        }
-        let _ = sock.set_read_timeout(Some(READ_TIMEOUT));
-
-        let mut buf = [0u8; MAX_REQUEST_LINE];
-        let n = match sock.read(&mut buf) {
-            Ok(n) if n > 0 => n,
-            // Connected and said nothing, or said nothing readable. Not our
-            // callback; do not let it end a sign-in still in progress.
-            _ => continue,
-        };
-        let head = String::from_utf8_lossy(&buf[..n]);
-        let line = head.lines().next().unwrap_or("");
-        let verdict = match parse_request_line(line) {
-            Some((method, target)) => flow.offer(method, target, now_ms()),
-            None => Verdict::Ignore,
-        };
-
-        match verdict {
-            Verdict::Ignore => {
-                let html = callback_page(&page.lang, &page.fail_title, &page.fail_body);
-                let _ = sock.write_all(&http_response("404 Not Found", &html));
-                continue;
-            }
-            Verdict::Refused(f) => {
-                forensic::record("cloud", &format!("browser sign-in: callback refused ({})", f.code()));
-                let html = callback_page(&page.lang, &page.fail_title, &page.fail_body);
-                let _ = sock.write_all(&http_response("400 Bad Request", &html));
-                return settle(&app, generation, Phase::Failed(f.code()));
-            }
-            Verdict::Accepted(nonce) => {
-                // 🔴 ANSWER THE BROWSER FIRST, THEN EXCHANGE. The person is
-                // looking at a loading tab; making them watch it spin through a
-                // 12-second server round trip — and see a browser error if that
-                // trip is slow — would put OUR latency on THEIR screen, in a page
-                // we do not control. The page is written, the socket is dropped,
-                // and only then does the credential get spent.
-                let html = callback_page(&page.lang, &page.ok_title, &page.ok_body);
-                let _ = sock.write_all(&http_response("200 OK", &html));
-                let _ = sock.flush();
-                drop(sock);
-                drop(listener); // one shot: the port goes back immediately
-                settle(&app, generation, Phase::Exchanging);
-                let phase = match exchange_nonce(&exchange, &nonce) {
-                    Ok(token) => {
-                        let dto = store_verified_key(&app, &token, endpoint_of(&exchange));
-                        forensic::record("cloud", "browser sign-in: completed, Cloud Key stored");
-                        Phase::Done(dto)
-                    }
-                    Err(f) => {
-                        forensic::record(
-                            "cloud",
-                            &format!("browser sign-in: exchange failed ({})", f.code()),
-                        );
-                        Phase::Failed(f.code())
-                    }
-                };
-                return settle(&app, generation, phase);
-            }
-        }
-    }
+    };
+    settle(&app, generation, phase);
 }
 
 /// The origin we exchanged against, which is the origin the stored key belongs

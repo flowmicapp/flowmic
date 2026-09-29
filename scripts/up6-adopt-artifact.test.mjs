@@ -210,7 +210,9 @@ section('§7 CLI refusals, and the adopted artifact flowing into the manifest');
   // imports it since UP-10 (same note as up1's fixture builder).
   // update-manifest-lib.mjs + module-entrypoint-guard.mjs joined with ruling ①
   // (2026-08-10) — the builder's static imports and this list must move together.
-  for (const f of ['build-update-manifest.mjs', 'pack-portable.mjs', 'linux-portable-modes.mjs', 'adopt-artifact.mjs', 'verify-remote-artifact.mjs', 'update-manifest-lib.mjs', 'module-entrypoint-guard.mjs']) {
+  // linux-dev-copy-gate.mjs + release-portable-cjk-scan.mjs joined with NR-107
+  // (adopt-artifact refuses DEV: copy in a Linux portable zip).
+  for (const f of ['build-update-manifest.mjs', 'pack-portable.mjs', 'linux-portable-modes.mjs', 'adopt-artifact.mjs', 'verify-remote-artifact.mjs', 'update-manifest-lib.mjs', 'module-entrypoint-guard.mjs', 'linux-dev-copy-gate.mjs', 'release-portable-cjk-scan.mjs']) {
     writeFileSync(join(root, 'scripts', f), readFileSync(join(ROOT, 'scripts', f)));
   }
   const outDir = join(root, 'publish');

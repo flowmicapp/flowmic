@@ -154,6 +154,7 @@ const spyTargets = (): { t: ForwardTargets; calls: string[] } => {
       usage,
       setHomeNode: (pc, n) => { calls.push(`home:${pc}:${n}`); },
       setPresence: (pc, on) => { calls.push(`presence:${pc}:${on}`); },
+      setPcIdentity: (w) => { calls.push(`identity:${w.pc_id}`); },
     },
   };
 };
@@ -394,7 +395,7 @@ describe('a forwarded record bills in ITS OWN month, not the delivery month', ()
           recordLlmUsage: () => {},
           recordQuotaRefusal: () => {},
         },
-        setHomeNode: () => {}, setPresence: () => {},
+        setHomeNode: () => {}, setPresence: () => {}, setPcIdentity: () => {},
       },
     });
     recv([{ ...sttRecord('late'), at: AUG_31_2359 }], 'srvjp');
@@ -416,7 +417,7 @@ describe('a forwarded record bills in ITS OWN month, not the delivery month', ()
           recordSttUsage: () => { throw new Error('disk full'); },
           recordLlmUsage: () => {}, recordQuotaRefusal: () => {},
         },
-        setHomeNode: () => {}, setPresence: () => {},
+        setHomeNode: () => {}, setPresence: () => {}, setPcIdentity: () => {},
       },
     });
     recv([{ ...sttRecord('boom'), at: AUG_31_2359 }], 'srvjp');

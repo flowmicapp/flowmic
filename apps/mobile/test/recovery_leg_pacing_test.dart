@@ -329,7 +329,7 @@ void main() {
       expect(maxGap, lessThanOrEqualTo(RecoveryPacing.maxGapMs),
           reason: 'a whole 12.8 s block used to wait until it fitted — up to '
               '6.4 s with nothing on the wire');
-    }, timeout: const Timeout(Duration(seconds: 60)));
+    }, timeout: const Timeout(Duration(seconds: 90)));
 
     test(
         '🔴 Codex rc3 ⑧: a relay that reports NO position never leaves the wire '

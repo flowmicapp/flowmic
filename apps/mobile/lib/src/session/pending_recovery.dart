@@ -283,7 +283,7 @@ class PendingRecoveryItem {
   /// row that leads to them may not say one is.
   ///
   /// 🔴 EXHAUSTIVE WITH NO DEFAULT, for the same reason
-  /// [PendingRecoveryCard.sentenceFor] is: a state added later must be
+  /// `recovery_status_sentence.dart` is: a state added later must be
   /// classified by whoever adds it, not inherited into a promise.
   bool get awaitingTranscription => switch (state) {
         PendingRecoveryState.waitingAuto ||

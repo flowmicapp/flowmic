@@ -13,7 +13,11 @@
 //     🔴 losing one silently UNDERCHARGES an account, which is a hole rather
 //     than a degraded feature, and a 30-minute recording is one record;
 //   · presence (pc_devices.is_online / last_seen_at), ~every 10 s;
-//   · home_node, once per registration.
+//   · home_node, once per registration;
+//   · pc_identity (card NR-131) — the machine uid and client declaration a PC
+//     states on every `pc:reconnect`. Before it, a replica stamped them into its
+//     own copy only and the next pull erased them, so a row that needed a
+//     backfill never got one on the writer (node/pc-identity-forward.ts).
 //
 // ⚠️ This list was 「three writes」 until node/forwarded-write.ts counted them:
 // metering is an interface, and calling an interface one write is how a
@@ -55,7 +59,7 @@ import { dirname } from 'node:path';
 /** What a replica owes the writer. Deliberately a closed union: a new kind is a
  *  deliberate decision about what may cross a node boundary, not something a
  *  caller can invent by passing a string. */
-export type OutboxKind = 'usage' | 'presence' | 'home_node';
+export type OutboxKind = 'usage' | 'presence' | 'home_node' | 'pc_identity';
 
 export interface OutboxRecord {
   /** Unique per fact. The writer keys on it — see the at-least-once note. */

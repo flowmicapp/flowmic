@@ -871,6 +871,7 @@ describe('⑥ asCloudAccountRaw is fed the whole Rust outcome enum', () => {
     'no_endpoint', // failed("no_endpoint", None)
     'unauthorized', // Err(("unauthorized".to_string(), ..))
     'restricted', // Err(("restricted".to_string(), reason))
+    'unverified', // NR-109: src-tauri/src/cloud_account_outcome.rs Some(("unverified", None)), returned through get_json's Err((outcome, ..))
     'unreachable', // Err(("unreachable".to_string(), ..))
     'bad_response', // failed("bad_response", ..) and two Err(..) arms
   ] as const;

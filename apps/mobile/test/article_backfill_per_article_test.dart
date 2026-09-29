@@ -15,6 +15,8 @@
 // (the RC-3 shape): A owes 1:35, B owes 6:23. The server advertises none of the
 // recovery capabilities, so nothing is recovered and both debts stay on disk
 // (tier C) — the state the device was in.
+// NR-115 F9: these bytes still count, but tier C now shows its unsupported
+// sentence instead of the automatic-transcription line.
 //
 // ⚠️ UNDER `tester.runAsync`, like article_backfill_placement_test.dart and for
 // its reason: the production chain awaits real timers.
@@ -29,6 +31,7 @@ import 'package:flowmic/src/audio/retained_audio_store.dart';
 import 'package:flowmic/src/destination/destination_controller.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/backfill_runner.dart';
+import 'package:flowmic/src/session/pending_recovery.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
 import 'package:flowmic/src/session/recovery_backoff.dart' show RecoveryQueueState;
 import 'package:flowmic/src/settings/app_settings.dart' show AppLocale;
@@ -337,8 +340,7 @@ Matcher _about(int ms) => inInclusiveRange(ms - 1000, ms + 1000);
 
 void main() {
   testWidgets(
-      '🔴 RC-G: two pieces owe 1:35 and 6:23 — piece A\'s page says 1:35, not '
-      'the phone\'s 7:58', (WidgetTester tester) async {
+      'RC-G / F9: tier-C pieces keep their own debt without promising automatic recovery', (WidgetTester tester) async {
     late final _Rig r;
     late final String a;
     late final String b;
@@ -361,12 +363,9 @@ void main() {
         reason: 'an owed tail is an outage (RC-3)');
 
     await _mountAndOpen(tester, r, a);
-    expect(
-      _textOf(tester, const Key('article.backfill.text')),
-      _zh.articleBackfillPending(formatEntryDuration(p.forArticle(a).pendingMs)),
-      reason: 'this piece\'s 1:35, not the phone\'s '
-          '${formatEntryDuration(p.pendingMs)}',
-    );
+    // MAIN F9: bytes remain measurable, but tier C cannot promise transcription.
+    expect(find.byKey(const Key('article.backfill.text')), findsNothing);
+    expect(find.text(_zh.pendingRecoveryStateServerUnsupported), findsOneWidget);
   });
 
   testWidgets(
@@ -398,8 +397,7 @@ void main() {
   });
 
   testWidgets(
-      '🔴 RC-G: the live form of the page (ArticlePage.live) reads the same '
-      'per-piece number', (WidgetTester tester) async {
+      'RC-G / F9: the live article hides its tier-C outage count', (WidgetTester tester) async {
     late final _Rig r;
     late final String a;
     await tester.runAsync(() async {
@@ -424,10 +422,9 @@ void main() {
     await tester.pump();
     final BackfillProgress p = r.controller.backfill.progress.value;
     expect(p.pendingMs, _about(_owedA + _owedB), reason: 'positive control');
-    expect(
-      _textOf(tester, const Key('article.backfill.text')),
-      _zh.articleBackfillPending(formatEntryDuration(p.forArticle(a).pendingMs)),
-    );
+    // MAIN F9: bytes remain measurable, but tier C cannot promise transcription.
+    expect(find.byKey(const Key('article.backfill.text')), findsNothing);
+    expect(find.text(_zh.pendingRecoveryStateServerUnsupported), findsOneWidget);
   });
 
   testWidgets(
@@ -451,8 +448,8 @@ void main() {
       pendingFromOutage: true,
       running: false,
       byArticle: <String, ArticleBackfill>{
-        a: const ArticleBackfill(pendingMs: _owedA, fromOutage: false),
-        'some-other-piece': const ArticleBackfill(pendingMs: _owedB, fromOutage: true),
+        a: const ArticleBackfill(waitingAuto: true, recoveryItem: PendingRecoveryItem(id: 'fixture', state: PendingRecoveryState.waitingAuto, durationMs: 1000, legacy: false), pendingMs: _owedA, fromOutage: false),
+        'some-other-piece': const ArticleBackfill(waitingAuto: true, recoveryItem: PendingRecoveryItem(id: 'fixture', state: PendingRecoveryState.waitingAuto, durationMs: 1000, legacy: false), pendingMs: _owedB, fromOutage: true),
       },
     );
 
@@ -483,9 +480,9 @@ void main() {
       pendingFromOutage: true,
       running: false,
       byArticle: <String, ArticleBackfill>{
-        id: const ArticleBackfill(pendingMs: _owedA, fromOutage: true),
+        id: const ArticleBackfill(waitingAuto: true, recoveryItem: PendingRecoveryItem(id: 'fixture', state: PendingRecoveryState.waitingAuto, durationMs: 1000, legacy: false), pendingMs: _owedA, fromOutage: true),
         'some-other-piece':
-            const ArticleBackfill(pendingMs: _owedB, fromOutage: true),
+            const ArticleBackfill(waitingAuto: true, recoveryItem: PendingRecoveryItem(id: 'fixture', state: PendingRecoveryState.waitingAuto, durationMs: 1000, legacy: false), pendingMs: _owedB, fromOutage: true),
       },
     ));
     addTearDown(backfill.dispose);
@@ -547,17 +544,14 @@ void main() {
     expect(p.forArticle(two).fromOutage, isTrue);
 
     await _mountAndOpen(tester, r, two);
-    expect(
-      _textOf(tester, const Key('article.backfill.text')),
-      _zh.articleBackfillPending(formatEntryDuration(p.forArticle(two).pendingMs)),
-      reason: 'this piece\'s 0:36, not the next stretch\'s 0:18 and not the '
-          'phone\'s ${formatEntryDuration(p.pendingMs)}',
-    );
+    // MAIN F9: bytes remain measurable, but tier C cannot promise transcription.
+    expect(find.byKey(const Key('article.backfill.text')), findsNothing);
+    expect(find.text(_zh.pendingRecoveryStateServerUnsupported), findsOneWidget);
   });
 
   testWidgets(
       '🔴 RC-G follow-up: a clean recording kept as settled_unverified has NO '
-      'pending line on its page; an owed range on the same phone does',
+      'pending line; an owed tier-C range shows the unsupported state',
       (WidgetTester tester) async {
     late final _Rig r;
     late final String clean;
@@ -598,10 +592,9 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     await _mountAndOpen(tester, r, owed);
-    expect(
-      _textOf(tester, const Key('article.backfill.text')),
-      _zh.articleBackfillPending(formatEntryDuration(p.forArticle(owed).pendingMs)),
-    );
+    // MAIN F9: bytes remain measurable, but tier C cannot promise transcription.
+    expect(find.byKey(const Key('article.backfill.text')), findsNothing);
+    expect(find.text(_zh.pendingRecoveryStateServerUnsupported), findsOneWidget);
     expect(p.forArticle(owed).pendingMs, _about(_owedA));
   });
 }

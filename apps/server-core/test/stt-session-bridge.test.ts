@@ -330,7 +330,9 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
 
   it.each([
     ['LLM_TIMEOUT error', [{ kind: 'error', code: 'LLM_TIMEOUT', message: 'x' }] as LlmEvent[], 'timeout'],
-    ['transport error', [{ kind: 'error', code: 'LLM_AUTH_FAIL', message: 'x' }] as LlmEvent[], 'llm_error'],
+    ['transport error', [{ kind: 'error', code: 'LLM_RATE_LIMITED', message: 'x' }] as LlmEvent[], 'llm_error'],
+    ['refused key (NR-130)', [{ kind: 'error', code: 'LLM_AUTH_FAIL', message: 'x' }] as LlmEvent[], 'model_rejected'],
+    ['unknown model (NR-130)', [{ kind: 'error', code: 'LLM_INVALID_MODEL', message: 'x' }] as LlmEvent[], 'model_rejected'],
     ['empty output', [{ kind: 'done', full: '   ' }] as LlmEvent[], 'empty_output'],
     ['guard rejection', [{ kind: 'done', full: '我去' }] as LlmEvent[], 'guard_reject'],
   ])('polish ON + %s → stt:final skipped(%s) delivering the pure two-stage text', async (_label, events, reason) => {
@@ -662,6 +664,15 @@ describe('SttSessionBridge — RT-1 polishUnavailable', () => {
     eng.finalOnFlush = '你好世界';
     await bridge.finish();
     expect(finalPayload(emitted)).toMatchObject({ text: '你好世界', polish: 'skipped', polish_reason: 'llm_error' });
+  });
+
+  it("NR-123: nothing configured → stt:final says skipped(not_configured), a reason of its own", async () => {
+    const { bridge, eng, emitted } = makeBridge({ polishUnavailable: 'not_configured' });
+    await tick();
+    bridge.pushChunk(0, b64(sine(200)), 0);
+    eng.finalOnFlush = '你好世界';
+    await bridge.finish();
+    expect(finalPayload(emitted)).toMatchObject({ text: '你好世界', polish: 'skipped', polish_reason: 'not_configured' });
   });
 
   it('🔴 F-μ: the degraded final is NOT byte-identical to a polish-OFF final', async () => {

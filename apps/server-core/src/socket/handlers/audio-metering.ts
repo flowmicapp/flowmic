@@ -22,6 +22,7 @@
 
 import { meteringPeerUserId, pcOwnerQuotaGate, roomKindOf, type AnonymousRowReader } from '../../auth/metering-principal';
 import type { MeteredPrincipalRef } from '../../billing/usage-tracker';
+import { isIntegratorRoom } from '../../room/registry-shared';
 import { getAuth } from '../wire';
 
 /** The one row read both questions start from — `registry.findPc(pcId)` reduced
@@ -31,6 +32,24 @@ export type PcRoomReader = (pc_device_id: string) => { userId: string; roomKind:
 export interface AudioMeteringDeps {
   pcRoom?: PcRoomReader;
   anonymousUser?: AnonymousRowReader;
+}
+
+/**
+ * card EMB-15 — is the room this socket is speaking into a THIRD-PARTY host
+ * page's room (`pc_devices.room_kind === 'integrator'`)? Read off the ROOM ROW
+ * (the same `pcRoom` read QTA-2 uses), NOT off `auth.integratorKeyId`: that id
+ * is null on a room minted before MP-1, and a privacy promise that a null key
+ * id could silently switch off is not a promise.
+ *
+ * Its two consumers, which must agree: `audio.handler.ts` (stamps
+ * `SttStartArgs.integratorRoom`, which `engine/stt-factory.ts` reads to arm no
+ * polish and no refine) and `compose.handler.ts` (refuses `compose:start`).
+ * Unwired `pcRoom` ⇒ false, i.e. today's behaviour; production wires it at
+ * `bootstrap-connection-handlers.ts` for BOTH handlers.
+ */
+export function isIntegratorSession(deps: { pcRoom?: PcRoomReader }, deviceId: string): boolean {
+  const room = deps.pcRoom?.(deviceId) ?? null;
+  return room !== null && isIntegratorRoom({ room_kind: room.roomKind });
 }
 
 /**

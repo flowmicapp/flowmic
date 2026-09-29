@@ -80,6 +80,7 @@ import { startServiceRefundSweeper, type ServiceSweeper } from './billing/servic
 import { PROMISED_DEADLINES } from './billing/guided-setup';
 import type { RefundOrigin, ServiceRefundOutcome } from './billing/service-refund';
 import { startGrowthReaper, type GrowthReaper } from './db/reaper';
+import { pruneVisitorDays } from './billing/integrator-session-caps';
 import { FORWARD_LEDGER_PRUNE_INTERVAL_MS, type ForwardLedger } from './node/forward-ledger';
 import { RECOVERY_PRUNE_INTERVAL_MS } from './db/schema-recovery';
 import { startAnonCleanupSweeper, anonCleanupApplyFromEnv, type AnonCleanupSweeper } from './db/anon-cleanup';
@@ -234,6 +235,8 @@ export function startBackgroundSweeps(w: SweepWiring): BackgroundSweeps {
   const growthReaper = startGrowthReaper({
     pcs: db.pcs,
     billing: db.billing,
+    // card EMB-15 — per-visitor daily totals leave with the day, not on the next admission.
+    visitorDays: { prune: (beforeDay, dryRun) => pruneVisitorDays(db.raw, beforeDay, dryRun) },
     ...(now ? { nowMs: now } : {}),
     setIntervalFn,
     clearIntervalFn,

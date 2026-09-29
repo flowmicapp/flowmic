@@ -156,6 +156,7 @@ class Rc3Rig {
     // `FlowmicStateMachine.longStopCeiling`), for a test that needs the phone to
     // give up on a live final.
     Duration? longStopCeiling,
+    bool retainAudio = true,
     // Card RC6 — the recovery queue's clock and RC-O retry timer.
     int Function()? recoveryClock,
     Timer Function(Duration, void Function())? recoveryRetryTimer,
@@ -167,7 +168,7 @@ class Rc3Rig {
     final GatedMemoryJournalFs fs = GatedMemoryJournalFs();
     final Rc3Rig r = Rc3Rig._(tmp, store, fs,
         RetainedAudioSpill(store: store, retainFromFirstFrame: true, journalFs: fs));
-    r._build(processingTimeout, recoveryTimeouts, recoveryClock, recoveryRetryTimer);
+    r._build(processingTimeout, recoveryTimeouts, recoveryClock, recoveryRetryTimer, retainAudio);
     r.session.fsm.longStopCeiling = longStopCeiling;
     return r;
   }
@@ -185,12 +186,12 @@ class Rc3Rig {
   int _frame = 0;
 
   void _build(Duration processingTimeout, RecoveryTimeouts timeouts,
-      int Function()? recoveryClock, Timer Function(Duration, void Function())? recoveryRetryTimer) {
+      int Function()? recoveryClock, Timer Function(Duration, void Function())? recoveryRetryTimer, bool retainAudio) {
     relay = Rc3Relay();
     session = newTestSession(
       transport: relay,
       // Frame k is stamped k × 200 ms: the chunk clock IS the capture clock.
-      audio: AudioCapture(recorder: recorder, spill: spill, clock: () => 200 * _frame++),
+      audio: AudioCapture(recorder: recorder, spill: retainAudio ? spill : null, clock: () => 200 * _frame++),
       stateMachine: FlowmicStateMachine(
         justDoneDuration: Duration.zero,
         processingTimeout: processingTimeout,

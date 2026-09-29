@@ -609,6 +609,17 @@ describe('K-3: a throw while installing the session is ANSWERED, not dropped', (
     expect(mobile.received('stt:error')).toHaveLength(1);
   });
 
+  it('NR118 metadata failure is inside the same named-frame boundary', async () => {
+    const latency = await import('../src/obs/latency');
+    const mark = vi.spyOn(latency, 'markAudioStartMeta').mockImplementation(() => { throw new Error('synthetic metadata failure'); });
+    try {
+      const { mobile, acked } = wireWithExplodingRegistry();
+      expect(mark).toHaveBeenCalledTimes(1);
+      expect(mobile.received('stt:error')).toHaveLength(1);
+      expect(acked()).toMatchObject({ error: 'SETTINGS_SYNC_FAIL' });
+    } finally { mark.mockRestore(); }
+  });
+
   it('…and the ack carries an error too — both channels, exactly as the other arms', () => {
     const { acked } = wireWithExplodingRegistry();
     // ⚠️ `SETTINGS_SYNC_FAIL` is `errorPayload`'s generic fallback for a

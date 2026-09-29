@@ -39,6 +39,7 @@ import { createDbConnection, type DbConnection } from '../src/db/connection';
 import { deriveKey } from '../src/auth/crypto';
 import { makeAuthService, type AuthService } from '../src/auth/auth-service';
 import { RegisterRateLimiter } from '../src/auth/register-rate-limit';
+import { IntegratorRoomRateLimiter } from '../src/auth/integrator-room-rate-limit';
 import { makeBudgetPusher } from '../src/billing/budget-push';
 import { planLimits } from '../src/billing/plans';
 import { Registry } from '../src/room/registry';
@@ -93,6 +94,7 @@ function makeDeps(over: Partial<WebRoomRoutesDeps> = {}): WebRoomRoutesDeps {
     limiter: new RegisterRateLimiter({ now: () => T0, maxAttempts: 5, windowMs: 60_000 }),
     integrator: {
       keys: keyGuard(HOST_PAGE),
+      limiter: new IntegratorRoomRateLimiter(() => T0),
       // The REAL mint, through the REAL registry — a stub here would prove the
       // headers exist on a response no production path produces.
       mint: (user_id, key_id, opts) => registry.mintIntegratorRoom(user_id, key_id, opts),

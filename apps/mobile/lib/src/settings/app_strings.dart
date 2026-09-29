@@ -108,6 +108,7 @@ part 'strings/cloud_strings.dart';
 part 'strings/connection_strings.dart';
 part 'strings/pairing_strings.dart';
 part 'strings/recording_strings.dart';
+part 'strings/recording_polish_strings.dart';
 part 'strings/recording_retention_strings.dart'; // F6: split out of RecordingStrings (file-size cap)
 part 'strings/stt_stall_strings.dart'; // EMPTY-1: split out of RecordingStrings (file-size cap)
 part 'strings/metering_strings.dart'; // G-2c: whose transcription allowance a paired recording spends
@@ -165,6 +166,7 @@ abstract class AppStrings extends AppStringsLeaves
         ConnectionStrings,
         PairingStrings,
         RecordingStrings,
+        PolishStrings,
         // Split out of RecordingStrings (file-size cap), placed immediately
         // after it so the `with` order still reads as one family — the same
         // arrangement, and the same reason, as InjectNoteStrings below.

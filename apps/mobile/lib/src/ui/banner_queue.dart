@@ -356,6 +356,14 @@ BannerQueue buildChatBanners({
   /// opens an empty list is worse than no button (R8).
   void Function()? onOpenPendingRecovery,
   void Function()? onDismissRetainedAudioNotice,
+  /// NR-123 — the one-time 「set an AI model up on the computer」 hint
+  /// (`ChatStatusSurface.polishNoModelHint`). INFO: nothing failed.
+  bool polishNoModelHint = false,
+  void Function()? onDismissPolishNoModelHint,
+  /// NR-130 — the one-time "the model on the computer was refused" hint
+  /// (`ChatStatusSurface.polishModelRejectedHint`). Same slot and severity.
+  bool polishModelRejectedHint = false,
+  void Function()? onDismissPolishModelRejectedHint,
 }) {
   final BannerQueue queue = BannerQueue();
   final BannerItem? link = _linkBanner(
@@ -616,6 +624,32 @@ BannerQueue buildChatBanners({
   // sentence that promises 「連接恢復後」 can only be said by a screen that can
   // see the link is down. Saying it over a healthy link — which is what every
   // press did on 0.3.75 — is a claim about the network that nothing measured.
+  // NR-123 — INFO and dismissible: a hint about where to set a model up, not a
+  // fault. Pushed before `outboxPending` so that count keeps its LAST place.
+  if (polishNoModelHint) {
+    queue.push(
+      BannerItem(
+        id: BannerIds.polishNoModelHint,
+        severity: BannerSeverity.info,
+        message: strings.polishNoModelHint,
+        dismissible: true,
+        onAction: onDismissPolishNoModelHint,
+      ),
+    );
+  }
+  // NR-130 — same place and severity: the text still arrived, the fix is a
+  // setting on the computer. Info, not a fault banner, so it never covers one.
+  if (polishModelRejectedHint) {
+    queue.push(
+      BannerItem(
+        id: BannerIds.polishModelRejectedHint,
+        severity: BannerSeverity.info,
+        message: strings.polishModelRejectedHint,
+        dismissible: true,
+        onAction: onDismissPolishModelRejectedHint,
+      ),
+    );
+  }
   final bool linkDown = connection != ConnectionState.connected;
   if (outboxPending.visible(
     now: now ?? DateTime.now().toUtc(),

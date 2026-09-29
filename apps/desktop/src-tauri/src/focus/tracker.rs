@@ -48,6 +48,11 @@ impl FocusTracker {
 
     pub fn start<S: WinEventSource + 'static>(source: S) -> Self {
         let (tx, rx) = std::sync::mpsc::sync_channel(Self::CHANNEL_CAPACITY);
+        #[cfg(target_os = "linux")]
+        if let Some(event) = source.seed_current() {
+            // Queue the cold read before installation can enqueue newer events.
+            let _ = tx.try_send(event);
+        }
         let hook = source.install(tx);
         Self { rx, _hook: hook }
     }

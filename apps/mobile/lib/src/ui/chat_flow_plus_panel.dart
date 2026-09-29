@@ -24,7 +24,8 @@ Widget _plusButtonRouted(
   AppStrings strings,
 ) => InkWell(
   key: const ValueKey<String>('compose.plus'),
-  onTap: () => _openPlusPanelRouted(s, context, strings),
+  onTap: s.controller.articleFinishing
+      ? null : () => _openPlusPanelRouted(s, context, strings),
   borderRadius: BorderRadius.circular(13),
   child: Container(
     width: kComposeTouchTarget,
@@ -93,6 +94,7 @@ Future<void> _openPlusPanelRouted(
         ? null
         : LightRecordQuery(persistence: s.widget.historySource!),
     liveArticleId: s.controller.session.recordingArticleId, // Card P2-9
+    articleController: s.controller,
     backfill: s.controller.backfill.progress, // CR-8 — read-only, one owner.
     isSignedIn: s.widget.isSignedIn,
     onSignIn: s.widget.onSignIn,

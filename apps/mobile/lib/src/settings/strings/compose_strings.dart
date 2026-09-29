@@ -560,8 +560,14 @@ mixin ComposeStrings on AppStringsLeaves {
           : aiErrorCode(code);
 
   /// Readable text for the compose error codes the server can return. An
-  /// UNKNOWN code is surfaced VERBATIM rather than swallowed into a generic
-  /// message — a code we cannot name is exactly the one worth showing.
+  /// UNKNOWN code falls to the same generic sentence as `null`
+  /// ([_lfAiErrorCode__10]) — never to the identifier itself: a bare
+  /// `WEB_EVENT_NOT_ALLOWED` on the banner is internal vocabulary on screen
+  /// (owner 2026-08-22: every word a user sees must be one they can read).
+  /// The banner has no details slot to keep the code in; the server logs the
+  /// refusal (compose.handler.ts `log.warn`), and
+  /// `compose_error_copy_binding_test.dart` lists every code the compose path
+  /// can send so a new one cannot arrive here unnoticed.
   String aiErrorCode(String? code) {
     switch (code) {
       case 'QUOTA_EXCEEDED':
@@ -609,10 +615,24 @@ mixin ComposeStrings on AppStringsLeaves {
       // are separate strings because they interrupt different actions.
       case 'EMAIL_VERIFY_GRACE_EXPIRED':
         return _lfAiErrorCode__11;
+      // card EMB-15: a visitor's own FlowMic app paired into a website
+      // voice-input (integrator) room asked for translate/organize. The server
+      // refuses with the existing `WEB_EVENT_NOT_ALLOWED` (compose.handler.ts,
+      // `integrator_room` gate). Its sentence says what is true — this website's
+      // voice input takes plain dictation only — and does not blame the user's
+      // model or account (R11: one code, one question).
+      case 'WEB_EVENT_NOT_ALLOWED':
+        return _lfAiNotOnWebsiteVoice;
+      // EMB-15 follow-up 3: the server refuses compose:start on a socket with no
+      // auth (compose.handler.ts, `AUTH_TOKEN_INVALID`). The one actionable fact is
+      // that this phone must sign in again, and the cloud-error table already says
+      // exactly that; reuse it rather than fall to the generic sentence (D-47: no
+      // new words).
+      case 'AUTH_TOKEN_INVALID':
+        return _lfCloudError_AUTH_TOKEN_INVALID;
       case null:
-        return _lfAiErrorCode__10;
       default:
-        return code;
+        return _lfAiErrorCode__10;
     }
   }
 }

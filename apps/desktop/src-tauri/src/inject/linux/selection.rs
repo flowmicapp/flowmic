@@ -142,21 +142,33 @@ impl Owner {
         };
         let mut total = 0;
         let mut previous_timestamp = None;
+        // EMPTY_CLIPBOARD: owner 0 keeps only TOKEN; restore publishes empty values.
         if previous_owner != 0 {
             let atoms = if previous_owner == self.window {
                 self.values.keys().copied().collect()
             } else {
-                let list = self.convert(self.targets)?;
-                if list.kind != xlib::XA_ATOM {
-                    return Err("TARGETS did not return ATOM data".into());
+                match self.convert(self.targets) {
+                    Ok(list) if list.kind == xlib::XA_ATOM => list.as_words()?,
+                    other => {
+                        let reason = match other {
+                            Err(e) if e == "selection owner refused conversion of TARGETS" => e,
+                            Err(e) => return Err(e),
+                            Ok(_) => "TARGETS did not return ATOM data".into(),
+                        };
+                        crate::forensic::record("inject", &format!("X11 snapshot unreadable TARGETS: {reason}; treating as empty clipboard"));
+                        // Mirror EMPTY_CLIPBOARD above (previous_owner == 0):
+                        // token-only snapshot, restore publishes empty values.
+                        // No readable advertised content can be lost; restore
+                        // removes the borrowed text rather than leaving it behind.
+                        Vec::new()
+                    }
                 }
-                list.as_words()?
             };
             if atoms.len() > 512 {
                 return Err("clipboard offers more than 512 targets".into());
             }
             if previous_owner != self.window && atoms.contains(&self.timestamp) {
-                previous_timestamp = Some(self.selection_timestamp()?);
+                previous_timestamp = self.selection_timestamp()?;
             }
             for atom in atoms {
                 let name = self.name(atom);
@@ -203,8 +215,9 @@ impl Owner {
                 }
             }
         }
-        if let Some(stamp) = &previous_timestamp {
-            if self.selection_timestamp()? != *stamp {
+        if let Some(stamp) = previous_timestamp.clone() {
+            previous_timestamp = self.selection_timestamp()?;
+            if previous_timestamp.as_ref().is_some_and(|current| *current != stamp) {
                 return Err("clipboard TIMESTAMP changed during snapshot".into());
             }
         }
@@ -298,7 +311,7 @@ impl Owner {
         let previous_owner = saved.previous_owner;
         let previous_revision = saved.previous_revision;
         if let Some(stamp) = saved.previous_timestamp.clone() {
-            if self.selection_timestamp()? != stamp {
+            if self.selection_timestamp()?.is_some_and(|current| current != stamp) {
                 return Err("clipboard TIMESTAMP changed before replacement".into());
             }
         }
@@ -317,12 +330,15 @@ impl Owner {
         Ok(())
     }
 
-    fn selection_timestamp(&mut self) -> Result<Vec<u8>, String> {
-        let value = self.convert(self.timestamp)?;
-        if value.kind != xlib::XA_INTEGER || value.width != 32 || value.bytes.len() != 4 {
-            return Err("TIMESTAMP was not one INTEGER/32 value".into());
-        }
-        Ok(value.bytes)
+    fn selection_timestamp(&mut self) -> Result<Option<Vec<u8>>, String> {
+        let reason = match self.convert(self.timestamp) {
+            Ok(value) if value.kind == xlib::XA_INTEGER && value.width == 32 && value.bytes.len() == 4 => return Ok(Some(value.bytes)),
+            Ok(_) => "TIMESTAMP was not one INTEGER/32 value".into(),
+            Err(e) if e == "selection owner refused conversion of TIMESTAMP" => e,
+            Err(e) => return Err(e),
+        };
+        crate::forensic::record("inject", &format!("X11 TIMESTAMP unavailable: {reason}; retaining XFixes generation guard"));
+        Ok(None)
     }
 
     fn text_values(&self, text: &str) -> Result<HashMap<xlib::Atom, Value>, String> {
@@ -591,6 +607,10 @@ impl Owner {
     }
 
     fn convert(&mut self, target: xlib::Atom) -> Result<Value, String> {
+        self.convert_value(target).map_err(|error| format!("{error} of {}", self.name(target)))
+    }
+
+    fn convert_value(&mut self, target: xlib::Atom) -> Result<Value, String> {
         unsafe {
             (self.connection.api.XDeleteProperty)(
                 self.connection.display,

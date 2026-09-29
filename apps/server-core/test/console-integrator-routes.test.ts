@@ -332,3 +332,34 @@ describe("MP-13: a site key must carry the site's name", () => {
     expect(integratorRoomName('Acme\nDocs')).toBe('Acme Docs');
   });
 });
+
+describe('EMB-1b: every integrator key is bound to literal site origins', () => {
+  it('refuses an empty or whitespace-only origins list at creation', async () => {
+    const t = await account('t-origin-empty@integrator.test');
+    for (const origins of [[], ['   \t  ']]) {
+      const r = await createKey(t.bearer, { origins });
+      expect(r.status).toBe(400);
+      expect(r.json).toMatchObject({ error: 'SETTINGS_SCHEMA_INVALID' });
+    }
+    expect(await listKeys(t.bearer)).toHaveLength(0);
+  });
+
+  it('refuses wildcard and pattern origins at creation', async () => {
+    const t = await account('t-origin-wildcard@integrator.test');
+    for (const origin of ['*', '*.example.com', 'http://*', 'https://*.example.com']) {
+      const r = await createKey(t.bearer, { origins: [origin] });
+      expect(r.status, origin).toBe(400);
+      expect(r.json, origin).toMatchObject({ error: 'SETTINGS_SCHEMA_INVALID' });
+    }
+    expect(await listKeys(t.bearer)).toHaveLength(0);
+  });
+
+  it('accepts literal origins, including localhost and loopback development origins', async () => {
+    const t = await account('t-origin-valid@integrator.test');
+    const origins = ['http://localhost:5173', 'http://127.0.0.1:8080'];
+    const r = await createKey(t.bearer, { origins });
+    expect(r.status).toBe(200);
+    expect(r.json.key).toMatchObject({ origins });
+    expect(await listKeys(t.bearer)).toHaveLength(1);
+  });
+});

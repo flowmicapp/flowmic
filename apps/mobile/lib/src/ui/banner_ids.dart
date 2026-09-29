@@ -137,6 +137,21 @@ class BannerIds {
   /// it goes when a leg is heard from again or the recording ends.
   static const String continuousEngineDown = 'continuous_engine_down';
 
+  /// NR-123 (owner 2026-09-29) — polish is on but the computer has no AI model
+  /// set up; says where to set one up. ITS OWN ID: it is not a failure of
+  /// anything the user did, and it must never share a key with [aiCompose]
+  /// (a run that failed). STATE-type, raised once per PC per app run
+  /// (chat_notices.dart `raisePolishNoModelHintRouted`), cleared by ✕ or by a
+  /// later final whose polish applied.
+  static const String polishNoModelHint = 'polish_no_model_hint';
+
+  /// NR-130 (MAIN 2026-09-29) — polish is on, a model IS set up on the
+  /// computer, and its provider refused it (bad key or unknown model); says
+  /// where to check. Its own id for the same reason as [polishNoModelHint]:
+  /// two different facts must never share a key. Raised and cleared by the
+  /// same functions (chat_notices.dart `raisePolishNoModelHintRouted`).
+  static const String polishModelRejectedHint = 'polish_model_rejected_hint';
+
   // `timelineConflict` was removed in 0.2.27 with the banner it keyed (see
   // buildChatBanners). A banner id nothing can push is dead weight that reads
   // like a live surface.

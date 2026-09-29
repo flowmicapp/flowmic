@@ -173,6 +173,15 @@ export const DEVICES_KEYS = [
   /** A legal private range that is NOT RFC1918 (172.77.x, CGNAT…). Labelled, not
    *  demoted — the demotion is what broke owner's LAN pairing. */
   'dev_lan_nonstandard',
+  // NR-123 (owner 2026-09-29) — the quiet line on the Local-LAN card when this
+  // computer has no usable AI model, so polish over the local network is off.
+  // Its button reuses `llm_setup_go_llm` and jumps to the model section
+  // (LanPolishNotice.vue).
+  'dev_lan_polish_no_model',
+  // NR-130 (MAIN 2026-09-29) — the same line, when a model IS set up but its
+  // provider refused it (bad key, or a model/endpoint it does not know). Same
+  // component and button; a different fact, so a different sentence.
+  'dev_lan_polish_model_rejected',
   // devices page cloud-card fold
   'dev_fold_more',
   'dev_fold_less',

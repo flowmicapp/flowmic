@@ -18,7 +18,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Plan } from '@flowmic/protocol';
-import { CLOUD_INSTANCE_ID, Registry } from '../src/room/registry';
+import { CLOUD_INSTANCE_ID, Registry, countMobileDevices } from '../src/room/registry';
 import { isRealPc } from '../src/room/registry-shared';
 import {
   PLAN_LIMITS,
@@ -507,6 +507,53 @@ describe('GA-16 — mobile pairing ceiling', () => {
     expect(() => registry.pairMobile({ ...pairAddr(pc), mobile_name: 'C', user_id: 'u1', device_uid: 'handset-3' })).toThrow(
       ServerError,
     );
+  });
+
+  // ── card EMB-6 · a visitor's phone in a third-party page's room is not the host's phone ──
+  // Measured in `_dispatch/2026-09-29-emb-0.report.md` item 6: a visitor scanning an
+  // integrator page's QR with the FlowMic app counted against the HOST account's
+  // handset ceiling, so a Free host (2) was walled off by two visitors and the slot
+  // stayed held until the daily reaper. The rule is `isIntegratorRoom` (room_kind),
+  // asked by `pairMobile` (the ceiling) and `countMobileDevices` (the count).
+  it('🔴 EMB-6: a Free host with 2 own phones — visitor apps join an integrator room and the host count stays 2', () => {
+    db.integratorKeys.insert({
+      id: 'key-1', user_id: 'u1', publishable_key: `fmpk_${'a'.repeat(32)}`,
+      origins: ['https://site.example'], quota_minutes: null, label: 'Site', created_at: Date.now(),
+    });
+    const registry = new Registry({
+      pcs: db.pcs, mobiles: db.mobiles, mode: 'saas', limitsOf: () => planLimits('free'),
+      integratorKeys: db.integratorKeys,
+    });
+    const pc = newPc(registry, 'u1', 1).pc;
+    registry.pairMobile({ ...pairAddr(pc), mobile_name: 'own-A', user_id: 'u1', device_uid: 'own-1' });
+    registry.pairMobile({ ...pairAddr(pc), mobile_name: 'own-B', user_id: 'u1', device_uid: 'own-2' });
+    expect(countMobileDevices(db.pcs.listByUser('u1'), db.mobiles)).toBe(2);
+
+    const room = registry.mintIntegratorRoom('u1', 'key-1').pc;
+    expect(room.room_kind).toBe('integrator');
+    // Three distinct visitor handsets (the app, `client: 'app'`), each refused
+    // before EMB-6 as soon as the host sat at 2.
+    for (const uid of ['visitor-1', 'visitor-2', 'visitor-3']) {
+      expect(() => registry.pairMobile({ ...pairAddr(room), mobile_name: uid, device_uid: uid, client: 'app' })).not.toThrow();
+    }
+    expect(db.mobiles.listByPc(room.id)).toHaveLength(3);
+    // The host's own count did not move ...
+    expect(countMobileDevices(db.pcs.listByUser('u1').filter(isRealPc), db.mobiles)).toBe(2);
+    // ... positive control: the ceiling still bites a normal THIRD own phone, on the
+    // ordinary PC row (the exclusion is the room kind, not "the host is exempt").
+    let thrown: unknown;
+    try {
+      registry.pairMobile({ ...pairAddr(pc), mobile_name: 'own-C', user_id: 'u1', device_uid: 'own-3' });
+    } catch (err) {
+      thrown = err;
+    }
+    expect((thrown as ServerError | undefined)?.code).toBe('MOBILES_LIMIT_EXCEEDED');
+    // ... and the account's OWN web room is NOT excluded (the loophole EMB-6 must not open).
+    const webRoom = db.pcs.insert({
+      id: 'own-web-room', user_id: 'u1', device_name: 'Web', room_kind: 'web',
+      device_token: 'wt', room_uuid: 'wu', short_code: '9999',
+    });
+    expect(countMobileDevices([webRoom], { listByPc: () => [{ ...db.mobiles.listByPc(pc.id)[0]! }] })).toBe(1);
   });
 
   it('pro / standalone are unlimited', () => {

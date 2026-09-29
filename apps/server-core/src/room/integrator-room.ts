@@ -45,6 +45,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PcRecord } from '../db/repos/pc.repo';
 import type { PcRepo } from '../db/repos/pc.repo';
+import type { MobileRepo } from '../db/repos/mobile.repo';
 import { newToken } from '../auth/token';
 import { INTEGRATOR_ROOM_KIND } from './registry-shared';
 
@@ -111,6 +112,7 @@ export function integratorRoomName(label: string | null | undefined): string {
 
 export interface IntegratorRoomDeps {
   pcs: Pick<PcRepo, 'insert' | 'findById'>;
+  mobiles: Pick<MobileRepo, 'insert'>;
   /** `Registry.allocateCode` — a free 4-digit code, reserved for `ownerId`. */
   allocateCode(ownerId?: string): string;
   /** `ShortCodeGovernor.stamp` — this code is now live for this row. */
@@ -127,6 +129,15 @@ export interface IntegratorRoomOutcome {
   token: string;
   code: string;
   expiresAtMs: number;
+  localMicToken?: string;
+  localPairingId?: string;
+}
+
+export interface IntegratorRoomOptions {
+  ttlMs?: number;
+  deviceName?: string;
+  /** Omitted by old SDKs: keep issuing their phone invitation. */
+  pairing?: 'local' | 'phone';
 }
 
 /**
@@ -146,13 +157,13 @@ export function mintIntegratorRoom(
    *  about it: the ONE production caller (`http/web-room-routes.ts`
    *  `handleIntegrator`) always passes it, and G31 asserts the name that comes
    *  out the other end equals the key's label. */
-  opts?: { ttlMs?: number; deviceName?: string },
+  opts?: IntegratorRoomOptions,
 ): IntegratorRoomOutcome {
   const nowMs = deps.now();
   const expiresAtMs = nowMs + (opts?.ttlMs ?? INTEGRATOR_ROOM_TTL_MS);
   const id = randomUUID();
   const token = newToken();
-  const code = deps.allocateCode();
+  const code = opts?.pairing === 'local' ? '' : deps.allocateCode();
   const pc = deps.pcs.insert({
     id,
     user_id,
@@ -166,7 +177,7 @@ export function mintIntegratorRoom(
     room_uuid: randomUUID(),
     short_code: code,
   });
-  deps.stampCode(pc.id, pc.short_code);
+  if (code !== '') deps.stampCode(pc.id, pc.short_code);
   // 🔴 THE KEY EDGE IS WRITTEN AFTER THE ROW AND BEFORE ANYTHING IS RETURNED,
   // and the order matters in one direction only: a room that exists without its
   // edge would resolve to `integratorKeyId: null`, i.e. a room billed to T with
@@ -180,5 +191,13 @@ export function mintIntegratorRoom(
   // connected at this instant, and a row claiming to be online is read as 「that
   // end is here right now」 by the console's presence projection.
   deps.stampPcid(pc);
-  return { pc: deps.pcs.findById(pc.id) ?? pc, token, code, expiresAtMs };
+  // The same page already receives the room credential. Mint its local web
+  // microphone credential without a guessable code; normal mobile:reconnect
+  // still checks Origin, restrictions and the billing relationship.
+  const local = opts?.pairing === 'local' ? deps.mobiles.insert({
+    id: randomUUID(), pc_device_id: pc.id, user_id,
+    mobile_token: newToken(), client: 'web',
+  }) : undefined;
+  return { pc: deps.pcs.findById(pc.id) ?? pc, token, code, expiresAtMs,
+    ...(local ? { localMicToken: local.mobile_token, localPairingId: local.id } : {}) };
 }

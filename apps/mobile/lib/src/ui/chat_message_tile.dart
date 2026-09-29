@@ -169,7 +169,7 @@ class ChatMessageTile extends StatelessWidget {
   /// once; a third would land on top of them.
   final bool isFavorite;
 
-  /// WP-R4-6 ⑦: non-null ⇒ show the transient polish-skipped corner mark.
+  /// WP-R4-6 ⑦: non-null ⇒ show the transient polish-skipped mark (own line below the meta row, NR-122b).
   /// Label is resolved by the caller from AppStrings (explicit locale).
   final String? polishSkippedLabel;
 
@@ -351,7 +351,19 @@ class ChatMessageTile extends StatelessWidget {
             instanceChip!,
             const SizedBox(height: 6),
           ],
-          Row(
+          // NR-122b: the meta row is a Wrap, not a Row. As a Row its fixed-width
+          // chips (mode badge, time, status pill, resend) overflowed a 360 dp
+          // phone at text scale 1.3 and clipped the resend link, while the
+          // optional chips (provenance, metrics, resend time, reason line) were
+          // squeezed to a few pixels. Now the status pill and the resend link
+          // are never shrunk: when the line is full the low-priority chips move
+          // to the next run, and any single chip wider than the card is
+          // ellipsized by its own maxLines: 1. The "Flexible + ellipsis"
+          // remarks in the comments below describe the Row this replaced.
+          Wrap(
+            spacing: 7,
+            runSpacing: 2,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
               // The tick leads the meta row so every row's mark sits at the same
               // x — a column of ticks is scannable, a tick that moves with the
@@ -374,10 +386,8 @@ class ChatMessageTile extends StatelessWidget {
                     fontSize: 14,
                   ),
                 ),
-                const SizedBox(width: 7),
               ],
               ModeBadge(entry.mode, strings: strings),
-              const SizedBox(width: 7),
               Text(
                 timelineTimeLabel(entry.createdAt),
                 style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
@@ -406,14 +416,11 @@ class ChatMessageTile extends StatelessWidget {
               // fixed-width
               // child is enough to overflow a narrow handset.
               if (entry.lastResentAt case final DateTime resentAt?) ...<Widget>[
-                const SizedBox(width: 7),
-                Flexible(
-                  child: Text(
-                    strings.resentAtLabel(timelineTimeLabel(resentAt)),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: FlowMicColors.t2, fontSize: 10.5),
-                  ),
+                Text(
+                  strings.resentAtLabel(timelineTimeLabel(resentAt)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: FlowMicColors.t2, fontSize: 10.5),
                 ),
               ],
               // Inline, not a corner overlay: a Positioned chip at top-right
@@ -422,15 +429,8 @@ class ChatMessageTile extends StatelessWidget {
               // still stands); it just has to share the row instead of sitting
               // on top of it.
               if (entry.edited) ...<Widget>[
-                const SizedBox(width: 7),
-                Flexible(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: EditedMark(label: strings.editedMark),
-                  ),
-                ),
+                EditedMark(label: strings.editedMark),
               ],
-              const SizedBox(width: 7),
               StatusPill(face, strings: strings),
               // RV-14: surface the named failure code next to the bare ✗ so the
               // carefully minted codes (LINK_DOWN / INJECT_NO_RESULT / …) are
@@ -493,18 +493,15 @@ class ChatMessageTile extends StatelessWidget {
               // [_reasonLineFor] for the one place that decides this).
               if (_reasonLineFor(face, entry.failureReason, strings)
                   case final String line?) ...<Widget>[
-                const SizedBox(width: 7),
                 // Flexible + ellipsis like the provenance chip below: this row
                 // already carries badge + time + pill + resend, and either an
                 // unflexed 28-char code or a full sentence is enough to
                 // overflow it on a narrow handset.
-                Flexible(
-                  child: Text(
-                    line,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-                  ),
+                Text(
+                  line,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
                 ),
               ],
               // M2: an un-landed PC-bound text row carries its own resend right
@@ -517,7 +514,6 @@ class ChatMessageTile extends StatelessWidget {
               // just took care not to), the same affordance language the banner
               // slot's _TextButtonlet speaks.
               if (canRetry) ...<Widget>[
-                const SizedBox(width: 7),
                 Semantics(
                   button: true,
                   label: strings.resendAction,
@@ -549,15 +545,12 @@ class ChatMessageTile extends StatelessWidget {
                 // — the gap the card was opened to close. Plain text, not a
                 // button: R8's own rule is a control that changes nothing is
                 // worse than no control, so this must never be tappable.
-                const SizedBox(width: 7),
-                Flexible(
-                  child: Text(
-                    strings.imageResendUnavailableNote,
-                    key: ValueKey<String>('entry.imageResendNote.${entry.id}'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-                  ),
+                Text(
+                  strings.imageResendUnavailableNote,
+                  key: ValueKey<String>('entry.imageResendNote.${entry.id}'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
                 ),
               ],
               // owner 2026-07-27:「手机这一端也应该有这样的一个信息，这样的话
@@ -578,14 +571,11 @@ class ChatMessageTile extends StatelessWidget {
               // row (not only rows that landed) — see [_provenance].
               if (_provenance(entry) case final String p?
                   when p.isNotEmpty) ...<Widget>[
-                const SizedBox(width: 7),
-                Flexible(
-                  child: Text(
-                    p,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: FlowMicColors.teal, fontSize: 10.5),
-                  ),
+                Text(
+                  p,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: FlowMicColors.teal, fontSize: 10.5),
                 ),
               ],
               // §4b-8 per-row display of transcription duration + word count
@@ -594,19 +584,16 @@ class ChatMessageTile extends StatelessWidget {
               // already carries badge + time + pill + (code) + (resend/note) +
               // (→ PC → window), and this is one more item competing for a
               // narrow handset's width.
-              if (_metricsLabel(entry, strings) case final String m?) ...<Widget>[
-                const SizedBox(width: 7),
-                Flexible(
-                  child: Text(
-                    m,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-                  ),
+              if (_metricsLabel(entry, strings)
+                  case final String m?) ...<Widget>[
+                Text(
+                  m,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
                 ),
               ],
               if (isFavorite) ...<Widget>[
-                const SizedBox(width: 7),
                 // A glyph, not an Icon: this file deliberately imports only
                 // widgets.dart (no Material), and one star is not worth
                 // dragging the whole Material layer in.
@@ -617,6 +604,14 @@ class ChatMessageTile extends StatelessWidget {
               ],
             ],
           ),
+          // NR-122b: the polish-skipped mark lives in normal flow on its own line
+          // right under the meta row (it used to be a Positioned corner overlay
+          // that painted over the status / resend link / provenance). Bounded by
+          // the card's width, so a long label wraps inside the card.
+          if (polishSkippedLabel != null) ...<Widget>[
+            const SizedBox(height: 4),
+            PolishSkippedMark(label: polishSkippedLabel!),
+          ],
           const SizedBox(height: 3),
           // owner 2026-07-27: a picture row shows the picture. The descriptor
           // stays beneath as the caption — and stands alone when there is no
@@ -635,9 +630,7 @@ class ChatMessageTile extends StatelessWidget {
             // stay free for the row itself, and long-press still opens the
             // context menu.
             GestureDetector(
-              onDoubleTap: onZoom == null
-                  ? null
-                  : () => onZoom!(entry, png),
+              onDoubleTap: onZoom == null ? null : () => onZoom!(entry, png),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: Image.memory(
@@ -655,7 +648,10 @@ class ChatMessageTile extends StatelessWidget {
           ],
           Text(
             entry.displayText,
-            style: TextStyle(color: FlowMicColors.t1, fontSize: kTranscriptBodySize),
+            style: TextStyle(
+              color: FlowMicColors.t1,
+              fontSize: kTranscriptBodySize,
+            ),
           ),
           // 🔴 Card M6-1 (0.2.53) — 「凭什么说没注入」("what grounds is there for
           // saying it wasn't injected")'s full sentence, filling the whole
@@ -728,20 +724,9 @@ class ChatMessageTile extends StatelessWidget {
       ),
     );
 
-    // Polish-skipped stays a corner overlay (orthogonal to status; no
-    // competing edited chip up there any more). Edited is inline in the
-    // meta row so it cannot cover last-delivery time / provenance.
-    final List<Widget> overlays = <Widget>[
-      if (polishSkippedLabel != null)
-        Positioned(
-          top: 10,
-          right: 10,
-          child: PolishSkippedMark(label: polishSkippedLabel!),
-        ),
-    ];
-    final Widget card = overlays.isEmpty
-        ? body
-        : Stack(children: <Widget>[body, ...overlays]);
+    // Edited is inline in the meta row and polish-skipped is a normal-flow line
+    // below it (NR-122b), so nothing is drawn over the card body any more.
+    final Widget card = body;
 
     return GestureDetector(
       // 🔴 Card FB-7 — a single tap toggles the tick, and ONLY in selection mode.

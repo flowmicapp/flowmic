@@ -293,6 +293,10 @@ export const SETTINGS_CAPABILITY_KEY_PREFIX = 'capability.';
  * (server-core stt/stt-polish-settings.ts `llmCapabilityUsable`), so the switch's
  * value and the reason shown beside it cannot disagree. It deliberately says
  * nothing about WHICH model or whose key: only whether one exists.
+ * NR-130 (additive): `rejected: boolean` — a model IS set up and its provider
+ * refused it the last time polish ran on that server (server-core
+ * stt/llm-reject-latch.ts). Never true while `usable` is false; readers that
+ * predate it ignore it, and its absence means "not refused".
  */
 export const SETTINGS_KEY_CAPABILITY_LLM = 'capability.llm';
 // `scenario.inference` — JSON value = a ScenarioConsentRow (see

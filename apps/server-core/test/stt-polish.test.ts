@@ -17,6 +17,7 @@ import {
   checkMeaningPreserved,
   polishFinalText,
   polishWireSignal,
+  polishWireSignalFor,
   polishBudgetMs,
   POLISH_BUDGET_MS,
   POLISH_BUDGET_MAX_MS,
@@ -261,9 +262,35 @@ describe('polishFinalText — wire-reason normalization via a fake streamer', ()
   });
 
   it("a non-timeout transport error ⇒ skipped('llm_error')", async () => {
-    const r = await polishFinalText('你好世界', CFG, { streamerFor: fakeStreamerFor([{ kind: 'error', code: 'LLM_AUTH_FAIL', message: 'x' }]) });
+    // NR-130: this used LLM_AUTH_FAIL, which is now `model_rejected` (below).
+    const r = await polishFinalText('你好世界', CFG, { streamerFor: fakeStreamerFor([{ kind: 'error', code: 'LLM_RATE_LIMITED', message: 'x' }]) });
     expect(r.skipReason).toBe('llm_error');
     expect(polishWireSignal(r)).toEqual({ polish: 'skipped', polish_reason: 'llm_error' });
+  });
+
+  // NR-130 — one value, one question: a CONFIG refusal (bad key, unknown model)
+  // is `model_rejected`; anything waiting can fix keeps its old reason.
+  it.each([
+    ['LLM_AUTH_FAIL', 'model_rejected'],
+    ['LLM_INVALID_MODEL', 'model_rejected'],
+    ['LLM_TIMEOUT', 'timeout'],
+    ['LLM_RATE_LIMITED', 'llm_error'],
+    ['LLM_OVERLOADED', 'llm_error'],
+    ['SOMETHING_NEW', 'llm_error'],
+  ])('NR-130: streamer error %s ⇒ skipped(%s)', async (code, reason) => {
+    const r = await polishFinalText('你好世界', CFG, { streamerFor: fakeStreamerFor([{ kind: 'error', code, message: 'x' } as LlmEvent]) });
+    expect(r.text).toBe('你好世界');
+    expect(r.skipReason).toBe(reason);
+    expect(polishWireSignalFor(r, 'user')).toEqual({ polish: 'skipped', polish_reason: reason });
+  });
+
+  it('NR-130: a refused MANAGED key reaches the phone as llm_error (the user has nothing to check)', async () => {
+    const r = await polishFinalText('你好世界', CFG, { streamerFor: fakeStreamerFor([{ kind: 'error', code: 'LLM_AUTH_FAIL', message: 'x' }]) });
+    expect(r.skipReason).toBe('model_rejected'); // forensic outcome keeps the raw reason
+    expect(polishWireSignalFor(r, 'managed-default')).toEqual({ polish: 'skipped', polish_reason: 'llm_error' });
+    // Positive control: the same result from a config the user or the seeder owns.
+    expect(polishWireSignalFor(r, 'user')).toEqual({ polish: 'skipped', polish_reason: 'model_rejected' });
+    expect(polishWireSignalFor(r, 'seed')).toEqual({ polish: 'skipped', polish_reason: 'model_rejected' });
   });
 
   it("empty LLM output ⇒ skipped('empty_output')", async () => {

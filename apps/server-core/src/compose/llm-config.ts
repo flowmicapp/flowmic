@@ -23,7 +23,7 @@
 // never touches ciphertext. A missing or malformed config fails loud with a
 // whitelisted LLM_* code — never a silent default endpoint.
 
-import { findLlmPreset, type LlmConfig, type LlmProtocol } from '@flowmic/protocol';
+import { findLlmPreset, LLM_PRESETS, type LlmConfig, type LlmProtocol } from '@flowmic/protocol';
 import type { SettingRow, SettingsRepo } from '../db/repos/settings.repo';
 import { isSeedMarked } from '../settings/provenance';
 import { ServerError } from '../errors';
@@ -45,6 +45,30 @@ function isProtocol(v: unknown): v is LlmProtocol {
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * NR-123 (owner 2026-09-29, docs/decisions/2026-09-29-owner-lan-polish-hint-and-testflight.md):
+ * the resolver's refusal when NOTHING usable was configured — no `llm.config`
+ * row and no managed default, a non-object row, a row whose endpoint/model
+ * was never filled in, or (NR-129) a cloud vendor's endpoint with no key
+ * (`cloudVendorNeedsKey`). Same wire code (`LLM_INVALID_MODEL`) and same messages as
+ * before, so every caller that only reads `.code` (compose/index.ts) behaves
+ * exactly as it did.
+ *
+ * 🔴 It exists so ONE caller can ask a SECOND question without guessing from
+ * message text: `resolvePolishDep` (engine/stt-factory.ts) maps this class to
+ * the wire reason `not_configured` and everything else to `llm_error`.
+ * "Nobody set a model up" and "the model that was set up is broken" are two
+ * facts with two different fixes, and one reason used to answer both.
+ * A malformed row (bad protocol, unknown preset) or a malformed managed env is
+ * NOT this class — that is configured-but-broken and stays `llm_error`.
+ */
+export class LlmNotConfiguredError extends ServerError {
+  constructor(message: string) {
+    super('LLM_INVALID_MODEL', message);
+    this.name = 'LlmNotConfiguredError';
+  }
 }
 
 /** Merge an optional preset base (by preset_id) with explicit inline fields. */
@@ -76,15 +100,66 @@ function validate(merged: Record<string, unknown>): LlmConfig {
   if (!isProtocol(protocol)) {
     throw new ServerError('LLM_INVALID_MODEL', `llm.config.protocol must be one of ${PROTOCOLS.join('|')}`);
   }
+  // NR-123: an empty endpoint or model is a configuration nobody finished
+  // (the desktop's own unconfigured face is exactly `endpoint:'' model:''`,
+  // settings-model.ts LLM_UNCONFIGURED), so it is `not configured`, not broken.
   if (endpoint === undefined || endpoint.length === 0) {
-    throw new ServerError('LLM_INVALID_MODEL', 'llm.config.endpoint is required');
+    throw new LlmNotConfiguredError('llm.config.endpoint is required');
   }
   if (model === undefined || model.length === 0) {
-    throw new ServerError('LLM_INVALID_MODEL', 'llm.config.model is required');
+    throw new LlmNotConfiguredError('llm.config.model is required');
   }
   // api_key may legitimately be '' or 'EMPTY' (platform endpoint) — only the
   // TYPE is enforced; the emptiness carries BYOK meaning (see isByokLlm).
+  // NR-129: EXCEPT on a cloud vendor's own host, where no key means nobody
+  // finished setting it up (see cloudVendorNeedsKey).
+  if (cloudVendorNeedsKey(endpoint, apiKey)) {
+    throw new LlmNotConfiguredError('llm.config.api_key is required for this provider');
+  }
   return { protocol, endpoint, api_key: apiKey ?? '', model };
+}
+
+/**
+ * NR-129 (MAIN 2026-09-29, from the 0.3.100 diagnosis failure 1) — the hosts of
+ * the cloud vendors the product itself offers, read from the ONE preset registry
+ * (`LLM_PRESETS` entries with `group:'cloud'`, packages/protocol
+ * engine-presets.ts). Every one of them refuses a request without a key.
+ *
+ * Matched by HOST, not by preset id or full URL: the desktop pushes inline
+ * fields with no `preset_id` (settings-model.ts `pushLlm`), and a user who typed
+ * `https://api.openai.com/v1/` by hand under "custom" is in the same state.
+ * A local/LAN server (vLLM, Ollama, LM Studio, anything the registry does not
+ * list as a cloud vendor) may legitimately run without a key and is never
+ * caught here.
+ */
+const CLOUD_VENDOR_HOSTS: ReadonlySet<string> = new Set(
+  LLM_PRESETS.filter((p) => p.group === 'cloud').flatMap((p) => {
+    const host = hostOf(p.endpoint);
+    return host === null ? [] : [host];
+  }),
+);
+
+function hostOf(endpoint: string): string | null {
+  try {
+    return new URL(endpoint.trim()).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * NR-129 — "a cloud vendor endpoint with no key" is a configuration nobody
+ * finished, not a working one. Before this it resolved as usable, so the desktop
+ * showed no "no model" notice (capability.llm.usable stayed true) while every
+ * polish failed at the vendor with a 401 and reached the phone as `llm_error`.
+ * `'EMPTY'` counts as no key here: it is the vLLM platform sentinel
+ * (resolveByokLlm says the same), and no cloud vendor accepts it.
+ */
+export function cloudVendorNeedsKey(endpoint: string, apiKey: string | undefined): boolean {
+  const key = (apiKey ?? '').trim();
+  if (key.length > 0 && key !== 'EMPTY') return false;
+  const host = hostOf(endpoint);
+  return host !== null && CLOUD_VENDOR_HOSTS.has(host);
 }
 
 /**
@@ -214,10 +289,10 @@ export function resolveLlmConfigWithSource(
     if (managed) return { cfg: managed, source: 'managed-default' };
     // No managed default ⇒ fall THROUGH to the seeded row below, which is the
     // fallback line it has always been. Only a genuinely absent row throws here.
-    if (row === null) throw new ServerError('LLM_INVALID_MODEL', 'llm.config is not configured');
+    if (row === null) throw new LlmNotConfiguredError('llm.config is not configured');
   }
   if (row.value === null || typeof row.value !== 'object') {
-    throw new ServerError('LLM_INVALID_MODEL', 'llm.config is not configured');
+    throw new LlmNotConfiguredError('llm.config is not configured');
   }
   return {
     cfg: validate(mergeConfig(row.value as Record<string, unknown>)),

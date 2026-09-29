@@ -124,6 +124,11 @@
       "params": []
     },
     {
+      "key": "aiNotOnWebsiteVoice",
+      "leaf": "_lfAiNotOnWebsiteVoice",
+      "params": []
+    },
+    {
       "key": "aiErrorCode__2",
       "leaf": "_lfAiErrorCode__2",
       "params": []
@@ -245,6 +250,26 @@
     {
       "key": "appendUnavailableBusy",
       "leaf": "_lfAppendUnavailableBusy",
+      "params": []
+    },
+    {
+      "key": "articleFinishingStatus",
+      "leaf": "_lfArticleFinishingStatus",
+      "params": []
+    },
+    {
+      "key": "articleDraftFinishing",
+      "leaf": "_lfArticleDraftFinishing",
+      "params": []
+    },
+    {
+      "key": "articleTailOwedWaiting",
+      "leaf": "_lfArticleTailOwedWaiting",
+      "params": []
+    },
+    {
+      "key": "articleBusyFinishing",
+      "leaf": "_lfArticleBusyFinishing",
       "params": []
     },
     {
@@ -3168,6 +3193,41 @@
     {
       "key": "polishSkipped",
       "leaf": "_lfPolishSkipped",
+      "params": []
+    },
+    {
+      "key": "polishNotApplied",
+      "leaf": "_lfPolishNotApplied",
+      "params": []
+    },
+    {
+      "key": "polishTimedOut",
+      "leaf": "_lfPolishTimedOut",
+      "params": []
+    },
+    {
+      "key": "polishUnavailable",
+      "leaf": "_lfPolishUnavailable",
+      "params": []
+    },
+    {
+      "key": "polishNoModel",
+      "leaf": "_lfPolishNoModel",
+      "params": []
+    },
+    {
+      "key": "polishNoModelHint",
+      "leaf": "_lfPolishNoModelHint",
+      "params": []
+    },
+    {
+      "key": "polishModelRejected",
+      "leaf": "_lfPolishModelRejected",
+      "params": []
+    },
+    {
+      "key": "polishModelRejectedHint",
+      "leaf": "_lfPolishModelRejectedHint",
       "params": []
     },
     {

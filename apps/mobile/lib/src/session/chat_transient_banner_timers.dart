@@ -222,6 +222,7 @@ void reconcileBannerAutoHideRouted(ChatController c) {
 /// below, and the removed trailing `super.dispose()`, which
 /// chat_controller.dart's thin wrapper now calls itself).
 Future<void> disposeRouted(ChatController c) async {
+  c.session.timings.dispose();
   // CR-5 — the recovery channel holds a ValueNotifier the UI listens to. A
   // controller being torn down must not leave a notifier alive behind it.
   c.backfill.dispose();
@@ -251,6 +252,8 @@ Future<void> disposeRouted(ChatController c) async {
   c.session.reconnectAckLost.removeListener(c.notifyUi);
   c.session.reconnect.scheduledAttempt.removeListener(c.notifyUi);
   c.session.captureStopped.removeListener(c._onCaptureStopped); // D-1c
+  c.backfill.progress.removeListener(c.notifyUi);
+  c.store.articleHolds.set(c, null);
   // Card RC-3 — mirrors the two addListener lines in chat_controller_wiring.
   c.session.audio.retainedAudio?.owedTailReady
       .removeListener(c._onOwedTailReady);
@@ -259,7 +262,7 @@ Future<void> disposeRouted(ChatController c) async {
   // torn-down controller must not go on writing into a field nobody reads.
   c.session.audio.retainedAudio?.store.lastNotice
       .removeListener(c._onRetainedAudioNotice);
-  c._polishSkippedEntryIds.clear();
+  c._polishBadges.clear();
   c._sessionLostTimer?.cancel();
   c._owedTailGrace?.cancel(); // RC-P
   c.recording.dispose();
@@ -347,6 +350,7 @@ void debugCancelAsrHealthTicker(ChatController c) {
 /// header (3)). Swipe-up cancel: the utterance never completed → NO row is
 /// built (§4.0 A).
 Future<void> pttCancelRouted(ChatController c) async {
+  c.session.timings.active?.close(incomplete: true);
   await c.session.pttCancel();
   c._activeClientId = null;
   c._liveText = '';

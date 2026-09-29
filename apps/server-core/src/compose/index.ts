@@ -196,6 +196,7 @@ export function createComposeFactory(
       });
     }
     return createComposeRun(cfg, system, byok, {
+      llmSource: selected.source,
       streamerFor,
       budgetMs,
       replace: (text) => replacer.apply(text),

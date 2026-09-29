@@ -51,7 +51,7 @@ import { log } from '../log';
 import type { PlanLimits } from '../billing/plans';
 import type { PcRecord, PcRepo } from '../db/repos/pc.repo';
 import type { MobileRepo } from '../db/repos/mobile.repo';
-import { isRealPc, occupiesMobileSlot, occupiesPcSlot } from './registry-shared';
+import { isIntegratorRoom, isRealPc, occupiesMobileSlot, occupiesPcSlot } from './registry-shared';
 
 /** GA-16 fix (WP-9, findings-crossend-quota.md #4) — the `mobiles` device
  *  count, DEDUPED BY PHYSICAL HANDSET rather than counted as pairing ROWS.
@@ -79,6 +79,11 @@ export function countMobileDevices(pcs: readonly PcRecord[], mobiles: Pick<Mobil
   const seen = new Set<string>();
   let undeduped = 0;
   for (const pc of pcs) {
+    // card EMB-6 — a visitor's phone paired into a third-party host page's
+    // integrator room is not a device on the host's account (see
+    // `registry-shared.ts` `isIntegratorRoom`). Here, in the one arithmetic the
+    // ceiling and the console both read, for the same reason NR-29's filter is.
+    if (isIntegratorRoom(pc)) continue;
     for (const m of mobiles.listByPc(pc.id)) {
       // card NR-29 (待 owner 追认) — an UNSIGNED web instance is a trial visitor,
       // not a device on this account. `registry-shared.ts` `occupiesMobileSlot`
@@ -188,9 +193,10 @@ export function makeDeviceSlots(deps: DeviceSlotDeps): DeviceSlots {
     const limit = deviceLimit(user_id, 'mobiles');
     if (!Number.isFinite(limit)) return;
     // WP-9 — device count, not pairing-row count. See {@link countMobileDevices}.
-    // card S2-04 — `realPcs`, NOT `slotPcs`: a handset paired to a browser room
-    // is a handset. Counting through `slotPcs` would have made 「pair them all to
-    // the web page」 a way around this ceiling.
+    // card S2-04 — `realPcs`, NOT `slotPcs`: a handset paired to the account's
+    // own browser room is a handset. Counting through `slotPcs` would have made
+    // 「pair them all to the web page」 a way around this ceiling. (EMB-6: the
+    // integrator rooms of third-party pages are skipped inside the count.)
     const used = countMobileDevices(realPcs(user_id), deps.mobiles);
     if (used >= limit) refuse('mobiles', user_id, used, limit);
   }

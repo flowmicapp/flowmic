@@ -39,12 +39,26 @@
     ]
   },
   "bundle": {
-    "targets": ["appimage", "deb"],
+    "targets": ["deb"],
     "resources": [
       "resources/server.js",
       "resources/package.json",
       "resources/node",
       "resources/node_modules"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libjavascriptcoregtk-4.1-0",
+          "libsoup-3.0-0"
+        ],
+        "conflicts": ["flow-mic"],
+        "replaces": ["flow-mic"],
+        "provides": ["flow-mic"],
+        "files": {
+          "/usr/share/doc/flowmic/NOTICE": "../../../NOTICE"
+        }
+      }
+    }
   }
 }

@@ -199,9 +199,11 @@ export const SttFinalSchema         = z.object({
   // (these are payload FIELDS, not event names). `polish` is a closed applied|
   // skipped set. `polish_reason` is a PERMISSIVE string, not an enum, on purpose:
   // additive-field forward-compat (CLAUDE.md 协议演进 additive-field 优先) means a
-  // receiver must never reject a future reason value — the canonical 4-value domain
-  // ('timeout'|'llm_error'|'empty_output'|'guard_reject', carried only alongside
-  // polish:'skipped') is enforced by the SERVER's wire mapping, not the schema.
+  // receiver must never reject a future reason value — the canonical domain
+  // ('timeout'|'llm_error'|'empty_output'|'guard_reject'|'not_configured'|'model_rejected';
+  // NR-123 added not_configured, NR-130 model_rejected; carried only alongside
+  // polish:'skipped') is enforced by the
+  // SERVER's wire mapping (server-core stt/stt-polish.ts PolishSkipReason), not the schema.
   polish: z.enum(['applied', 'skipped']).optional(),
   polish_reason: z.string().optional(),
   // 2026-09-03 (owner ruling Q2 b, two-pass refine delivered for real): the

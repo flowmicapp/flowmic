@@ -22,7 +22,8 @@ import {
 import type { SettingRow, SettingsRepo } from '../../db/repos/settings.repo';
 import { stampSettingProvenance } from '../../settings/defaults';
 import { RETIRED_SETTING_KEY_STT_DICTIONARY, isPhoneOwnedKey } from '../../settings/session-overlay';
-import { llmCapabilityUsable, sttPolishDefaultFrom } from '../../stt/stt-polish-settings';
+import { llmCapabilityFact, STT_POLISH_DEFAULT } from '../../stt/stt-polish-settings';
+import { onLlmRejectChange } from '../../stt/llm-reject-latch';
 import { log } from '../../log';
 import type { AuthContext } from '../../auth/middleware';
 import type { Registry } from '../../room/registry';
@@ -254,10 +255,13 @@ export function stampMs(raw: string | undefined): number | null {
  * that justified it); this synthesises the answer on every read, so the value
  * always tracks the server's own default and reverting is a one-line change.
  *
- * 🔴 THE DEFAULT IS PASSED IN, NOT COMPUTED HERE (card POLISH-CFG, 2026-08-09).
- * It stopped being a constant and became a function of "whether there is an
- * available llm.config"
- * (stt/stt-polish-settings.ts `resolveSttPolishDefault`). This function must not
+ * 🔴 THE DEFAULT IS PASSED IN, NOT COMPUTED HERE. The caller passes
+ * stt/stt-polish-settings.ts `STT_POLISH_DEFAULT` — the same constant the session
+ * reader answers with (NR-132, 2026-09-29, made it ON regardless of the model).
+ * History, kept because the hazard it names is still real if the default ever
+ * depends on the model again: from card POLISH-CFG (2026-08-09) until NR-132 the
+ * default was a function of "whether there is an available llm.config", and
+ * this function must not
  * work it out from `rows`: the rows DO contain `llm.config`, which is exactly what
  * makes the shortcut tempting — but the platform's env-gated MANAGED default is
  * not a row, so a rows-only answer would report "off" for every flowmic.app
@@ -288,6 +292,9 @@ export function withEffectiveDefaults(
   rows: readonly SettingRow[],
   polishDefault: SttPolish,
   llmUsable: boolean,
+  /** NR-130 — `capability.llm.rejected` (stt-polish-settings.ts LlmCapabilityFact).
+   *  Defaults to false for the fixture callers; the handler passes the real fact. */
+  llmRejected = false,
 ): SettingsUpdatedPayload[] {
   const out: SettingsUpdatedPayload[] = rows.map((it) => ({
     key: it.key,
@@ -302,8 +309,35 @@ export function withEffectiveDefaults(
   // whole ruleset off that prefix, so this call is what proves the key has a
   // producer. It is UNCONDITIONAL, unlike the gap-filler above: a stored row can
   // never shadow a capability fact, because there is no such row to write.
-  out.push({ key: SETTINGS_KEY_CAPABILITY_LLM, value: { usable: llmUsable } });
+  out.push({ key: SETTINGS_KEY_CAPABILITY_LLM, value: { usable: llmUsable, rejected: llmRejected } });
   return out;
+}
+
+/**
+ * NR-130 — tell this user's PCs that `capability.llm` may have changed, so the
+ * desktop re-pulls it (settings-model.ts answers any settings:updated with one
+ * settings:list; the frame is a notification, the value is re-read). PC sockets
+ * only: the phone has its own route to this fact and a relay frame would be
+ * dropped by the desktop anyway (socket/client.rs forwards the LAN leg only).
+ * The value rides along for readers and logs; nobody applies it directly.
+ */
+export function notifyLlmCapability(io: Server, repo: SettingsRepo, userId: string): void {
+  const value = llmCapabilityFact(repo, userId);
+  for (const [, peer] of io.sockets.sockets) {
+    const auth = (peer.data as { auth?: AuthContext | null }).auth ?? null;
+    if (!auth || auth.userId !== userId || auth.kind === 'mobile') continue;
+    peer.emit('settings:updated', { key: SETTINGS_KEY_CAPABILITY_LLM, value });
+  }
+}
+
+/**
+ * NR-130 — the one production subscriber of stt/llm-reject-latch.ts: when a
+ * polish run finds the user's model refused (or accepted again), the desktop's
+ * devices-page line follows without waiting for a reconnect. Wired once per
+ * server in bootstrap.ts, next to `ioRef = io`.
+ */
+export function wireLlmCapabilityPush(io: Server, repo: SettingsRepo): () => void {
+  return onLlmRejectChange((userId) => notifyLlmCapability(io, repo, userId));
 }
 
 export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDeps): void {
@@ -316,23 +350,27 @@ export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDe
     const parsed = safeParseEvent('settings:list', payload);
     if (!parsed.success) return safeAck(ack, { error: 'SETTINGS_SCHEMA_INVALID' });
     try {
-      // 🔴 ONE resolution, TWO derived answers (card POLISH-CFG). The default the
-      // server will use and the capability fact the desktop will render must be
-      // the same boolean; resolving twice would let them disagree the moment the
-      // resolver's inputs change between calls.
-      const llmUsable = llmCapabilityUsable(repo, auth.userId);
+      // ONE resolution per read. Until NR-132 (2026-09-29) this boolean also
+      // derived the polish default (card POLISH-CFG); the default is now the
+      // constant `STT_POLISH_DEFAULT` and this feeds `capability.llm` only.
+      const llm = llmCapabilityFact(repo, auth.userId);
+      const llmUsable = llm.usable;
       // 🔴 2026-09-03 (design D5) — the MOBILE arm answers `capability.llm` and
       // nothing else. The phone owns every preference it used to hydrate from
       // here (scenario.card / stt.polish / stt.refine / scenario.inference), so
       // there is no server copy to hand back — and handing back a stale
       // database row would tell a phone that just deleted a preference locally
       // that the server still holds it. The synthesised `stt.polish` gap-filler
-      // in withEffectiveDefaults stays for the PC arm only, where the desktop's
-      // switch still renders the server's effective default.
+      // in withEffectiveDefaults stays on the PC arm only. ⚠️ Corrected
+      // 2026-09-29 (NR-132): this used to say the desktop's switch renders it;
+      // the desktop has no polish switch since 2026-09-03 and skips the key
+      // (apps/desktop/src/main-window/settings-model.ts, "Unknown keys are not
+      // owned by this model"). It is kept equal to the session default so the
+      // list never states a second answer.
       if (auth.kind === 'mobile') {
-        return safeAck(ack, { items: [{ key: SETTINGS_KEY_CAPABILITY_LLM, value: { usable: llmUsable } }] });
+        return safeAck(ack, { items: [{ key: SETTINGS_KEY_CAPABILITY_LLM, value: llm }] });
       }
-      const items = withEffectiveDefaults(repo.readAll(auth.userId), sttPolishDefaultFrom(llmUsable), llmUsable);
+      const items = withEffectiveDefaults(repo.readAll(auth.userId), STT_POLISH_DEFAULT, llmUsable, llm.rejected);
       // G2: `updated_at` rides the ack. This projection is the whole reason the
       // stamp was invisible for so long — the column, the upsert and the repo
       // have carried it since the table was created, and this `.map` dropped it
@@ -538,6 +576,11 @@ export function registerSettingsHandlers(socket: Socket, deps: SettingsHandlerDe
     // WRITTEN, not the one that arrived, so a clamped stamp does not reach peers
     // as a moment that never happened.
     broadcastUpdated(io, socket.id, auth.userId, withStamp({ key, value: stamped }, storedAt));
+    // NR-129/NR-130: a model edit can flip `capability.llm` (a key filled in, a
+    // model fixed). broadcastUpdated skips the socket that wrote it, and that is
+    // the very desktop showing the "no model" / "refused" line — so PCs,
+    // including the writer, are told to re-read the fact.
+    if (key === 'llm.config') notifyLlmCapability(io, repo, auth.userId);
     safeAck(ack, { ok: true });
   });
 }

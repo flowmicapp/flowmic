@@ -4,7 +4,9 @@
 //   packages/protocol/src/constants.ts SETTINGS_KEY_CAPABILITY_LLM — the fact:
 //     `{ usable: boolean }`, 「能不能解出一个可用的语言模型」("can a usable
 //     language model be resolved"), answered by the SAME resolver the server
-//     defaults `stt.polish` from (settings.handler.ts withEffectiveDefaults).
+//     arms polish through (server-core stt/stt-polish-settings.ts
+//     `llmCapabilityFact`, engine/stt-factory.ts `resolvePolishDep`). Until
+//     NR-132 (2026-09-29) it also decided the `stt.polish` default; it no longer does.
 //   apps/desktop/src/main-window/settings-model.ts (card POLISH-CFG) — the
 //     desktop's reader, whose stance this file copies on purpose.
 //   docs/archive/strategy/2026-08-25-owner-rulings-and-execution-plan.md §2-②

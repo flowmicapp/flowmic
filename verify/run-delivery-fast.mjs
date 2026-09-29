@@ -63,8 +63,10 @@
 //
 //  3. FLUTTER TESTS INTERFERING WITH OTHER TREES (shared paths/ports).
 //     HANDLED by changing nothing: MOBILE is one lane running
-//     `verify:mobile-tests` exactly as it runs today — one `flutter test`, no
-//     shards, no second Dart VM. It runs concurrently with the node lanes,
+//     `verify:mobile-analyze` and then `verify:mobile-tests`, each exactly as
+//     the sequential gate runs it — steps inside a lane are sequential, so
+//     there is never a second Dart VM at once: one `flutter analyze`, then one
+//     `flutter test`, no shards. It runs concurrently with the node lanes,
 //     which is a different claim from running concurrently with itself.
 //     Sharding is a separate and so far unmeasured idea (plan 3.2 / 4(d)) and
 //     is deliberately not done here.
@@ -268,8 +270,8 @@ export const LANES = [
   },
   {
     name: 'MOBILE',
-    why: 'a single flutter test run, unchanged and unsharded — the lane that sets the floor',
-    steps: [pnpm('verify:mobile-tests')],
+    why: 'flutter analyze then one flutter test run, unsharded — the lane that sets the floor',
+    steps: [pnpm('verify:mobile-analyze'), pnpm('verify:mobile-tests')],
   },
 ];
 

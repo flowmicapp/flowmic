@@ -64,18 +64,21 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { DEFAULT_SAAS_ENDPOINT, DEMO_PAIR_HTTPS_PATH, PAIR_HTTPS_HOST, PAIR_HTTPS_PATH } from '@flowmic/protocol';
 import type { AuthService } from '../auth/auth-service';
 import type { RegisterRateLimiter } from '../auth/register-rate-limit';
+import type { IntegratorRoomRateLimiter } from '../auth/integrator-room-rate-limit';
+import type { IntegratorSessionCaps } from '../billing/integrator-session-caps';
 import type { BudgetPusher } from '../billing/budget-push';
 import type { WebRoomOutcome } from '../room/web-room';
 import { restrictionRefusalBody, restrictionVerdict } from '../auth/account-restriction';
 import { accountFromBearer } from './account-auth';
 import { readJsonBody, sendJson, str } from './console-http';
 import { ServerError } from '../errors';
-import { isTrustedProxy, trustedProxiesFromEnv } from './trusted-proxy';
+import { clientIpFromRequest, isTrustedProxy, normalizeAddr, trustedProxiesFromEnv } from './trusted-proxy';
 import { demoOriginOf } from './web-anon-routes';
 import { applyReflectedOrigin, handleReflectedOriginPreflight } from './web-cors';
 import type { TrialLedger } from '../billing/trial-ledger';
 import type { IntegratorKeyGuard } from '../billing/integrator-quota';
-import { integratorRoomName, type IntegratorRoomOutcome } from '../room/integrator-room';
+import { integratorRoomName, type IntegratorRoomOutcome, type IntegratorRoomOptions } from '../room/integrator-room';
+import { IntegratorCodeRateLimitError } from '../room/integrator-code-limit';
 import { log } from '../log';
 
 /** The identity kinds the addendum defines for this endpoint. All three are
@@ -144,9 +147,11 @@ export interface WebRoomRoutesDeps {
    */
   integrator?: {
     keys: IntegratorKeyGuard;
+    limiter: IntegratorRoomRateLimiter;
+    sessions?: IntegratorSessionCaps;
     /** `Registry.mintIntegratorRoom`. Typed as the one method for the reason
      *  `rooms` above is: this file cannot reach pairing or the ceilings. */
-    mint(user_id: string, key_id: string, opts?: { ttlMs?: number; deviceName?: string }): IntegratorRoomOutcome;
+    mint(user_id: string, key_id: string, opts?: IntegratorRoomOptions): IntegratorRoomOutcome;
     /** Overridable so a test does not have to wait ten minutes to see a TTL. */
     ttlMs?: number;
   };
@@ -270,6 +275,10 @@ export function tryHandleWebRoomRoutes(
     // same way on purpose rather than invented here: a `ServerError` is a named
     // domain refusal and travels with its code, anything else is ours and says
     // so without inventing a code for it.
+    if (err instanceof IntegratorCodeRateLimitError) {
+      sendJson(res, 429, { error: err.code, retry_after_ms: err.retryAfterMs });
+      return;
+    }
     if (err instanceof ServerError) {
       sendJson(res, 409, { error: err.code, message: err.message });
       return;
@@ -387,6 +396,7 @@ async function handleIntegrator(
   req: IncomingMessage,
   res: ServerResponse,
   deps: WebRoomRoutesDeps,
+  body: unknown,
 ): Promise<void> {
   // 🔴 Card MP-11 / gap G-16 — THE GRANT ON THE REAL RESPONSE, WITHOUT WHICH
   // THE PREFLIGHT BUYS NOTHING. A browser that was told「you may POST here」 and
@@ -457,16 +467,25 @@ async function handleIntegrator(
     sendJson(res, 403, restrictionRefusalBody(restricted.reason));
     return;
   }
-  // Keyed on the KEY's OWNER, and only after the key is established — the
-  // addendum's 09-07 note: no gate at the entrance charging an identity nobody
-  // has established yet. One integrator hammering this endpoint must not spend
-  // another integrator's budget.
-  const rate = deps.limiter.check(key.user_id);
+  const pairing = typeof body === 'object' && body !== null
+    ? (body as Record<string, unknown>).pairing : undefined;
+  if (pairing !== undefined && pairing !== 'local' && pairing !== 'phone') {
+    sendJson(res, 400, { error: 'SETTINGS_SCHEMA_INVALID' });
+    return;
+  }
+  // Resolve the trusted peer exactly as web-anon-routes does; the limiter
+  // retains only a salted IPv4 /32 or IPv6 /64 digest, never the raw address.
+  const ip = normalizeAddr(clientIpFromRequest(req, deps.trustedProxies));
+  const concurrent = integrator.sessions?.admission(key.id);
+  if (concurrent && !concurrent.allowed) {
+    sendJson(res, 429, { error: 'WEB_ROOM_RATE_LIMITED', retry_after_ms: concurrent.retryAfterMs });
+    return;
+  }
+  const rate = integrator.limiter.take(key.id, ip);
   if (!rate.allowed) {
     sendJson(res, 429, { error: 'WEB_ROOM_RATE_LIMITED', retry_after_ms: rate.retryAfterMs });
     return;
   }
-  deps.limiter.record(key.user_id);
 
   // 🔴 card MP-13 (owner §11 追认 item 6) — THE ROOM IS CALLED WHAT THE SITE IS
   // CALLED. `device_name` is what a phone puts in its top bar and in its PC
@@ -484,9 +503,11 @@ async function handleIntegrator(
     {
       ...(integrator.ttlMs === undefined ? {} : { ttlMs: integrator.ttlMs }),
       deviceName: integratorRoomName(key.label),
+      ...(pairing === undefined ? {} : { pairing }),
     },
   );
   const wsOrigin = relayWsOrigin(req, deps.trustedProxies ?? trustedProxiesFromEnv());
+  integrator.sessions?.bindRoom(room.pc.id, key.id, ip);
   // One line per MINT, like both arms beside it, so 「where did these rows come
   // from」 has one place to look. `key_id` and never the key STRING: the string
   // is publishable, but a log is not a place to accumulate other people's
@@ -495,11 +516,12 @@ async function handleIntegrator(
   sendJson(res, 200, {
     room_token: room.token,
     pcid: room.pc.pcid,
-    code: room.code,
+    code: room.code || null,
     // `PAIR_HTTPS_PATH`, not the demo path: a visitor who HAS FlowMic installed
     // may use it here. Owner ruling 6's exception is about FlowMic's OWN
     // marketing page pulling people into the app, which is not this story.
-    pair_url: webRoomPairUrl(wsOrigin, room.code, room.pc.pcid),
+    pair_url: room.code ? webRoomPairUrl(wsOrigin, room.code, room.pc.pcid) : null,
+    ...(room.localMicToken ? { local_mic_token: room.localMicToken, local_pairing_id: room.localPairingId } : {}),
     endpoint: wsOrigin,
     expires_at: room.expiresAtMs,
     // 🔴 THROUGH THE SAME PRODUCER, WITH THE KEY — so this first response
@@ -526,7 +548,7 @@ async function handle(
       return;
     }
     if (kind === 'publishable_key') {
-      await handleIntegrator(req, res, deps);
+      await handleIntegrator(req, res, deps, body);
       return;
     }
     if (kind !== 'account_jwt') {

@@ -200,6 +200,48 @@ check(viaSelect.stage0 === true, 'a protocol change needs the Stage 0 barrier');
 check(viaSelect.unmapped.length === 0, 'a protocol path is not unmapped');
 
 // ---------------------------------------------------------------------------
+section('4b the analyzer stage rides the mobile rows');
+
+// `verify:mobile-analyze` (trial 3, 2026-09-29) joined the gates from three
+// directions at once — the sequential chain, the MOBILE lane, and this table.
+// The equality pins above hold it inside the full set; this section pins the
+// SCOPED half: the rows whose diffs change what the mobile analyzer reads must
+// select it. That is every path that lands in compiled Dart — lib/, the i18n
+// catalogues it is generated from, and the generators themselves.
+for (const p of [
+  'apps/mobile/lib/src/ui/tokens.dart',
+  'apps/mobile/test/x_test.dart',
+  'apps/mobile/integration_test/host_scenarios_test.dart',
+  'apps/mobile/tool/gen_protocol.mjs',
+  'apps/mobile/pubspec.yaml',
+  'apps/mobile/Makefile',
+  'i18n/mobile/en.json',
+  'scripts/i18n/gen-mobile-dart.mjs',
+  'scripts/i18n/gen-protocol-error-sentences-dart.mjs',
+]) {
+  check(
+    selectStages([p]).stages.includes('verify:mobile-analyze'),
+    `\`${p}\` selects verify:mobile-analyze`,
+  );
+}
+// REVERSE CONTROL, both halves: the stage is scoped, not unconditional, and the
+// membership test can say no. Without the second check the loop above passes
+// against a table that selects everything for everything — the failure shape
+// that would make the lane gate pointless while looking exactly like this.
+check(
+  !selectStages(['docs/x.md']).stages.includes('verify:mobile-analyze'),
+  'a docs-only diff does not select verify:mobile-analyze (the analyzer is scoped to the mobile rows)',
+);
+check(
+  !selectStages(['apps/server-core/src/index.ts']).stages.includes('verify:mobile-analyze'),
+  'a server-core diff does not select verify:mobile-analyze either',
+);
+// And the stage really is the same one the parallel gate runs — a typo'd row
+// naming `verify:mobile-analize` would pass every check above and then be
+// filtered out of the lanes as "not needed" (the drill header's second rot).
+check(FULL_STAGES.includes('verify:mobile-analyze'), 'verify:mobile-analyze is in FULL_STAGES (so the lane gate can actually run it)');
+
+// ---------------------------------------------------------------------------
 section('5 first-match order, where two rows genuinely overlap');
 
 for (const [p, want] of [
@@ -262,5 +304,5 @@ for (const [pattern, p, want] of [
 
 // ---------------------------------------------------------------------------
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} lane-map: ${checks - failures}/${checks} checks`);
-console.log(`ACCOUNTING: sections run 8/8, checks ${checks - failures}/${checks}`);
+console.log(`ACCOUNTING: sections run 9/9, checks ${checks - failures}/${checks}`);
 process.exit(failures === 0 ? 0 : 1);

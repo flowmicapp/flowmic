@@ -95,10 +95,12 @@ part 'delivery_outbox_attempt.dart';
 part 'delivery_outbox_enqueue.dart';
 
 class DeliveryOutbox {
+  final void Function(String requestId)? onPersisted;
   DeliveryOutbox({
     required OutboxStore store,
     required OutboxBlobStore blobs,
     required OutboxDrainHost host,
+    this.onPersisted,
     int capacity = kOutboxCapacity,
     Duration inflightTimeout = kOutboxInflightTimeout,
   }) : _store = store,

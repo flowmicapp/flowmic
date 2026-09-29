@@ -25,7 +25,8 @@ const temp = mkdtempSync(join(root, 'linux-portable-modes-'));
 const dirName = 'FlowMic-linux-x64';
 const bundle = join(temp, dirName);
 const contents = new Map([
-  ['flowmic-desktop', 'fixture executable\n'], ['node', 'fixture runtime\n'],
+  ['flowmic-desktop', 'fixture launcher\n'], ['.flowmic-desktop-bin', 'fixture real binary\n'],
+  ['node', 'fixture runtime\n'],
   ['NOTICE', 'readable notice\n'], ['resources/node', 'nested node is not executable\n'],
   ['resources/server.js', 'console.log("fixture");\n'], ['resources/测试.txt', 'unicode path\n'],
 ]);
@@ -83,7 +84,8 @@ try {
   }
   for (const row of after.rows) {
     const expected = row.name.endsWith('/') ? 0o040755
-      : [`${dirName}/flowmic-desktop`, `${dirName}/node`].includes(row.name) ? 0o100755 : 0o100644;
+      : [`${dirName}/flowmic-desktop`, `${dirName}/.flowmic-desktop-bin`, `${dirName}/node`].includes(row.name)
+        ? 0o100755 : 0o100644;
     assert.equal(row.mode, expected, `independent mode read: ${row.name}`);
     assert.equal(row.creator, 3, 'UNIX creator');
     assert.equal(row.attrs & 0xffff, before.rows.find((r) => r.name === row.name).attrs & 0xffff, 'DOS bits preserved');

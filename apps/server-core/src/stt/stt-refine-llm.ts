@@ -44,6 +44,7 @@ import {
 import { dominantScript } from '../compose/output-guard-text';
 import { knownLanguageName } from '../compose/prompt';
 import { log } from '../log';
+import { guardFamily } from '../obs/polish-telemetry';
 import { checkMeaningPreserved } from './stt-polish-guard';
 import { protectedTermDrift, stripWrapping, RULE_DATA_BOUNDARY } from './stt-polish';
 import { refinedTextOrNull } from './stt-refine';
@@ -271,7 +272,7 @@ export async function refineFinalText(
     // their settings.
     const drift = protectedTermDrift(trimmed, cleaned, protectedTerms);
     if (drift !== null) {
-      log.warn('stt.refine drifts a protected term — nothing delivered', { term: drift });
+      log.warn('stt.refine drifts a protected term — nothing delivered', { family: 'dict' });
       return fail(`dict-term-drift:${drift}`, usage);
     }
 
@@ -316,7 +317,7 @@ export async function refineFinalText(
     });
     if (!guard.ok) {
       log.warn('stt.refine guard rejected — nothing delivered', {
-        reason: guard.reason,
+        family: guardFamily(guard.reason),
         language: deps.language,
         metrics: guard.metrics,
       });

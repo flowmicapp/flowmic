@@ -7,13 +7,23 @@
 //
 // Output shape:
 //   .local/linux-artifacts/<version>/
-//     *.AppImage + sha256 sidecar
 //     *.deb      + sha256 sidecar
 //     FlowMic-linux-x64/
-//       flowmic-desktop
+//       flowmic-desktop          NR-107 launcher (libc only): checks libraries, execs ↓
+//       .flowmic-desktop-bin     the real Tauri binary
 //       node
 //       NOTICE
+//       README-LINUX.txt
 //       resources/{server.js,package.json,node_modules/...}
+//
+// NR-114: the .deb Tauri built is rewritten to Debian package name `flowmic`
+// (scripts/linux-deb-package-name.mjs says why Tauri cannot be told) BEFORE any
+// check below reads it; every check and the staged copy use the rewritten file.
+//
+// NR-107: before anything is claimed as output, the runtime dependency gate
+// (scripts/linux-runtime-deps-gate.mjs) reads the real binary's DT_NEEDED list
+// and refuses when a library a stock Ubuntu 22.04 desktop lacks is missing from
+// the .deb Depends, the launcher's check list, or README-LINUX.txt.
 //     FlowMic-<version>-portable-linux-x64.zip + sha256 sidecar
 //
 // Run on Linux after `pnpm --filter @flowmic/desktop tauri:build`:
@@ -42,6 +52,10 @@ import { fileURLToPath } from 'node:url';
 
 import { BUNDLED_NODE } from './vendor/bundled-node.mjs';
 import { STAMP_PREFIX } from './build-stamp/require-clean-sha.mjs';
+import { assertNoDevCopy } from './linux-dev-copy-gate.mjs';
+import { runLinuxRuntimeDepsGate } from './linux-runtime-deps-gate.mjs';
+import { renameDebPackage } from './linux-deb-package-name.mjs';
+import { LINUX_PORTABLE_REAL_EXE } from './linux-portable-modes.mjs';
 import {
   LINUX_PORTABLE_DIR_NAME,
   packPortable,
@@ -56,10 +70,6 @@ const LINUX_RESOURCE_DIR = 'FlowMic';
 
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
-}
-
-function sha256Bytes(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
 }
 
 function requireFile(path, label) {
@@ -114,15 +124,6 @@ export function verifyBuildStamp(executablePath, expectedBuildSha) {
   return expectedBuildSha;
 }
 
-function validateAppImageHeader(path) {
-  const header = readFileSync(path).subarray(0, 11);
-  const elf = header.length === 11 && header[0] === 0x7f && header.subarray(1, 4).toString('ascii') === 'ELF';
-  const type2 = header[8] === 0x41 && header[9] === 0x49 && header[10] === 0x02;
-  if (!elf || !type2) {
-    throw new Error(`${path} is not an ELF AppImage type 2 (missing ELF / AI\\x02 header)`);
-  }
-}
-
 function runExtractor(command, args, cwd, label) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (result.error || result.status !== 0) {
@@ -143,23 +144,7 @@ export function extractLinuxBundle(kind, artifactPath, destination) {
     return {
       executable: join(destination, 'usr', 'bin', 'flowmic-desktop'),
       node: join(destination, 'usr', 'lib', LINUX_RESOURCE_DIR, 'resources', 'node'),
-    };
-  }
-  if (kind === 'appimage') {
-    validateAppImageHeader(absoluteArtifact);
-    // The type-2 runtime forwards one optional pattern to unsquashfs. Extract
-    // only the two delivery bytes we must attest instead of expanding the full
-    // 150+ MiB bundle. The artifact itself is already executable after Tauri.
-    for (const pattern of [
-      'usr/bin/flowmic-desktop',
-      `usr/lib/${LINUX_RESOURCE_DIR}/resources/node`,
-    ]) {
-      runExtractor(absoluteArtifact, ['--appimage-extract', pattern], destination, `AppImage extraction of ${pattern}`);
-    }
-    const root = join(destination, 'squashfs-root');
-    return {
-      executable: join(root, 'usr', 'bin', 'flowmic-desktop'),
-      node: join(root, 'usr', 'lib', LINUX_RESOURCE_DIR, 'resources', 'node'),
+      notice: join(destination, DEB_NOTICE_PATH),
     };
   }
   throw new Error(`unknown Linux bundle kind ${JSON.stringify(kind)}`);
@@ -172,8 +157,8 @@ function verifyArtifactPayload({
   expectedBuildSha,
   pin,
   probeVersion,
-  stagedNodePath,
   extractBundle,
+  noticePath,
 }) {
   const scratchRoot = join(repoRoot, '.local');
   mkdirSync(scratchRoot, { recursive: true });
@@ -181,10 +166,14 @@ function verifyArtifactPayload({
   try {
     const payload = extractBundle(kind, artifactPath, scratch);
     verifyBuildStamp(payload.executable, expectedBuildSha);
-    const node =
-      kind === 'appimage'
-        ? verifyAppImageNode(payload.node, stagedNodePath, pin, probeVersion)
-        : verifyPinnedNode(payload.node, pin, probeVersion);
+    if (kind === 'deb') {
+      // NR-107: the .deb carries the same NOTICE the portable zip carries.
+      requireFile(payload.notice ?? '', `.deb ${DEB_NOTICE_PATH}`);
+      if (!readFileSync(payload.notice).equals(readFileSync(noticePath))) {
+        throw new Error(`.deb ${DEB_NOTICE_PATH} differs from the repository NOTICE`);
+      }
+    }
+    const node = verifyPinnedNode(payload.node, pin, probeVersion);
     return {
       executableSha256: sha256(payload.executable),
       nodeSha256: node.sha256,
@@ -245,79 +234,35 @@ export function verifyPinnedNode(
   return measured;
 }
 
-function readElf64Section(path, wantedName) {
-  const elf = readFileSync(path);
-  if (
-    elf.length < 64 ||
-    elf[0] !== 0x7f ||
-    elf.subarray(1, 4).toString('ascii') !== 'ELF' ||
-    elf[4] !== 2 ||
-    elf[5] !== 1
-  ) {
-    throw new Error(`${path} is not a little-endian ELF64 binary`);
+export const LINUX_LAUNCHER_DIR = join('apps', 'desktop', 'linux-launcher');
+/** Where the .deb carries the aggregate NOTICE (tauri.linux.conf.json bundle.linux.deb.files). */
+export const DEB_NOTICE_PATH = join('usr', 'share', 'doc', 'flowmic', 'NOTICE');
+
+/** Compile the NR-107 launcher with the build distro's C compiler. It must be
+ *  compiled on the oldest glibc we support (the 22.04 build distro), and the
+ *  runtime dependency gate then proves it links against libc only. */
+export function buildLinuxLauncher({ source, output }) {
+  const compiler = process.env.FLOWMIC_CC || 'cc';
+  const result = spawnSync(
+    compiler,
+    ['-std=c11', '-O2', '-s', '-Wall', '-Wextra', '-Werror', '-Wl,--as-needed', '-o', output, source],
+    { encoding: 'utf8' },
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Linux launcher compile failed (${compiler}: ${result.error?.message ?? `exit ${result.status}`}): ` +
+        `${(result.stderr || result.stdout || '').trim()}`,
+    );
   }
-  const sectionOffset = Number(elf.readBigUInt64LE(0x28));
-  const sectionEntrySize = elf.readUInt16LE(0x3a);
-  const sectionCount = elf.readUInt16LE(0x3c);
-  const namesIndex = elf.readUInt16LE(0x3e);
-  const headerAt = (index) => sectionOffset + index * sectionEntrySize;
-  const sectionRange = (index) => {
-    const header = headerAt(index);
-    if (header < 0 || header + 40 > elf.length) throw new Error(`${path} has an invalid ELF section table`);
-    return {
-      nameOffset: elf.readUInt32LE(header),
-      offset: Number(elf.readBigUInt64LE(header + 24)),
-      size: Number(elf.readBigUInt64LE(header + 32)),
-    };
-  };
-  if (sectionEntrySize < 64 || namesIndex >= sectionCount) throw new Error(`${path} has an invalid ELF64 header`);
-  const names = sectionRange(namesIndex);
-  const namesEnd = names.offset + names.size;
-  if (names.offset < 0 || namesEnd > elf.length) throw new Error(`${path} has an invalid ELF section-name table`);
-  for (let index = 0; index < sectionCount; index += 1) {
-    const section = sectionRange(index);
-    const nameStart = names.offset + section.nameOffset;
-    let nameEnd = nameStart;
-    while (nameEnd < namesEnd && elf[nameEnd] !== 0) nameEnd += 1;
-    if (elf.subarray(nameStart, nameEnd).toString('ascii') !== wantedName) continue;
-    const end = section.offset + section.size;
-    if (section.offset < 0 || end > elf.length) throw new Error(`${path} has an invalid ${wantedName} section`);
-    return elf.subarray(section.offset, end);
-  }
-  throw new Error(`${path} has no ${wantedName} ELF section`);
+  return requireFile(output, 'compiled Linux launcher');
 }
 
-export function verifyAppImageNode(nodePath, stagedNodePath, pin, probeVersion) {
-  const probe = probeVersion ?? ((path) => execFileSync(path, ['--version'], { encoding: 'utf8' }).trim());
-  const absoluteNode = resolve(nodePath);
-  const absoluteStagedNode = resolve(stagedNodePath);
-  try {
-    return verifyPinnedNode(absoluteNode, pin, probe);
-  } catch (exactError) {
-    // linuxdeploy legitimately rewrites ELF loader/RPATH metadata inside an
-    // AppImage. The real L-8 output is 4 KiB larger and cannot retain the
-    // upstream whole-file hash. Refuse a version-only claim: both large code
-    // and immutable-data sections must remain byte-identical to the exact
-    // pinned staging source checked immediately before artifact inspection.
-    const version = probe(absoluteNode);
-    if (version !== pin.version) throw exactError;
-    for (const section of ['.text', '.rodata']) {
-      const stagedHash = sha256Bytes(readElf64Section(absoluteStagedNode, section));
-      const bundledHash = sha256Bytes(readElf64Section(absoluteNode, section));
-      if (bundledHash !== stagedHash) {
-        throw new Error(
-          `AppImage Node ${section} does not match the pinned staging runtime: ` +
-            `bundled=${bundledHash} staged=${stagedHash}; whole-file check said ${exactError.message}`,
-        );
-      }
-    }
-    return {
-      version,
-      bytes: statSync(absoluteNode).size,
-      sha256: sha256(absoluteNode),
-      transformedByLinuxdeploy: true,
-    };
-  }
+/** README-LINUX.txt with the release version filled in; refuses a template
+ *  that still carries a placeholder after rendering. */
+export function renderLinuxReadme(template, version) {
+  const text = template.replaceAll('{{VERSION}}', version);
+  if (/\{\{[A-Z_]+\}\}/.test(text)) throw new Error('README-LINUX.txt has an unrendered placeholder');
+  return text;
 }
 
 function copyWithSidecar(source, outDir) {
@@ -338,14 +283,16 @@ export function stageLinuxArtifacts({
   pin = BUNDLED_NODE[LINUX_PLATFORM],
   probeVersion,
   extractBundle = extractLinuxBundle,
+  buildLauncher = buildLinuxLauncher,
+  runtimeDepsGate = runLinuxRuntimeDepsGate,
+  renameDeb = renameDebPackage,
   log = (message) => console.log(`· ${message}`),
 }) {
   if (!outDir) throw new Error('outDir is required');
   if (!version) throw new Error('version is required');
 
   const releaseDir = join(targetDir, 'release');
-  const appImage = findVersionedArtifact(join(releaseDir, 'bundle', 'appimage'), version, '.AppImage');
-  const deb = findVersionedArtifact(join(releaseDir, 'bundle', 'deb'), version, '.deb');
+  const tauriDeb = findVersionedArtifact(join(releaseDir, 'bundle', 'deb'), version, '.deb');
   const executable = requireFile(join(releaseDir, 'flowmic-desktop'), 'Linux release executable');
   const resources = join(repoRoot, 'apps', 'desktop', 'src-tauri', 'resources');
   const stagedNode = requireFile(join(resources, 'node'), 'staged Linux Node runtime');
@@ -356,13 +303,44 @@ export function stageLinuxArtifacts({
 
   verifyPinnedNode(stagedNode, pin, probeVersion);
   verifyBuildStamp(executable, expectedBuildSha);
-  // Validate bytes INSIDE both deliverables. A same-version AppImage/deb left
+
+  // NR-114: from here on `deb` is the rewritten file (same name, Package:
+  // flowmic). The Tauri output in target/ is left as Tauri wrote it, so a
+  // re-run starts from the same input.
+  const renameRoot = join(repoRoot, '.local');
+  mkdirSync(renameRoot, { recursive: true });
+  const renameScratch = mkdtempSync(join(renameRoot, 'linux-deb-named-'));
+  try {
+    const deb = renameDeb({
+      debPath: tauriDeb,
+      outPath: join(renameScratch, basename(tauriDeb)),
+      scratchRoot: renameRoot,
+    });
+    log(`set the .deb package name (${basename(deb)})`);
+    return stageFromNamedDeb({
+      repoRoot, version, expectedBuildSha, pin, probeVersion, extractBundle, buildLauncher,
+      runtimeDepsGate, log, outDir, deb, executable, stagedNode, serverJs, serverPackage, nodeModules, notice,
+    });
+  } finally {
+    rmSync(renameScratch, { recursive: true, force: true });
+  }
+}
+
+function stageFromNamedDeb({
+  repoRoot, version, expectedBuildSha, pin, probeVersion, extractBundle, buildLauncher,
+  runtimeDepsGate, log, outDir, deb, executable, stagedNode, serverJs, serverPackage, nodeModules, notice,
+}) {
+  // NR-107 follow-up: the AppImage is no longer built or shipped. It needs
+  // libfuse2, which a stock Ubuntu 22.04 desktop does not have, so it failed
+  // silently exactly like the pre-NR-107 portable binary.
+  //
+  // Validate bytes INSIDE the deliverable. A same-version deb left
   // over from an earlier commit has a perfectly plausible filename, while the
   // adjacent release executable says nothing about what was already packed.
   // Tauri patches bundle-type metadata into each executable, so equality with
   // the adjacent executable is not a stable contract; the embedded source
   // stamp and exact Node pin are the two content identities that are.
-  for (const [kind, artifactPath] of [['deb', deb], ['appimage', appImage]]) {
+  for (const [kind, artifactPath] of [['deb', deb]]) {
     const measured = verifyArtifactPayload({
       kind,
       artifactPath,
@@ -370,14 +348,49 @@ export function stageLinuxArtifacts({
       expectedBuildSha,
       pin,
       probeVersion,
-      stagedNodePath: stagedNode,
       extractBundle,
+      noticePath: notice,
     });
     log(`verified ${kind} payload (exe ${measured.executableSha256.slice(0, 12)}…, node ${measured.nodeSha256.slice(0, 12)}…)`);
   }
+  // NR-107: build the portable launcher and README, then run the runtime
+  // dependency gate on the exact bytes that will ship, all BEFORE the output
+  // directory is claimed — a red gate leaves nothing behind that looks shippable.
+  const launcherSource = requireFile(join(repoRoot, LINUX_LAUNCHER_DIR, 'flowmic-launcher.c'), 'Linux launcher source');
+  const readmeTemplate = requireFile(join(repoRoot, LINUX_LAUNCHER_DIR, 'README-LINUX.txt'), 'README-LINUX.txt template');
+  const scratchRoot = join(repoRoot, '.local');
+  mkdirSync(scratchRoot, { recursive: true });
+  const launcherScratch = mkdtempSync(join(scratchRoot, 'linux-launcher-'));
+  let launcherBytes;
+  let readmeText;
+  try {
+    const launcher = buildLauncher({ source: launcherSource, output: join(launcherScratch, 'flowmic-desktop') });
+    const readme = join(launcherScratch, 'README-LINUX.txt');
+    readmeText = renderLinuxReadme(readFileSync(readmeTemplate, 'utf8'), version);
+    writeFileSync(readme, readmeText);
+    runtimeDepsGate({
+      executable,
+      node: stagedNode,
+      resourcesDir: nodeModules,
+      debPath: deb,
+      launcherPath: launcher,
+      launcherTarget: LINUX_PORTABLE_REAL_EXE,
+      readmePath: readme,
+      log,
+    });
+    launcherBytes = readFileSync(launcher);
+    // No `DEV:` placeholder ships (linux-dev-copy-gate.mjs). Before the
+    // output is claimed, like the dependency gate above.
+    assertNoDevCopy('the Linux portable bundle', [
+      { file: 'flowmic-desktop (launcher)', bytes: launcherBytes },
+      { file: 'README-LINUX.txt', bytes: Buffer.from(readmeText, 'utf8') },
+    ]);
+  } finally {
+    rmSync(launcherScratch, { recursive: true, force: true });
+  }
   prepareOwnedOutput(outDir, version);
 
-  const copied = [copyWithSidecar(appImage, outDir), copyWithSidecar(deb, outDir)];
+  const copied = [copyWithSidecar(deb, outDir)];
   for (const artifact of copied) log(`staged ${artifact.name} (${artifact.bytes} bytes)`);
 
   const portableDir = join(outDir, LINUX_PORTABLE_DIR_NAME);
@@ -389,9 +402,11 @@ export function stageLinuxArtifacts({
     rmSync(portableDir, { recursive: true, force: true });
   }
   mkdirSync(join(portableDir, 'resources'), { recursive: true });
-  copyFileSync(executable, join(portableDir, 'flowmic-desktop'));
+  writeFileSync(join(portableDir, 'flowmic-desktop'), launcherBytes);
+  copyFileSync(executable, join(portableDir, LINUX_PORTABLE_REAL_EXE));
   copyFileSync(stagedNode, join(portableDir, 'node'));
   copyFileSync(notice, join(portableDir, 'NOTICE'));
+  writeFileSync(join(portableDir, 'README-LINUX.txt'), readmeText);
   copyFileSync(serverJs, join(portableDir, 'resources', 'server.js'));
   copyFileSync(serverPackage, join(portableDir, 'resources', 'package.json'));
   cpSync(nodeModules, join(portableDir, 'resources', 'node_modules'), {
@@ -400,12 +415,14 @@ export function stageLinuxArtifacts({
   });
   if (process.platform !== 'win32') {
     chmodSync(join(portableDir, 'flowmic-desktop'), 0o755);
+    chmodSync(join(portableDir, LINUX_PORTABLE_REAL_EXE), 0o755);
     chmodSync(join(portableDir, 'node'), 0o755);
   }
 
-  // Re-check the COPY that goes into the archive. A correct staging source does
+  // Re-check the COPIES that go into the archive. A correct staging source does
   // not prove a downstream copy completed intact.
   verifyPinnedNode(join(portableDir, 'node'), pin, probeVersion);
+  verifyBuildStamp(join(portableDir, LINUX_PORTABLE_REAL_EXE), expectedBuildSha);
   const portable = packPortable({
     outDir,
     version,
@@ -414,7 +431,7 @@ export function stageLinuxArtifacts({
     log,
   });
   log(`staged ${portable.zipName} (${portable.size} bytes)`);
-  return { appImage: copied[0], deb: copied[1], portableDir, portable };
+  return { deb: copied[0], portableDir, portable };
 }
 
 function parseArgs(argv) {
@@ -447,7 +464,6 @@ function main(argv) {
     log: (message) => console.log(`· ${message}`),
   });
   console.log(`LOCAL LINUX ARTIFACTS READY: ${outDir}`);
-  console.log(`  AppImage: ${result.appImage.name}`);
   console.log(`  deb: ${result.deb.name}`);
   console.log(`  portable: ${result.portable.zipName} (top-level ${LINUX_PORTABLE_DIR_NAME}/)`);
 }

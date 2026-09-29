@@ -55,7 +55,7 @@
 // current status of the mail channel, and the redline paragraph two paragraphs
 // up (the echo flag) is still enforced by that file.
 
-import { countMobileDevices, isRealPc, occupiesPcSlot } from '../room/registry';
+import { countMobileDevices, isIntegratorRoom, isRealPc, occupiesPcSlot } from '../room/registry';
 import { CloudSummarySchema } from '@flowmic/protocol';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tryHandleConsoleDeviceRoutes, type RoomLookup } from './console-device-routes';
@@ -604,7 +604,11 @@ export function tryHandleConsoleRoutes(req: IncomingMessage, res: ServerResponse
       last_seen_at: pc.last_seen_at,
       created_at: pc.created_at,
     }));
-    const mobile_pairings = pcs.flatMap((pc) =>
+    // card EMB-6 — the phones listed here are the account's own handsets, the
+    // same set `mobileCount` (`countMobileDevices`, earlier in this file) counts. A visitor's app
+    // paired into a third-party host page's integrator room is a stranger's
+    // phone (`isIntegratorRoom`), so it is neither counted nor listed.
+    const mobile_pairings = pcs.filter((pc) => !isIntegratorRoom(pc)).flatMap((pc) =>
       deps.mobiles.listByPc(pc.id).map((m) => ({
         pairing_id: m.id,
         pc_id: m.pc_device_id,

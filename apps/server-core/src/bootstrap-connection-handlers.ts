@@ -27,7 +27,7 @@ import type { QrGrantStore } from './auth/qr-grant';
 import type { AuthExpiryClock } from './socket/handlers/auth-expiry';
 import { armAuthExpiry } from './socket/handlers/auth-expiry';
 import { getAccount, getSessionPrefs, type ActingIdentity } from './socket/wire';
-import { principalRefOf } from './socket/handlers/audio-metering';
+import { principalRefOf, type PcRoomReader } from './socket/handlers/audio-metering';
 import type { Registry } from './room/registry';
 import type { RoomStore } from './room/store';
 import type { ReleaseSuppression } from './room/release-suppression';
@@ -170,7 +170,7 @@ export function registerConnectionHandlers(socket: Socket, deps: ConnectionHandl
   const stampHomeNodeHere = nodeRuntime.stampHomeNode === null
     ? null
     : (pcId: string): void => nodeRuntime.stampHomeNode?.(pcId, socketNodeId ?? undefined);
-  registerPcHandlers(socket, { integratorOrigin, io, budget: budgetPusher, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.mintCodeOnWriter ? { mintCodeOnWriter: nodeRuntime.mintCodeOnWriter } : {}), ...(stampHomeNodeHere ? { stampHomeNode: stampHomeNodeHere } : {}), ...(nodeRuntime.resolveTokenOnWriter /* B1: same instance authMiddleware/mobile:reconnect got above */ ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(nodeRuntime.forwardReleaseMobileOnWriter /* B5, WP-6: the generic handoff's release_mobile verb */ ? { forwardReleaseMobile: nodeRuntime.forwardReleaseMobileOnWriter } : {}), ...(socketNodeId /* OPS-1: refusal-log lines only, see pc.handler.ts's own doc */ ? { nodeId: socketNodeId } : {}) });
+  registerPcHandlers(socket, { integratorOrigin, io, budget: budgetPusher, registry, store, resolveActingUser, suppression: releaseSuppression, writerOnly: nodeRuntime.writerOnly, ...(nodeRuntime.mintCodeOnWriter ? { mintCodeOnWriter: nodeRuntime.mintCodeOnWriter } : {}), ...(stampHomeNodeHere ? { stampHomeNode: stampHomeNodeHere } : {}), ...(nodeRuntime.notePcIdentity /* NR-131 */ ? { notePcIdentity: nodeRuntime.notePcIdentity } : {}), ...(nodeRuntime.resolveTokenOnWriter /* B1: same instance authMiddleware/mobile:reconnect got above */ ? { resolveTokenOnWriter: nodeRuntime.resolveTokenOnWriter } : {}), ...(nodeRuntime.forwardReleaseMobileOnWriter /* B5, WP-6: the generic handoff's release_mobile verb */ ? { forwardReleaseMobile: nodeRuntime.forwardReleaseMobileOnWriter } : {}), ...(socketNodeId /* OPS-1: refusal-log lines only, see pc.handler.ts's own doc */ ? { nodeId: socketNodeId } : {}) });
   // A2-3 F1 — "usage restricted" reaches the PHONE here. `restriction: authService` is
   // the SAME instance `console-routes.refuseRestricted` reads through and the
   // same one Bearers are verified with, so the HTTP gate and the two socket
@@ -200,14 +200,18 @@ export function registerConnectionHandlers(socket: Socket, deps: ConnectionHandl
   registerTimelineHandlers(socket, { repo: db.timeline, grants: db.timelineGrants, verifiedEmail: db.emailVerification, ...(overrides.now ? { now: overrides.now } : {}) });
   // GRANT-1 — web requests / phone grants / blind wrap forward.
   registerGrantHandlers(socket, { io, grants: db.timelineGrants, pending: grantPending, limiter: grantLimiter, verifiedEmail: db.emailVerification, ...(overrides.now ? { now: overrides.now } : {}) });
+  // card MP-0 — ONE row read answering both of the gate's questions (the owner, and which far end this is).
+  // card EMB-15 — hoisted so the audio handler AND the compose handler read the
+  // room kind through the SAME reader (`isIntegratorSession`): two readers could
+  // disagree about which rooms are embedded.
+  const pcRoom: PcRoomReader = (pcId) => { const pc = registry.findPc(pcId); return pc ? { userId: pc.user_id, roomKind: pc.room_kind } : null; };
   registerAudioHandlers(socket, {
     io, guard: quotaGuard, usageTracker, store, sessions: audioRegistry,
     budget: budgetPusher, budgetHeartbeatMs, // card S2-02
     sttFactory: (args) => sttSessionFactory(socket, args),
     // card QTA-2 — the PC owner's account, so the quota gate can ask BOTH
     // sides when the phone and the desktop are signed into different ones.
-    // card MP-0 — ONE row read answering both of the gate's questions (the owner, and which far end this is).
-    pcRoom: (pcId) => { const pc = registry.findPc(pcId); return pc ? { userId: pc.user_id, roomKind: pc.room_kind } : null; },
+    pcRoom,
     anonymousUser: anonymousRowReader(db.users), // + card W4-05's two demo-identity exceptions (auth/metering-principal.ts)
     integratorKeys, // card MP-1 — the third ceiling the admission gate must clear
     verificationGrace: verificationGraceGuard, // NR-2a — the SAME guard on both legs
@@ -219,6 +223,7 @@ export function registerConnectionHandlers(socket: Socket, deps: ConnectionHandl
   // socket's bundle (settings/session-overlay.ts), never from the database.
   registerComposeHandlers(socket, {
     io, guard: quotaGuard, usageTracker, store, verificationGrace: verificationGraceGuard,
+    pcRoom, // card EMB-15 — compose:start is refused in an integrator room
     // card MP-9 — the admission's principal rides the same seam, and for the
     // same reason: the scenario-inference call the factory schedules is metered
     // off-band, long after this socket is out of reach. `principalRefOf` is the

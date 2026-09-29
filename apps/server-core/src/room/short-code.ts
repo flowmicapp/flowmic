@@ -69,6 +69,7 @@ export class ShortCodeGovernor {
   private readonly issuedAt = new Map<string, number>(); // pcId → ms
   private readonly reserved = new Map<string, string>(); // code → owner pcId
   private readonly codeByPc = new Map<string, string>(); // pcId → code
+  private readonly groups = new Map<string, string>(); // pcId → allocation class
   /** IT-39: pcId → failed guesses charged to its CURRENT issuance. Same key set
    *  and same lifetime as `issuedAt` — reset by `stamp` (a new issuance is a new
    *  budget) and dropped by `releaseExpired`, so it adds no growth surface of
@@ -97,16 +98,28 @@ export class ShortCodeGovernor {
     throw new ShortCodeAllocationError('short-code allocation exhausted');
   }
 
-  stamp(pcId: string, code: string): void {
+  stamp(pcId: string, code: string, group = 'pc'): void {
     const previous = this.codeByPc.get(pcId);
     if (previous && previous !== code && this.reserved.get(previous) === pcId) this.reserved.delete(previous);
     this.reserved.set(code, pcId);
     this.codeByPc.set(pcId, code);
     this.issuedAt.set(pcId, this.now());
+    this.groups.set(pcId, group);
     // IT-39: a new issuance starts with a full budget. This is the ONE recovery
     // path out of a burn, and it is the path the user already has — re-register
     // or "refresh pairing code" (registry.refreshShortCode / registerPc's existing branch).
     this.failures.delete(pcId);
+  }
+
+  /** Count reservations, including burned codes until their reservation expires.
+   * Refreshing an existing owner replaces its reservation, consuming no new slot. */
+  capacityRetryAfterMs(group: string, max: number, ownerId?: string): number {
+    this.releaseExpired();
+    const expiries: number[] = [];
+    for (const [pcId, issued] of this.issuedAt) {
+      if (pcId !== ownerId && this.groups.get(pcId) === group) expiries.push(issued + this.ttlMs);
+    }
+    return expiries.length >= max ? Math.max(1, Math.min(...expiries) - this.now()) : 0;
   }
 
   isActive(pcId: string): boolean {
@@ -284,6 +297,7 @@ export class ShortCodeGovernor {
       if (code && this.reserved.get(code) === pcId) this.reserved.delete(code);
       this.codeByPc.delete(pcId);
       this.issuedAt.delete(pcId);
+      this.groups.delete(pcId);
       this.failures.delete(pcId); // IT-39: never outlive the issuance it counts
     }
   }

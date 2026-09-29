@@ -1,4 +1,5 @@
 {
+  "SidecarBundledFileMissing": "FlowMic 安装不完整，缺少自带文件 {path}，请重新安装 FlowMic。",
   "TrayShowMain": "显示主窗口",
   "TrayShowCapsule": "显示胶囊",
   "TrayQuit": "退出",

@@ -1,0 +1,101 @@
+{"id": "nr118-001", "lang": "zh", "strength": "strict", "raw": "三个人", "polished": "3个人", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-002", "lang": "zh", "strength": "strict", "raw": "二十五号", "polished": "25号", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-003", "lang": "zh", "strength": "strict", "raw": "两千块", "polished": "2000块", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-004", "lang": "zh", "strength": "strict", "raw": "二零二六年", "polished": "2026年", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-005", "lang": "zh", "strength": "strict", "raw": "一百二十", "polished": "120", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-006", "lang": "zh", "strength": "strict", "raw": "3个", "polished": "三个", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-007", "lang": "zh", "strength": "strict", "raw": "３点", "polished": "3点", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-008", "lang": "zh", "strength": "strict", "raw": "我要要去", "polished": "我要去", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-009", "lang": "zh", "strength": "strict", "raw": "不不不对", "polished": "不对", "v1": false, "v2": false, "family": "protected", "why": "Round 2: negation is exact; punctuation-separated repeats are not stutter"}
+{"id": "nr118-010", "lang": "zh", "strength": "strict", "raw": "他跑的很快", "polished": "他跑得很快", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-011", "lang": "zh", "strength": "strict", "raw": "慢慢地走", "polished": "慢慢地走", "v1": true, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-012", "lang": "ja", "strength": "strict", "raw": "三人", "polished": "3人", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-013", "lang": "zh", "strength": "strict", "raw": "三个", "polished": "4个", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-014", "lang": "zh", "strength": "strict", "raw": "二十五", "polished": "52", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-015", "lang": "zh", "strength": "strict", "raw": "十二", "polished": "21", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-016", "lang": "zh", "strength": "strict", "raw": "二十五", "polished": "二15", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-017", "lang": "zh", "strength": "strict", "raw": "三个苹果五个梨", "polished": "5个苹果3个梨", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-018", "lang": "zh", "strength": "strict", "raw": "十分好", "polished": "10分好", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-019", "lang": "zh", "strength": "strict", "raw": "千万别去", "polished": "10000000别去", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-020", "lang": "zh", "strength": "strict", "raw": "看一下", "polished": "看1下", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-021", "lang": "zh", "strength": "strict", "raw": "有一点", "polished": "有1点", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-022", "lang": "zh", "strength": "strict", "raw": "万一", "polished": "万1", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-023", "lang": "zh", "strength": "strict", "raw": "一经", "polished": "已经", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-024", "lang": "zh", "strength": "strict", "raw": "我得走", "polished": "我的走", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-025", "lang": "zh", "strength": "strict", "raw": "我得走", "polished": "我走", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-026", "lang": "zh", "strength": "strict", "raw": "我没去", "polished": "我去", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-027", "lang": "zh", "strength": "strict", "raw": "要不要", "polished": "要", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-028", "lang": "en", "strength": "strict", "raw": "did not ship", "polished": "did ship", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-029", "lang": "en", "strength": "strict", "raw": "three", "polished": "3", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-030", "lang": "ru", "strength": "strict", "raw": "он не идёт", "polished": "он идёт", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-031", "lang": "ja", "strength": "strict", "raw": "行きません", "polished": "行きます", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-032", "lang": "zh", "strength": "strict", "raw": "四位", "polished": "4位", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-033", "lang": "zh", "strength": "strict", "raw": "五次", "polished": "5次", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-034", "lang": "zh", "strength": "strict", "raw": "六年", "polished": "6年", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-035", "lang": "zh", "strength": "strict", "raw": "七月", "polished": "7月", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-036", "lang": "zh", "strength": "strict", "raw": "八日", "polished": "8日", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-037", "lang": "zh", "strength": "strict", "raw": "九元", "polished": "9元", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-038", "lang": "zh", "strength": "strict", "raw": "十个", "polished": "10个", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-039", "lang": "zh", "strength": "strict", "raw": "一百张", "polished": "100张", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-040", "lang": "zh", "strength": "strict", "raw": "三万", "polished": "30000", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-041", "lang": "zh", "strength": "strict", "raw": "幺号", "polished": "1号", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-042", "lang": "zh", "strength": "strict", "raw": "〇号", "polished": "0号", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-043", "lang": "zh", "strength": "strict", "raw": "二十五。", "polished": "25。", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-044", "lang": "zh", "strength": "strict", "raw": "一三八", "polished": "138", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-045", "lang": "zh", "strength": "strict", "raw": "二二个", "polished": "22个", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-046", "lang": "zh", "strength": "strict", "raw": "都都去", "polished": "都去", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-047", "lang": "zh", "strength": "strict", "raw": "只，只去", "polished": "只去", "v1": false, "v2": false, "family": "protected", "why": "Round 2: negation is exact; punctuation-separated repeats are not stutter"}
+{"id": "nr118-048", "lang": "zh", "strength": "strict", "raw": "每 每次", "polished": "每次", "v1": false, "v2": false, "family": "protected", "why": "Round 2: space-separated repeats are not adjacent"}
+{"id": "nr118-049", "lang": "zh", "strength": "strict", "raw": "没，没去", "polished": "没去", "v1": false, "v2": false, "family": "protected", "why": "Round 2: negation is exact; punctuation-separated repeats are not stutter"}
+{"id": "nr118-050", "lang": "zh", "strength": "strict", "raw": "能能走", "polished": "能走", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-051", "lang": "zh", "strength": "strict", "raw": "他走地快", "polished": "他走得快", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-052", "lang": "zh", "strength": "strict", "raw": "３个", "polished": "3个", "v1": false, "v2": true, "family": "equivalent", "why": "synthetic guard boundary"}
+{"id": "nr118-053", "lang": "zh", "strength": "strict", "raw": "零零个", "polished": "0个", "v1": false, "v2": true, "family": "equivalent", "why": "digit-by-digit integer equality permits leading zeroes"}
+{"id": "nr118-054", "lang": "zh", "strength": "strict", "raw": "二十十个", "polished": "20个", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-055", "lang": "zh", "strength": "strict", "raw": "百个", "polished": "100个", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-056", "lang": "zh", "strength": "strict", "raw": "三个", "polished": "30个", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-057", "lang": "zh", "strength": "strict", "raw": "两个人", "polished": "2个物", "v1": false, "v2": true, "family": "open_class_limit", "why": "shadow limitation: R1 explains the number while unchanged v1 open-class K admits the separate one-character content change; live still rejects"}
+{"id": "nr118-058", "lang": "zh", "strength": "strict", "raw": "二点五", "polished": "2点5", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-059", "lang": "zh", "strength": "strict", "raw": "三点", "polished": "3点", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-060", "lang": "zh", "strength": "strict", "raw": "一个", "polished": "1个", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-061", "lang": "zh", "strength": "strict", "raw": "一一", "polished": "11", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-062", "lang": "zh", "strength": "strict", "raw": "千万", "polished": "10000000", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-063", "lang": "zh", "strength": "strict", "raw": "必须去", "polished": "应该去", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-064", "lang": "zh", "strength": "strict", "raw": "全部去", "polished": "全去", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-065", "lang": "zh", "strength": "strict", "raw": "要不要去", "polished": "要去", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-066", "lang": "zh", "strength": "strict", "raw": "我跑得快", "polished": "我跑地快", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-067", "lang": "zh", "strength": "strict", "raw": "十三号", "polished": "31号", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-068", "lang": "zh", "strength": "strict", "raw": "二25", "polished": "225", "v1": false, "v2": false, "family": "protected", "why": "synthetic guard boundary"}
+{"id": "nr118-069", "lang": "zh", "strength": "smooth", "raw": "明天出发", "polished": "明天出发。", "v1": true, "v2": true, "family": "equivalent", "why": "punctuation control"}
+{"id": "nr118-070", "lang": "en", "strength": "smooth", "raw": "hello world", "polished": "Hello world.", "v1": true, "v2": true, "family": "equivalent", "why": "punctuation control"}
+{"id": "nr118-071", "lang": "fr", "strength": "smooth", "raw": "il ne vient pas", "polished": "il ne vient pas.", "v1": true, "v2": true, "family": "equivalent", "why": "punctuation control"}
+{"id": "nr118-072", "lang": "es", "strength": "smooth", "raw": "no puedo ir", "polished": "no puedo ir.", "v1": true, "v2": true, "family": "equivalent", "why": "punctuation control"}
+{"id": "nr118-073", "lang": "de", "strength": "smooth", "raw": "ich kann nicht", "polished": "ich kann nicht.", "v1": true, "v2": true, "family": "equivalent", "why": "punctuation control"}
+{"id": "nr118-074", "lang": "ja", "strength": "smooth", "raw": "行きません", "polished": "行きません。", "v1": true, "v2": true, "family": "equivalent", "why": "punctuation control"}
+{"id": "nr118-075", "lang": "ko", "strength": "smooth", "raw": "안 가요", "polished": "안 가요.", "v1": true, "v2": true, "family": "equivalent", "why": "punctuation control"}
+{"id": "nr118-076", "lang": "ru", "strength": "smooth", "raw": "он не идёт", "polished": "он не идёт.", "v1": true, "v2": true, "family": "equivalent", "why": "punctuation control"}
+{"id": "nr118-077", "lang": "zh", "strength": "strict", "raw": "１２个", "polished": "21个", "v1": false, "v2": false, "family": "numeric_boundary", "why": "NFKC must not hide reordered digits"}
+{"id": "nr118-078", "lang": "ja", "strength": "strict", "raw": "１２件", "polished": "12件", "v1": false, "v2": true, "family": "numeric_boundary", "why": "full-width integer spelling only"}
+{"id": "nr118-079", "lang": "zh", "strength": "strict", "raw": "千万千万", "polished": "千万", "v1": false, "v2": false, "family": "numeric_boundary", "why": "R2 must not collapse pure numeral runs even when also a modal table member"}
+{"id": "nr118-080", "lang": "zh", "strength": "strict", "raw": "一亿二千万", "polished": "120000000", "v1": false, "v2": false, "family": "numeric_boundary", "why": "value-equal but unchanged strict edit bound rejects nine-character replacement"}
+{"id": "nr118-081", "lang": "zh", "strength": "strict", "raw": "他不，不是他", "polished": "他不是他", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-082", "lang": "zh", "strength": "strict", "raw": "我不去", "polished": "我不不去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-083", "lang": "zh", "strength": "strict", "raw": "你的去", "polished": "你得去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-084", "lang": "zh", "strength": "strict", "raw": "我的书在这", "polished": "我得书在这", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-085", "lang": "zh", "strength": "strict", "raw": "三三两两", "polished": "3322", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-086", "lang": "zh", "strength": "strict", "raw": "七七八八", "polished": "7788", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-087", "lang": "zh", "strength": "strict", "raw": "一二一二", "polished": "1212", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-088", "lang": "zh", "strength": "strict", "raw": "我会，会去", "polished": "我会去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-089", "lang": "zh", "strength": "strict", "raw": "我会去", "polished": "我会会去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-090", "lang": "zh", "strength": "strict", "raw": "我都去", "polished": "我都都去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-091", "lang": "zh", "strength": "strict", "raw": "我不去", "polished": "我去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-092", "lang": "zh", "strength": "strict", "raw": "我去", "polished": "我不去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-093", "lang": "zh", "strength": "strict", "raw": "我没有去", "polished": "我有去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-094", "lang": "zh", "strength": "strict", "raw": "三个人不去", "polished": "3个人去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-095", "lang": "zh", "strength": "strict", "raw": "三个人不去", "polished": "3个人不去", "v1": false, "v2": true, "family": "equivalent", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-096", "lang": "zh", "strength": "strict", "raw": "我会会去", "polished": "我会去", "v1": false, "v2": true, "family": "equivalent", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-097", "lang": "zh", "strength": "strict", "raw": "我都都去", "polished": "我都去", "v1": false, "v2": true, "family": "equivalent", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-098", "lang": "zh", "strength": "strict", "raw": "他跑的去", "polished": "他跑得去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-099", "lang": "zh", "strength": "strict", "raw": "孩子的书", "polished": "孩子得书", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-100", "lang": "zh", "strength": "strict", "raw": "不不去", "polished": "不去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}
+{"id": "nr118-101", "lang": "zh", "strength": "strict", "raw": "没没去", "polished": "没去", "v1": false, "v2": false, "family": "protected", "why": "Round 2 synthetic context, stutter, idiom or negation boundary"}

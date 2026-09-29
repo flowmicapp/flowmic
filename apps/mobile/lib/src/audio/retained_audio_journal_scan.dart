@@ -179,6 +179,7 @@ class RetainedAudioJournalScan {
 
   static Future<List<RecordingScan>> scan({
     required String dirPath,
+    String? recordingId,
     JournalFileSystem fs = const IoJournalFileSystem(),
     AudioJournalFormat expected = AudioJournalFormat.current,
     int Function()? clock,
@@ -187,7 +188,9 @@ class RetainedAudioJournalScan {
   }) async {
     final int Function() now =
         clock ?? (() => DateTime.now().millisecondsSinceEpoch);
-    final List<String> names = await fs.listNames(dirPath);
+    final List<String> names = recordingId == null
+        ? await fs.listNames(dirPath)
+        : <String>['$recordingId${RetainedAudioJournal.manifestSuffix}'];
     final String sep =
         dirPath.endsWith('/') || dirPath.endsWith(r'\') ? '' : '/';
     final Set<String> ids = <String>{};

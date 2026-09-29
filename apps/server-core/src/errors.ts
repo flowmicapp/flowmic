@@ -17,7 +17,7 @@ import { ERROR_CODES, type ErrorCode } from '@flowmic/protocol';
 export class ServerError extends Error {
   readonly code: ErrorCode;
   readonly retryable: boolean;
-  constructor(code: ErrorCode, message?: string, retryable = false) {
+  constructor(code: ErrorCode, message?: string, retryable = false, readonly retryAfterMs?: number) {
     super(message ?? code);
     this.name = 'ServerError';
     this.code = code;
@@ -36,12 +36,13 @@ export interface ErrorPayload {
   error: ErrorCode;
   message?: string;
   retryable?: boolean;
+  retry_after_ms?: number;
 }
 
 export function errorPayload(err: unknown): ErrorPayload {
   if (err instanceof ServerError) {
     return err.retryable
-      ? { error: err.code, message: err.message, retryable: true }
+      ? { error: err.code, message: err.message, retryable: true, ...(err.retryAfterMs === undefined ? {} : { retry_after_ms: err.retryAfterMs }) }
       : { error: err.code, message: err.message };
   }
   // An unexpected throw must still fail loud with a real code, never a bare

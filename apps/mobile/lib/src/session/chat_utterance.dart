@@ -83,7 +83,7 @@ void _handleTerminalFinal(ChatController c, SttFinal f) {
   // an index when the release lands inside a rollover flush (the FB-6 shape).
   // The watermark only advances when a row was actually minted, so that pair is
   // judged on whether the span is settled — never on the index colliding.
-  if (f.segmentIdx < segs.nextUnsettledIdx) return;
+  if (f.segmentIdx < segs.nextUnsettledIdx) { if (!f.isSegment) c.session.timings.active?.settleWithoutInject(); return; }
   // Card RC-N — a failed attempt's late result is settled as ONE row, on its
   // terminal final, and only if that final comes: its segment finals wait in
   // the buffer instead of minting rows a retry would then mint again.
@@ -148,7 +148,9 @@ void _handleTerminalFinal(ChatController c, SttFinal f) {
   // final carries only the last segment」 still decides it.
   final String text = assembled.isNotEmpty ? assembled : f.text;
   c._liveText = '';
+  c.session.timings.active?.painted();
   if (text.trim().isEmpty) {
+    c.session.timings.active?.finish();
     // owner 2026-07-27 (reproduced on a real device): the terminal final arrived
     // carrying no text —
     // the engine heard nothing. This used to just `return`, which dropped the
@@ -360,6 +362,8 @@ Future<void> _deliverDirect(
   // in its own diag). That degrades DURABILITY, never delivery: refusing to
   // send a sentence because we could not also persist it would turn a weaker
   // retry story into a failed delivery the user can see.
+  final UtteranceTiming? timing = c.session.timings.forRequest(entry.clientId);
+  timing?.mark(UtteranceMark.enqueueStart);
   final OutboxItem? queued = await c.outbox.enqueueText(
     requestId: entry.clientId,
     entryId: entry.id,
@@ -378,6 +382,7 @@ Future<void> _deliverDirect(
     // absence, not 0.
     durationMs: entry.durationMs,
   );
+  timing?.mark(UtteranceMark.enqueueDone);
   diag('utterance.direct_enqueued', <String, Object?>{
     'request_id': entry.clientId,
     'durable': queued != null,
@@ -466,6 +471,7 @@ Future<void> _deliverDirect(
       targetPcId: c.targetPcId,
     ),
   );
+  if (ok) timing?.mark(UtteranceMark.injectEmit);
   if (ok) return;
   // ── 🔴 card B2-H (P1-3) — A DIRECT-SEND WIRE FAILURE MUST NOT OUTRUN THE
   // QUEUE'S OWN VERDICT ──────────────────────────────────────────────────────

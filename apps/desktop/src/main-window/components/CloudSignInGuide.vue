@@ -48,6 +48,7 @@ import { onBeforeUnmount, ref, watch } from 'vue';
 import { S } from '../../lib/strings';
 import { openExternalUrl } from '../../lib/bridge-os';
 import { saveCloudKey } from '../../lib/bridge';
+import SignInWaiting from './SignInWaiting.vue';
 import {
   beginBrowserSignIn,
   cancelBrowserSignIn,
@@ -97,6 +98,10 @@ watch(
  *  on screen would be reporting our own internals as if they were the user's
  *  business. */
 const signingIn = ref(false);
+/** The listener's window in whole minutes, as Rust reported it on `begin` —
+ *  shown on the waiting row so someone who leaves for their mailbox knows how
+ *  long the PC keeps waiting (NR-112). Never typed here: see SignInWaiting.vue. */
+const windowMinutes = ref(0);
 /** The named failure sentence, or ''. Cleared the instant a new attempt starts:
  *  a red line left standing over a fresh attempt is the 「过期的真话」 shape this
  *  file's paste handler already guards against. */
@@ -118,7 +123,7 @@ function stopPolling(): void {
  *      NEVER open a browser — sending someone to sign in when the answer has
  *      nowhere to land is a dead end they can only discover by waiting.
  *   2. The URL is opened through the ONE door. If the OS opens nothing we stop
- *      the listener rather than leaving it holding a port for three minutes.
+ *      the listener rather than leaving it holding a port for fifteen minutes.
  *   3. Poll until the phase settles.
  */
 async function openSignIn(): Promise<void> {
@@ -133,6 +138,7 @@ async function openSignIn(): Promise<void> {
       signInError.value = signInFailureText(begun.reason);
       return;
     }
+    windowMinutes.value = Math.round(begun.data.window_ms / 60_000);
     const url = buildDesktopSignInUrl(begun.data.port, begun.data.state);
     if (!(await openConsoleSignIn(openExternalUrl, url))) {
       // The listener is holding a port for a browser that never opened. Hand it
@@ -149,8 +155,8 @@ async function openSignIn(): Promise<void> {
 }
 
 /** 600 ms: fast enough that the card flips over while the person is still
- *  looking at it, slow enough that a three-minute window is 300 cheap IPC calls
- *  and not thousands. */
+ *  looking at it, slow enough that the fifteen-minute window (NR-112) is 1,500 cheap IPC
+ *  calls, not tens of thousands. */
 function startPolling(): void {
   stopPolling();
   pollTimer = setInterval(() => {
@@ -253,19 +259,10 @@ async function doSaveKey(): Promise<void> {
       >
         {{ S.cloud_signin_browser }}
       </button>
-      <!-- Waiting has to LOOK like waiting, and it has to have a way out. A
-           three-minute window behind an unchanged button is indistinguishable
-           from a button that did nothing — which is the complaint that produced
-           the one-door rule in the first place. -->
-      <div v-else class="signin-wait">
-        <span class="wait-t">{{ S.cloud_signin_waiting }}</span>
-        <!-- `ghost`, not a bare `.btn sm`: `.btn` is layout only and
-             `button{border:none;background:none}` removes what the browser would
-             have drawn, so an unskinned button is INVISIBLE. That is 0.3.33's
-             scar (「提示了有新版，但是没有升级的按钮」), and the door that caught
-             this line's first draft is button-skin-door.test.ts. -->
-        <button class="btn ghost sm" type="button" @click="cancelSignIn">{{ S.cloud_signin_cancel }}</button>
-      </div>
+      <!-- The waiting row (and its way out) lives in SignInWaiting.vue so the
+           state that only exists after a click can be mounted by a test (NR-112).
+           `v-else`: it REPLACES the button, it is not a second control. -->
+      <SignInWaiting v-else :minutes="windowMinutes" @cancel="cancelSignIn" />
       <div class="fld-hint">{{ S.cloud_signin_browser_hint }}</div>
       <div v-if="openFailed" class="chan-loud">{{ S.cloud_signin_browser_failed }}</div>
       <!-- Named, never a bare identifier: `signInFailureText` maps through an
@@ -306,6 +303,4 @@ async function doSaveKey(): Promise<void> {
 .chan-loud { margin-top: 8px; font-size: 12px; color: var(--red); background: var(--red-soft); border-radius: 8px; padding: 8px 10px; line-height: 1.5; }
 
 .signin-guide { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
-.signin-wait { display: flex; align-items: center; gap: 10px; }
-.wait-t { font-size: 12px; color: var(--t2); }
 </style>

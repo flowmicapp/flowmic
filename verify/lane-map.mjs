@@ -56,6 +56,7 @@ export const S = {
   desktopTests: 'verify:desktop-tests',
   linuxCopyRender: 'verify:linux-copy-render',
   mobileTests: 'verify:mobile-tests',
+  mobileAnalyze: 'verify:mobile-analyze',
   scripts: 'verify:scripts',
   golden: 'golden',
 };
@@ -106,9 +107,10 @@ export const FULL_STAGES = LANES.flatMap((lane) =>
  * to `packages/protocol/dist/index.d.ts` and every vitest project imports the
  * same files, so a stale dist type-checks a contract that is not in the tree.
  *
- * `verify:mobile-tests` is NOT here on purpose: apps/mobile/tool/gen_protocol.mjs
- * reads `packages/protocol/src/…`, not the dist, and `make -C apps/mobile
- * gate-test` regenerates before it tests.
+ * `verify:mobile-tests` and `verify:mobile-analyze` are NOT here on purpose:
+ * apps/mobile/tool/gen_protocol.mjs reads `packages/protocol/src/…`, not the
+ * dist, and both `make -C apps/mobile` targets depend on `gen` and so
+ * regenerate before they run.
  *
  * `verify:lint` is NOT here — measured, not assumed: `grep -rn "protocol/dist"
  * verify/lint scripts` on 2026-09-13 returned only prose in comments
@@ -212,6 +214,7 @@ export const RULES = [
       S.scripts,
       S.golden,
       S.mobileTests,
+      S.mobileAnalyze,
     ],
     why: 'the protocol is every downstream: server-core bundles it (noExternal in apps/server-core/tsup.config.ts), tsc and vitest read its dist, the desktop TS and Rust import it, apps/mobile/tool/gen_protocol.mjs reads its src, and golden starts the server that embeds it — scoping it saves nothing and can only lie',
   },
@@ -262,14 +265,14 @@ export const RULES = [
       'apps/mobile/pubspec.*',
       'apps/mobile/Makefile',
     ],
-    stages: [...ALWAYS, S.mobileTests],
-    why: 'verify:mobile-tests is `make -C apps/mobile gate-test` (gen + flutter test); android/ios are read by android-install-permission, applink-declarations and package-id-family',
+    stages: [...ALWAYS, S.mobileAnalyze, S.mobileTests],
+    why: 'verify:mobile-analyze is `make -C apps/mobile analyze` and verify:mobile-tests is `make -C apps/mobile gate-test` (both gen + run, one analyzer then one flutter test); android/ios are read by android-install-permission, applink-declarations and package-id-family',
   },
   {
     id: 'i18n-mobile',
     patterns: ['i18n/mobile/**'],
-    stages: [...ALWAYS, S.mobileTests, S.i18nWebTests, S.i18nDevPlaceholders],
-    why: 'verify:i18n-dev-placeholders scans these catalogues for DEV placeholders (NR-83); scripts/i18n/gen-mobile-dart.mjs writes the (gitignored) Dart catalogues and scripts/i18n/gen-i18n-web.mjs reads the same directory; i18n-generated-fresh, disclosure-copy-mirror and plan-limit-copy all read these files',
+    stages: [...ALWAYS, S.mobileAnalyze, S.mobileTests, S.i18nWebTests, S.i18nDevPlaceholders],
+    why: 'verify:i18n-dev-placeholders scans these catalogues for DEV placeholders (NR-83); scripts/i18n/gen-mobile-dart.mjs writes the (gitignored) Dart catalogues the analyzer and tests compile, and scripts/i18n/gen-i18n-web.mjs reads the same directory; i18n-generated-fresh, disclosure-copy-mirror and plan-limit-copy all read these files',
   },
   {
     id: 'i18n-desktop',
@@ -288,6 +291,7 @@ export const RULES = [
     patterns: ['scripts/i18n/**'],
     stages: [
       ...ALWAYS,
+      S.mobileAnalyze,
       S.mobileTests,
       S.i18nWebTests,
       S.typesDesktop,
@@ -295,7 +299,7 @@ export const RULES = [
       S.linuxCopyRender,
       ...RUST,
     ],
-    why: 'equivalent to "every i18n source changed" (scripts/refresh-derived.mjs puts scripts/i18n/ and i18n/ in one rule), plus verify:scripts because the generators live under scripts/',
+    why: 'equivalent to "every i18n source changed" (scripts/refresh-derived.mjs puts scripts/i18n/ and i18n/ in one rule), so the generated Dart gets analyzed and tested too, plus verify:scripts because the generators live under scripts/',
   },
   {
     id: 'golden',

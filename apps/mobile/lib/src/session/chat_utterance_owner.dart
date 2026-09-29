@@ -189,6 +189,8 @@ const Duration kOwedTailFinalGrace = Duration(seconds: 45);
 void _afterLiveTerminal(ChatController c,
     {required bool draftLanded, String? draftRowId}) {
   c.session.articles.attempts.liveSettled();
+  c._articleDrafts.remove(c.session.articles.liveArticleId);
+  c.notifyUi(); // NR-115: the terminal row now exists; release its UI hold.
   if (!c.session.articles.hasPendingOwedTail) {
     c._owedTailGrace?.cancel();
     c._owedTailGrace = null;

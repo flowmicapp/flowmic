@@ -75,7 +75,7 @@ export function closedClassMultiset(text: string): Map<string, number> {
 
 const EDIT_DISTANCE_FLOOR = 8;
 const EDIT_DISTANCE_RATIO = 0.15;
-const RATIO_MIN_LEN = 10;
+export const RATIO_MIN_LEN = 10;
 const OPEN_CLASS_K = 2;
 
 // ─── card C8: the `smooth` calibration ──────────────────────────────────────
@@ -177,7 +177,7 @@ const SMOOTH_BOUNDS: GuardBounds = {
   openClassK: SMOOTH_OPEN_CLASS_K,
 };
 
-function boundsFor(strength: PolishStrength): GuardBounds {
+export function boundsFor(strength: PolishStrength): GuardBounds {
   return strength === 'smooth' ? SMOOTH_BOUNDS : STRICT_BOUNDS;
 }
 const PUNCT_RE = /[，。,.\s！？!?、；;：:""''「」『』()（）~～…·\-—_]/gu;
@@ -192,7 +192,7 @@ interface DiffResult { distance: number; hunks: DiffHunk[] }
  *  below for the §3.1 bullet 4 open-class check — a hunk is a region with
  *  no shared character, NOT a content-word boundary, so it is tokenized
  *  rather than counted directly; see the GAP-2 note on that function). */
-function diffChars(a: string, b: string): DiffResult {
+export function diffChars(a: string, b: string, onHunk?: (h: DiffHunk, rawStart: number, polStart: number) => void): DiffResult {
   const A = [...a];
   const B = [...b];
   const n = A.length;
@@ -228,17 +228,21 @@ function diffChars(a: string, b: string): DiffResult {
   let curRaw = '';
   let curPol = '';
   let inHunk = false;
+  let rawPos = 0, polPos = 0, rawStart = 0, polStart = 0;
   for (const o of ops) {
     if (o.op === 'eq') {
-      if (inHunk) { hunks.push({ rawText: curRaw, polText: curPol }); curRaw = ''; curPol = ''; inHunk = false; }
+      if (inHunk) { hunks.push({ rawText: curRaw, polText: curPol }); onHunk?.(hunks[hunks.length - 1]!, rawStart, polStart); curRaw = ''; curPol = ''; inHunk = false; }
+      rawPos += o.a!.length; polPos += o.b!.length;
       continue;
     }
+    if (!inHunk) { rawStart = rawPos; polStart = polPos; }
     inHunk = true;
+    rawPos += o.a?.length ?? 0; polPos += o.b?.length ?? 0;
     if (o.op === 'sub') { curRaw += o.a; curPol += o.b; }
     else if (o.op === 'del') { curRaw += o.a; }
     else { curPol += o.b; }
   }
-  if (inHunk) hunks.push({ rawText: curRaw, polText: curPol });
+  if (inHunk) { hunks.push({ rawText: curRaw, polText: curPol }); onHunk?.(hunks[hunks.length - 1]!, rawStart, polStart); }
 
   return { distance: dp[n]![m]!, hunks };
 }
@@ -275,7 +279,7 @@ export function stripClosedClassAndPunct(s: string): string {
   return out.replace(PUNCT_RE, '');
 }
 
-function countHan(s: string): number {
+export function countHan(s: string): number {
   let n = 0;
   for (const ch of s) if (/\p{Script=Han}/u.test(ch)) n += 1;
   return n;
@@ -316,7 +320,7 @@ function countMixedTokens(s: string): number {
  * "open FlowMic") — and counts as exactly ONE token. Same-script hunks
  * (Han<->Han or Latin<->Latin, the `他很高兴` ["he was quite happy"] shape) get NO such exemption.
  */
-function openClassTokenDelta(rawStripped: string, polStripped: string): number {
+export function openClassTokenDelta(rawStripped: string, polStripped: string): number {
   const rawLen = [...rawStripped].length;
   const polLen = [...polStripped].length;
   const rawHan = countHan(rawStripped);
@@ -412,7 +416,7 @@ export interface GuardOpts {
  * of the delta, and giving it an allowance would hand out budget for work nobody
  * did.
  */
-function declaredTermAllowance(raw: string, polished: string, terms: readonly string[]): number {
+export function declaredTermAllowance(raw: string, polished: string, terms: readonly string[]): number {
   let allowance = 0;
   const seen = new Set<string>();
   for (const raw_term of terms) {

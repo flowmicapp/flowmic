@@ -43,9 +43,10 @@ import SelfPcCard from './components/SelfPcCard.vue';
 import CredentialsAtRestNote from './components/CredentialsAtRestNote.vue';
 // Card NR-2b: the guided browser sign-in that sits above the Cloud Key field.
 import CloudSignInGuide from './components/CloudSignInGuide.vue';
-import OfflineSwitch from './components/OfflineSwitch.vue'; // P7: see its header
+import OfflineSwitch from './components/OfflineSwitch.vue'; import LanPolishNotice from './components/LanPolishNotice.vue'; // P7: see its header; NR-123: LAN polish needs a model
 import { conn, connByChannel, currentChannel } from './store';
 import { S } from '../lib/strings';
+import { hostPlatform } from '../lib/credentials-at-rest';
 import {
   CH,
   appendForensic,
@@ -94,7 +95,7 @@ import { joinEpochSum, presenceKey } from '../lib/per-channel-presence';
 import { localKv } from '../lib/storage';
 import { singleFlight } from '../lib/single-flight';
 import { shouldFetchCloudPairingInfo } from '../lib/cloud-pairing-info-cache';
-import { useSidecarPanel } from './use-sidecar-panel';
+import { useSidecarPanel } from './use-sidecar-panel'; import SidecarFailureDetail from './components/SidecarFailureDetail.vue'; // NR-120: raw sidecar.detail, folded
 import {
   applySelectedHost,
   loadSelectedHost,
@@ -669,14 +670,14 @@ onUnmounted(() => {
             </button>
           </div>
           <template v-if="lanServiceOpen || sidecarFailed || lanCard.loud">
-            <div v-if="sidecarFailed && sidecar?.detail" class="sc-detail mono">{{ sidecar.detail }}</div>
+            <SidecarFailureDetail v-if="sidecarFailed && sidecar?.detail" :detail="sidecar.detail" />
             <!-- U11: a passing loopback probe ≠ other devices can connect in. The
                  boundary between the node.exe popup and "ready" must be stated
                  openly. REQ-12-11 put it inside the fold body, but the healthy path
                  can still be opened with one click; the failure path forces it open. -->
-            <div class="sc-fw-note">{{ S.sidecar_firewall_note }}</div>
+            <div v-if="hostPlatform() === 'windows'" class="sc-fw-note">{{ S.sidecar_firewall_note }}</div>
           </template>
-          <div v-if="lanCard.loud" class="chan-loud">{{ lanCard.loud }}</div>
+          <div v-if="lanCard.loud" class="chan-loud">{{ lanCard.loud }}</div><LanPolishNotice />
         </div>
 
         <div class="card chan ch-cloud">
@@ -791,6 +792,7 @@ onUnmounted(() => {
       @close="closeModal"
       @reload="loadInfo"
       @channel="pickPairChannel"
+      @cloud-saved="applyCloud"
     />
   </div>
 </template>

@@ -46,6 +46,7 @@ import { verifyCopyAudited } from './copy-scent-receipt.mjs';
 import { verifyNoticeCurrent } from './publish-notice-gate.mjs';
 import { verifyDiskHeadroom } from './publish-disk-space-gate.mjs';
 import { removeAllExcept, verifyAdoptedArtifactsSurvive } from './publish-adopted-artifact-gate.mjs';
+import { verifyLinuxZipsHaveNoDevCopy } from './linux-dev-copy-gate.mjs';
 import { publishPortableArchive, stagePortableSherpaAddon } from './publish-portable-archive.mjs';
 import { readValidReceipt, reuseBanner } from './gate-receipt.mjs';
 import {
@@ -406,6 +407,8 @@ if (!(await verifyCopyAudited(fail, ok))) process.exit(1);
 // claim about a directory that has since moved on.
 const adoptedNow = verifyAdoptedArtifactsSurvive({ outDir: OUT, version: VERSION });
 if (adoptedNow.refusal) { fail(adoptedNow.refusal); process.exit(1); }
+// NR-107: no `DEV:` placeholder ships in a Linux portable zip carried through this round.
+try { verifyLinuxZipsHaveNoDevCopy(OUT, adoptedNow.keep); } catch (e) { fail(e.message); process.exit(1); }
 try {
   if (adoptedNow.keep.length > 0) removeAllExcept(OUT, adoptedNow.keep, (m) => console.log(m));
   else rmSync(OUT, { recursive: true, force: true });
@@ -420,7 +423,7 @@ try {
     // `zip` joined this list with card UP-1: the portable bundle is now shipped
     // as FlowMic-<VERSION>-portable-<platform>.zip, so a leftover from an older
     // round is the same 「装了哪一版」 confusion two MSIs side by side would be.
-    if (!/\.(msi|apk|zip)(\.sha256)?$/i.test(f) || f.includes(VERSION)) continue;
+    if (!/\.(msi|apk|zip|deb)(\.sha256)?$/i.test(f) || f.includes(VERSION)) continue;
     try {
       rmSync(join(OUT, f), { force: true });
       console.log(`· dropped stale ${f}`);
