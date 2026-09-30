@@ -56,6 +56,61 @@ describe('web target cached admission receipt', () => {
     expect(() => inspectProducer("export class TargetSession {} const fixture = { mode:'cached', error:'INJECT_TARGET_NOT_READY' };", '')).toThrow('onInjectRequest');
   });
 
+  // Two senders, shaped like flowmic-web 172f75b: the admission arm sends the
+  // built payload directly; the sink's noTarget arm holds it in a const and
+  // picks the code with a conditional. `sink` is the one knob each case turns.
+  const WIRE = 'export function buildInjectResultPayload(input) { return { ok: input.ok, mode: input.mode, error: input.error }; }';
+  const session = (sink: { mode?: string; ok?: string; extra?: string } = {}) => `
+export class TargetSession {
+  onInjectRequest(raw) {
+    const frame = raw;
+    if (this.admission !== 'open') {
+      this.send(
+        'inject:result',
+        buildInjectResultPayload({ ok: false, mode: 'cached', requestId: frame.requestId, error: 'INJECT_TARGET_NOT_READY' }),
+      );
+      return;
+    }
+    const outcome = this.sink.append(frame.text);
+    if (outcome.kind === 'noTarget') {
+      const receipt = buildInjectResultPayload({
+        ok: ${sink.ok ?? 'false'},
+        mode: '${sink.mode ?? 'cached'}',
+        requestId: frame.requestId,
+        error: outcome.cached ? 'INJECT_TARGET_NOT_READY' : NO_TEXT_TARGET_CODE,
+      });
+      if (outcome.cached) this.injectReceipts.recordCached(frame, receipt);
+      ${sink.extra ?? ''}
+      this.send('inject:result', receipt);
+      return;
+    }
+  }
+}`;
+
+  it('accepts a second sender only because it too sends cached, ok:false', () => {
+    const result = inspectProducer(session(), WIRE);
+    expect(result.line).toBe(6);
+    expect(result.senders).toEqual([6, 22]);
+  });
+
+  it('fails when any one sender uses another mode, even with the admission arm correct', () => {
+    expect(() => inspectProducer(session({ mode: 'failed' }), WIRE)).toThrow("must emit mode:'cached'; found 'failed'");
+    expect(() => inspectProducer(session({ ok: 'true' }), WIRE)).toThrow('the refusal must emit ok:false');
+  });
+
+  it('fails when a held receipt is rewritten before it is sent', () => {
+    expect(() => inspectProducer(session({ extra: "receipt.mode = 'dom';" }), WIRE)).toThrow('is written to before it is sent');
+  });
+
+  it('fails when the code has no admission-arm sender or a sender outside onInjectRequest', () => {
+    const noAdmission = session().replace("error: 'INJECT_TARGET_NOT_READY' }", "error: 'INJECT_NOT_PRIMARY' }");
+    expect(() => inspectProducer(noAdmission, WIRE)).toThrow('admission-arm sender: expected one production node, found 0');
+    const elsewhere = session().replace(/\n}$/, "\n  other() { this.send('inject:result', buildInjectResultPayload({ ok: false, mode: 'cached', error: 'INJECT_TARGET_NOT_READY' })); }\n}");
+    expect(() => inspectProducer(elsewhere, WIRE)).toThrow('is outside TargetSession.onInjectRequest');
+    const none = session().replaceAll("'INJECT_TARGET_NOT_READY'", "'INJECT_NOT_PRIMARY'");
+    expect(() => inspectProducer(none, WIRE)).toThrow('expected at least one production sender, found 0');
+  });
+
   it('runs in both delivery gates and never in the per-commit lint gate', () => {
     const lint = readFileSync(path.join(repoRoot, 'verify/lint/run-all.mjs'), 'utf8');
     expect(lint).not.toContain('web-target-cached-mode');

@@ -24,11 +24,11 @@ a SHA-256 checksum beside every file.
 
 | Platform | State | What you get |
 |---|---|---|
-| **Windows 10/11** | Shipped | MSI installer (en-US / zh-CN) and a portable zip |
-| **Android** | Shipped | APK, installed directly |
-| **macOS (Apple Silicon)** | Shipped | Notarized, stapled `FlowMic.app` zip (arm64), which Gatekeeper opens without warnings |
+| **Windows 10/11 (64-bit)** | Shipped | MSI installer (en-US / zh-CN) and a portable zip |
+| **Android** | Shipped | [Download latest APK](https://github.com/flowmicapp/flowmic/releases/latest/download/flowmic-release-latest.apk) for Android 7.0 or later, installed directly |
+| **macOS (Apple Silicon)** | Shipped | Notarized, stapled zip for macOS 11 or later (Intel Macs are not supported), which Gatekeeper opens without warnings |
 | **iOS / iPadOS** | Public beta | [Join on TestFlight](https://testflight.apple.com/join/fvTxBgE3) |
-| **Linux** | Server only | The server runs on Linux. The desktop app does not yet, and contributions are welcome |
+| **Linux (64-bit Intel/AMD)** | Shipped | `.deb` for Ubuntu and Debian, and a portable zip; tested on Ubuntu 22.04 LTS. Typing into other apps requires an X11 session. |
 
 The iOS build ships through TestFlight, which is Apple's beta channel and comes
 with Apple's limits: a new build appears only after Apple's review, the public
@@ -154,7 +154,7 @@ Three other setups work, and they differ in one way you will feel immediately:
 
 | Path | What |
 |---|---|
-| `apps/desktop` | Desktop app for Windows and macOS: Tauri v2, Vue 3, and a Rust layer that types into the focused window |
+| `apps/desktop` | Desktop app for Windows, macOS, and Linux: Tauri v2, Vue 3, and a Rust layer that types into the focused window |
 | `apps/mobile` | Flutter phone app for Android and iOS |
 | `apps/server-core` | The Node server: local sidecar and relay in one binary, plus the seven speech engines |
 | `packages/protocol` | `@flowmic/protocol`: the event whitelist, schemas, error codes, and Dart codegen. **Apache-2.0** |

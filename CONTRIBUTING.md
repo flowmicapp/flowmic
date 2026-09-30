@@ -20,8 +20,15 @@ make -C apps/mobile gen                      # ← required if you have Flutter
 pnpm verify:delivery
 ```
 
-Node ≥ 22, pnpm ≥ 9. Rust ≥ 1.90 for the desktop app; Flutter ≥ 3.41 for the
+Node ≥ 22, pnpm ≥ 9. Rust ≥ 1.89 for the desktop app; Flutter ≥ 3.41 for the
 phone app. You do not need all three to contribute to one of them.
+
+On Ubuntu or Debian, building the desktop app requires a few system
+development packages first (the same set installed by our Linux CI job):
+
+```bash
+sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libx11-dev libxtst-dev libarchive-tools
+```
 
 **Neither build step is a warm-up — the gate fails without them on a fresh
 clone.** Both produce a gitignored artifact that a later stage resolves by path:
@@ -203,9 +210,9 @@ contribution and we will credit you for it.
 
 ## Good first contributions
 
-- **Linux desktop support.** The server already runs on Linux; the desktop app
-  does not, because nobody has written the injection layer for X11 or Wayland.
-  This is the single most-requested thing we cannot do ourselves right now.
+- **Typing under Wayland.** The Linux desktop app types into other windows on
+  X11. Under Wayland it receives words but cannot type them into target
+  applications yet; adding a Wayland injection layer is the open piece of work.
 - **A speech engine we do not support.** The engine interface is small and lives
   in `apps/server-core/src/stt/engines/` — `base.ts` plus one file per engine.
 - **Translating a doc.** Most of `docs/` is in Chinese. `docs/rebuild/` is the

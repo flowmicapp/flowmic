@@ -33,9 +33,28 @@
 //   · A checkout is there but carries no INJECT_TARGET_NOT_READY producer
 //     (session.ts missing, or no string literal of the code in it) ⇒ FAIL,
 //     naming where the producer lives and what has to happen.
-//   · A producer is there ⇒ inspectProducer() below, unchanged and exactly as
-//     strict: wrong mode, a spread, a moved send, a builder that rewrites the
-//     payload, or a stale citation in inject-verdict-authorship.ts all FAIL.
+//   · A producer is there ⇒ inspectProducer() below: wrong mode, a spread, a
+//     moved send, a builder that rewrites the payload, or a stale citation in
+//     inject-verdict-authorship.ts all FAIL.
+//
+// ── MORE THAN ONE SENDER (widened 2026-09-30) ───────────────────────────────
+// Until flowmic-web 172f75b there was exactly one string literal of the code in
+// session.ts, and the check demanded exactly one. 172f75b added a second
+// sender in the same onInjectRequest: the sink's `noTarget` arm, which answers
+// `error: outcome.cached ? 'INJECT_TARGET_NOT_READY' : NO_TEXT_TARGET_CODE`
+// with `mode: 'cached'` and sends it through `const receipt`. A count of one
+// cannot tell "a second honest sender" from "a second sender with the wrong
+// mode", so the count went and the per-sender proof stayed: EVERY string
+// literal of the code in session.ts must be the `error` of a payload (directly,
+// or as one branch of a conditional) that has exactly one `mode: 'cached'`,
+// exactly one `ok: false`, no spread, goes straight into
+// buildInjectResultPayload, and whose result is sent as `inject:result` either
+// directly or through a `const` in the same block that nothing reassigns or
+// writes into before the send. Every sender must sit inside
+// TargetSession.onInjectRequest, and exactly one of them must be the admission
+// arm (its line is the citation checked below). A literal that fits none of
+// that (a fixture, a sender in another method) fails by name; zero literals is
+// the "producer not found" answer above.
 import path from 'node:path';
 import { statSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
@@ -89,6 +108,66 @@ function exactlyOne(nodes, label) {
   return nodes[0];
 }
 
+const isInside = (node, ancestor) => {
+  for (let n = node; n; n = n.parent) if (n === ancestor) return true;
+  return false;
+};
+
+/** Proves one string literal of the code is a cached, ok:false receipt that
+ *  is actually sent as `inject:result`. Returns the send call expression. */
+function proveSender(source, method, code) {
+  const at = `${CODE} at ${SESSION}:${source.getLineAndCharacterOfPosition(code.getStart(source)).line + 1}`;
+  let value = code;
+  if (ts.isConditionalExpression(code.parent) && (code.parent.whenTrue === code || code.parent.whenFalse === code)) {
+    value = code.parent;
+  }
+  const property = value.parent;
+  const object = property?.parent;
+  if (!property || !ts.isPropertyAssignment(property) || property.initializer !== value || !named(property, 'error')
+    || !ts.isObjectLiteralExpression(object)) {
+    throw new Error(`${at} must be the error property of the production payload`);
+  }
+  if (!isInside(code, method.body)) throw new Error(`${at} is outside TargetSession.onInjectRequest; a new sender needs its own mode proof`);
+  const builder = object.parent;
+  if (!ts.isCallExpression(builder) || builder.expression.getText(source) !== 'buildInjectResultPayload'
+    || builder.arguments.length !== 1 || builder.arguments[0] !== object) {
+    throw new Error(`${at} is no longer passed straight to buildInjectResultPayload`);
+  }
+  const mode = exactlyOne(object.properties.filter((n) => ts.isPropertyAssignment(n) && named(n, 'mode')), `${at}: payload mode`);
+  if (!literal(mode.initializer, 'cached')) throw new Error(`${CODE} must emit mode:'cached'; found ${mode.initializer.getText(source)} (${at})`);
+  if (object.properties.some((n) => ts.isSpreadAssignment(n))) throw new Error(`${at}: payload spreads require a new mode proof`);
+  const ok = exactlyOne(object.properties.filter((n) => ts.isPropertyAssignment(n) && named(n, 'ok')), `${at}: payload ok`);
+  if (ok.initializer.kind !== ts.SyntaxKind.FalseKeyword) throw new Error(`${at}: the refusal must emit ok:false`);
+
+  const isSend = (n, arg) => ts.isCallExpression(n) && n.expression.getText(source) === 'this.send'
+    && n.arguments.length === 2 && literal(n.arguments[0], 'inject:result') && arg(n.arguments[1]);
+  if (isSend(builder.parent, (a) => a === builder)) return builder.parent;
+
+  // Sent through a const: `const receipt = buildInjectResultPayload({...});`
+  // then `this.send('inject:result', receipt)` later in the same block.
+  const declaration = builder.parent;
+  const list = declaration?.parent;
+  const statement = list?.parent;
+  const block = statement?.parent;
+  if (!ts.isVariableDeclaration(declaration) || declaration.initializer !== builder || !ts.isIdentifier(declaration.name)
+    || !ts.isVariableDeclarationList(list) || !(list.flags & ts.NodeFlags.Const)
+    || !ts.isVariableStatement(statement) || !block || !ts.isBlock(block)) {
+    throw new Error(`${at} is no longer directly emitted, nor held in a const that is sent`);
+  }
+  const id = declaration.name.text;
+  const isId = (n) => ts.isIdentifier(n) && n.text === id;
+  const later = block.statements.slice(block.statements.indexOf(statement) + 1);
+  const sent = later.filter((n) => ts.isExpressionStatement(n) && isSend(n.expression, isId));
+  const send = exactlyOne(sent, `${at}: this.send('inject:result', ${id})`).expression;
+  // Nothing after the build may rewrite the held receipt.
+  const isAssignment = (w) => ts.isBinaryExpression(w)
+    && w.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && w.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+  const writesHeld = (w) => isAssignment(w) && (isId(w.left)
+    || ((ts.isPropertyAccessExpression(w.left) || ts.isElementAccessExpression(w.left)) && isId(w.left.expression)));
+  if (later.some((n) => walk(n, writesHeld).length > 0)) throw new Error(`${at}: the held receipt ${id} is written to before it is sent`);
+  return send;
+}
+
 export function inspectProducer(sessionText, wireText) {
   const source = ts.createSourceFile(SESSION, sessionText, ts.ScriptTarget.Latest, true);
   const klass = exactlyOne(source.statements.filter((n) => ts.isClassDeclaration(n) && named(n, 'TargetSession')
@@ -96,24 +175,12 @@ export function inspectProducer(sessionText, wireText) {
   const method = exactlyOne(klass.members.filter((n) => ts.isMethodDeclaration(n) && named(n, 'onInjectRequest')), 'onInjectRequest');
   const guard = exactlyOne(method.body.statements.filter((n) => ts.isIfStatement(n)
     && n.expression.getText(source).replace(/\s/g, '') === "this.admission!=='open'"), 'admission refusal guard');
-  // The error literal must be a real property in the guarded, directly sent
-  // payload, not a comment, a fixture object or another method's unused value.
-  const code = exactlyOne(walk(source, (n) => literal(n, CODE)), CODE);
-  const object = code.parent.parent;
-  if (!ts.isPropertyAssignment(code.parent) || !named(code.parent, 'error') || !ts.isObjectLiteralExpression(object)) {
-    throw new Error(`${CODE} must be the error property of the production payload`);
-  }
-  const builder = object.parent;
-  const send = builder.parent;
-  if (!ts.isCallExpression(builder) || builder.expression.getText(source) !== 'buildInjectResultPayload'
-    || !ts.isCallExpression(send) || send.expression.getText(source) !== 'this.send'
-    || !literal(send.arguments[0], 'inject:result') || send.arguments[1] !== builder
-    || send.parent.parent !== guard.thenStatement) throw new Error(`${CODE} is no longer directly emitted by the admission arm`);
-  const mode = exactlyOne(object.properties.filter((n) => ts.isPropertyAssignment(n) && named(n, 'mode')), 'payload mode');
-  if (!literal(mode.initializer, 'cached')) throw new Error(`${CODE} must emit mode:'cached'; found ${mode.initializer.getText(source)}`);
-  if (object.properties.some((n) => ts.isSpreadAssignment(n))) throw new Error('Admission payload spreads require a new mode proof');
-  const ok = exactlyOne(object.properties.filter((n) => ts.isPropertyAssignment(n) && named(n, 'ok')), 'payload ok');
-  if (ok.initializer.kind !== ts.SyntaxKind.FalseKeyword) throw new Error('Admission refusal must emit ok:false');
+  // Every literal of the code must be a real property of a sent payload, not
+  // a comment, a fixture object or another method's unused value.
+  const codes = walk(source, (n) => literal(n, CODE));
+  if (codes.length === 0) throw new Error(`${CODE}: expected at least one production sender, found 0`);
+  const sends = codes.map((code) => proveSender(source, method, code));
+  const admission = exactlyOne(sends.filter((s) => s.parent.parent === guard.thenStatement), `${CODE} admission-arm sender`);
 
   // Run the actual builder declaration too: pinning its input alone would
   // miss a builder that rewrites mode before the transport sees the payload.
@@ -124,7 +191,8 @@ export function inspectProducer(sessionText, wireText) {
   vm.runInContext(javascript, context, { timeout: 1000 });
   const receipt = context.exports.buildInjectResultPayload({ ok: false, mode: 'cached', error: CODE, requestId: 'mode-pin', entryId: null });
   if (receipt.mode !== 'cached' || receipt.ok !== false || receipt.error !== CODE) throw new Error('Production payload builder rewrote the cached refusal');
-  return source.getLineAndCharacterOfPosition(send.getStart(source)).line + 1;
+  const lineOf = (n) => source.getLineAndCharacterOfPosition(n.getStart(source)).line + 1;
+  return { line: lineOf(admission), senders: sends.map(lineOf) };
 }
 
 /** How many string-literal nodes spell the code in the session source. Zero
@@ -165,7 +233,7 @@ export default async function run() {
   }
   try {
     const wireText = await readFile(path.join(root, WIRE), 'utf8');
-    const line = inspectProducer(sessionText, wireText);
+    const { line, senders } = inspectProducer(sessionText, wireText);
     // coordinate-anchors resolves only this repository. The explicitly
     // named sibling citation is checked here against the actual emit node.
     const authorship = await readFile(path.join(ROOT, 'packages/protocol/src/inject-verdict-authorship.ts'), 'utf8');
@@ -173,7 +241,11 @@ export default async function run() {
     if (!citation || Number(citation[1]) !== line) {
       throw new Error(`inject-verdict-authorship.ts producer citation must point to the actual send at ${SESSION}:${line}`);
     }
-    return { status: 'PASS', detail: `${await realpath(root)}/${SESSION}:${line} emits ${CODE} with mode:'cached'; actual wire builder preserves it` };
+    return {
+      status: 'PASS',
+      detail: `${await realpath(root)}/${SESSION}: ${senders.length} sender(s) of ${CODE} at line(s) ${senders.join(', ')}, `
+        + `each with mode:'cached' and ok:false (admission arm at ${line}); actual wire builder preserves it`,
+    };
   } catch (error) {
     return { status: 'FAIL', detail: `${shown}/${SESSION}: ${error.message}` };
   }

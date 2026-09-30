@@ -48,8 +48,9 @@ packages/protocol   @flowmic/protocol — event whitelist, zod schemas, error
                     inheriting the AGPL).
 apps/server-core    Node server. One binary, two modes: `standalone` (the LAN
                     sidecar the desktop app spawns) and `saas` (the relay).
-apps/desktop        Windows desktop — Tauri v2 + Vue 3 + a Rust injection layer.
-apps/mobile         Flutter app (Android today; iOS in progress).
+apps/desktop        Desktop app for Windows, macOS, and Linux:
+                    Tauri v2 + Vue 3 + a Rust injection layer.
+apps/mobile         Flutter phone app for Android and iOS (iOS via TestFlight).
 verify/             The gates. `verify/lint` is the static rule set (the
                     authoritative list is the LINTS table in
                     `verify/lint/run-all.mjs`) and `verify/golden` is the
