@@ -296,6 +296,18 @@ export async function run(cmd, args, opts = {}) {
   });
 }
 
+/** How long a freshly spawned server gets to print its port before the golden
+ *  harness calls it dead. 8000 ms is the ceiling everywhere; the hosted Windows
+ *  runner in the public `verify` job hit it once as "saas server start timeout"
+ *  on G32 (node cold start under Defender, passes on rerun; macOS/Linux never).
+ *  `FLOWMIC_CI_SERVER_START_TIMEOUT_MS` is set only by .github/workflows/verify.yml
+ *  and raises the ceiling for that job; unset, junk or non-positive falls back to
+ *  8000, so a local run keeps its original deadline and the seam cannot disable it. */
+const SERVER_START_TIMEOUT_MS = (() => {
+  const n = Number(process.env.FLOWMIC_CI_SERVER_START_TIMEOUT_MS);
+  return Number.isInteger(n) && n > 0 ? n : 8000;
+})();
+
 export function startServer() {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['dist/index.js'], {
@@ -309,7 +321,7 @@ export function startServer() {
       if (m) resolve({ child, port: Number(m[1]) });
     });
     child.on('exit', (code) => reject(new Error(`server exited early (${code})`)));
-    setTimeout(() => reject(new Error('server start timeout')), 8000);
+    setTimeout(() => reject(new Error(`server start timeout (${SERVER_START_TIMEOUT_MS}ms)`)), SERVER_START_TIMEOUT_MS);
   });
 }
 
@@ -494,7 +506,7 @@ export function startSaasServer(extraEnv = {}) {
       if (m) resolve({ child, port: Number(m[1]) });
     });
     child.on('exit', (code) => reject(new Error(`saas server exited early (${code})`)));
-    setTimeout(() => reject(new Error('saas server start timeout')), 8000);
+    setTimeout(() => reject(new Error(`saas server start timeout (${SERVER_START_TIMEOUT_MS}ms)`)), SERVER_START_TIMEOUT_MS);
   });
 }
 

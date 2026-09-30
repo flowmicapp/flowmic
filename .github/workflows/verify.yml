@@ -151,8 +151,15 @@ jobs:
       # It also rebuilds protocol's dist every run (since 0.2.29), which is why
       # the two stages below sit AFTER it: both typecheck/test against dist,
       # and a stale dist lies in both directions.
+      # 🔴 CI-only ceiling for a slow hosted Windows runner (observed: G32 "saas
+      # server start timeout" at the 8000 ms default, green on rerun; macOS/Linux
+      # never). Read by verify/golden/harness.mjs only when set; unset locally.
+      # 30000 ms still fails a server that really never prints its port, in
+      # well under a minute.
       - name: Golden
         run: pnpm golden
+        env:
+          FLOWMIC_CI_SERVER_START_TIMEOUT_MS: '30000'
 
       # GATE-3, both halves (RT window ledger §6.5 + the §6.7 correction):
       # protocol's 297 tests and server-core's 1561 were in no gate anywhere
@@ -165,8 +172,21 @@ jobs:
       # each found one at a time. `verify:lint gate-covers-workspaces` now fails
       # on the day a sixth arrives, so this list cannot silently fall behind the
       # workspace again.
+      # 🔴 CI-only relief for the hosted Windows runner, read by
+      # apps/server-core/vitest.config.ts (never set for a local run). Observed:
+      # three public runs failed here with "Test timed out in 5000ms" in migration
+      # tests that open a fresh sqlite file per case
+      # (migration-idempotency.test.ts, recovery-schema-migration.test.ts, and
+      # a different one of them on each attempt of 49b059419091); the same suite is green on
+      # macOS/Linux and on a Windows rerun, which is jitter, not a defect. Two
+      # workers cut the disk/CPU contention; 20000 ms per test is 4x the default
+      # and still fails a test that really hangs inside twenty seconds, so
+      # hang detection stays meaningful. Trigger and job list are untouched.
       - name: Server tests
         run: pnpm verify:server-tests
+        env:
+          FLOWMIC_CI_TEST_TIMEOUT_MS: '20000'
+          FLOWMIC_CI_TEST_MAX_WORKERS: '2'
 
       - name: Desktop tests
         run: pnpm verify:desktop-tests

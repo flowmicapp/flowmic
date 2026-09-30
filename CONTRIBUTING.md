@@ -174,7 +174,7 @@ comments with a link to it and the exact sentence to reply with; that reply is
 your signature and covers every future PR from your account. It takes about a
 minute.
 
-**Verification status:** this repository is private and has never had an
+**Verification status:** this repository has never had an
 external pull request, so the workflow itself has not yet fired against a real
 one. The workflow file exists, its YAML has been checked for syntactic
 validity, and its configuration matches the upstream action's documented format.
