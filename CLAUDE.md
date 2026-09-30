@@ -251,8 +251,7 @@ These are not up for refactoring. Ask before you approach them.
 
 Four areas get line-by-line review and cannot be merged on green tests alone:
 **protocol / schema (including DB migrations)**, **the injection path**,
-**pairing and auth**, and **cryptography**. This is a commitment we make
-publicly, not an internal formality.
+**pairing and auth**, and **cryptography**.
 
 ## Contributing
 

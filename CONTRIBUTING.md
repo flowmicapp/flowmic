@@ -1,12 +1,11 @@
 # Contributing to FlowMic
 
 Thanks for looking. This is a small project with unusually specific rules, so
-this page is short and concrete rather than welcoming-and-vague.
+this page outlines the workflow and requirements directly.
 
-**Read [CLAUDE.md](CLAUDE.md) before you write code.** It is the working
-contract for this repository — the rules there are not style preferences, and
-each exists because a real bug got past us once. This page covers process; that
-one covers substance.
+**Read [CLAUDE.md](CLAUDE.md) before you write code.** The rules there are not
+style preferences: each exists because a real bug got past us once. This page
+covers contribution process, while CLAUDE.md covers technical rules.
 
 ---
 
@@ -30,7 +29,7 @@ development packages first (the same set installed by our Linux CI job):
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libx11-dev libxtst-dev libarchive-tools
 ```
 
-**Neither build step is a warm-up — the gate fails without them on a fresh
+**Neither build step is optional: the gate fails without them on a fresh
 clone.** Both produce a gitignored artifact that a later stage resolves by path:
 
 - `server-core` imports protocol's `dist/`. Without it, type-checking fails
@@ -78,8 +77,8 @@ pnpm verify:delivery:fast # every segment, six concurrent lanes — before mergi
 pnpm verify:delivery      # every segment, sequential — the only gate a release may cite
 ```
 
-The authoritative segment list is the `verify:delivery` script in the root
-`package.json` — any list copied here would rot.
+The authoritative segment list is defined by the `verify:delivery` script in
+the root `package.json`.
 
 The `scripts` segment runs the release-tooling tests that live beside the
 scripts they test (`scripts/*.test.mjs`). The lane gate always runs it, together
@@ -90,10 +89,8 @@ its own line saying so and why. An unrecognised path fails closed and runs
 everything.
 
 Everything must pass before you open a pull request. The pre-commit hook runs
-lint (+ incremental types when in budget); **the golden suite is not hooked** — it starts a
-real server and real sockets, so you have to run it yourself. Please actually
-run it. A gate nobody invokes is indistinguishable from a gate that does not
-exist, and we have the scar tissue to prove it.
+lint (+ incremental types when in budget); **the golden suite is not hooked**:
+it starts a real server and real sockets, so you have to run it yourself.
 
 If a golden path fails and you think it is unrelated to your change, say so in
 the PR rather than working around it. It usually is related.
@@ -177,13 +174,11 @@ comments with a link to it and the exact sentence to reply with; that reply is
 your signature and covers every future PR from your account. It takes about a
 minute.
 
-**Honestly, not yet observed:** this repository is private and has never had
-an external pull request, so the workflow itself has never fired against a
-real one. What is actually true today is narrower: the workflow file exists,
-its YAML has been checked for syntactic validity, and its configuration
-matches the upstream action's documented format. Whether the first real PR
-gets the comment as described is the thing to watch and confirm when it
-happens, not something already proven.
+**Verification status:** this repository is private and has never had an
+external pull request, so the workflow itself has not yet fired against a real
+one. The workflow file exists, its YAML has been checked for syntactic
+validity, and its configuration matches the upstream action's documented format.
+We will confirm the automated comment behaviour on the first real pull request.
 
 **Why we ask, given that the project is AGPL.** FlowMic ships through app
 stores, and store terms conflict with the AGPL unless the copyright holder

@@ -196,8 +196,8 @@ open.
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) first, then [CLAUDE.md](CLAUDE.md),
-which is the working contract for this repository.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first, then [CLAUDE.md](CLAUDE.md) for
+repository rules.
 
 Please report security issues privately through
 [SECURITY.md](SECURITY.md) rather than in a public issue.
