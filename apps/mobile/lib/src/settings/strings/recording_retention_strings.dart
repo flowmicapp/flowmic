@@ -12,6 +12,11 @@
 part of '../app_strings.dart';
 
 mixin RecordingRetentionStrings on AppStringsLeaves {
+  /// Chat and Notes local row-write warning (copy from AGY job 26).
+  String get timelineRecoveryFailed => _lfDev_timelineRecoveryFailed;
+
+  String get timelineLocalSaveFailed => _lfTimelineLocalSaveFailed;
+
   // ── F6 (2026-09-02 audit): retained-audio eviction/TTL notices ───────────
   //
   // `RetainedAudioStore` (audio/retained_audio_store.dart) already refuses to
@@ -81,6 +86,8 @@ mixin RecordingRetentionStrings on AppStringsLeaves {
         return retainedAudioNoticeCapReached;
       case RetainedAudioNotice.codeExpired:
         return retainedAudioNoticeExpired;
+      case RetainedAudioNotice.codeCommitFailed:
+        return _lfDev_retainedAudioCommitFailed;
       case RetainedAudioNotice.codeWriteFailed:
         return retainedAudioNoticeWriteFailed;
       default:

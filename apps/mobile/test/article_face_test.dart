@@ -290,6 +290,7 @@ void main() {
 
       expect(articleHeadsOf(store), hasLength(1));
       store.delete('r1');
+      await pumpEventQueue();
 
       // A cover over nothing cannot be opened, cannot be explained, and cannot
       // be deleted by its own name — its members are already gone. It is minted
@@ -307,6 +308,7 @@ void main() {
       addTearDown(store.dispose);
 
       store.delete('r2');
+      await pumpEventQueue();
 
       final TimelineEntry head = articleHeadsOf(store).single;
       // 🔴 Those two numbers are the only thing the list shows about a

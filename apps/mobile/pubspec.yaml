@@ -6,7 +6,7 @@ publish_to: 'none'
 # root package.json version. The Android versionCode governance formula
 # (08-MOBILE-SPEC §8: major*1e6+minor*1e4+patch) is applied at release packaging
 # (a later R3 card), not here — this card does not build a signed APK.
-version: 0.3.102
+version: 0.3.106
 
 environment:
   sdk: ^3.11.5
@@ -47,6 +47,8 @@ dependencies:
   # Kept OUT of the settings-store call pattern so settings-key-drift does not
   # demand a server-side reader — these are phone-local, never synced.
   shared_preferences: ^2.5.3
+  # NR-146: scoped platform read-back for fallback write/delete confirmation.
+  shared_preferences_platform_interface: ^2.4.1
   # R6 T-4 image pipeline — the ONE dependency this card adds. It is also the
   # reason the app needs no image codec of its own: pickImage(maxWidth/maxHeight/
   # imageQuality) does a NATIVE decode → scale → re-encode, which is the

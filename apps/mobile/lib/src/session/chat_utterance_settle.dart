@@ -228,13 +228,20 @@ String _settleSpan(
   // 🔴 J5 — the row exists, so the span is spoken for. Advance BEFORE any
   // `await`-carrying delivery so a replay landing inside that window is judged
   // against a watermark that already includes this row.
-  if (!foreign) segs.markSettled(f.segmentIdx);
+  // Legacy beginBackfill(identity: null) has no recording ID for the live
+  // ledger below. Its buffer-owned handle survives SegmentBuffer.clear(); the
+  // recording-keyed _pressRowIds also accepts foreign live finals. Both record
+  // this same entry.id, but their ownership and reset boundaries differ.
+  if (!foreign) segs.markSettled(f.segmentIdx, rowId: entry.id);
   c._articleSpanLanded(entry);
   // Card RC-B follow-up — remember this row as the live press's, so a press
   // whose last span is silent can settle on the rows it produced. A recovery
-  // session (a fed range is open) mints rows that are not the press's.
+  // session mints rows that are not the press's. A foreign final whose receipt
+  // identifies the live attempt still belongs here (recovery_yields_to_live_test.dart).
   final String? liveRec = c.session.audio.retainedAudio?.liveAttempt?.recordingId;
-  if (!foreign && liveRec != null && c.session.openSessionRange == null) {
+  if (liveRec != null &&
+      (owner?.live == true ||
+          (!foreign && c.session.openSessionRange == null))) {
     if (c._pressRowsRecordingId != liveRec) {
       c._pressRowsRecordingId = liveRec;
       c._pressRowIds.clear();
@@ -257,7 +264,8 @@ String _settleSpan(
       timeline: c.store,
       receipt: f.coverage,
       finalText: f.text,
-      rowId: entry.id,
+      recordingId: c._pressRowsRecordingId,
+      rowIds: List<String>.of(c._pressRowIds),
     ));
   }
   // Card RC-N — a failed attempt's late result: its row exists, so the

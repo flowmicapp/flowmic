@@ -38,6 +38,7 @@ import { kickRefine } from './stt-session-refine';
 import { FrameTally } from './stt-session-intake';
 import { CoverageReceiptTally } from './stt-session-receipt';
 import { reportColdOpenRejection } from './stt-session-cold-open';
+import { EngineFailureLatch } from './stt-engine-failure'; // NR-138 item 5 — book 22 §4.10
 
 interface OInterim { text: string; confidence: number; language: string; segment_idx: number; acked_audio_ms?: number } // acked_audio_ms: card RC-2, `stt/engine-backlog.ts`
 // `empty_reason` (card EMPTY-1): present ONLY on a terminal final that carries no
@@ -79,6 +80,7 @@ export class SttSessionBridge implements SttOrchestrator {
   private billed = false;
   private readonly intake = new FrameTally(); // audit F3 — fed vs dropped frames; the counting rule is argued in stt-session-intake.ts
   private readonly receipt = new CoverageReceiptTally(); // card CV-1 — the terminal final's coverage receipt; every rule is in stt-session-receipt.ts
+  private readonly failure = new EngineFailureLatch(); // NR-138 item 5 — is this session charged at all (book 22 §4.10)
 
   private totalBytes = 0;
   private peakSample = 0;
@@ -276,12 +278,16 @@ export class SttSessionBridge implements SttOrchestrator {
       }
       if (!isSegment && this.polishDelivery() === 'detached') this.kickPolish(pure);
     });
-    o.on('error', (e: OError) => this.deps.emitter.emit('stt:error', {
-      code: nonEmpty(e.code, 'STT_NETWORK_DROP'),
-      message: nonEmpty(e.message, nonEmpty(e.code, 'STT engine error')),
-      retryable: Boolean(e.retryable),
-      ...(typeof e.unheard_from_ms === 'number' ? { unheard_from_ms: e.unheard_from_ms } : {}), // card RC4-S5
-    }));
+    o.on('error', (e: OError) => {
+      const code = nonEmpty(e.code, 'STT_NETWORK_DROP');
+      this.failure.noteError(code); // NR-138 item 5 — a SPOKEN engine error is a failure fact (the suppressed one below is not)
+      this.deps.emitter.emit('stt:error', {
+        code,
+        message: nonEmpty(e.message, nonEmpty(e.code, 'STT engine error')),
+        retryable: Boolean(e.retryable),
+        ...(typeof e.unheard_from_ms === 'number' ? { unheard_from_ms: e.unheard_from_ms } : {}), // card RC4-S5
+      });
+    });
     // Card ENG-4 (2026-08-15) — a refusal we deliberately do NOT put on the wire
     // (the vendor said "no audio received" about a recording our own gate found
     // no speech in; the honest sentence is the one the empty final already
@@ -294,11 +300,10 @@ export class SttSessionBridge implements SttOrchestrator {
       message: e.message,
       note: 'our feed gate accepted 0 bytes — the phone says 「没有听到语音」 off the empty final instead',
     }));
-    o.on('engine-status', (e: OStatus) => this.deps.emitter.emit('stt:engine-status', {
-      provider: nonEmpty(e.provider, 'unknown'),
-      status: e.status,
-      ...engineStatusProgress(e),
-    }));
+    o.on('engine-status', (e: OStatus) => {
+      if (e.status === 'ready') this.failure.noteRecovered(); // NR-138 item 5 — a recovered engine hands the verdict on
+      this.deps.emitter.emit('stt:engine-status', { provider: nonEmpty(e.provider, 'unknown'), status: e.status, ...engineStatusProgress(e) });
+    });
     // 🔴 W8-4: `limit_origin` is READ, and `reason` on this same payload is
     // deliberately NOT. The driver's `reason` is `AudioSession.autoStop`'s own
     // internal literal — hard-coded `'hard_limit'` at `stt/audio/session.ts`
@@ -425,6 +430,7 @@ export class SttSessionBridge implements SttOrchestrator {
    */
   private emitFinal(text: string, rest: Record<string, unknown>): void {
     this.deliveredChars += text.length;
+    this.failure.noteDelivered(text); // NR-138 item 5 — a usable transcript reached the wire: bill normally
     // The last record of the chain, and deliberately here rather than at the two
     // call sites — for the same reason `deliveredChars` is: a `delivered` line
     // emitted beside a call site would be a claim maintained by remembering, and
@@ -669,11 +675,17 @@ export class SttSessionBridge implements SttOrchestrator {
     if (this.billed) return;
     this.billed = true;
     const durationMs = this.gated ? Math.min(this.vad.sessionMs, this.orchestrator.uniqueFedAudioMs) : this.totalAudioMs; // card RC-1b; Codex item 5: UNIQUE fed audio (book 22 §4.9 correction)
-    this.deps.onComplete(Math.max(0, Math.round(durationMs)), this.isByok, {
-      transcript: this.transcriptChars,
-      delivered: this.deliveredChars,
-    });
+    const chars = { transcript: this.transcriptChars, delivered: this.deliveredChars };
+    // NR-138 item 5 (book 22 §4.10) — an engine failure with no usable transcript settles UNCHARGED: the fact goes
+    // down the seam and every layer below obeys it (hold released, no increment, no claim). Passed only when present.
+    const failure = this.failure.verdict();
+    if (failure) this.deps.onComplete(Math.max(0, Math.round(durationMs)), this.isByok, chars, failure);
+    else this.deps.onComplete(Math.max(0, Math.round(durationMs)), this.isByok, chars);
   }
+
+  /** NR-138 item 5 — the relay gave up on [[finish]] (its watchdog fired, or it rejected): an engine-failure fact,
+   *  noted by `socket/handlers/audio.handler.ts` BEFORE it disposes, so the dispose-path settle reads it. */
+  noteFinishFailure(kind: 'finish_watchdog' | 'finish_failed'): void { this.failure.noteFinishFailure(kind); }
 
   /**
    * Tear down without emitting further events — and SETTLE.
@@ -755,6 +767,8 @@ export class SttSessionBridge implements SttOrchestrator {
         gate_closures: this.vad.closures, // card RC-6
       });
     }
+    // Book 22 §4.10 item 4 (MAIN extension 2026-10-01): torn down while the relay shuts down ⇒ the relay cut it off.
+    if (!this.billed) this.failure.noteTeardown();
     try {
       this.settle();
     } catch (err) {

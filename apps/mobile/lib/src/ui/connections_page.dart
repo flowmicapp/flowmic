@@ -464,6 +464,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
         context,
         controller: widget.login,
         strings: s,
+        currentStrings: () => AppStrings.of(widget.appSettings.locale),
       );
       if (!ok || !mounted) return;
     }

@@ -265,7 +265,7 @@
     "disc_s3_body": "'翻譯與整理必經語言模型。即時模式只在「AI 潤飾」開著時傳送每段錄音的收尾轉錄——含僅記錄；開關在這支手機的「設定 → 辨識與 AI」裡。關著時即時模式什麼都不傳送；臨時字從不傳送。平台模型是我們帳號下的 DeepSeek——輸入輸出我們都不保留。'",
     "disc_s3_title": "'③ 語言模型處理（取決於你的設定）'",
     "disc_s4_body": "'經你自己的網路，或經我們的雲端中繼——轉手即忘——然後打進已配對電腦上取得焦點的輸入框。走你自己的網路時這條連線是加密的，中繼一律走 TLS；目前狀態見這支手機上的「連線加密」。'",
-    "disc_s4_title": "'④ 送到電腦，打進目前的輸入框'",
+    "disc_s4_title": "'④ 送到電腦，打進目前輸入框'",
     "disc_s5_body": "'我們不存轉錄——那張表已刪除。時間線在你的手機和電腦上，兩端都能匯出。我們保存的只有帳號、已配對裝置、同步的設定和計費週期用量合計（分鐘與 token）——從不含內容。'",
     "disc_s5_title": "'⑤ 留下什麼'",
     "disc_scope_note": "'以上描述的是 FlowMic 託管服務。你完全自行架設時，沒有任何資料會到達我們這裡。'",
@@ -296,7 +296,7 @@
     "llm_endpoint": "'Endpoint'",
     "llm_hint": "'整理 / 翻譯使用的大型模型；「AI 潤飾」用的也是這一份設定——它的開關在手機 App 裡，手機每次連上來時把這個設定交過來。認證失敗或模型無法使用時會明確報錯。'",
     "llm_model": "'模型'",
-    "llm_modes_unsupported": "'翻譯與整理需要 PC 端的語言模型：未設定前，這兩個模式不支援。'",
+    "llm_modes_unsupported": "'翻譯與整理需要電腦端的語言模型：未設定前，這兩個模式不支援。'",
     "llm_preset": "'模型預設'",
     "llm_protocol": "'通訊協定'",
     "llm_protocol_anthropic": "'Anthropic 原生'",
@@ -395,7 +395,7 @@
     "op_copy_image_preview": "'複製圖片（這一行只保留了 256px 預覽圖）'",
     "op_delete": "'刪除'",
     "op_edit": "'編輯'",
-    "op_makeup": "'注入到 PC（補投）'",
+    "op_makeup": "'注入到電腦（補投）'",
     "op_reinject": "'重新注入'",
     "op_reinject_failed": "'無法重新注入'",
     "op_reinject_nothing": "'什麼都沒有輸入'",
@@ -553,6 +553,7 @@
     "set_prefs_autostart_dead": "'自動啟動項目指向的程式已不存在——可攜版目錄被移動或刪除後，請重新開關一次以登記新的路徑。'",
     "set_prefs_autostart_failed": "'開機自動啟動設定失敗：'",
     "set_prefs_autostart_hint": "'登入 Windows 後自動啟動並常駐系統匣，不會彈出主視窗；手動開啟時照舊顯示主視窗。'",
+    "dev_set_prefs_autostart_hint_macos": "'登入 macOS 後自動啟動並常駐選單列，不會彈出主視窗；手動開啟時照舊顯示主視窗。'",
     "set_prefs_autostart_path": "'自動啟動項目指向：'",
     "set_prefs_autostart_read_failed": "'開機自動啟動狀態讀取失敗：'",
     "set_prefs_autostart_unrecognised_shape": "'返回的資料格式無法識別'",
@@ -647,11 +648,11 @@
     "tlMetricsMsg.wordCount": "(n) => `${n} 字`",
     "tlRetentionMsg.keptNote": [
       "(kept, when) =>",
-      "  `這台電腦只保留最近的記錄：目前存有 ${kept} 筆，${when} 之前的已從本機清除。`"
+      "`這台電腦只保留最近的記錄：目前存有 ${kept} 筆，${when} 之前的已從本機清除。`"
     ],
     "tlRetentionMsg.searchNoneTrimmed": [
       "(kept, when) =>",
-      "  `沒有符合的項目。搜尋範圍只有本機保留的 ${kept} 筆，${when} 之前的記錄已從本機清除。`"
+      "`沒有符合的項目。搜尋範圍只有本機保留的 ${kept} 筆，${when} 之前的記錄已從本機清除。`"
     ],
     "tl_confirm_delete": "'確認刪除？'",
     "tl_confirm_yes": "'確認'",
@@ -736,6 +737,7 @@
     "st_uncertain": "'輸入結果未明'",
     "injectFailReason.INJECT_WAYLAND_UNSUPPORTED": "'Wayland 不支援輸入至其他視窗'",
     "injectFailReason.INJECT_DISPLAY_UNAVAILABLE": "'無法在此顯示環境輸入'",
-    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'部分文字可能已輸入。'"
+    "injectFailReason.INJECT_SUBMISSION_UNCERTAIN": "'部分文字可能已輸入。'",
+    "openSourceLicenses": "'開放原始碼授權'"
   }
 }

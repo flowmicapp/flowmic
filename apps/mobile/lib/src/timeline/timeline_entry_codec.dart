@@ -89,6 +89,8 @@ Map<String, Object?> timelineEntryToJson(TimelineEntry e) =>
   // for the same reason as `article_id` above. Rides the one `payload` column;
   // nothing SELECTs by it, so no projected column and no migration.
   if (e.utteranceId != null) 'utterance_id': e.utteranceId,
+  // NR-137 — same deal: absent on every row that is not a re-transcription.
+  if (e.retranscribedFrom != null) 'retranscribed_from': e.retranscribedFrom,
   // Device-local payload key; SQLite stores this JSON as-is (no schema migrate).
   'failure_reason': e.failureReason,
   // N2, same deal: the sqlite row is one JSON `payload` column, so a new
@@ -186,6 +188,10 @@ TimelineEntry? timelineEntryFromJson(Map<String, Object?> j) {
     utteranceId:
         j['utterance_id'] is String && (j['utterance_id'] as String).isNotEmpty
         ? j['utterance_id'] as String
+        : null,
+    retranscribedFrom: j['retranscribed_from'] is String &&
+            (j['retranscribed_from'] as String).isNotEmpty
+        ? j['retranscribed_from'] as String
         : null,
     // Absent on every row written before REQ-12-13 → null, which is the truth:
     // those rows are not keypresses.

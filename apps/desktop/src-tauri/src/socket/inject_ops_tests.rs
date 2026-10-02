@@ -11,6 +11,103 @@
 
 use super::*;
 
+#[test]
+fn delivery_spacing_preflight_is_read_once_and_raw_callers_still_check() {
+    use inject::{delivery_test_sink::{recording, preflight_calls}, preflight::{with_test_facts, SyntheticInputFacts}};
+    let (allow, fsm, dl, dedup) = locked_env();
+    let payloads = recording(|| {
+        let request = req(inject::InjectOrigin::Live, "one-reading");
+        assert_eq!(run_inject(&request, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).unwrap()["ok"], true);
+        assert_eq!(preflight_calls(), 1, "wire delivery reads the OS gate once");
+        assert!(inject::inject_text(".", Some(1), None, |_| true).ok);
+        assert_eq!(preflight_calls(), 2, "raw caller keeps its own gate");
+        let _secure = with_test_facts(SyntheticInputFacts { accessibility_trusted: true, secure_event_input: true });
+        let refused = req(inject::InjectOrigin::Live, "secure-reading");
+        let out = run_inject(&refused, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).unwrap();
+        assert_eq!(out["error"], error_codes::INJECT_SECURE_INPUT_ACTIVE);
+        assert_eq!(preflight_calls(), 3, "refusal is reused, not read again");
+        assert!(!inject::inject_text(".", Some(1), None, |_| true).ok);
+        assert_eq!(preflight_calls(), 4, "raw caller must still refuse");
+    });
+    assert_eq!(payloads, ["one-reading ", "."]);
+}
+
+#[test]
+fn delivery_spacing_pipeline_two_deliveries_and_control() {
+    use crate::inject::{delivery_test_sink::recording, readback::{evaluate, LandingEvidence}};
+    let (allow, fsm, dl, dedup) = locked_env();
+    let payloads = recording(|| {
+        for (id, text) in [("space-first", "first."), ("space-second", "second.")] {
+            let mut request = req(inject::InjectOrigin::Live, id);
+            request.text = text.into();
+            let out = run_inject(&request, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).unwrap();
+            assert_eq!(out["ok"], true);
+            // The replay must not type another space (or another copy).
+            assert_eq!(run_inject(&request, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground), Some(out));
+            assert_eq!(request.text, text, "wire text is immutable");
+        }
+        run_control_key("punct_period", &allow, &fsm);
+        // ASCII raw text is the stronger control: adding spacing in inject_text
+        // itself would escape the CJK punctuation control and fail this one.
+        assert!(inject::inject_text(".", Some(1), None, |_| true).ok);
+    });
+    assert_eq!(payloads, ["first. ", "second. ", "。", "."]);
+    let landed = payloads[..2].concat();
+    assert_eq!(landed, "first. second. ");
+    assert_eq!(landed.trim_end(), "first. second.");
+    assert_eq!(evaluate(Some("first. "), Some(&landed), "second. "), LandingEvidence::Confirmed);
+    assert_eq!(evaluate(Some("first. "), Some(landed.trim_end()), "second. "), LandingEvidence::Confirmed);
+    assert_eq!(evaluate(Some(&landed), Some(&landed), "second. "), LandingEvidence::NotObserved);
+}
+
+#[test]
+fn delivery_spacing_pipeline_idless_dedup_and_reinject() {
+    let (allow, fsm, dl, dedup) = locked_env();
+    // Test the byte key, not the wall clock: the full suite contends for the
+    // process-wide inject gate and can wait longer than the production window.
+    *dedup.lock().unwrap() = InjectDeduper::new(64, u64::MAX);
+    let payloads = inject::delivery_test_sink::recording(|| {
+        let mut request = req(inject::InjectOrigin::Live, "same");
+        request.request_id = None;
+        assert_eq!(run_inject(&request, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).unwrap()["ok"], true);
+        assert!(run_inject(&request, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).is_none());
+        // This is the same builder used by local_inject::reinject_text_with_handles.
+        // Re-injection inserts a new delivery; it never deletes the previous one.
+        let reinject = wire::local_reinject_request("same", "entry");
+        for _ in 0..2 {
+            assert_eq!(run_inject(&reinject, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).unwrap()["ok"], true);
+        }
+        assert_eq!(request.text, "same");
+        assert_eq!(reinject.text, "same");
+    });
+    assert_eq!(payloads, ["same ", "same ", "same "]);
+    assert!(matches!(dedup.lock().unwrap().classify("stt", None, "same", now_millis().max(0) as u64), InjectDecision::Suppress));
+    assert!(matches!(dedup.lock().unwrap().classify("stt", None, "same ", now_millis().max(0) as u64), InjectDecision::Proceed));
+}
+
+#[test]
+fn delivery_spacing_pipeline_negative_controls_cap_and_password() {
+    use crate::inject::{delivery_test_sink::recording, preflight::{with_test_facts, SyntheticInputFacts}};
+    let (allow, fsm, dl, dedup) = locked_env();
+    let at_cap = "x".repeat(inject::INJECT_TEXT_MAX_CHARS);
+    let payloads = recording(|| {
+        for (id, text) in [("han", "中文。"), ("spaced", "already "), ("empty", ""), ("cap", at_cap.as_str())] {
+            let mut request = req(inject::InjectOrigin::Live, id);
+            request.text = text.into();
+            assert_eq!(run_inject(&request, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).unwrap()["ok"], true);
+        }
+        let mut request = req(inject::InjectOrigin::Live, "over-cap");
+        request.text = format!("{at_cap}x");
+        assert_eq!(run_inject(&request, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).unwrap()["error"], error_codes::INJECT_TARGET_INVALID);
+        let _secure = with_test_facts(SyntheticInputFacts { accessibility_trusted: true, secure_event_input: true });
+        let request = req(inject::InjectOrigin::Live, "password");
+        let out = run_inject(&request, &allow, &fsm, &dl, &dedup, TargetIntent::LiveForeground).unwrap();
+        assert_eq!(out["error"], error_codes::INJECT_SECURE_INPUT_ACTIVE);
+        assert_eq!(out["ok"], false);
+    });
+    assert_eq!(payloads, ["中文。", "already ", at_cap.as_str()]);
+}
+
 /// RV-25. The three silent exits are Win32-bound (SetForegroundWindow /
 /// SendInput), so what is asserted here is the part that CAN be asserted
 /// without typing into a real window: every exit has a line, the four lines

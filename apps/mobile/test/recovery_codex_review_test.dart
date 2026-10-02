@@ -129,13 +129,17 @@ class _FailOne extends InMemoryTimelinePersistence {
 
   /// rc2 ⑤ — refuse any write this predicate names.
   bool Function(TimelineEntry e)? failWhen;
+  final List<TimelineEntry> refusedWrites = [];
+  final List<TimelineEntry> acceptedWrites = [];
   @override
   Future<void> upsert(TimelineEntry entry) async {
     if ((failText != null && entry.displayText == failText) ||
         (failWhen?.call(entry) ?? false)) {
+      refusedWrites.add(entry);
       throw StateError('disk refused this row');
     }
-    return super.upsert(entry);
+    await super.upsert(entry);
+    acceptedWrites.add(entry);
   }
 }
 
@@ -150,6 +154,12 @@ class _ArticleRelay extends FakeSocketTransport {
   static bool _isRecovery(Map<String, Object?> s) =>
       s['attempt_kind'] == 'auto_retry' || s['attempt_kind'] == 'user_retranscribe';
   bool get _inRecovery => starts.isNotEmpty && _isRecovery(starts.last);
+  void reportProgress() {
+    if (!_inRecovery) return;
+    pushIncoming(FlowMicEvents.sttInterim, <String, Object?>{
+      'text': '…', 'segment_idx': 0, 'acked_audio_ms': chunks * 200,
+    });
+  }
   List<Map<String, Object?>> get recoveryStarts =>
       <Map<String, Object?>>[for (final Map<String, Object?> s in starts) if (_isRecovery(s)) s];
 
@@ -206,7 +216,7 @@ class _ArticleRelay extends FakeSocketTransport {
 class _ArticleRig {
   _ArticleRig._(this.tmp, this.store, this.fs, this.spill, this.persistence);
 
-  static Future<_ArticleRig> open() async {
+  static Future<_ArticleRig> open({bool logicalClock = false}) async {
     final Directory tmp = await Directory.systemTemp.createTemp('flowmic-codex-');
     final RetainedAudioStore store = RetainedAudioStore(dir: tmp, clock: () => 0);
     await store.open();
@@ -214,6 +224,7 @@ class _ArticleRig {
     final _ArticleRig r = _ArticleRig._(tmp, store, fs,
         RetainedAudioSpill(store: store, retainFromFirstFrame: true, journalFs: fs),
         _FailOne());
+    r.logicalClock = logicalClock;
     r._build();
     return r;
   }
@@ -229,6 +240,8 @@ class _ArticleRig {
   late final TimelineStore timeline;
   late final ChatController controller;
   String? articleId;
+  bool logicalClock = false;
+  int logicalMs = 0;
 
   void _build() {
     relay = _ArticleRelay();
@@ -241,6 +254,14 @@ class _ArticleRig {
     session.reconnect.noteServerCapabilities(<String, Object?>{'capabilities': _tierA});
     timeline = newTestStore(owner: SessionOwnerProbe(session), persistence: persistence);
     controller = ChatController(
+      // This test concerns durable row writes. The relay reports progress by
+      // chunk order; CPU scheduling must not turn that into an engine timeout.
+      recoveryClock: logicalClock ? () => logicalMs : null,
+      recoverySleep: logicalClock ? (d) async {
+        logicalMs += d.inMilliseconds;
+        relay.reportProgress();
+        await Future<void>.delayed(Duration.zero);
+      } : null,
       outboxStore: newTestOutboxStore(),
       outboxBlobs: newTestOutboxBlobs(),
       session: session,
@@ -592,7 +613,7 @@ void main() {
       (WidgetTester tester) async {
     late final _ArticleRig r;
     await tester.runAsync(() async {
-      r = await _ArticleRig.open();
+      r = await _ArticleRig.open(logicalClock: true);
       r.relay
         ..answer = const <(String, int)>[(_partA, 30000), (_partB, 30000), (_partial, 30000)]
         ..endedNormally = true;
@@ -606,6 +627,11 @@ void main() {
     addTearDown(() => tester.runAsync(r.dispose));
 
     expect(r.relay.recoveryStarts, hasLength(1), reason: 'positive control');
+    expect(r.persistence.refusedWrites, isNotEmpty,
+        reason: 'positive control: fitting reached the storage refusal');
+    final persisted = r.persistence.acceptedWrites.where((e) => {_partA, _partB, _partial}.contains(e.displayText));
+    expect(persisted.map((e) => e.id).toSet(), hasLength(3));
+    expect(persisted.map((e) => e.durationMs), everyElement(30000));
     final RecordingManifest m = (await tester.runAsync<RecordingManifest?>(r.manifest))!;
     expect(r.pcmPresent, isTrue,
         reason: 'what storage holds says the stretch is 90 s; the audio must stay');

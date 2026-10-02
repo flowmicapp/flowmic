@@ -39,6 +39,8 @@
 // `compose_three_row_layout_test.dart` pins that it is on screen whenever the
 // buffer is non-empty).
 
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart'
     show Colors, Icons, InkWell, showModalBottomSheet;
@@ -106,12 +108,75 @@ class ModeSegmentedControl extends StatelessWidget {
   /// 3 + 32 + 3 = 38 visual track, then extra padding to the 44dp ruler.
   static const double _hitHeight = 44;
 
+  /// `.sgi{padding:…14px}` — each segment's horizontal padding.
+  static const double _itemHPad = 14;
+
+  /// `.seg{gap:2px}` — between segments only.
+  static const double _itemGap = 2;
+
+  /// `.sgi` is regular 12.5; only `.sgi.on` is 600.
+  static TextStyle _labelStyle(bool on) => TextStyle(
+    color: on ? FlowMicDockColors.ink : FlowMicDockColors.sub,
+    fontSize: 12.5,
+    fontWeight: on ? FontWeight.w600 : FontWeight.w400,
+  );
+
+  /// The width this control needs to paint all three words in full, under the
+  /// ambient text style and scale — read off the same constants and the same
+  /// [_labelStyle] that [build] paints with (one author; the idiom is
+  /// `AiActionRow.labelledRowWidth`). Row 1 (`_modePolicyRowRouted`) spends it
+  /// to decide how much room the policy chip may take, so that the chip gives
+  /// way before a mode word does.
+  ///
+  /// ⚠️ Billed for the CURRENT [selected] mode: the selected word is 600 and
+  /// the others 400, so the bill moves by a fraction of a glyph on a switch.
+  /// That is the honest answer — the segments really are that wide.
+  static double naturalWidth(
+    BuildContext context,
+    AppStrings strings,
+    FlowMode selected,
+  ) =>
+      _itemInset * 2 +
+      _itemGap * (kModeOrder.length - 1) +
+      _segmentWidths(context, strings, selected)
+          .fold<double>(0, (double a, double b) => a + b);
+
+  /// Each segment's own width (padding + its word), in [kModeOrder] order —
+  /// the one measurement both [naturalWidth] and [build]'s flex shares read.
+  static List<double> _segmentWidths(
+    BuildContext context,
+    AppStrings strings,
+    FlowMode selected,
+  ) {
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    // Through the AMBIENT style, not a bare TextStyle — Material's text theme
+    // carries letter spacing that a bare style does not model
+    // (`AiActionRow.labelledRowWidth` measured that under-bill).
+    final TextStyle ambient = DefaultTextStyle.of(context).style;
+    return <double>[
+      for (final FlowMode m in kModeOrder)
+        _itemHPad * 2 +
+            (TextPainter(
+              text: TextSpan(
+                text: strings.modeLabel(m),
+                style: ambient.merge(_labelStyle(m == selected)),
+              ),
+              textDirection: TextDirection.ltr,
+              textScaler: scaler,
+              locale: Localizations.maybeLocaleOf(context),
+              maxLines: 1,
+            )..layout())
+                .width,
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     // `.seg{display:flex;background:var(--chipbg);border-radius:99px;
     //       padding:3px;gap:2px}` — a content-sized pill, no border.
     // ⚠️ The 3px of `padding` is deliberately only HORIZONTAL here; the
     // vertical half rides on each item (see [_itemInset]).
+    final List<double> widths = _segmentWidths(context, strings, mode);
     return SizedBox(
       height: _hitHeight,
       child: Container(
@@ -125,13 +190,25 @@ class ModeSegmentedControl extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           for (int i = 0; i < kModeOrder.length; i++) ...<Widget>[
-            if (i > 0) const SizedBox(width: 2),
+            if (i > 0) const SizedBox(width: _itemGap),
             // Flexible, not Expanded: the mock's items are CONTENT-sized
             // (`.sgi` has no flex), so three equal thirds would stretch the
             // English words apart. Flexible still lets a genuinely too-narrow
             // run squeeze them (their own ellipsis takes over) instead of
             // overflowing the row.
-            Flexible(child: _segment(kModeOrder[i])),
+            // 🔴 The flex share is each segment's OWN width, not an equal
+            // third (2026-09-30). A Row hands every flexible child at most
+            // 「free space × its flex share」, so with equal shares a long
+            // word was squeezed whenever it was wider than a third of the
+            // pill, even with room to spare overall — measured in de / fr /
+            // es at 360dp with row 1 already giving the segments the room.
+            // Proportional shares make 「the words fit」 mean exactly 「the
+            // sum fits」, which is the sum [naturalWidth] bills. Hundredths
+            // of a dp, because a flex is an int.
+            Flexible(
+              flex: math.max(1, (widths[i] * 100).round()),
+              child: _segment(kModeOrder[i]),
+            ),
           ],
         ],
       ),
@@ -169,7 +246,7 @@ class ModeSegmentedControl extends StatelessWidget {
           //   still centres it inside the 32dp minimum.
           // `.sgi{padding:6px 14px;border-radius:99px}`; `.sgi.on` adds the
           // panel fill and the 0 1 3 rgba(0,0,0,.14) lift.
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: _itemHPad),
           decoration: on
               ? BoxDecoration(
                   color: FlowMicDockColors.panel,
@@ -191,12 +268,7 @@ class ModeSegmentedControl extends StatelessWidget {
               // `didExceedMaxLines`/intrinsic width vs. the actual box, not
               // what is written here.
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: on ? FlowMicDockColors.ink : FlowMicDockColors.sub,
-                fontSize: 12.5,
-                // `.sgi` is regular; only `.sgi.on` is 600.
-                fontWeight: on ? FontWeight.w600 : FontWeight.w400,
-              ),
+              style: _labelStyle(on),
             ),
           ),
         ),
@@ -318,6 +390,36 @@ class TranslateTargetChip extends StatelessWidget {
     if (chosen != null && onTap != null) onTap!(chosen);
   }
 
+  static const double _hPad = 9;
+
+  static TextStyle get _labelStyle => TextStyle(
+    color: FlowMicColors.teal,
+    fontSize: 12,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// The chip's painted width for [target], billed like
+  /// [ModeSegmentedControl.naturalWidth] (same constants as [build]). Row 1
+  /// adds it to the segments' bill while translate is selected, because the
+  /// two travel as one group.
+  static double naturalWidth(
+    BuildContext context,
+    AppStrings strings,
+    String target,
+  ) {
+    final TextPainter p = TextPainter(
+      text: TextSpan(
+        text: strings.translateTargetLabel(target),
+        style: DefaultTextStyle.of(context).style.merge(_labelStyle),
+      ),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      locale: Localizations.maybeLocaleOf(context),
+      maxLines: 1,
+    )..layout();
+    return _hPad * 2 + p.width;
+  }
+
   @override
   Widget build(BuildContext context) {
     return InkWell(
@@ -325,7 +427,7 @@ class TranslateTargetChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       child: Container(
         height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 9),
+        padding: const EdgeInsets.symmetric(horizontal: _hPad),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: FlowMicColors.tealSoft,
@@ -335,11 +437,7 @@ class TranslateTargetChip extends StatelessWidget {
           opacity: enabled ? 1 : 0.45,
           child: Text(
             strings.translateTargetLabel(target),
-            style: TextStyle(
-              color: FlowMicColors.teal,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+            style: _labelStyle,
           ),
         ),
       ),

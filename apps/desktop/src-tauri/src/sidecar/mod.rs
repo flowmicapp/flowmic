@@ -17,6 +17,10 @@ pub mod io;
 /// changes; not meant to be reached directly as `sidecar::lan_probe::*`.
 pub(in crate::sidecar) mod lan_probe;
 pub mod job;
+#[cfg(unix)]
+pub mod parent_death;
+#[cfg(unix)]
+pub mod orphan;
 pub mod network;
 /// Which host Node to run `server.js` on, and whether it is new enough to run it
 /// at all (`node:sqlite` sets a hard floor). The MSI ships no Node of its own.

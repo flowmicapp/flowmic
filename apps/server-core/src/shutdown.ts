@@ -7,6 +7,7 @@
 //   RV-65 (docs/archive/strategy/2026-07-30-task-package-v1.md).
 
 import type { Server as HttpServer } from 'node:http';
+import { markRelayShuttingDown } from './engine/relay-lifecycle';
 import { log } from './log';
 
 // RV-65 — "the server says it's shutting down, and then it doesn't".
@@ -201,6 +202,11 @@ export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> 
     outboxDrainer, replicaPuller, growthReaper, forwardLedgerPrune, recoveryPrune, anonCleanup,
   } = steps;
   return async (): Promise<void> => {
+    // *** billing *** Book 22 §4.10 item 4 (MAIN extension 2026-10-01): mark the relay as shutting down BEFORE
+    // anything closes — closeSocket below fires every disconnect, and an unpaired session is torn down right there.
+    // Every session disposed from here on was cut off by the relay itself and settles uncharged unless it already
+    // delivered a usable transcript (engine/relay-lifecycle.ts, SttSessionBridge.dispose).
+    markRelayShuttingDown();
     // GA-06: disarm the sweep FIRST — a tick that fired after db.close() would
     // hit dead statements, and a live 24h timer would keep the process alive.
     await announceShutdownStep('retention.stop', () => retention.stop());

@@ -14,6 +14,7 @@
 // C4 is the reverse control and it is at the bottom: unhook the channel and C3
 // must go red. It was seen red before it was written down.
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -26,11 +27,16 @@ import 'package:flowmic/src/destination/destination_controller.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/backfill_runner.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
+import 'package:flowmic/src/session/pending_recovery.dart';
+import 'package:flowmic/src/session/pending_recovery_store.dart';
 import 'package:flowmic/src/settings/local_prefs.dart';
+import 'package:flowmic/src/signaling/server_capabilities.dart';
 import 'package:flowmic/src/signaling/socket_core.dart';
 import 'package:flowmic/src/signaling/state_machine.dart';
+import 'package:flowmic/src/signaling/wire_payloads.dart';
 import 'package:flowmic/src/timeline/article.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
+import 'package:flowmic/src/timeline/timeline_persistence.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,6 +61,9 @@ import 'support/temp_teardown.dart';
 /// server answers with finals. Modelling that removes the synchronisation
 /// problem instead of solving it, and it is also the more faithful fixture.
 class _ReplyingTransport extends FakeSocketTransport {
+  void Function()? beforeReply;
+  void Function()? onNextStop;
+  final List<List<Map<String, Object?>>> queuedReplies = [];
   /// Finals to answer the NEXT `audio:stop` with. Consumed once, so a second
   /// stop (a live release, say) is answered by the test as before.
   List<Map<String, Object?>> replyToNextStop = <Map<String, Object?>>[];
@@ -82,7 +91,14 @@ class _ReplyingTransport extends FakeSocketTransport {
       replyToNextStartWithTerminalError = null;
       pushIncoming(FlowMicEvents.sttError, frame);
     }
-    if (event != 'audio:stop' || replyToNextStop.isEmpty) return;
+    if (event != 'audio:stop') return;
+    final void Function()? stopped = onNextStop;
+    onNextStop = null;
+    stopped?.call();
+    if (replyToNextStop.isEmpty && queuedReplies.isNotEmpty) {
+      replyToNextStop = queuedReplies.removeAt(0);
+    }
+    if (replyToNextStop.isEmpty) return;
     final List<Map<String, Object?>> finals = replyToNextStop;
     replyToNextStop = <Map<String, Object?>>[];
     // Asynchronously, like a server: the caller of emit() must be allowed to
@@ -92,6 +108,7 @@ class _ReplyingTransport extends FakeSocketTransport {
     // has settled the first, and the first row then covers a span it should not.
     // In production these are seconds apart.
     Future<void>(() async {
+      beforeReply?.call();
       for (final Map<String, Object?> f in finals) {
         pushIncoming(FlowMicEvents.sttFinal, f);
         await pumpEventQueue();
@@ -127,14 +144,20 @@ const int kOutageBytes = kOutageSeconds * kPcmBytesPerSecond;
 class _Rig {
   _Rig._(this.tmp, this.store, this.spill);
 
-  static Future<_Rig> open() async {
-    final Directory tmp =
+  static Future<_Rig> open({
+    TimelinePersistence? persistence,
+    Directory? directory,
+    bool manualBackfill = false,
+    Duration settleTimeout = const Duration(seconds: 20),
+  }) async {
+    final Directory tmp = directory ??
         await Directory.systemTemp.createTemp('flowmic-backfill-');
     final RetainedAudioStore store =
         RetainedAudioStore(dir: tmp, clock: () => 0);
     await store.open();
     final _Rig r = _Rig._(tmp, store, RetainedAudioSpill(store: store));
-    r._build();
+    r._build(persistence: persistence, manualBackfill: manualBackfill,
+        settleTimeout: settleTimeout);
     return r;
   }
 
@@ -146,8 +169,20 @@ class _Rig {
   late final PttSession session;
   late final TimelineStore timeline;
   late final ChatController controller;
+  late final BackfillRunner runner;
+  bool reachedJustDone = false;
+  void Function()? beforeBegin;
 
-  void _build() {
+  /// NR-138 — the recovery clock. A failed legacy start now waits
+  /// `recoveryBackoffFor(n)` before the next automatic one, so a case that
+  /// means 「the next attempt」 moves this clock rather than the wall clock.
+  int nowMs = 0;
+
+  File get legacyPcm => File('${tmp.path}/legacy-pcm__seg-0.pcm');
+  File get legacyMarker => File('${legacyPcm.path}.unverified.tomb');
+
+  void _build({TimelinePersistence? persistence, bool manualBackfill = false,
+      required Duration settleTimeout}) {
     transport = _ReplyingTransport();
     session = newTestSession(
       transport: transport,
@@ -155,7 +190,20 @@ class _Rig {
       stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
     );
     giveSessionAPairedIdentity(session);
-    timeline = newTestStore();
+    // NR-138 ③ — the legacy leg sends nothing before a capability ack, and on
+    // a metered channel nothing without `recovery.idempotent_operation`.
+    // Production sweeps hang off `DeliveryLinkUp`, which is after the ack.
+    session.reconnect.noteServerCapabilities(<String, Object?>{
+      'capabilities': <String>[
+        kCapabilityCoverageReceipt,
+        kCapabilityDeliveryNoneSafe,
+        kCapabilityIdempotentOperation,
+      ],
+    });
+    session.fsm.changes.listen((FlowmicStateSnapshot s) {
+      if (s.session == SessionState.justDone) reachedJustDone = true;
+    });
+    timeline = newTestStore(persistence: persistence);
     controller = ChatController(
       outboxStore: newTestOutboxStore(),
       outboxBlobs: newTestOutboxBlobs(),
@@ -164,7 +212,21 @@ class _Rig {
       destination: DestinationController(fixedRecordOnly: true),
       syncGate: TimelineSyncGate(transport: transport),
       localPrefs: InMemoryLocalPrefs(),
+      recoveryClock: () => nowMs,
     );
+    // The controller still settles real finals; the test owns retry timing.
+    if (manualBackfill) controller.backfill.dispose();
+    runner = manualBackfill
+        ? BackfillRunner(session: session, store: timeline, storeOf: () => store,
+            phonePrefs: () {
+              final void Function()? callback = beforeBegin;
+              beforeBegin = null;
+              callback?.call();
+              return null;
+            },
+            clock: () => nowMs,
+            settleTimeout: settleTimeout)
+        : controller.backfill;
     transport.pushStatus(SocketStatus.connected);
   }
 
@@ -198,12 +260,36 @@ class _Rig {
 
   List<TimelineEntry> membersOf(String id) => articleMembersOf(timeline, id);
 
+  Future<void> seedLegacy({String key = 'legacy-pcm'}) async {
+    spill.beginSession(key);
+    spill.noteUplinkDown();
+    spill.onEvicted(BufferedChunk(seq: 0, tsMs: 0, payload: Uint8List(6400)));
+    await spill.flush();
+    spill.endSession();
+    expect(await store.bytesForSession(key), 6400);
+  }
+
+  void reply({String text = 'Recovered words', String? emptyReason,
+      bool twoRows = false}) {
+    transport.replyToNextStop = <Map<String, Object?>>[
+      if (twoRows)
+        finalFrame(text: 'Earlier words', idx: 0, isSegment: true, durationMs: 100),
+      <String, Object?>{
+        ...finalFrame(text: text, idx: twoRows ? 1 : 0,
+            isSegment: false, durationMs: 100),
+        'empty_reason': ?emptyReason,
+      },
+    ];
+  }
+
   Future<void> dispose() async {
     // 🔴 LET THE EDGE-TRIGGERED SWEEPS FINISH FIRST. They are unawaited by
     // design, and tearing the temp directory out from under one produces a
     // PathNotFoundException in the NEXT test — a fixture racing the product,
     // reported against whichever case happened to be running.
     await until(() => !controller.backfill.isBusy, why: 'sweeps to finish');
+    await until(() => !runner.isBusy, why: 'manual sweep to finish');
+    runner.dispose();
     await controller.dispose();
     timeline.dispose();
     await session.dispose();
@@ -213,7 +299,429 @@ class _Rig {
   }
 }
 
+class _ResultPersistence extends InMemoryTimelinePersistence {
+  Completer<void>? gate;
+  bool failWrites = false;
+  bool mismatch = false;
+  bool failHeads = false;
+  String? selectedText;
+  int writes = 0;
+  int reads = 0;
+
+  @override
+  Future<void> upsert(TimelineEntry entry) async {
+    if (failHeads && entry.isArticle) throw StateError('injected head failure');
+    if (selectedText == null || entry.sourceText == selectedText) {
+      writes++;
+      await gate?.future;
+      if (failWrites) throw StateError('injected persistence failure');
+      if (mismatch) {
+        await super.upsert(entry.copyWith(outputText: 'Stale stored text'));
+        return;
+      }
+    }
+    await super.upsert(entry);
+  }
+
+  @override
+  Future<List<TimelineEntry>> loadAll() async {
+    reads++;
+    return super.loadAll();
+  }
+}
+
 void main() {
+  test(
+    'legacy failed write sends exactly one audio:start across three sweeps',
+    () async {
+      final _ResultPersistence db = _ResultPersistence()..failWrites = true;
+      final _Rig r = await _Rig.open(persistence: db, manualBackfill: true);
+      addTearDown(r.dispose);
+      await r.seedLegacy();
+      r.reply();
+      await r.runner.sweep(sourceLang: 'en');
+      expect(r.reachedJustDone, isTrue);
+      expect(db.writes, greaterThan(0));
+      expect(await db.loadAll(), isEmpty);
+      expect(await r.store.bytesForSession('legacy-pcm'), 6400);
+      expect(r.runner.progress.value.running, isFalse);
+      for (int pass = 0; pass < 2; pass++) {
+        r.reply();
+        await r.runner.sweep(sourceLang: 'en');
+      }
+      expect(
+        r.transport.emittedNames.where((String e) => e == 'audio:start'),
+        hasLength(1),
+      );
+      expect(await db.loadAll(), isEmpty);
+      expect(await r.store.bytesForSession('legacy-pcm'), 6400);
+      expect(await r.store.unverifiedSegments('legacy-pcm'), <int>{0});
+      expect(await r.legacyMarker.readAsString(), 'settled_unverified\n');
+      expect(r.runner.progress.value.settledUnverified, 1);
+      expect(r.runner.progress.value.pendingMs, 0);
+      final PendingRecoveryStore pending = PendingRecoveryStore(
+        runner: r.runner,
+        sourceLang: () => 'en',
+      );
+      final PendingRecoveryItem item = (await pending.list()).single;
+      expect(item.state, PendingRecoveryState.settledUnverified);
+      // ⚠️ 更正（NR-137 round 2, MAIN 2026-10-02）: was `{delete}`. Kept legacy
+      // audio now offers the user's Re-transcribe as a new note
+      // (backfill_legacy_kept.dart); the three sweeps above still sent ONE
+      // start — nothing automatic changed.
+      expect(item.actions, <PendingRecoveryAction>{
+        PendingRecoveryAction.retryNow,
+        PendingRecoveryAction.delete,
+      });
+      expect(item.awaitingTranscription, isFalse);
+      expect(await pending.delete(item), PendingDeleteOutcome.done);
+      expect(await r.legacyPcm.exists(), isFalse);
+      expect(await r.legacyMarker.exists(), isFalse);
+      expect(await r.store.bytesForSession('legacy-pcm'), 0);
+      expect(await pending.list(), isEmpty);
+    },
+  );
+
+  test(
+    'legacy failed segment does not block healthy siblings or later sessions',
+    () async {
+      final _ResultPersistence db = _ResultPersistence()
+        ..selectedText = 'Failed words'
+        ..failWrites = true;
+      final _Rig r = await _Rig.open(persistence: db, manualBackfill: true);
+      addTearDown(r.dispose);
+      await r.seedLegacy();
+      r.store.beginSession('legacy-pcm');
+      await r.store.append(segmentIdx: 1, bytes: Uint8List(6400));
+      r.store.endSession();
+      await r.seedLegacy(key: 'z-later-session');
+      // Sessions sort lexically: put the failed segment in the first session.
+      r.transport.queuedReplies.addAll([
+        [
+          r.finalFrame(
+            text: 'Failed words',
+            idx: 0,
+            isSegment: false,
+            durationMs: 100,
+          ),
+        ],
+        [
+          r.finalFrame(
+            text: 'Healthy sibling',
+            idx: 0,
+            isSegment: false,
+            durationMs: 100,
+          ),
+        ],
+        [
+          r.finalFrame(
+            text: 'Other session',
+            idx: 0,
+            isSegment: false,
+            durationMs: 100,
+          ),
+        ],
+      ]);
+      await r.runner.sweep(sourceLang: 'en');
+      expect(await r.store.read(0, session: 'legacy-pcm'), isNotNull);
+      expect(await r.store.read(1, session: 'legacy-pcm'), isNull);
+      expect(await r.store.bytesForSession('z-later-session'), 0);
+      expect(await r.store.unverifiedSegments('legacy-pcm'), <int>{0});
+      expect(await db.loadAll(), hasLength(2));
+      for (int pass = 0; pass < 2; pass++) {
+        r.reply();
+        await r.runner.sweep(sourceLang: 'en');
+      }
+      expect(r.transport.emittedWhere('audio:start'), hasLength(3));
+    },
+  );
+
+  test(
+    'legacy partial rows never retry or duplicate the durable first row',
+    () async {
+      final _ResultPersistence db = _ResultPersistence()
+        ..selectedText = 'Recovered words'
+        ..failWrites = true;
+      final _Rig r = await _Rig.open(persistence: db, manualBackfill: true);
+      addTearDown(r.dispose);
+      await r.seedLegacy();
+      for (int pass = 0; pass < 3; pass++) {
+        r.reply(twoRows: true);
+        await r.runner.sweep(sourceLang: 'en');
+        final List<TimelineEntry> durable = await db.loadAll();
+        expect(durable, hasLength(1));
+        expect(durable.single.sourceText, 'Earlier words');
+      }
+      expect(r.transport.emittedWhere('audio:start'), hasLength(1));
+      expect(await r.store.bytesForSession('legacy-pcm'), 6400);
+    },
+  );
+
+  test(
+    'legacy all rows must persist with exact text, including earlier spans',
+    () async {
+      for (final bool mismatch in <bool>[false, true]) {
+        final _ResultPersistence db = _ResultPersistence()
+          ..selectedText = 'Earlier words'
+          ..failWrites = !mismatch
+          ..mismatch = mismatch;
+        final _Rig r = await _Rig.open(persistence: db, manualBackfill: true);
+        addTearDown(r.dispose);
+        await r.seedLegacy();
+        r.reply(twoRows: true);
+        await r.runner.sweep(sourceLang: 'en');
+        expect(r.reachedJustDone, isTrue);
+        expect(
+          (await db.loadAll()).any(
+            (TimelineEntry e) => e.sourceText == 'Recovered words',
+          ),
+          isTrue,
+        );
+        expect(await r.store.bytesForSession('legacy-pcm'), 6400);
+        expect(r.runner.progress.value.settledUnverified, 1);
+      }
+    },
+  );
+
+  test('legacy pending write keeps PCM until write and readback finish', () async {
+    final Completer<void> gate = Completer<void>();
+    final _ResultPersistence db = _ResultPersistence()..gate = gate;
+    final _Rig r = await _Rig.open(persistence: db, manualBackfill: true);
+    addTearDown(r.dispose);
+    await r.seedLegacy();
+    r.reply(twoRows: true);
+    final Future<void> sweep = r.runner.sweep(sourceLang: 'en');
+    addTearDown(() async { if (!gate.isCompleted) gate.complete(); await sweep; });
+    await until(() => r.reachedJustDone && db.writes >= 1);
+    await pumpEventQueue();
+    expect(await r.store.bytesForSession('legacy-pcm'), 6400);
+    expect(r.runner.isBusy, isTrue);
+    expect(await db.loadAll(), isEmpty);
+    final int readsBefore = db.reads;
+    gate.complete();
+    await sweep;
+    expect(db.reads, greaterThan(readsBefore));
+    expect(await db.loadAll(), hasLength(2));
+    expect(await r.store.bytesForSession('legacy-pcm'), 0);
+  });
+
+  test(
+    'legacy kill before commit leaves audio recoverable by fresh objects',
+    () async {
+      final Completer<void> gate = Completer<void>();
+      final _ResultPersistence db = _ResultPersistence()..gate = gate;
+      final _Rig before = await _Rig.open(
+        persistence: db,
+        manualBackfill: true,
+      );
+      addTearDown(before.dispose);
+      await before.seedLegacy();
+      before.reply();
+      final Future<void> sweep = before.runner.sweep(sourceLang: 'en');
+      addTearDown(() async {
+        // Abandon the pre-kill write; cleanup must never commit it later.
+        db.failWrites = true;
+        if (!gate.isCompleted) gate.complete();
+        await sweep;
+      });
+      await until(() => before.reachedJustDone && db.writes > 0);
+      await pumpEventQueue();
+      // No dispose/close/flush of the old application before reopening storage.
+      final _ResultPersistence afterDb = _ResultPersistence();
+      final _Rig after = await _Rig.open(
+        directory: before.tmp,
+        persistence: afterDb,
+        manualBackfill: true,
+      );
+      addTearDown(() async {
+        db.failWrites = true;
+        if (!gate.isCompleted) gate.complete();
+        await sweep;
+        await after.dispose();
+      });
+      for (final TimelineEntry row in await db.loadAll()) {
+        await afterDb.upsert(row);
+      }
+      await after.timeline.load();
+      expect(
+        await after.store.bytesForSession('legacy-pcm') > 0 ||
+            after.timeline.entries.isNotEmpty,
+        isTrue,
+        reason: 'a restart must preserve audio or committed text',
+      );
+      after.reply();
+      expect(await after.legacyMarker.exists(), isFalse);
+      // NR-138 ① — the first application's reservation outlived it, and a
+      // reservation nobody owns counts as a failed start: one minute first.
+      after.nowMs += const Duration(minutes: 1).inMilliseconds;
+      await after.runner.sweep(sourceLang: 'en');
+      expect(after.transport.emittedWhere('audio:start'), hasLength(1));
+      expect(await afterDb.loadAll(), hasLength(1));
+      expect(await after.store.bytesForSession('legacy-pcm'), 0);
+    },
+  );
+
+  test(
+    'legacy persistence timeout stays unverified after late commit',
+    () async {
+      final Completer<void> gate = Completer<void>();
+      final _ResultPersistence db = _ResultPersistence()..gate = gate;
+      final _Rig r = await _Rig.open(
+        persistence: db,
+        manualBackfill: true,
+        settleTimeout: const Duration(milliseconds: 100),
+      );
+      addTearDown(r.dispose);
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      await r.seedLegacy();
+      r.reply();
+      await r.runner.sweep(sourceLang: 'en');
+      expect(r.reachedJustDone, isTrue);
+      expect(r.runner.isBusy, isFalse);
+      expect(r.runner.progress.value.settledUnverified, 1);
+      expect(await r.store.bytesForSession('legacy-pcm'), 6400);
+      r.reply();
+      await r.runner.sweep(sourceLang: 'en');
+      expect(r.transport.emittedWhere('audio:start'), hasLength(1));
+      gate.complete();
+      for (final TimelineEntry row in r.timeline.entries) {
+        await r.timeline.awaitPersisted(row.id);
+      }
+      await pumpEventQueue();
+      expect(await r.store.bytesForSession('legacy-pcm'), 6400);
+    },
+  );
+
+  test('legacy healthy results delete PCM', () async {
+    final _ResultPersistence db = _ResultPersistence();
+    final _Rig r = await _Rig.open(persistence: db, manualBackfill: true);
+    addTearDown(r.dispose);
+    await r.seedLegacy();
+    r.reply(twoRows: true);
+    await r.runner.sweep(sourceLang: 'en');
+    expect(await db.loadAll(), hasLength(2));
+    expect(await r.store.bytesForSession('legacy-pcm'), 0);
+  });
+
+  test(
+    'legacy article head must persist alongside its durable members',
+    () async {
+      for (final bool failHeads in <bool>[true, false]) {
+        final _ResultPersistence db = _ResultPersistence()
+          ..failHeads = failHeads;
+        final _Rig r = await _Rig.open(persistence: db, manualBackfill: true);
+        addTearDown(r.dispose);
+        final String articleId = r.session.articles.begin();
+        await r.seedLegacy(key: articleId);
+        r.reply(twoRows: true);
+        await r.runner.sweep(sourceLang: 'en');
+        expect(
+          (await db.loadAll()).where((TimelineEntry e) => !e.isArticle),
+          hasLength(2),
+        );
+        expect(await r.store.bytesForSession(articleId), failHeads ? 6400 : 0);
+        expect(
+          (await db.loadAll()).where((TimelineEntry e) => e.isArticle),
+          hasLength(failHeads ? 0 : 1),
+        );
+      }
+    },
+  );
+
+  test('legacy marker write failure permits only one start per process', () async {
+    final _ResultPersistence db = _ResultPersistence()..failWrites = true;
+    final _Rig r = await _Rig.open(persistence: db, manualBackfill: true);
+    addTearDown(r.dispose);
+    await r.seedLegacy();
+    final File pcm = r.tmp.listSync().whereType<File>().singleWhere(
+      (File f) => f.path.endsWith('.pcm'),
+    );
+    // A real filesystem refusal, without changing permissions on the machine.
+    await Directory('${pcm.path}.unverified.tomb').create();
+    for (int pass = 0; pass < 3; pass++) {
+      r.reply();
+      await r.runner.sweep(sourceLang: 'en');
+    }
+    expect(r.transport.emittedWhere('audio:start'), hasLength(1));
+    expect(r.reachedJustDone, isTrue);
+    expect(await db.loadAll(), isEmpty);
+    expect(await r.legacyMarker.exists(), isFalse);
+    final RetainedAudioStore reopened = RetainedAudioStore(dir: r.tmp);
+    await reopened.open();
+    expect(await reopened.pendingSessions(), isEmpty,
+        reason: 'the memory skip survives store replacement in this process');
+    expect(await reopened.unverifiedSegments('legacy-pcm'), <int>{0});
+    await reopened.dispose();
+    expect(await r.store.bytesForSession('legacy-pcm'), 6400);
+  });
+
+  test(
+    'legacy empty PCM file is still discarded without transcription',
+    () async {
+      final _Rig r = await _Rig.open(manualBackfill: true);
+      addTearDown(r.dispose);
+      await r.seedLegacy();
+      final File pcm = r.tmp.listSync().whereType<File>().singleWhere(
+        (File f) => f.path.endsWith('.pcm'),
+      );
+      await pcm.writeAsBytes(<int>[]);
+      await r.runner.sweep(sourceLang: 'en');
+      expect(await pcm.exists(), isFalse);
+      expect(r.transport.emittedNames, isNot(contains('audio:start')));
+    },
+  );
+
+  for (final String? reason in <String?>[null, 'heard_no_words', 'no_voice']) {
+    test('legacy empty result: $reason', () async {
+      final _Rig r = await _Rig.open(manualBackfill: true);
+      addTearDown(r.dispose);
+      await r.seedLegacy();
+      r.reply(text: '', emptyReason: reason);
+      await r.runner.sweep(sourceLang: 'en');
+      expect(r.reachedJustDone, isTrue);
+      expect(
+        await r.store.bytesForSession('legacy-pcm'),
+        0,
+        reason: 'main disposes empty legacy results after justDone',
+      );
+    });
+  }
+
+  test(
+    'legacy empty replay keeps main disposal with an unrelated durable row',
+    () async {
+      final _Rig r = await _Rig.open(manualBackfill: true);
+      addTearDown(r.dispose);
+      await r.seedLegacy();
+      r.transport.beforeReply = () {
+        r.timeline.buildFromUtterance(
+          clientId: 'unrelated',
+          mode: FlowMode.realtime,
+          delivery: Delivery.none,
+          text: 'Unrelated timeline words',
+        );
+      };
+      r.reply(text: '');
+      await r.runner.sweep(sourceLang: 'en');
+      final TimelineEntry unrelated = r.timeline.findByClientId('unrelated')!;
+      await r.timeline.awaitPersisted(unrelated.id);
+      expect(await r.timeline.isPersisted(unrelated.id), isTrue);
+      expect(await r.store.bytesForSession('legacy-pcm'), 0);
+    },
+  );
+
+  test('legacy no_voice tail cannot excuse a failed earlier row', () async {
+    final _ResultPersistence db = _ResultPersistence()..failWrites = true;
+    final _Rig r = await _Rig.open(persistence: db, manualBackfill: true);
+    addTearDown(r.dispose);
+    await r.seedLegacy();
+    r.reply(text: '', emptyReason: 'no_voice', twoRows: true);
+    await r.runner.sweep(sourceLang: 'en');
+    expect(await r.store.bytesForSession('legacy-pcm'), 6400);
+  });
+
   test('C3: a 45-second outage mid-recording ends up in the same piece, in place',
       () async {
     final _Rig r = await _Rig.open();
@@ -331,6 +839,10 @@ void main() {
     final Map<dynamic, dynamic> start =
         r.transport.emittedWhere('audio:start').single.data as Map<dynamic, dynamic>;
     expect(start['delivery'], 'none');
+    // NR-138 ③ — and it names the job, so a retry is metered once.
+    expect(start['recording_id'], 'a0-1__seg-0');
+    expect(start['attempt_kind'], 'auto_retry');
+    expect(start['operation_id'], isA<String>());
   });
 
   test('nothing retained ⇒ nothing on the wire, and no fabricated progress',
@@ -370,87 +882,123 @@ void main() {
     expect(await r.store.bytesForSession('a0-1'), 6400);
   });
 
-  test(
-      'P0-1: a terminal engine stall during recovery keeps the retained bytes, '
-      'never deletes them', () async {
-    // 🔴 A BESPOKE, MINIMAL RIG — DELIBERATELY WITHOUT A ChatController.
-    //
-    // `_Rig` wires one up, and `ChatController.onFsmChangeRouted`'s CR-5 EDGE 2
-    // ("a recording just ended") reacts to EVERY session transition away from
-    // RECORDING by calling `backfill.sweep()` again — including the one THIS
-    // test's own probe causes. With nothing ever answering that second probe
-    // (this test intentionally leaves only ONE synthetic reply queued), each
-    // retry would sit out a REAL 15 s processing watchdog and the retries
-    // never stop as long as the bytes stay pending, which is exactly what a
-    // stalled stretch does. That is realistic production behaviour (and
-    // correct — a broken engine should keep getting retried) but it makes
-    // `isBusy` a moving target no bounded test wait can observe, in test
-    // AND in `_Rig.dispose()`'s own teardown wait. Talking to [BackfillRunner]
-    // directly, with no controller subscribed to the FSM, tests the one
-    // question this case is about — did THIS pass delete the bytes — without
-    // that unrelated cascade.
-    final Directory tmp =
-        await Directory.systemTemp.createTemp('flowmic-backfill-stall-');
-    final RetainedAudioStore store =
-        RetainedAudioStore(dir: tmp, clock: () => 0);
-    await store.open();
-    final RetainedAudioSpill spill = RetainedAudioSpill(store: store);
-    final _ReplyingTransport transport = _ReplyingTransport();
-    final PttSession session = newTestSession(
-      transport: transport,
-      audio: AudioCapture(recorder: FakeAudioRecorder(), spill: spill),
-      stateMachine: FlowmicStateMachine(justDoneDuration: Duration.zero),
-    );
-    giveSessionAPairedIdentity(session);
-    final TimelineStore timeline = newTestStore();
-    final BackfillRunner runner = BackfillRunner(
-      session: session,
-      store: timeline,
-      storeOf: () => store,
-    );
-    transport.pushStatus(SocketStatus.connected);
-    addTearDown(() async {
-      runner.dispose();
-      timeline.dispose();
-      await session.dispose();
-      await spill.dispose();
-      await store.dispose();
-      await removeTempDir(tmp);
-    });
-
-    spill.beginSession('a0-1');
-    spill.noteUplinkDown();
-    spill.onEvicted(BufferedChunk(seq: 0, tsMs: 0, payload: Uint8List(6400)));
-    await spill.flush();
-    spill.endSession();
-    expect(await store.bytesForSession('a0-1'), 6400,
-        reason: 'positive control: the outage really was retained');
-
-    // The engine answers the recovery's OWN `audio:start` with a terminal
-    // fault — arriving while the FSM is still RECORDING, exactly the shape
-    // `onSttTerminalError`'s RECORDING branch exists for (a cold-open failure
-    // moments into the press). No terminal `stt:final` will ever follow:
-    // nothing was transcribed, so nothing may be deleted.
-    transport.replyToNextStartWithTerminalError = <String, Object?>{
-      'code': 'STT_CONFIG_MISSING',
-      'message': 'sherpa addon missing',
+  test('legacy engine stall is retried on the next sweep and succeeds', () async {
+    final _Rig r = await _Rig.open(manualBackfill: true);
+    addTearDown(r.dispose);
+    await r.seedLegacy();
+    r.transport.replyToNextStartWithTerminalError = <String, Object?>{
+      'code': 'STT_CONFIG_MISSING', 'message': 'engine unavailable',
       'retryable': false,
     };
-
-    await runner.sweep(sourceLang: 'zh');
-
-    // 🔴 THE ASSERTION THAT MATTERS (P0-1). Before the fix, `_awaitSettled`
-    // judged completion by `sessionAcceptsPttDown`, which is true for BOTH "a
-    // real final arrived" (JUST_DONE) and "the engine stalled back to IDLE"
-    // (state_machine.dart's own processing watchdog / terminal-error stall) —
-    // so a stall was read as "done" and the caller deleted a stretch of
-    // audio that had never been transcribed (reverting `_awaitSettled` to
-    // that predicate turns this assertion red).
-    expect(await store.bytesForSession('a0-1'), 6400,
-        reason: 'no terminal stt:final ever arrived — a stalled stretch is '
-            'retried on the next sweep, not destroyed');
-    expect(runner.progress.value.pendingMs, greaterThan(0));
+    await r.runner.sweep(sourceLang: 'en');
+    expect(await r.legacyPcm.exists(), isTrue);
+    expect(await r.legacyMarker.exists(), isFalse);
+    expect(await r.store.unverifiedSegments('legacy-pcm'), isEmpty);
+    expect(r.runner.progress.value.pendingMs, greaterThan(0));
+    // Main retries transient engine failures. Their uncapped metering is an
+    // existing exposure for a separate card (04-PROTOCOL-SPEC legacy correction).
+    // ⚠️ 更正（NR-138, 2026-10-01）: that card is NR-138. The retry now waits
+    // its backoff (one minute after the first failed start) and is capped;
+    // `legacy_retry_budget_test.dart` pins both. Here the clock moves past it.
+    r.nowMs += const Duration(minutes: 1).inMilliseconds;
+    r.reply();
+    await r.runner.sweep(sourceLang: 'en');
+    expect(r.transport.emittedWhere('audio:start'), hasLength(2));
+    expect(await r.legacyPcm.exists(), isFalse);
+    expect(await r.legacyMarker.exists(), isFalse);
+    expect(r.timeline.entries, hasLength(1));
   });
+
+  for (final bool disconnect in <bool>[false, true]) {
+    test('legacy ${disconnect ? "socket loss" : "no terminal final"} retries', () async {
+      final _Rig r = await _Rig.open(manualBackfill: true,
+          settleTimeout: const Duration(seconds: 1));
+      addTearDown(r.dispose);
+      await r.seedLegacy();
+      if (disconnect) {
+        r.transport.onNextStop = () =>
+            r.transport.pushStatus(SocketStatus.disconnected);
+      }
+      await r.runner.sweep(sourceLang: 'en');
+      expect(await r.legacyPcm.exists(), isTrue);
+      expect(await r.legacyMarker.exists(), isFalse);
+      expect(await r.store.unverifiedSegments('legacy-pcm'), isEmpty);
+      expect(r.timeline.entries, isEmpty);
+      r.transport.pushStatus(SocketStatus.connected);
+      r.nowMs += const Duration(minutes: 1).inMilliseconds; // NR-138 backoff
+      r.reply();
+      await r.runner.sweep(sourceLang: 'en');
+      expect(r.transport.emittedWhere('audio:start'), hasLength(2));
+      expect(await r.legacyPcm.exists(), isFalse);
+      expect(r.timeline.entries, hasLength(1));
+    });
+  }
+
+  test('legacy killed before results replays with fresh application objects', () async {
+    final _Rig before = await _Rig.open(manualBackfill: true);
+    addTearDown(before.dispose);
+    await before.seedLegacy();
+    final Completer<void> started = Completer<void>();
+    before.transport.onNextStop = started.complete;
+    final Future<void> sweep = before.runner.sweep(sourceLang: 'en');
+    await started.future;
+    // No graceful close of the first application before reopening its files.
+    final _Rig after = await _Rig.open(directory: before.tmp, manualBackfill: true);
+    addTearDown(() async {
+      before.transport.pushIncoming(FlowMicEvents.sttError, <String, Object?>{
+        'code': 'STT_CONFIG_MISSING', 'message': 'abandon old application',
+        'retryable': false,
+      });
+      await sweep;
+      await after.dispose();
+    });
+    expect(before.timeline.entries, isEmpty);
+    expect(await after.legacyPcm.exists(), isTrue);
+    expect(await after.legacyMarker.exists(), isFalse);
+    expect(await after.store.unverifiedSegments('legacy-pcm'), isEmpty);
+    // NR-138 ① — the killed application's reservation is still on disk and
+    // nobody owns it: the fresh one counts it as a failed start and waits.
+    await after.runner.sweep(sourceLang: 'en');
+    expect(after.transport.emittedWhere('audio:start'), isEmpty,
+        reason: 'an interrupted reservation spends a start; it is not a reset');
+    after.nowMs += const Duration(minutes: 1).inMilliseconds;
+    after.reply();
+    await after.runner.sweep(sourceLang: 'en');
+    expect(after.transport.emittedWhere('audio:start'), hasLength(1));
+    expect(after.timeline.entries, hasLength(1));
+    expect(await after.legacyPcm.exists(), isFalse);
+  });
+
+  for (final bool busy in <bool>[true, false]) {
+    test('legacy begin rejected ${busy ? "busy" : "noLink"} keeps placement and retries', () async {
+      final _Rig r = await _Rig.open(manualBackfill: true);
+      addTearDown(r.dispose);
+      final String key = r.session.articles.begin();
+      r.session.articles.accountOfflineBytes(6400);
+      r.session.articles.end();
+      await r.seedLegacy(key: key);
+      // The existing prefs callback runs after the runner's initial check but
+      // before beginBackfill's own admission: exercise the rejected begin.
+      r.beforeBegin = () {
+        if (busy) {
+          r.session.fsm.onPttDown();
+        } else {
+          r.transport.pushStatus(SocketStatus.disconnected);
+        }
+      };
+      await r.runner.sweep(sourceLang: 'en');
+      expect(r.transport.emittedWhere('audio:start'), isEmpty);
+      expect(await r.store.unverifiedSegments(key), isEmpty);
+      expect(r.session.articles.peekStretchStart(key), 0);
+      expect(await r.store.bytesForSession(key), 6400);
+      if (busy) r.session.fsm.onPttCancel();
+      r.transport.pushStatus(SocketStatus.connected);
+      r.reply();
+      await r.runner.sweep(sourceLang: 'en');
+      expect(r.transport.emittedWhere('audio:start'), hasLength(1));
+      expect(await r.store.bytesForSession(key), 0);
+    });
+  }
 
   // ── a sweep outlives the controller that started it ─────────────────────
   //

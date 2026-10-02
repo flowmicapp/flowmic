@@ -29,6 +29,8 @@ import 'package:flutter/foundation.dart';
 import '../../generated/flowmic_events.g.dart';
 import '../signaling/socket_core.dart';
 import 'account_store.dart';
+import 'browser_login_controller.dart';
+import 'deep_link_source.dart';
 import 'saas_endpoint.dart';
 
 enum LoginPhase { idle, submitting, error, success }
@@ -69,6 +71,22 @@ class LogoutNoticeCodes {
 }
 
 class LoginController extends ChangeNotifier {
+  BrowserLoginController? _browserLogin;
+
+  /// The account session owns link delivery, beyond any individual panel.
+  BrowserLoginController browserLogin({BrowserLoginController? controller}) {
+    if (controller != null && _browserLogin != null &&
+        !identical(controller, _browserLogin)) {
+      throw StateError('browser login controller already belongs to this session');
+    }
+    return _browserLogin ??= controller ?? BrowserLoginController(
+      login: this,
+      links: AppLinksBrowserLoginLinks(),
+      store: PrefsBrowserLoginStateStore(),
+      opener: launchSignInInBrowser,
+    );
+  }
+
   LoginController({
     required SocketTransport transport,
     // RV-20 / Book 13 §7 F1 ②: required — no InMemoryAccountStore default.
@@ -461,6 +479,7 @@ class LoginController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _browserLogin?.dispose();
     super.dispose();
   }
 

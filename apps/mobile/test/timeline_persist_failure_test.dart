@@ -1,33 +1,16 @@
-// D9 ① (0.3.0) — a timeline row write that fails must not be silent.
-//
-// THE DEFECT THIS PINS: `TimelineStore._persistOne` was
-// `unawaited(_persistence.upsert(entry))`, so a row that never reached disk
-// produced NOTHING a phone can show anyone — on screen this session, gone after
-// restart, no trail. That is red-line F2's second direction (saying done what was
-// not done) executed by omission.
-//
-// ⚠️ NOT the store's doing: `SqfliteTimelinePersistence._serialize`
-// (timeline_sqlite.dart:574) returns the write future UNCAUGHT — its
-// `catchError` is on the chain copy and only stops one failed write wedging the
-// next. `unawaited` is what discarded the error, which then became an unhandled
-// async error in the app's zone: invisible on a device, and (see the double
-// below) trivially mistakable for「loud」 in a test.
-//
-// THE HONEST MINIMUM UNDER TEST: the failure lands in DiagLog with the row id;
-// the in-memory row stays (it is true for this session, and no per-row UI
-// surface claims durability — the only durability claim is the per-store
-// 全部历史 footnote). A per-row user-visible marker needs new copy — follow-up,
-// not this wave.
-//
-// REVERSE CONTROL (D9①): revert `_persistOne` to the bare
-// `unawaited(_persistence.upsert(entry))` — the first test goes red (no
-// `timeline.persist_failed` line). Executed for real during the card, then
-// restored; marker grep REVERSE-CONTROL-D9 = 0 in lib/.
+// A failed local write keeps the row visible and raises the shared notice.
+// Reverse control: suppress the notice raise in TimelineWriteFailures.record.
+// The rendered controller-to-screen path is pinned in
+// timeline_persist_failure_screen_test.dart.
 
+import 'package:fake_async/fake_async.dart';
+import 'package:flowmic/src/timeline/timeline_write_failures.dart';
 import 'package:flowmic/src/diag/diag_log.dart';
-import 'package:flowmic/src/signaling/wire_payloads.dart' show Delivery, FlowMode;
+import 'package:flowmic/src/signaling/wire_payloads.dart'
+    show Delivery, FlowMode;
 import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_persistence.dart';
+import 'package:flowmic/src/timeline/timeline_purge.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -74,45 +57,225 @@ void main() {
 
   tearDown(() => store.dispose());
 
-  test('🔴 D9① — a failed row write says so in the diag trail, by row id', () async {
-    final TimelineEntry entry = store.buildFromUtterance(
-      clientId: 'u-1',
-      mode: FlowMode.realtime,
-      delivery: Delivery.inject,
-      text: 'a sentence that will not reach disk',
+  test(
+    '🔴 D9① — a failed row write says so in the diag trail, by row id',
+    () async {
+      final TimelineEntry entry = store.buildFromUtterance(
+        clientId: 'u-1',
+        mode: FlowMode.realtime,
+        delivery: Delivery.inject,
+        text: 'a sentence that will not reach disk',
+      );
+      await _pump();
+
+      expect(
+        persistence.failedWrites,
+        greaterThan(0),
+        reason: 'positive control — the write really was attempted and failed',
+      );
+      final String trail = DiagLog.instance.snapshot().join('\n');
+      expect(
+        trail,
+        contains('timeline.persist_failed'),
+        reason:
+            'a write failure with no trail is a silent loss — the exact '
+            'defect this card removes',
+      );
+      expect(
+        trail,
+        contains(entry.id),
+        reason: 'the line must name WHICH row will not survive a restart',
+      );
+      expect(trail, contains('StateError'));
+    },
+  );
+
+  test(
+    'failed row stays visible and warns before a later reload loses it',
+    () async {
+      int notices = 0;
+      store.writeFailures.addListener(() => notices++);
+      final TimelineEntry entry = store.buildFromUtterance(
+        clientId: 'u-2',
+        mode: FlowMode.realtime,
+        delivery: Delivery.none,
+        text: 'still real on screen',
+      );
+      await _pump();
+
+      expect(
+        store.entries,
+        hasLength(1),
+        reason:
+            'the user said it and can see it — dropping it from the list '
+            'would be a second lie, not honesty',
+      );
+      expect(store.writeFailures.entryIds, contains(entry.id));
+      expect(store.writeFailures.noticeTicket, isNotNull);
+      expect(notices, 1);
+      expect(await persistence.loadAll(), isEmpty);
+      final int? ticket = store.writeFailures.noticeTicket;
+      await store.load();
+      expect(store.entries, isEmpty);
+      expect(store.writeFailures.entryIds, isEmpty);
+      expect(store.writeFailures.noticeTicket, ticket);
+      expect(notices, 1, reason: 'the user was warned before reload');
+    },
+  );
+
+  for (final bool batch in <bool>[false, true]) {
+    test(
+      '${batch ? 'batch' : 'single'} delete forgets only removed failed rows',
+      () async {
+        int notices = 0;
+        store.writeFailures.addListener(() => notices++);
+        final TimelineEntry removed = store.buildFromUtterance(
+          clientId: 'removed',
+          mode: FlowMode.realtime,
+          delivery: Delivery.none,
+          text: 'removed sentence',
+        );
+        final TimelineEntry kept = store.buildFromUtterance(
+          clientId: 'kept',
+          mode: FlowMode.realtime,
+          delivery: Delivery.none,
+          text: 'kept sentence',
+        );
+        await _pump();
+        expect(
+          store.writeFailures.entryIds,
+          unorderedEquals(<String>[removed.id, kept.id]),
+        );
+        final int? ticket = store.writeFailures.noticeTicket;
+        if (batch) {
+          await store.deleteMany(<TimelineEntry>[removed]);
+        } else {
+          store.delete(removed.id);
+        }
+        await _pump();
+        expect(store.findById(removed.id), isNull);
+        expect(store.writeFailures.entryIds, <String>{kept.id});
+        expect(store.writeFailures.noticeTicket, ticket);
+        expect(
+          notices,
+          1,
+          reason: 'deletion does not raise or dismiss a notice',
+        );
+      },
     );
-    await _pump();
+  }
 
-    expect(persistence.failedWrites, greaterThan(0),
-        reason: 'positive control — the write really was attempted and failed');
-    final String trail = DiagLog.instance.snapshot().join('\n');
-    expect(trail, contains('timeline.persist_failed'),
-        reason: 'a write failure with no trail is a silent loss — the exact '
-            'defect this card removes');
-    expect(trail, contains(entry.id),
-        reason: 'the line must name WHICH row will not survive a restart');
-  });
-
-  test('D9① — the in-memory row stays: true for this session, and nothing '
-      'per-row claims durability', () async {
-    store.buildFromUtterance(
-      clientId: 'u-2',
+  test('range clear forgets a removed row whose last rewrite failed', () async {
+    int notices = 0;
+    store.writeFailures.addListener(() => notices++);
+    persistence.failWrites = false;
+    final TimelineEntry entry = store.buildFromUtterance(
+      clientId: 'range',
       mode: FlowMode.realtime,
       delivery: Delivery.none,
-      text: 'still real on screen',
+      text: 'stored sentence',
     );
     await _pump();
+    persistence.failWrites = true;
+    store.applyEdit(entry.id, 'unsaved edit');
+    await _pump();
+    expect(store.writeFailures.entryIds, <String>{entry.id});
+    final int? ticket = store.writeFailures.noticeTicket;
+    await store.clear(ClearKind.text, ClearWindow.all);
+    expect(store.entries, isEmpty);
+    expect(store.writeFailures.entryIds, isEmpty);
+    expect(store.writeFailures.noticeTicket, ticket);
+    expect(notices, 1);
+  });
 
-    expect(store.entries, hasLength(1),
-        reason: 'the user said it and can see it — dropping it from the list '
-            'would be a second lie, not honesty');
-    // …but storage honestly has nothing.
-    expect(await persistence.loadAll(), isEmpty);
+  test(
+    'deleting the last article member also forgets its failed head',
+    () async {
+      int notices = 0;
+      store.writeFailures.addListener(() => notices++);
+      final TimelineEntry head = buildArticleHeadOf(
+        store,
+        articleId: 'article',
+        startedAt: DateTime.now().toUtc(),
+      );
+      final TimelineEntry member = store.buildFromUtterance(
+        clientId: 'member',
+        mode: FlowMode.realtime,
+        delivery: Delivery.none,
+        text: 'article sentence',
+        articleId: 'article',
+      );
+      await _pump();
+      expect(
+        store.writeFailures.entryIds,
+        unorderedEquals(<String>[head.id, member.id]),
+      );
+      final int? ticket = store.writeFailures.noticeTicket;
+      store.delete(member.id);
+      await _pump();
+      expect(store.entries, isEmpty);
+      expect(store.writeFailures.entryIds, isEmpty);
+      expect(store.writeFailures.noticeTicket, ticket);
+      expect(notices, 1);
+    },
+  );
+
+  test('three failed writes and a repeat of the same row raise one notice', () {
+    fakeAsync((FakeAsync time) {
+      int notices = 0;
+      store.writeFailures.addListener(() => notices++);
+      for (int i = 0; i < 3; i++) {
+        store.buildFromUtterance(
+          clientId: 'burst-$i',
+          mode: FlowMode.realtime,
+          delivery: Delivery.none,
+          text: 'burst sentence $i',
+        );
+      }
+      time.flushMicrotasks();
+      expect(notices, 1, reason: 'three failed writes form one burst');
+      final String id = store.entries.first.id;
+      store.applyEdit(id, 'edited sentence');
+      time.flushMicrotasks();
+      expect(persistence.failedWrites, 4);
+      expect(store.entries, hasLength(3));
+      expect(store.writeFailures.entryIds, hasLength(3));
+      expect(notices, 1);
+    });
+  });
+
+  test('leading notice is immediate; only two quiet seconds end a burst', () {
+    fakeAsync((FakeAsync time) {
+      int notices = 0;
+      store.writeFailures.addListener(() => notices++);
+      final TimelineEntry entry = store.buildFromUtterance(
+        clientId: 'quiet',
+        mode: FlowMode.realtime,
+        delivery: Delivery.none,
+        text: 'repeated failed write',
+      );
+      time.flushMicrotasks();
+      expect(notices, 1, reason: 'no debounce delay before the first warning');
+      final int? firstTicket = store.writeFailures.noticeTicket;
+      for (int i = 0; i < 5; i++) {
+        time.elapse(const Duration(milliseconds: 1900));
+        store.applyEdit(entry.id, 'edited sentence');
+        time.flushMicrotasks();
+        expect(notices, 1);
+      }
+      time.elapse(TimelineWriteFailures.burstQuietPeriod);
+      store.applyEdit(entry.id, 'edited sentence');
+      time.flushMicrotasks();
+      expect(notices, 2);
+      expect(store.writeFailures.noticeTicket, isNot(firstTicket));
+    });
   });
 
   test('D9① — a later successful write is NOT reported as failed (no crying '
       'wolf)', () async {
     persistence.failWrites = false;
+    int notices = 0;
+    store.writeFailures.addListener(() => notices++);
     store.buildFromUtterance(
       clientId: 'u-3',
       mode: FlowMode.realtime,
@@ -122,11 +285,33 @@ void main() {
     await _pump();
 
     expect(await persistence.loadAll(), hasLength(1));
+    expect(notices, 0);
+    expect(store.writeFailures.entryIds, isEmpty);
+    expect(store.writeFailures.noticeTicket, isNull);
     expect(
       DiagLog.instance.snapshot().join('\n'),
       isNot(contains('timeline.persist_failed')),
     );
   });
+
+  test(
+    'a later successful rewrite clears the in-memory failure for that row',
+    () async {
+      final TimelineEntry entry = store.buildFromUtterance(
+        clientId: 'retry',
+        mode: FlowMode.realtime,
+        delivery: Delivery.none,
+        text: 'eventually written',
+      );
+      await _pump();
+      expect(store.writeFailures.entryIds, contains(entry.id));
+      persistence.failWrites = false;
+      store.applyEdit(entry.id, 'edited sentence');
+      await _pump();
+      expect(store.writeFailures.entryIds, isEmpty);
+      expect(await persistence.loadAll(), hasLength(1));
+    },
+  );
 
   test('D9 — a failed single-row reap is loud too (the delete direction of the '
       'same lie)', () async {

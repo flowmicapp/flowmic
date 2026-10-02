@@ -57,6 +57,7 @@ function makeDeps(over: Partial<ConsoleRoutesDeps> = {}): ConsoleRoutesDeps {
     opsAudit: db.opsAudit,
     pcs: db.pcs,
     mobiles: db.mobiles,
+    recoveryOps: db.recoveryOps, usageEffects: db.usageEffects, // NR-138 round 5: the account export
     integratorKeys: db.integratorKeys,
     // card MP-12 — the REAL log off the same connection. A stub counter here
     // would prove the route can render a number, which is not the question: the

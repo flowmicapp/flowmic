@@ -175,6 +175,7 @@ void main() {
         reason: 'positive control: we are in the state under test');
 
     await session.pttUp(); // the user presses stop
+    await capture.tailRetentionConfirmed;
     await settle();
 
     expect(capture.currentState, RecorderState.stopped,

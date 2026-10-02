@@ -85,9 +85,12 @@ export const TABLES = [
   // 2026-09-06 card PR-2: the recovery domain's two tables (db/schema-recovery.ts).
   // FIFTEEN/SIXTEEN. Purely additive — two CREATEs plus two indexes, no ALTER and
   // no new reconcileSchema step. BOTH carry `REFERENCES users(id) ON DELETE
-  // CASCADE` (db/schema-recovery.ts:99 and :134), i.e. they are the OPPOSITE of
+  // CASCADE` (db/schema-recovery.ts:118 and :158), i.e. they are the OPPOSITE of
   // the tombstone above: a deleted account takes its dedupe markers with it,
   // which is what a seven-day marker keyed on a user id should do.
+  // ⚠️ B5 (2026-10-01, book 22 §4.11): the `usage_effects` marker is no longer seven-day — it is kept for the life
+  // of the account, which makes the cascade its ONLY way out. ⚠️ Round 5 (same day): 90 days, then swept; the
+  // cascade is again one of two ways out.
   // ⚠️ This comment said 「NEITHER has a foreign key」 and argued it from a
   // standalone sidecar admitting identities with no users row. The DDL never
   // said that, and the argument survived here only because nothing in this file

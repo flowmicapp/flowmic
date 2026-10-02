@@ -76,7 +76,7 @@ class _McpChannelPageState extends State<McpChannelPage> {
         onPopInvokedWithResult: (bool didPop, Object? _) { if (!didPop) _leave(); },
         child: Scaffold(appBar: AppBar(title: Text(s.mcp(McpText.title)),
           leading: BackButton(onPressed: _leave)),
-          body: !editor.loaded ? const Center(child: CircularProgressIndicator()) : FutureBuilder<List<Map<String, Object?>>>(
+          body: SafeArea(top: false, child: !editor.loaded ? const Center(child: CircularProgressIndicator()) : FutureBuilder<List<Map<String, Object?>>>(
             future: _history,
             builder: (BuildContext context, AsyncSnapshot<List<Map<String, Object?>>> snapshot) => ListView.builder(
               padding: const EdgeInsets.all(16), itemCount: 1 + (channel == null ? 0 : snapshot.data?.length ?? 0),
@@ -140,7 +140,7 @@ class _McpChannelPageState extends State<McpChannelPage> {
                 ]);
               },
             ),
-          ),
+          )),
         ));
     },
   );

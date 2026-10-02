@@ -136,6 +136,7 @@ Future<void> showPlusPanel(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (BuildContext ctx) => PlusPanel(
       favorites: favorites,
       strings: strings,

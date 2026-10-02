@@ -15,6 +15,7 @@
 // those paragraphs are the evidence that the figures were measured, not picked.
 
 import { createServer } from 'node:http';
+import { answeringPool } from './stt-answering-engine.mjs';
 
 /**
  * How much of the visitor's 120 s grant is left after seeding — the CAP.
@@ -82,10 +83,8 @@ export const PLAN_MS = FREE_PLAN_MINUTES * 60_000;
 export const BROWSER_UID = 'wb-fedcba9876543210';
 export const BROWSER_INSTANCE_ID = `web-${BROWSER_UID.replace(/^[a-z]{2}-/, '').slice(0, 8)}`;
 
-export const POOL = JSON.stringify([{
-  id: 'g26-unreachable', provider: 'custom-openai-compatible', model: 'g26',
-  api: 'http://127.0.0.1:9/v1', api_key: 'g26', enabled: true, priority: 1,
-}]);
+// NR-138 item 5 — an engine that ANSWERS (stt-answering-engine.mjs says why the closed port had to go).
+export const POOL = answeringPool('g26-answering');
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const budgets = (rec) => rec.frames.filter((f) => f.event === 'billing:budget').map((f) => f.args[0]);

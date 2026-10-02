@@ -54,6 +54,10 @@ class BlindStoreCloudLeg {
   final ValueListenable<int> _roomJoins;
 
   bool _attached = false;
+  bool _running = false;
+  bool _runAgain = false;
+  Timer? _localWriteTimer;
+  static const localWriteQuietPeriod = Duration(seconds: 5);
 
   /// The last run's measurements, or null if none has completed.
   ///
@@ -82,6 +86,7 @@ class BlindStoreCloudLeg {
     if (_attached) return;
     _attached = true;
     _roomJoins.addListener(_onRoomJoined);
+    _sync.successfulLocalWrites.addListener(_onLocalWrite);
     unawaited(_restoreThenSync());
   }
 
@@ -96,7 +101,7 @@ class BlindStoreCloudLeg {
     } on Object catch (e) {
       // A keystore that will not answer is a reason to do nothing, never a
       // reason to take the app down on a background future.
-      diag('blindstore.restore_failed', <String, Object?>{'error': '$e'});
+      diag('blindstore.restore_failed', <String, Object?>{'error': e.runtimeType});
       return;
     }
     diag('blindstore.attach', <String, Object?>{'keyring_unlocked': unlocked});
@@ -104,23 +109,42 @@ class BlindStoreCloudLeg {
     await _runOnce();
   }
 
+  void _onLocalWrite() {
+    _sync.storageRecovered();
+    _localWriteTimer?.cancel();
+    _localWriteTimer = Timer(localWriteQuietPeriod, () {
+      _localWriteTimer = null;
+      if (_attached) unawaited(_runOnce());
+    });
+  }
+
   void _onRoomJoined() => unawaited(_runOnce());
 
   Future<void> _runOnce() async {
+    _localWriteTimer?.cancel();
+    _localWriteTimer = null;
+    if (_running) { _runAgain = true; return; }
+    _running = true;
     // 🔴 Never throws into the caller. This runs off a ValueNotifier callback
     // and off an unawaited future; an escaping error there is an unhandled async
     // error that can take the zone down, and a failed cloud sync must not be
     // able to affect anything the user is doing.
     try {
-      lastReport = await _sync.syncNow();
+      do {
+        _runAgain = false;
+        lastReport = await _sync.syncNow();
+      } while (_runAgain && _attached);
     } on Object catch (e) {
-      diag('blindstore.sync_threw', <String, Object?>{'error': '$e'});
-    }
+      diag('blindstore.sync_threw', <String, Object?>{'error': e.runtimeType});
+    } finally { _running = false; }
   }
 
   void dispose() {
+    _localWriteTimer?.cancel();
+    _localWriteTimer = null;
     if (!_attached) return;
     _roomJoins.removeListener(_onRoomJoined);
+    _sync.successfulLocalWrites.removeListener(_onLocalWrite);
     _attached = false;
   }
 
@@ -144,9 +168,12 @@ class BlindStoreCloudLeg {
   /// method deliberately does not attempt that itself, so a caller cannot be
   /// surprised by a re-attach happening as a side effect of signing out.
   void detachForAccountChange() {
+    _localWriteTimer?.cancel();
+    _localWriteTimer = null;
     _keyring.lock();
     if (_attached) {
       _roomJoins.removeListener(_onRoomJoined);
+      _sync.successfulLocalWrites.removeListener(_onLocalWrite);
       _attached = false;
     }
   }

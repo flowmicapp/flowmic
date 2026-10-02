@@ -59,8 +59,18 @@
 // residual is accepted rather than solved (the alternative is a table that only
 // grows). Nothing in the product claims otherwise: the phone's own recovery
 // queue gives up long before this.
+//
+// ⚠️ Correction (NR-138 round 3, MAIN decision B5, 2026-10-01; book 22 §4.11) — the paragraph above is kept as it
+// was written; two of its claims are now false. (1) "METERED again": no longer. The `usage_effects` claims are not
+// pruned by age at all (usage-effects.repo.ts); only the registry below still is, by `last_seen_at`. A re-send after
+// its registry row expired is registered again as new, and the surviving claim makes `meterOnce` apply nothing.
+// (2) "the phone's own recovery queue gives up long before this": the review measured a phone clock set back so
+// that an automatic re-send arrived at relay day 8 (`_dispatch/2026-10-01-nr138-r2-review.md.out` B5), and the
+// phone keeps unrecovered audio with no time limit (owner ruling O-2). The 「table that only grows」 is accepted
+// for the claims: one small row per recovery operation and kind, deleted with the account.
 
-/** How long a registered operation — and its metering markers — are remembered.
+/** How long a registered operation is remembered. ⚠️ Correction (B5, 2026-10-01): this used to say 「— and its
+ *  metering markers —」; the markers (`usage_effects`) are now kept for the life of the account (book 22 §4.11).
  *  Deliberately the same seven days as `FORWARD_LEDGER_RETENTION_MS`: a replica's
  *  forwarded metering record is deduped by THAT ledger over that window, and a
  *  shorter window here would mean the two halves of one promise expire on
@@ -71,6 +81,15 @@
 export const RECOVERY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export const RECOVERY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** *** billing *** NR-138 round 5 (MAIN decision, 2026-10-01; book 22 §4.11) — how long a metering claim
+ *  (`usage_effects`, by its original `applied_at`) and ANY registry row (`recovery_operations`, by `first_seen_at`)
+ *  are kept: 90 days, the window the privacy policy publishes for per-use records. Pinned equal to
+ *  `USAGE_EVENTS_RETENTION_DAYS` (db/retention.ts) by test/recovery-claim-retention.test.ts. Rounds 3–4 kept
+ *  both for the life of the account, which the policy did not cover. Consequence: an automatic re-send reaching
+ *  the relay more than 90 days after the original charge is billed again — only possible after the phone's clock
+ *  was set back by more than 84 days (its automatic window is six days on its own clock). */
+export const RECOVERY_CLAIM_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
 export const RECOVERY_SQL = /* sql */ `
 -- 15. recovery_operations (card PR-2 -- the operation registry, audit A7-2)
@@ -109,6 +128,9 @@ CREATE TABLE IF NOT EXISTS recovery_operations (
   -- number is 「re-sends」 and not 「requests」 -- two questions, and this column
   -- answers the one an operator asks (「is a client stuck in a loop」).
   resend_count       INTEGER NOT NULL DEFAULT 0,
+  -- NR-138 round 6 (book 22 §4.11, review B6): the job the operation was derived from. NULL on a row written before
+  -- the column existed; such a row does not compare it (recovery-operations.repo.ts sameBinding).
+  job_id             TEXT,
   PRIMARY KEY (user_id, operation_id)
 );
 CREATE INDEX IF NOT EXISTS idx_recovery_operations_last_seen ON recovery_operations(last_seen_at);
@@ -130,11 +152,25 @@ CREATE INDEX IF NOT EXISTS idx_recovery_operations_last_seen ON recovery_operati
 -- ⚠️ THIS IS NOT exactly-once, and the word is banned from this subject (A7-2).
 -- It is 「the user is metered once」. The vendor may well transcribe the same
 -- audio twice, and under ruling O-9 (乙) that cost is ours.
+--
+-- NR-138 round 4 (book 22 §4.11 「The bound on a free replay」) — the last two columns. billed_ms: transcription ms
+-- debited for this operation so far (NULL = a claim written before the column existed; its replays follow the old
+-- seven-day promise). replays: times the operation was metered again after its claim. Both added to old databases by
+-- reconcileSchema (connection.ts), non-destructively.
 CREATE TABLE IF NOT EXISTS usage_effects (
   user_id      TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   operation_id TEXT    NOT NULL,
   kind         TEXT    NOT NULL,
   applied_at   INTEGER NOT NULL,
+  billed_ms    INTEGER,
+  replays      INTEGER NOT NULL DEFAULT 0,
+  -- NR-138 round 6 (book 22 §4.11, review B6 + B7): the claim's OWN binding — the metered frame's recording, job and
+  -- range, written in the same row as the claim, so the two expire together. All four NULL ⇔ an unbound claim
+  -- (written before the columns existed, or by a frame that named no full binding): its replays are billed normally.
+  recording_id       TEXT,
+  job_id             TEXT,
+  range_start_sample INTEGER,
+  range_end_sample   INTEGER,
   PRIMARY KEY (user_id, operation_id, kind)
 );
 CREATE INDEX IF NOT EXISTS idx_usage_effects_applied_at ON usage_effects(applied_at);

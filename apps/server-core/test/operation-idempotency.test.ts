@@ -39,6 +39,10 @@ import { vendorNoAudioIsOurSilence } from '../src/stt/empty-final-verdicts';
 import type { ForwardedWrite } from '../src/node/forwarded-write';
 import type { OutboxRecord } from '../src/db/replica-outbox';
 
+/** NR-138 round 6 (book 22 §4.11) — a recovery operation's frame always names its recording, job and range; a claim
+ *  is only reusable under the same binding, so the calls below carry one. */
+const B = { recording_id: 'rec-1', job_id: 'job-1', range_start_sample: 0, range_end_sample: 960_000 };
+
 const MONTH = '2026-09';
 const NO_TEXT_MEASURED = { transcript: 0, delivered: 0 } as const;
 const KEY = deriveKey('test-secret-32-bytes-or-more-xx');
@@ -90,13 +94,13 @@ describe('metering_effect_once — the same operation, two full cycles, one char
   it('🔴 STT: two start/stop cycles on one operation move the persisted minutes once', () => {
     const t = tracker();
     // Cycle one: the recording is transcribed and the account is metered.
-    t.recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED, {}, 'op-A');
+    t.recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED, {}, 'op-A', undefined, B);
     expect(meter().minutes).toBeCloseTo(2, 6);
 
     // Cycle two: the SAME operation is re-sent. Under ruling O-9 (乙) the audio is
     // recognised again — this call really happens, the vendor really runs — and
     // the account must not move.
-    t.recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED, {}, 'op-A');
+    t.recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED, {}, 'op-A', undefined, B);
     expect(meter().minutes).toBeCloseTo(2, 6);
 
     // The claim row is the mechanism, and there is exactly one of it.
@@ -107,16 +111,16 @@ describe('metering_effect_once — the same operation, two full cycles, one char
 
   it('🔴 LLM: the same, on the other counter — and the two do not swallow each other', () => {
     const t = tracker();
-    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-B');
-    t.recordLlmUsage('u1', { is_byok: false }, 300, 700, {}, 'op-B');
+    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-B', undefined, B);
+    t.recordLlmUsage('u1', { is_byok: false }, 300, 700, {}, 'op-B', B);
     expect(meter()).toEqual({ minutes: 1, tokensIn: 300, tokensOut: 700 });
 
     // Re-send: both legs replay, neither counter moves. If `kind` were not part
     // of the key, the second of these two would have been discarded as a
     // duplicate of the FIRST on the first pass — i.e. the polish tokens would
     // never have been billed at all, and the row above would already be wrong.
-    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-B');
-    t.recordLlmUsage('u1', { is_byok: false }, 300, 700, {}, 'op-B');
+    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-B', undefined, B);
+    t.recordLlmUsage('u1', { is_byok: false }, 300, 700, {}, 'op-B', B);
     expect(meter()).toEqual({ minutes: 1, tokensIn: 300, tokensOut: 700 });
   });
 
@@ -125,8 +129,8 @@ describe('metering_effect_once — the same operation, two full cycles, one char
     // so a matching operation id alone must not suppress anything. Without this,
     // a ledger that ignored `user_id` would pass every other test in this file.
     const t = tracker();
-    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-shared');
-    t.recordSttUsage('u2', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-shared');
+    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-shared', undefined, B);
+    t.recordSttUsage('u2', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-shared', undefined, B);
     expect(meter('u1').minutes).toBeCloseTo(1, 6);
     expect(meter('u2').minutes).toBeCloseTo(1, 6);
   });
@@ -157,12 +161,12 @@ describe('metering_effect_once — the same operation, two full cycles, one char
       },
       { mode: 'saas', periodKeyFor: () => MONTH, operations: db.usageEffects },
     );
-    expect(() => failing.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-C')).toThrow('disk full');
+    expect(() => failing.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-C', undefined, B)).toThrow('disk full');
     expect(db.raw.prepare('SELECT COUNT(*) AS n FROM usage_effects').get()).toEqual({ n: 0 });
     expect(meter().minutes).toBe(0);
 
     boom = false;
-    failing.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-C');
+    failing.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-C', undefined, B);
     expect(meter().minutes).toBeCloseTo(1, 6);
   });
 });
@@ -303,8 +307,8 @@ describe('the replica leg — a deterministic key the authority can dedupe', () 
       newId: (() => { let n = 0; return (): string => `random-${++n}`; })(),
     });
 
-    replica.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-R');
-    replica.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-R');
+    replica.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-R', undefined, B);
+    replica.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-R', undefined, B);
     expect(records.map((r) => r.id)).toEqual([
       operationRecordId('u1', 'op-R', 'stt', false),
       operationRecordId('u1', 'op-R', 'stt', false),
@@ -321,7 +325,7 @@ describe('the replica leg — a deterministic key the authority can dedupe', () 
       // the ledger's transaction, so its `usage_effects` claim is taken without a
       // nested BEGIN — see `claimInCallerTransaction`. Two dedupes, and only the
       // second of them is true across paths.
-      authority.recordSttUsage(body.user_id, body.engine, body.duration_ms, body.chars, {}, body.operation_id);
+      authority.recordSttUsage(body.user_id, body.engine, body.duration_ms, body.chars, {}, body.operation_id, undefined, body.operation_binding);
     });
     expect(records.map(apply)).toEqual(['accepted', 'duplicate']);
     expect(meter().minutes).toBeCloseTo(1, 6);
@@ -352,22 +356,28 @@ describe('the replica leg — a deterministic key the authority can dedupe', () 
   });
 });
 
-describe('retention — a re-send after the window is a new operation', () => {
-  it('prune drops both tables past the window, and the residual is what the docs say', () => {
+describe('retention — the registry forgets, the metering claim does not (book 22 §4.11, NR-138 round 3 B5)', () => {
+  // ⚠️ Correction (B5, 2026-10-01): this row used to pin the OPPOSITE — both tables pruned past seven days and the
+  // same operation metered again (2 minutes), stated as the accepted residual. The review measured that residual
+  // reaching a real user through a phone clock set back (`_dispatch/2026-10-01-nr138-r2-review.md.out` B5), and MAIN
+  // moved the guarantee to the relay: the claim is kept for the life of the account. The full captured-frame case is
+  // test/recovery-claim-retention.test.ts; this row keeps the repo-level statement.
+  it('past the window the unclaimed registry rows go, the claimed one and its claim stay, and the re-send is not metered again', () => {
     const t = tracker();
-    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-old');
-    admitOperation(db.recoveryOps, 'u1', { operation_id: 'op-old', mode: 'realtime' }, 1_000);
+    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-old', undefined, B);
+    admitOperation(db.recoveryOps, 'u1', { operation_id: 'op-old', mode: 'realtime', ...B }, Date.now());
 
     const EIGHT_DAYS = 8 * 24 * 60 * 60 * 1000;
-    expect(db.usageEffects.prune(Date.now() + EIGHT_DAYS)).toBe(1);
-    expect(db.recoveryOps.prune(Date.now() + EIGHT_DAYS)).toBe(1);
+    // ⚠️ Round 4 (book 22 §4.11 「Recording identity」): a CLAIMED operation keeps its registry row too, so the
+    // binding check outlives the window; an operation that never got a claim still ages out.
+    admitOperation(db.recoveryOps, 'u1', { operation_id: 'op-unclaimed', mode: 'realtime' }, Date.now());
+    expect(db.recoveryOps.prune(Date.now() + EIGHT_DAYS), 'only the unclaimed row went').toBe(1);
+    expect(db.recoveryOps.get('u1', 'op-old'), 'the claimed operation keeps its binding').not.toBeNull();
+    expect((db.raw.prepare("SELECT COUNT(*) AS n FROM usage_effects WHERE operation_id='op-old'").get() as { n: number }).n).toBe(1);
 
-    // And the consequence, stated as behaviour rather than left in a comment:
-    // the same operation is now unknown, so it registers again AND meters again.
-    // That is the accepted residual (audit A7-2 / db/schema-recovery.ts), not a
-    // defect — and a test that only asserted the row count would not have said so.
-    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-old');
-    expect(meter().minutes).toBeCloseTo(2, 6);
+    // A same-length re-send is a replay inside the bound: not metered again.
+    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-old', undefined, B);
+    expect(meter().minutes).toBeCloseTo(1, 6);
   });
 });
 
@@ -400,7 +410,7 @@ describe('audit F1 — one operation, two paths to the writer, one charge', () =
       nodeId: 'node-b',
       newId: () => 'never-used-for-an-operation',
     });
-    replica.recordSttUsage(user, { is_byok }, ms, NO_TEXT_MEASURED, {}, operation);
+    replica.recordSttUsage(user, { is_byok }, ms, NO_TEXT_MEASURED, {}, operation, undefined, B);
     return records[0]!;
   }
 
@@ -411,7 +421,7 @@ describe('audit F1 — one operation, two paths to the writer, one charge', () =
     // forward ledger therefore says 「accepted」 — correctly, it IS a new record —
     // and until this fix the account was charged a second time while the pairing
     // ack advertised `recovery.idempotent_operation`.
-    tracker().recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED, {}, 'op-X');
+    tracker().recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED, {}, 'op-X', undefined, B);
     expect(meter().minutes).toBeCloseTo(2, 6);
 
     const outcome = writerReceive()(forwarded('u1', 'op-X', 120_000));
@@ -434,7 +444,7 @@ describe('audit F1 — one operation, two paths to the writer, one charge', () =
     writerReceive()(forwarded('u1', 'op-Y', 60_000));
     expect(meter().minutes).toBeCloseTo(1, 6);
 
-    tracker().recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-Y');
+    tracker().recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-Y', undefined, B);
     expect(meter().minutes).toBeCloseTo(1, 6);
   });
 
@@ -504,7 +514,7 @@ describe('audit F2 — an own-key session spends no claim', () => {
 
   it('🔴 BYOK first, then the SAME operation on a platform key: the account is charged', () => {
     const t = tracker();
-    t.recordSttUsage('u1', { is_byok: true }, 120_000, NO_TEXT_MEASURED, {}, 'op-K');
+    t.recordSttUsage('u1', { is_byok: true }, 120_000, NO_TEXT_MEASURED, {}, 'op-K', undefined, B);
     expect(meter().minutes).toBe(0);
 
     // The user switched off their own key and the operation was re-sent. This is
@@ -512,7 +522,7 @@ describe('audit F2 — an own-key session spends no claim', () => {
     // 🔴 THIS assertion is the money one and it is deliberately first: a claim
     // spent on a metering that never happened reads as 「already metered」 here,
     // and the whole recording is billed to nobody.
-    t.recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED, {}, 'op-K');
+    t.recordSttUsage('u1', { is_byok: false }, 120_000, NO_TEXT_MEASURED, {}, 'op-K', undefined, B);
     expect(meter().minutes).toBeCloseTo(2, 6);
     // …and the mechanism behind it: the own-key call left no claim to spend.
     expect(
@@ -522,8 +532,8 @@ describe('audit F2 — an own-key session spends no claim', () => {
 
   it('platform key first, then BYOK on the same operation: still exactly one charge', () => {
     const t = tracker();
-    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-L');
-    t.recordSttUsage('u1', { is_byok: true }, 60_000, NO_TEXT_MEASURED, {}, 'op-L');
+    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-L', undefined, B);
+    t.recordSttUsage('u1', { is_byok: true }, 60_000, NO_TEXT_MEASURED, {}, 'op-L', undefined, B);
     expect(meter().minutes).toBeCloseTo(1, 6);
     expect(
       db.raw.prepare("SELECT COUNT(*) AS n FROM usage_effects WHERE operation_id='op-L'").get(),
@@ -532,16 +542,16 @@ describe('audit F2 — an own-key session spends no claim', () => {
 
   it('the LLM leg behaves the same', () => {
     const t = tracker();
-    t.recordLlmUsage('u1', { is_byok: true }, 100, 200, {}, 'op-M');
+    t.recordLlmUsage('u1', { is_byok: true }, 100, 200, {}, 'op-M', B);
     expect(meter()).toEqual({ minutes: 0, tokensIn: 0, tokensOut: 0 });
-    t.recordLlmUsage('u1', { is_byok: false }, 100, 200, {}, 'op-M');
+    t.recordLlmUsage('u1', { is_byok: false }, 100, 200, {}, 'op-M', B);
     expect(meter()).toEqual({ minutes: 0, tokensIn: 100, tokensOut: 200 });
   });
 
   it('a platform-key operation is still deduped — the fix did not stop claiming', () => {
     const t = tracker();
-    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-N');
-    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-N');
+    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-N', undefined, B);
+    t.recordSttUsage('u1', { is_byok: false }, 60_000, NO_TEXT_MEASURED, {}, 'op-N', undefined, B);
     expect(meter().minutes).toBeCloseTo(1, 6);
   });
 });

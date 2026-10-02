@@ -20,6 +20,7 @@ import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flowmic/src/ui/chat_flow_page.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'di.dart';
@@ -54,7 +55,7 @@ class ArticleRig {
   /// scratch. Optional and defaulting to a fresh in-memory store, so every
   /// existing call site (one rig, one process lifetime) is unaffected — this
   /// is the same additive-parameter shape `newTestStore` already uses.
-  ArticleRig({TimelinePersistence? persistence})
+  ArticleRig({TimelinePersistence? persistence, SharedPreferences? recoveryPrefs})
       : persistence = persistence ?? InMemoryTimelinePersistence() {
     transport = FakeSocketTransport();
     session = newTestSession(
@@ -65,6 +66,7 @@ class ArticleRig {
     giveSessionAPairedIdentity(session);
     store = newTestStore(
       persistence: this.persistence,
+      recoveryPrefs: recoveryPrefs,
       owner: SessionOwnerProbe(session),
     );
     controller = ChatController(

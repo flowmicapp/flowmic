@@ -87,8 +87,10 @@ void main() {
   });
 
   test('a write-back upserts the ONE changed row', () async {
-    add('u1');
-    add('u2');
+    final first = add('u1');
+    final second = add('u2');
+    await store.awaitPersisted(first.id);
+    await store.awaitPersisted(second.id);
     p.upserted.clear();
 
     store.applyInjectResult(correlationId: 'u1', ok: true, pcName: 'PC-A');

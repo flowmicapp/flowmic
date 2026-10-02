@@ -110,6 +110,7 @@ function makeDeps(): ConsoleRoutesDeps {
     opsAudit: db.opsAudit,
     pcs: db.pcs,
     mobiles: db.mobiles,
+    recoveryOps: db.recoveryOps, usageEffects: db.usageEffects, // NR-138 round 5: the account export
     // 2026-08-28 — the REAL RoomStore class, shared with the suite so a test can
     // put a fake socket in a room and make that PC genuinely present. A stub
     // returning `null` forever would make every presence assertion below pass

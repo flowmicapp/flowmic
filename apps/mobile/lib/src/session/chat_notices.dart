@@ -32,6 +32,10 @@
 
 part of 'chat_controller.dart';
 
+void dismissTimelineWriteFailureRouted(ChatController c) {
+  c.store.writeFailures.dismissNotice();
+}
+
 /// RV-60 — the system photo picker opened or closed on this phone. It changes
 /// the link banner without an FSM edge, so the sustained-disconnect watch has to
 /// be re-evaluated by hand.

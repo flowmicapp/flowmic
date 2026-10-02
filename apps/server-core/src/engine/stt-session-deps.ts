@@ -25,6 +25,23 @@ export interface SttEmitter {
 }
 
 /**
+ * NR-138 item 5 (owner ruling 2026-10-01, book 22 §4.10) — the engine-failure
+ * fact a session SETTLES with when it is not to be charged: present only when
+ * the session ended on an engine failure AND no usable transcript left the
+ * relay. Decided once, by the bridge that holds both facts
+ * (`engine/stt-engine-failure.ts` `EngineFailureLatch`); every layer below only
+ * obeys it. *** billing ***
+ */
+export interface SttEngineFailure {
+  /** Which terminal fact: a spoken engine error, the relay's finish watchdog,
+   *  a rejected `finish()`, or — MAIN extension 2026-10-01 (book 22 §4.10
+   *  item 4) — the relay cut the session off while shutting down. */
+  kind: 'engine_error' | 'finish_watchdog' | 'finish_failed' | 'relay_shutdown';
+  /** The engine error's code, for `engine_error`. Logged, never billed on. */
+  code?: string;
+}
+
+/**
  * A2-5 / REQ-12-08 — the two character counts an utterance produced, carried
  * ACROSS the metering seam.
  *
@@ -91,7 +108,7 @@ export interface SttSessionDeps {
    *  do not care may still declare `(durationMs, isByok)` or `()` and TypeScript
    *  accepts them — which is why the reverse control for this wiring has to be
    *  behavioural (a row with real counts), not a compile error. */
-  onComplete: (durationMs: number, isByok: boolean, chars: SttCharCounts) => void;
+  onComplete: (durationMs: number, isByok: boolean, chars: SttCharCounts, failure?: SttEngineFailure) => void;
   /** v0.2.3 — the polish LLM's metering seam, the sibling of [onComplete].
    *
    *  Called once per polished terminal-final, and ONLY when the model actually

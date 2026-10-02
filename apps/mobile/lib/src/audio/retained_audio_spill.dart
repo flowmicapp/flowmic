@@ -104,10 +104,12 @@ import 'retained_audio_store.dart';
 import 'ring_buffer.dart';
 
 part 'retained_audio_hole.dart';
+part 'retained_audio_journal_notices.dart';
 part 'retained_audio_legacy_face.dart';
 part 'retained_audio_live_settle.dart';
 part 'retained_audio_owed_widen.dart'; // RC-P
 part 'retained_audio_owed_after_stop.dart'; // RC4-S5
+part 'retained_audio_tail_confirmation.dart';
 
 /// Decides whether an evicted ring chunk becomes retained audio, and keys it to
 /// a segment. Retention policy itself lives in [RetainedAudioStore].
@@ -502,7 +504,7 @@ class RetainedAudioSpill {
         republishQueue: _republishQueue,
         deleted: deletedRecordings,
       );
-      _journalNotices = _journal!.notices.listen(_onJournalNotice);
+      _journalNotices = _journal!.notices.listen(handleJournalNotice);
     });
   }
 
@@ -630,8 +632,6 @@ class RetainedAudioSpill {
     _closedManifest = j.manifest; // NR-115: queue facts survive closing the live handle.
     _journal = null;
     _recordingId = null;
-    await _journalNotices?.cancel();
-    _journalNotices = null;
     try {
       await j.close(interruptReason: interruptReason);
     } on Object catch (e) {
@@ -640,6 +640,8 @@ class RetainedAudioSpill {
       // catch covers the handle itself going away underneath us.
       debugPrint('[flowmic.audio] journal close failed: $e');
     }
+    await _journalNotices?.cancel();
+    _journalNotices = null;
     // Card FX-1 - `close()` hands an unpublishable manifest to the queue on its
     // way out; this is the first chance to land it. On the drill's own timeline
     // the disk was still full here and this call is a no-op that leaves the
@@ -648,35 +650,13 @@ class RetainedAudioSpill {
     unawaited(_republishQueue.republish());
   }
 
-  /// 🔴 THE MERGE §A9 ASKED FOR: two announcement channels, one value the
-  /// screen reads.
-  ///
-  /// Only the two codes a user can act on become notices — an append that
-  /// failed and a short write both mean "this stretch has no local copy". A
-  /// failed COMMIT does not: the audio itself may be perfectly fine, so an
-  /// alarm here would fire about bytes that are all present.
-  ///
-  /// 🔴 CARD FX-1 CORRECTED THE SECOND HALF OF THAT REASON, WHICH WAS FALSE.
-  /// It used to read 「it leaves the previous manifest standing, which
-  /// under-claims, and under-claiming loses nothing」. Under-claiming
-  /// `committedClaimBytes` loses nothing; keeping the previous `holes` and
-  /// `interruptReason` loses the RECORD OF A HOLE — the standing manifest does
-  /// not under-report those, it denies them (drill D-5b: 26.5 s missing,
-  /// `"holes":[]`). Staying silent HERE is still right, because the failure
-  /// that matters already announced itself as [JournalNotice.codeAppendFailed];
-  /// what a failed commit needed was a retry, and that is
-  /// [ManifestRepublishQueue], not a banner.
-  void _onJournalNotice(JournalNotice n) {
-    debugPrint('[flowmic.audio] journal notice: $n');
-    if (n.code != JournalNotice.codeAppendFailed &&
-        n.code != JournalNotice.codeShortWrite) {
-      return;
-    }
-    _store.announce(RetainedAudioNotice(
-      code: RetainedAudioNotice.codeWriteFailed,
-      bytes: n.bytes ?? 0,
-    ));
-  }
+  /// Capture and settle forward failures; implementation keeps both facts.
+  void handleJournalNotice(JournalNotice n) => _onJournalNotice(this, n);
+
+  String? _noticeRecordingId;
+  int _noticeLostBytes = 0;
+  bool _noticeAudioLost = false;
+  bool _noticeCommitFailed = false;
 
   Future<void> _enqueueJournal(Future<void> Function() body) {
     final Completer<void> out = Completer<void>();
@@ -710,7 +690,7 @@ class RetainedAudioSpill {
   List<RetainedAudioHole> get holes =>
       List<RetainedAudioHole>.unmodifiable(_holes);
 
-  /// P1-1 — see [_writeFailures]. No production subscriber yet (card LS-2).
+  /// Production notices: _appendOne → store.lastNotice → ChatControllerWiring; retained_audio_write_failure_poison_test.dart.
   Stream<RetainedAudioWriteFailure> get writeFailures =>
       _writeFailures.stream;
 
@@ -771,6 +751,8 @@ class RetainedAudioSpill {
   /// they aged out. Body moved to retained_audio_legacy_face.dart.
   Future<void> retainTail(Iterable<BufferedChunk> chunks) =>
       _retainTail(this, chunks);
+  Future<bool> retainTailConfirmed(List<BufferedChunk> chunks) =>
+      _retainTailConfirmed(this, chunks);
 
   /// Await every queued append; see retained_audio_legacy_face.dart for why
   /// it never rethrows a past append failure.

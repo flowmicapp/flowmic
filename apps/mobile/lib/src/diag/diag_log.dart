@@ -77,3 +77,7 @@ class DiagLog {
 /// Shorthand used at call sites.
 void diag(String event, [Map<String, Object?> fields = const <String, Object?>{}]) =>
     DiagLog.instance.note(event, fields);
+
+/// Bound identifiers per forensic event; never accept row payloads here.
+String boundedDiagnosticIds(Iterable<String> ids) => ids.take(12).map((id) =>
+    id.length > 96 ? id.substring(0, 96) : id).join(',');

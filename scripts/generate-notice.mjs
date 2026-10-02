@@ -27,8 +27,8 @@
 //   the license text" for a dependency (zod) that carries no such text in
 //   its code at all.
 //
-// SCOPE — four sections, matched 1:1 to
-//   docs/archive/strategy/2026-08-04-third-party-license-matrix.md §6.2:
+// SCOPE — desktop attribution, per
+//   docs/decisions/2026-10-02-notice-covers-rust-crates.md:
 //   1. The sidecar's bundled npm production dependencies (MIT, ~19 packages
 //      — resolved from apps/server-core's dependency graph, not hardcoded,
 //      so a future `pnpm add` in that package cannot silently fall out of
@@ -55,11 +55,23 @@
 //      duty and a denigration-forfeiture clause. Flagged for owner sign-off.
 //      Do not "fix" this by relabeling it Apache-2.0 — that would be the
 //      exact false statement this file exists to prevent.
-//   Plus one negative record: WebView2 is NOT included, because FlowMic
-//   does not redistribute it (tauri.conf.json sets no `webviewInstallMode`,
-//   so Tauri 2 defaults to `downloadBootstrapper` — no Microsoft binary
-//   ships in our package). Written down so nobody adds a redistribution
-//   notice later for something we still are not shipping.
+//   6. Desktop Rust release crates: union of x86_64-pc-windows-msvc,
+//      aarch64-apple-darwin and x86_64-unknown-linux-gnu, with app and
+//      tauri/custom-protocol enabled. cargo metadata --format-version 1
+//      --filter-platform supplies licenses/authors; cargo tree restricts
+//      membership to normal dependencies, excluding build/dev/proc-macros.
+//      Registry LICENSE*/LICENCE*/COPYING*, COPYRIGHT* and NOTICE* texts
+//      are deduplicated. Missing upstream files use pinned local copies;
+//      exceptions and hashes are in scripts/vendor/rust-licenses/sources.json.
+//      Cargo runs --locked --offline; prefill all targets with cargo fetch
+//      --locked --manifest-path apps/desktop/src-tauri/Cargo.toml.
+//   5. The WebView2 Runtime is not redistributed, but its SDK loader static
+//      library is linked on Windows. The exact SDK package's license/notice
+//      accompanies webview2-com-sys in section 6, pinned in sources.json.
+//   Rust std (including its vendored components) and other native blobs inside
+//   crates are not comprehensively audited by this crate-file collector.
+//   Phone artifacts use Flutter NOTICES.Z; this adds no license-page UI and
+//   does not establish native Gradle/CocoaPods dependency coverage.
 //
 // WIRING — how this cannot be forgotten:
 //   - scripts/publish.mjs runs `generate-notice.mjs --check` as a gate
@@ -77,7 +89,8 @@
 // gitignored build output — scripts/opensource-export.mjs copies git-tracked
 // files verbatim into the open-source export tree, so an untracked NOTICE
 // would silently never reach that tree. Re-run this script and commit the
-// diff whenever apps/server-core's dependencies change, or whenever
+// diff whenever desktop Cargo dependencies/release targets/features change,
+// apps/server-core's dependencies change, or whenever
 // scripts/vendor/bundled-node.mjs pins a different runtime. Nothing about
 // THIS machine can change the output: two checkouts of the same commit
 // generate the same bytes, which is the whole point of the declaration.
@@ -87,6 +100,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUNDLED_NODE } from './vendor/bundled-node.mjs';
+import { collectRustNotice } from './notice-rust.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SERVER_CORE_DIR = join(ROOT, 'apps', 'server-core');
@@ -404,21 +418,31 @@ SenseVoice model — points a downloader at.
   );
 
   const webview2Section = section(
-    '5. Microsoft Edge WebView2 Runtime — deliberately NOT included here',
+    '5. Microsoft Edge WebView2 Runtime and SDK loader',
     `FlowMic's apps/desktop/src-tauri/tauri.conf.json sets no \`webviewInstallMode\`\n` +
       `under \`bundle.windows.wix\`/\`nsis\`, so Tauri 2 uses its default,\n` +
       `\`downloadBootstrapper\`: the installer carries only Microsoft's small\n` +
       `bootstrapper executable, which fetches the real WebView2 Runtime from\n` +
       `Microsoft's own servers at install time (or reuses the Evergreen runtime\n` +
       `already present on most Windows 10 1803+ / Windows 11 machines). FlowMic\n` +
-      `does not embed, ship, or redistribute the WebView2 binary itself, so no\n` +
-      `Microsoft redistribution notice belongs here. If a future change switches\n` +
-      `to \`offlineInstaller\` or \`fixedVersion\` (which DO embed the runtime),\n` +
-      `this section must be revisited — see\n` +
-      `docs/archive/strategy/2026-08-04-third-party-license-matrix.md §5.4.`,
+      `does not redistribute the Runtime. The SDK loader static library IS
+` +
+      `linked into the Windows executable by webview2-com-sys. Its Microsoft
+` +
+      `SDK license and notice are reproduced with that crate in section 6.
+` +
+      `Switching to offlineInstaller or fixedVersion requires revisiting
+` +
+      `Runtime redistribution obligations.`,
   );
 
-  return [header, sidecarSection, nodeSection, sherpaSection, senseVoiceSection, webview2Section].join('\n');
+  const rust = collectRustNotice(ROOT);
+  const rustSection = section(
+    `6. Desktop Rust dependencies (${rust.count} crates)\n` +
+      `Release target union: ${rust.targets.join(', ')}.`,
+    rust.body,
+  );
+  return [header, sidecarSection, nodeSection, sherpaSection, senseVoiceSection, webview2Section, rustSection].join('\n');
 }
 
 // ── ③ write or check ────────────────────────────────────────────────────────
@@ -454,7 +478,7 @@ function main() {
   writeFileSync(NOTICE_PATH, generated);
   mkdirSync(dirname(DESKTOP_PUBLIC_NOTICE), { recursive: true });
   writeFileSync(DESKTOP_PUBLIC_NOTICE, generated);
-  console.log(`✓ wrote ${NOTICE_PATH} (${generated.length} bytes, ${generated.split('\n').length} lines)`);
+  console.log(`✓ wrote ${NOTICE_PATH} (${Buffer.byteLength(generated)} bytes, ${generated.split('\n').length} lines)`);
   console.log(`✓ wrote ${DESKTOP_PUBLIC_NOTICE} (copy for the desktop frontend to fetch('/NOTICE'))`);
   console.log('  review the diff and commit ./NOTICE (apps/desktop/public/NOTICE is gitignored — regenerated at build time).');
 }

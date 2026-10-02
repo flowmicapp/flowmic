@@ -30,6 +30,9 @@ pub mod clipboard_outcome;
 pub mod clipboard_paste;
 pub mod clipboard_snapshot;
 pub mod flow_key;
+pub(crate) mod delivery_spacing;
+#[cfg(test)]
+pub(crate) mod delivery_test_sink;
 pub mod gate;
 pub mod image;
 /// MAC-05 / MAC-06: the macOS implementations behind the platform-neutral seams

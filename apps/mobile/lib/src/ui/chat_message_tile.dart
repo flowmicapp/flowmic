@@ -25,6 +25,7 @@ import 'dart:typed_data' show Uint8List;
 import 'package:flutter/widgets.dart';
 
 import '../session/image_thumbnail.dart' show decodedThumbnail;
+import '../session/pending_recovery.dart' show recordedAtMsFromId;
 import '../settings/app_strings.dart' show AppStrings;
 import '../signaling/wire_payloads.dart' show FlowMode;
 import '../timeline/entry_metrics.dart'
@@ -645,6 +646,22 @@ class ChatMessageTile extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
+          ],
+          // NR-137 round 2 (MAIN 2026-10-02) — a note the user's Re-transcribe
+          // made from a kept recording says so, above its words, so it is
+          // never read as a second copy of that recording's earlier rows.
+          if (entry.retranscribedFrom case final String source) ...<Widget>[
+            Text(
+              switch (recordedAtMsFromId(source)) {
+                final int ms => strings.retranscribedNoteMarker(
+                    timelineTimeLabel(
+                        DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true))),
+                null => strings.retranscribedNoteMarkerUndated,
+              },
+              key: ValueKey<String>('entry.retranscribedMarker.${entry.id}'),
+              style: TextStyle(color: FlowMicColors.t3, fontSize: 11),
+            ),
+            const SizedBox(height: 2),
           ],
           Text(
             entry.displayText,

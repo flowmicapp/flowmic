@@ -16,7 +16,7 @@
 // report). Exit codes follow scripts/run-script-tests.mjs: 0 PASS, 1 FAIL.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -24,6 +24,8 @@ import {
   parseWav, percentile, redact, summarize, verdict, wavDurationMs,
 } from './emb13-live-rig-lib.mjs';
 import { timings } from './emb13-live-driver.mjs';
+import { budget, fixtureOnsetMs, overlap, placement, leadingSilence, onsetAlignedWav } from './emb13-wv7-lib.mjs';
+import { wv7Drill } from './emb13-wv7-drill.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -169,5 +171,69 @@ check('press, listening, text and stop are measured from the right marks', () =>
   assert.deepEqual(t.sentences, ['a', 'b']);
 });
 
+check('WV7 missing measurements never pass a budget', () => {
+  assert.deepEqual(budget([null, undefined, NaN], 100, 150), { n: 0, p50: null, p95: null, verdict: 'not measured' });
+  assert.deepEqual(budget([20, 40, 80, 100, 160], 100, 150), { n: 5, p50: 80, p95: 160, verdict: 'FAIL' });
+  assert.equal(budget([0, 0], 0, 0).verdict, 'PASS');
+  assert.equal(budget([-1], 100, 150).verdict, 'FAIL');
+});
+check('WV7 silent device begins silent and then plays the original PCM unchanged', () => {
+  const original = readFileSync(join(ROOT, 'apps/mobile/integration_test/fixtures/zh-6s.wav'));
+  const source = parseWav(original), output = parseWav(leadingSilence(original, 5000));
+  const silence = source.sampleRate * source.channels * source.bitsPerSample / 8 * 5;
+  assert.equal(output.data.subarray(0, silence).every((v) => v === 0), true);
+  assert.deepEqual(output.data.subarray(silence), source.data);
+});
+check('WV-T4 onset-aligned fixture starts on its first sound, keeps its length, and moves the lead-in, unchanged, to the end', () => {
+  const original = readFileSync(join(ROOT, 'apps/mobile/integration_test/fixtures/zh-6s.wav'));
+  const lead = fixtureOnsetMs(original);
+  assert.ok(lead > 100, `the default fixture should have a lead-in (got ${lead} ms)`);
+  const aligned = onsetAlignedWav(original);
+  const src = parseWav(original), out = parseWav(aligned);
+  assert.equal(aligned.length, original.length);
+  assert.equal(out.data.length, src.data.length);
+  assert.equal(fixtureOnsetMs(aligned), 0);
+  const leadBytes = Math.round((lead / 1000) * src.sampleRate) * src.channels * 2;
+  // The moved part is not silence in this recording, so a zero fill (round 2)
+  // cannot pass the equality below: this is what makes it a rotation test.
+  assert.ok(src.data.subarray(0, leadBytes).some((v) => v !== 0), 'the lead-in has content');
+  assert.deepEqual(out.data.subarray(0, src.data.length - leadBytes), src.data.subarray(leadBytes));
+  assert.deepEqual(out.data.subarray(src.data.length - leadBytes), src.data.subarray(0, leadBytes));
+});
+check('WV7 capsule checks geometry and actual hit testing, not its own side label', () => {
+  const field = { left: 10, right: 110, top: 10, bottom: 40 };
+  const capsule = { left: 10, right: 110, top: 48, bottom: 110 };
+  const s = { viewport: { width: 1280, height: 900 }, field, capsule, button: field, pointerEvents: 'none', pressHitsButton: true, side: 'below' };
+  assert.equal(placement(s).verdict, 'PASS');
+  assert.equal(placement({ ...s, capsule: field }).verdict, 'FAIL');
+  assert.equal(placement({ ...s, pointerEvents: 'auto' }).verdict, 'FAIL');
+  assert.equal(placement({ ...s, pressHitsButton: false }).verdict, 'FAIL');
+  assert.equal(placement({}).verdict, 'not measured');
+  assert.equal(overlap(field, capsule), 0);
+  assert.equal(overlap(field, field), 3000);
+});
+
+wv7Drill(check);
+check('WV7d DRY prints the sentence plan before resolving live inputs', () => {
+  const r = spawnSync(process.execPath, [join(HERE, 'emb13-live-rig.mjs')], {
+    env: { ...process.env, FLOWMIC_EMB13_LIVE: '1', FLOWMIC_EMB13_DRY: '1', FLOWMIC_EMB13_WV7: '1',
+      FLOWMIC_EMB13_WV7_SCENARIO: 'budget', FLOWMIC_EMB13_WV7_SURFACES: 'home,try,sdk', FLOWMIC_EMB13_SENTENCES: '4', FLOWMIC_EMB13_MAX_MINUTES: '25' },
+    encoding: 'utf8', timeout: 20000,
+  });
+  assert.ok(r.status === 0 || r.status === 1);
+  assert.match(r.stdout, /"sentences":4/); assert.match(r.stdout, /"estimatedMinutes":3/);
+  assert.doesNotMatch(r.stdout, /^relay http/m);
+  if (r.status === 0) assert.match(r.stdout, /nothing was started/);
+});
+check('WV7d over-cap DRY refuses before any relay or transcription can start', () => {
+  const r = spawnSync(process.execPath, [join(HERE, 'emb13-live-rig.mjs')], {
+    env: { ...process.env, FLOWMIC_EMB13_LIVE: '1', FLOWMIC_EMB13_DRY: '1', FLOWMIC_EMB13_WV7: '1',
+      FLOWMIC_EMB13_WV7_SCENARIO: 'budget', FLOWMIC_EMB13_WV7_SURFACES: 'home,try,sdk', FLOWMIC_EMB13_SENTENCES: '100', FLOWMIC_EMB13_MAX_MINUTES: '25' },
+    encoding: 'utf8', timeout: 20000,
+  });
+  assert.equal(r.status, 1); assert.match(r.stdout, /"estimatedMinutes":75/);
+  assert.match(r.stderr, /estimated 75 minutes exceeds FLOWMIC_EMB13_MAX_MINUTES=25/);
+  assert.doesNotMatch(r.stdout, /^relay http/m);
+});
 if (failures > 0) { console.log(`\n${failures} check(s) failed`); process.exit(1); }
 console.log('\nall checks passed');

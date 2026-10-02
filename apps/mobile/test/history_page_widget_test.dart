@@ -187,8 +187,8 @@ void main() {
       expect(find.text(zh.historyAllPersisted), findsNothing);
       // …and it names the cap that is genuinely back in force, plus the retry —
       // otherwise the user reads a permanent design limit instead of a fault.
-      expect(zh.historyFallbackNote, contains('100'));
-      expect(zh.historyFallbackNote, contains('重试'));
+      expect(zh.historyFallbackNote, isNot(startsWith('DEV:')));
+      expect(zh.historyFallbackNote, contains('下次打开 App 时会重新尝试'));
     });
 
     test('the new copy is bilingual (explicit locale, never OS locale)', () {
@@ -196,7 +196,7 @@ void main() {
       final AppStrings en = AppStrings.of(AppLocale.en);
       expect(zh.historyAllPersisted, isNot(equals(en.historyAllPersisted)));
       expect(zh.historyFallbackNote, isNot(equals(en.historyFallbackNote)));
-      expect(en.historyFallbackNote, contains('100'));
+      expect(en.historyFallbackNote, 'Earlier notes are still on this phone, but cannot be displayed right now. The app will try again the next time you open it.');
       expect(en.historyTitle, 'All history');
       expect(en.unknownInstance, 'Unknown instance');
       expect(en.historyEmpty, 'No history yet');

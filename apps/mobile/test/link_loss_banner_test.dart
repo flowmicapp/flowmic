@@ -87,7 +87,8 @@ class _MemRetainedStore extends RetainedAudioStore {
   }
 
   @override
-  Future<List<int>> pendingSegments({String? session}) async =>
+  Future<List<int>> pendingSegments(
+          {String? session, bool includeUnverified = false}) async =>
       _segs.keys.toList()..sort();
 
   @override

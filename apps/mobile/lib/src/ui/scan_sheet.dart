@@ -40,6 +40,7 @@ Future<bool> showScanSheet(
   required String title,
   required String hint,
   required Future<bool> Function(String value) onScan,
+
   /// Card SCAN-PERM — the camera decision layer; null (production) builds the
   /// real one. Tests inject a flow over a fake port.
   CameraPermissionFlow? cameraPermission,
@@ -47,6 +48,7 @@ Future<bool> showScanSheet(
   final bool? ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: Colors.transparent,
     builder: (_) => _ScanSheet(
       strings: strings,
@@ -120,41 +122,62 @@ class _ScanSheetState extends State<_ScanSheet>
   @override
   Widget build(BuildContext context) {
     final AppStrings s = widget.strings;
-    return Container(
-      decoration: BoxDecoration(
-        color: FlowMicColors.surface,
-        border: Border(top: BorderSide(color: FlowMicColors.line)),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Text(
-                widget.title,
-                style: TextStyle(color: FlowMicColors.t1, fontSize: 15, fontWeight: FontWeight.w700),
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          child: Container(
+            decoration: BoxDecoration(
+              color: FlowMicColors.surface,
+              border: Border(top: BorderSide(color: FlowMicColors.line)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
               ),
-              const Spacer(),
-              InkWell(
-                onTap: () => Navigator.of(context).pop(false),
-                child: Icon(Icons.close, color: FlowMicColors.t3, size: 18),
-              ),
-            ],
+            ),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Text(
+                      widget.title,
+                      style: TextStyle(
+                        color: FlowMicColors.t1,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    InkWell(
+                      onTap: () => Navigator.of(context).pop(false),
+                      child: Icon(
+                        Icons.close,
+                        color: FlowMicColors.t3,
+                        size: 18,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _scanPane(s),
+                const SizedBox(height: 10),
+                Center(
+                  child: Text(
+                    widget.hint,
+                    style: TextStyle(color: FlowMicColors.t3, fontSize: 12),
+                  ),
+                ),
+                if (_notice != null) ...<Widget>[
+                  const SizedBox(height: 12),
+                  _banner(_notice!),
+                ],
+              ],
+            ),
           ),
-          const SizedBox(height: 14),
-          _scanPane(s),
-          const SizedBox(height: 10),
-          Center(
-            child: Text(widget.hint, style: TextStyle(color: FlowMicColors.t3, fontSize: 12)),
-          ),
-          if (_notice != null) ...<Widget>[
-            const SizedBox(height: 12),
-            _banner(_notice!),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -178,11 +201,12 @@ class _ScanSheetState extends State<_ScanSheet>
           onDetect: (BarcodeCapture c) => unawaited(_onDetect(c)),
           // Fail-loud: a refusal that still reaches the scanner, or a
           // camera-less device, shows the reason here instead of a black box.
-          errorBuilder: (BuildContext context, MobileScannerException error) => _banner(
-            error.errorCode == MobileScannerErrorCode.permissionDenied
-                ? s.pairScanDenied
-                : s.pairScanNoCamera,
-          ),
+          errorBuilder: (BuildContext context, MobileScannerException error) =>
+              _banner(
+                error.errorCode == MobileScannerErrorCode.permissionDenied
+                    ? s.pairScanDenied
+                    : s.pairScanNoCamera,
+              ),
         ),
       ),
     );
@@ -200,7 +224,10 @@ class _ScanSheetState extends State<_ScanSheet>
         const Icon(Icons.error_outline, size: 14, color: Color(0xFFFCA5A5)),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(message, style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 12)),
+          child: Text(
+            message,
+            style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 12),
+          ),
         ),
       ],
     ),

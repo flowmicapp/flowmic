@@ -163,6 +163,10 @@ class PendingRecoveryItem {
     this.recordedAtMs,
     this.partlySaved = false,
     this.otherAccount = false,
+    this.retranscribable = false,
+    this.retranscribeAsNote = false,
+    this.pressUsesMinutes = false,
+    this.retranscribeBlockedByServer = false,
   });
 
   /// The journal `recordingId`, or the legacy store's session key.
@@ -209,6 +213,12 @@ class PendingRecoveryItem {
   /// no manifest, so it carries no attempt history and no per-recording queue
   /// state - the automatic route retries it on every edge and no budget is
   /// spent. It therefore never reaches [PendingRecoveryState.needsManual].
+  /// ⚠️ 更正（NR-138, 2026-10-01）: the last two sentences are no longer true.
+  /// A legacy session now has a persisted automatic-attempt record
+  /// (`audio/retained_audio_legacy_retry.dart`) and reaches `needsManual` when
+  /// its five starts are spent or the record cannot be read
+  /// (`BackfillRunner.legacyStateOf`). What [legacy] still changes is which
+  /// storage face the delete and the retry go to.
   final bool legacy;
 
   /// Card RC-S (ruling 4, 2026-09-24) — this recording is owed a transcription
@@ -226,6 +236,41 @@ class PendingRecoveryItem {
   /// refused by the leg.
   final bool otherAccount;
 
+  /// NR-137 — a [PendingRecoveryState.settledUnverified] recording whose words
+  /// a re-transcription can REPLACE: an article whose earlier rows are all
+  /// loaded, with no stretch concluded unproven, under the signed-in account
+  /// (`PendingRecoveryStore` sets it; `kept_words_retranscribe.dart` says
+  /// why each condition). False for every other state.
+  ///
+  /// 🔴 DEFAULT FALSE IS THE SAFE DIRECTION: a recording nobody has shown to
+  /// be replaceable keeps Delete only, because a press on it would put a
+  /// second copy of its words on the page (ordinary presses, legacy segments).
+  final bool retranscribable;
+
+  /// NR-137 round 2 (MAIN 2026-10-02) — when [retranscribable]: the press
+  /// makes ONE new record-only note marked as a re-transcription, and the
+  /// earlier rows stay exactly as they are (an ordinary press's rows are
+  /// delivered history; a legacy segment's rows cannot be found; a piece that
+  /// is not loaded cannot be reached — ⚠️ 更正 round 3: an article is now
+  /// replaced in place whether loaded or not, from storage). False ⇒ the
+  /// earlier rows of this
+  /// piece are replaced in place. The card's sentence says which.
+  final bool retranscribeAsNote;
+
+  /// NR-137 round 2 — owner billing transparency (R11): a press on this card
+  /// is a metered transcription on the channel it would run on, and the
+  /// words it re-makes were metered once already. Only ever set beside
+  /// [retranscribable]; false on an unmetered channel, where saying 「uses
+  /// minutes」 would be untrue.
+  final bool pressUsesMinutes;
+
+  /// NR-137 round 2 — kept words whose re-transcription the server in front
+  /// of us would refuse (A7-3 tier C on the journal face, the legacy gate
+  /// `refused`): no button (R8), and the card says why in the tier-C
+  /// sentence instead of the unverified one. MAIN 2026-10-02: every
+  /// Delete-only card says why.
+  final bool retranscribeBlockedByServer;
+
   /// 🔴 THE ONE PLACE THAT DECIDES WHICH BUTTONS EXIST. A widget that decided
   /// this for itself would be a second author of the rule, and the two would
   /// drift the first time a state was added.
@@ -239,10 +284,19 @@ class PendingRecoveryItem {
         // third time would be offering a mechanism we have twice measured to
         // change nothing.
         PendingRecoveryState.cancelled ||
-        PendingRecoveryState.settledUnverified ||
         PendingRecoveryState.emptyConfirmed ||
         PendingRecoveryState.settledServerKeepsAudio =>
           const <PendingRecoveryAction>{PendingRecoveryAction.delete},
+        // NR-137 — the words exist and their completeness is unproven. A
+        // re-transcription is offered only where it can REPLACE them
+        // ([retranscribable]); everywhere else delete is the whole offer, as
+        // before, because the press would add a second copy of the words.
+        PendingRecoveryState.settledUnverified => retranscribable
+            ? const <PendingRecoveryAction>{
+                PendingRecoveryAction.retryNow,
+                PendingRecoveryAction.delete,
+              }
+            : const <PendingRecoveryAction>{PendingRecoveryAction.delete},
         // A7-3 tier C: `evaluateRecoveryGate` would refuse every press, so the
         // button is absent rather than present-and-futile (R8).
         PendingRecoveryState.serverUnsupported =>
@@ -255,22 +309,27 @@ class PendingRecoveryItem {
         // 🔴 AND ONLY WHEN THERE IS SOMETHING FOR THE BUTTON TO DRIVE. The
         // legacy storage face has no per-recording entry into the recovery
         // leg — a press would have to sweep everything, which means a button
-        // on THIS card transcribing some OTHER recording. Its automatic route
-        // needs no rescue anyway: with no manifest there is no attempt budget,
-        // so the sweep re-reads it on every edge and it never gets stuck at
-        // 「no attempts left」. Withheld rather than drawn-and-inert (R8).
+        // on THIS card transcribing some OTHER recording. Unverified legacy
+        // segments instead use settledUnverified above (BackfillRunner).
         // A5-4: nothing was transcribed, so the recording is still owed one and
         // the button has something real to drive. Same legacy caveat as below.
+        // ⚠️ 更正（NR-138, 2026-10-01）: the legacy caveat is gone. NR-138 gave
+        // the legacy face a per-recording entry (`BackfillRunner.retranscribe`
+        // with `legacy: true`, this session's segments only), so a legacy
+        // recording that is owed words — waiting, or stopped after its five
+        // automatic starts — offers the same two buttons a journal one does.
+        // NR-137 HOOK: `settledUnverified` above is still delete-only for both
+        // faces; offering Re-transcribe there is that card's decision.
+        // ⚠️ 更正（NR-137, 2026-10-02）: it is offered now, on the journal face
+        // only and only where [retranscribable] — see its arm above.
         PendingRecoveryState.emptyResult ||
         PendingRecoveryState.shortfall ||
         PendingRecoveryState.needsManual ||
         PendingRecoveryState.waitingAuto =>
-          legacy
-              ? const <PendingRecoveryAction>{PendingRecoveryAction.delete}
-              : const <PendingRecoveryAction>{
-                  PendingRecoveryAction.retryNow,
-                  PendingRecoveryAction.delete,
-                },
+          const <PendingRecoveryAction>{
+            PendingRecoveryAction.retryNow,
+            PendingRecoveryAction.delete,
+          },
       };
 
   /// Card WB-6 — is this recording still owed a transcription, or is it only
@@ -304,8 +363,8 @@ class PendingRecoveryItem {
       };
 
   @override
-  String toString() =>
-      'PendingRecoveryItem($id ${state.name} ${durationMs}ms legacy=$legacy)';
+  String toString() => 'PendingRecoveryItem($id ${state.name} ${durationMs}ms '
+      'legacy=$legacy retranscribable=$retranscribable)';
 }
 
 /// What happened when the user pressed 「try again now」.

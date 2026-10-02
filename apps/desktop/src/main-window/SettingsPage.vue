@@ -8,6 +8,7 @@ import DataFlowDisclosure from './components/DataFlowDisclosure.vue';
 // UP-3b in-app update — hangs below the existing "About" section, no new page
 // (design doc §5.2).
 import UpdateCard from './components/UpdateCard.vue';
+import OpenSourceLicenses from './components/OpenSourceLicenses.vue';
 // L3 account card (0.2.48): the plan / usage / subscription-expiry on the card are
 // now answered by the server right now (`/api/me` + `/api/cloud/summary`), no
 // longer a snapshot the Cloud Key carried from the moment it was issued. The
@@ -55,6 +56,18 @@ import { localKv } from '../lib/storage';
 import InjectDisclosure from './components/InjectDisclosure.vue';
 import { SETTINGS_SECTION_DOM, sectionFromEvent } from '../lib/settings-section-jump';
 import { APP_VERSION } from '../lib/version';
+import { hostPlatform, type HostPlatform } from '../lib/credentials-at-rest';
+
+const props = defineProps<{ platform?: HostPlatform }>();
+const settingsPlatform = computed(() => props.platform ?? hostPlatform());
+const autostartSupported = computed(
+  () => settingsPlatform.value === 'windows' || settingsPlatform.value === 'darwin',
+);
+const autostartHint = computed(() =>
+  settingsPlatform.value === 'darwin'
+    ? S.dev_set_prefs_autostart_hint_macos
+    : S.set_prefs_autostart_hint,
+);
 
 type Sec = 'account' | 'stt' | 'llm' | 'prefs' | 'inject' | 'about' | 'privacy';
 // V2-07.8a: a COMPUTED, not a setup-time array — `label: S.set_nav_account`
@@ -98,7 +111,8 @@ const resetDone = ref(false);
 const logOpenPending = ref(false);
 /** V2-10 launch at startup. null = unknown state (read failed or not yet read
  *  back) — never render a toggle direction that hasn't been verified (criterion
- *  4). The displayed value always comes from reading the system registry back,
+ *  4). The displayed value always comes from reading the platform's autostart
+ *  registration back,
  *  never from settings storage. */
 const autostart = ref<AutostartInfo | null>(null);
 /** The failure reason is shown verbatim (criterion 1: a registration/read-back
@@ -171,6 +185,7 @@ async function loadAutostart(): Promise<void> {
 }
 
 async function toggleAutostart(): Promise<void> {
+  if (!autostartSupported.value) return;
   if (autostartPending.value) return;
   if (autostart.value === null) {
     await loadAutostart();
@@ -304,10 +319,9 @@ onMounted(async () => {
     sidecar.value = p;
   });
   sidecar.value = await fetchSidecarState();
-  // Re-read the real system autostart state every time the Settings page is
-  // entered — after the user manually disables it in Windows Settings/Task
-  // Manager, this must show "off" (criterion 4).
-  void loadAutostart();
+  // Re-read the real system autostart state on platforms where the feature is
+  // implemented. Linux has no autostart registration to read.
+  if (autostartSupported.value) void loadAutostart();
   await nextTick();
   const anchor = document.getElementById('set-account');
   scroller = anchor ? scrollParentOf(anchor) : null;
@@ -413,21 +427,33 @@ onUnmounted(() => {
                capsule window follows via UI_PREFS_SYNC -->
           <PrefsAppearance />
           <!-- Launch at startup (V2-10): the whole row is the toggle; state is read
-               from the system registry, failures are shown loudly -->
-          <div class="card pad prefs-row as-toggle" :class="{ busy: autostartPending || autostart === null }" @click="toggleAutostart">
+               from the platform's autostart registration, failures are shown loudly -->
+          <div
+            v-if="autostartSupported"
+            data-autostart-setting
+            class="card pad prefs-row as-toggle"
+            :class="{ busy: autostartPending || autostart === null }"
+            @click="toggleAutostart"
+          >
             <span class="chk" :class="{ on: autostart?.enabled === true }"><Icon name="check" /></span>
             <div>
               <div class="prefs-label">{{ S.set_prefs_autostart }}</div>
-              <div class="muted" style="font-size:12px;margin-top:2px">{{ S.set_prefs_autostart_hint }}</div>
+              <div class="muted" style="font-size:12px;margin-top:2px">{{ autostartHint }}</div>
             </div>
           </div>
-          <div v-if="autostart?.registered_cmd" class="autostart-path mono">
+          <div v-if="autostartSupported && autostart?.registered_cmd" class="autostart-path mono">
             {{ S.set_prefs_autostart_path }}{{ autostart.registered_cmd }}
           </div>
-          <div v-if="autostart?.registered_exe_exists === false" class="log-open-error" role="alert">
+          <div v-if="autostartSupported && autostart?.registered_exe_exists === false" class="log-open-error" role="alert">
             {{ S.set_prefs_autostart_dead }}
           </div>
-          <div v-if="autostartError !== null" class="log-open-error" role="alert">{{ autostartError }}</div>
+          <div
+            v-if="autostartSupported && autostartError !== null"
+            class="log-open-error"
+            role="alert"
+          >
+            {{ autostartError }}
+          </div>
           <div class="card pad prefs-row">
             <div>
               <div class="prefs-label">{{ S.set_prefs_capsule_reset }}</div>
@@ -449,6 +475,7 @@ onUnmounted(() => {
               <span class="muted">{{ S.set_about_version }}</span>
               <b class="mono">{{ APP_VERSION }}</b>
             </div>
+            <OpenSourceLicenses />
             <div class="sub-h" style="margin-top:14px;margin-bottom:6px">{{ S.set_about_log_title }}</div>
             <div class="muted" style="font-size:12.5px;line-height:1.55">{{ S.set_about_log_hint }}</div>
             <div class="log-open-row">

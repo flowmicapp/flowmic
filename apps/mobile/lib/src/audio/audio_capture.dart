@@ -26,6 +26,7 @@ import 'audio_emitter.dart';
 // itself is the spill's business, not this file's.
 import 'retained_audio_manifest.dart' show JournalInterrupt;
 import 'retained_audio_spill.dart';
+import 'retained_audio_store.dart';
 
 // 700-line cap — the card LS-2 journal call sites (see that file's header).
 // Same library, so `_spill` and `_accumulator` stay in scope.
@@ -171,6 +172,9 @@ class AudioCapture {
   }
 
   static int _wallClock() => DateTime.now().millisecondsSinceEpoch;
+
+  Future<bool> tailRetentionConfirmed = Future<bool>.value(false);
+  final Set<Future<bool>> _pendingTailRetentions = <Future<bool>>{};
 
   static int _bytesFor(Duration d) =>
       (kAudioSampleRate * kBytesPerSample * d.inMilliseconds) ~/ 1000;
@@ -414,12 +418,8 @@ class AudioCapture {
   ///   · WIRE: NOTHING. This verb never touches a transport (it has none) and
   ///     its caller must not emit either — no `audio:stop`, no residual chunk.
   ///
-  /// Returns whether the tail was actually handed to a live retention layer
-  /// (spill wired AND there was audio to keep). The caller words the
-  /// user-visible notice off this fact: claiming 「已录的音频保留在这台手机上」
-  /// ("the recorded audio has been kept on this phone") on a build whose spill
-  /// construction failed — or for a press that produced zero audio — would be
-  /// exactly the unbacked promise 15 册 §2.0-b bans.
+  /// Returns whether retention was requested. A kept notice must await
+  /// tailRetentionConfirmed; ptt_retention_confirmation_test.dart pins R11.
   ///
   /// ⚠️ `noteUplinkDown()` below is NOT a second writer of the uplink fact
   /// (the transport-status edge in ptt_capture_pump.dart stays the live one).
@@ -459,18 +459,24 @@ class AudioCapture {
     try {
       takeResidualChunk();
       final RetainedAudioSpill? spill = _spill;
-      final bool kept = spill != null && _ringBuffer.size > 0;
+      final bool requested = spill != null && _ringBuffer.size > 0;
+      tailRetentionConfirmed = Future<bool>.value(false);
       if (spill != null) {
         spill.noteUplinkDown();
-        unawaited(
-          spill.retainTail(_ringBuffer.since(cutoffMs: -1)).catchError(
+        tailRetentionConfirmed =
+          spill.retainTailConfirmed(_ringBuffer.since(cutoffMs: -1)).catchError(
             (Object e) {
               debugPrint('[flowmic.audio] retainTail failed on link loss: $e');
+              spill.store.announce(const RetainedAudioNotice(
+                code: RetainedAudioNotice.codeWriteFailed, bytes: 0));
+              return false;
             },
-          ),
-        );
+          );
+        final Future<bool> confirmation = tailRetentionConfirmed;
+        _pendingTailRetentions.add(confirmation);
+        unawaited(confirmation.then((_) => _pendingTailRetentions.remove(confirmation)));
       }
-      return kept;
+      return requested;
     } finally {
       // Card LS-2 — the link died: name it, so a recovery pass can tell this
       // apart from an ordinary stop without guessing from a timestamp.
@@ -612,6 +618,9 @@ class AudioCapture {
     _deadCaptureTimer?.cancel();
     _deadCaptureTimer = null;
     await _detachRecorder();
+    if (_pendingTailRetentions.isNotEmpty) {
+      await Future.wait(_pendingTailRetentions.toList());
+    }
     await _faultsController.close();
     await _platformBytesController.close();
     await _chunksController.close();

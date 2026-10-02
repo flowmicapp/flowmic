@@ -117,6 +117,17 @@ class RecordingScan {
 
   final String? note;
 
+  /// NR-137 round 3 — where the verified audio of this recording ENDS (the
+  /// same end every owed stretch is cut against), so a press that
+  /// re-transcribes the whole recording can name `[0, verifiedEnd)` as ONE
+  /// range — one `audio:start`, one operation (review B1). 0 when unknown.
+  final int verifiedEnd;
+
+  /// `[0, verifiedEnd)`; empty when [verifiedEnd] is 0.
+  JournalByteRange get wholeRange => verifiedEnd > 0
+      ? JournalByteRange(0, verifiedEnd)
+      : JournalByteRange.empty;
+
   const RecordingScan({
     required this.recordingId,
     required this.manifest,
@@ -136,6 +147,7 @@ class RecordingScan {
     this.owedStretches = 0,
     int? recoverableBytes,
     this.note,
+    this.verifiedEnd = 0,
   }) : _recoverableBytes = recoverableBytes;
 
   @override
@@ -338,6 +350,7 @@ class RetainedAudioJournalScan {
       ));
       final _Owed o = _Owed.of(marked, _floorEven(observed, frame));
       return RecordingScan(
+        verifiedEnd: _floorEven(observed, frame),
         recordingId: id,
         manifest: marked,
         committedClaim: claim,
@@ -368,6 +381,7 @@ class RetainedAudioJournalScan {
       final _Owed o =
           _Owed.of(parsed, foldable ? end : _floorEven(claim, frame));
       return RecordingScan(
+        verifiedEnd: foldable ? end : _floorEven(claim, frame),
         recordingId: id,
         manifest: parsed,
         committedClaim: claim,
@@ -386,6 +400,7 @@ class RetainedAudioJournalScan {
 
     final _Owed o = _Owed.of(parsed, _floorEven(claim, frame));
     return RecordingScan(
+      verifiedEnd: _floorEven(claim, frame),
       recordingId: id,
       manifest: parsed,
       committedClaim: claim,

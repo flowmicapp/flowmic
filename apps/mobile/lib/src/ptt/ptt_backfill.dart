@@ -104,9 +104,19 @@ extension PttSessionBackfill on PttSession {
     // recovery that predates the journal sends exactly the frame it always
     // sent, byte for byte, which is what keeps `backfill_channel_test.dart`
     // unchanged and green.
+    // ⚠️ 更正（NR-138, 2026-10-01）: the two sentences above are no longer
+    // true of production — the legacy leg passes an identity with
+    // [legacySegment] (below), so its frame now carries the eight keys. Null
+    // remains a valid call shape and still sends the old frame.
     //
     // Whole or absent, never half - see AudioStartPayload.recovery.
     RecoveryIdentity? identity,
+    // NR-138 — the legacy segment leg now carries an [identity] too, for the
+    // relay's operation registry (an automatic job is metered once). It is
+    // still not a journal attempt: it is not registered with the attempt
+    // ledger and does not set the fed range, so its rows keep the placement
+    // and the duration they always had.
+    bool legacySegment = false,
   }) {
     if (fsm.connection != ConnectionState.connected) {
       return BackfillStart.noLink;
@@ -123,11 +133,11 @@ extension PttSessionBackfill on PttSession {
     // where the decision is taken.
     _openSessionDelivery = Delivery.none;
     // Card FX-3 — and this is how much audio it is about to feed.
-    _openSessionRange = identity?.range;
+    _openSessionRange = legacySegment ? null : identity?.range;
     // Card RC-N — a journal attempt registers itself with its cursor right
     // after this returns (`recovery_leg_wire.dart` `_runOnWire`); the legacy
-    // leg has no identity, and its frames keep the placement they always had.
-    if (identity == null) articles.attempts.openedUntracked();
+    // leg is untracked, and its frames keep the placement they always had.
+    if (identity == null || legacySegment) articles.attempts.openedUntracked();
     // 04 SPEC 3.3-a's eight identifiers are SPREAD OVER the payload rather
     // than added to `AudioStartPayload`: that class sits at 697 lines in a
     // 700-line file (audit A9 discipline), and the merge belongs to the one
@@ -163,7 +173,7 @@ extension PttSessionBackfill on PttSession {
       if (identity != null) 'operation_id': identity.operationId,
       if (identity != null) 'attempt_kind': identity.attemptKind.wire,
       if (identity != null) 'range': identity.range.toString(),
-      'leg': identity == null ? 'legacy_segment' : 'journal',
+      'leg': identity == null || legacySegment ? 'legacy_segment' : 'journal',
     });
     return BackfillStart.started;
   }

@@ -21,7 +21,15 @@ extension _RecoveryLegAttempt on RecoveryJournalLeg {
     // settle this recording. Re-read before the owed-tail guard and identity.
     final _Candidate? fresh = await _freshCandidate(c.scan.recordingId);
     if (fresh == null) return _StepOutcome.completed;
-    c = fresh;
+    // NR-137 round 3 (review B1/B2) — a re-transcription of kept words is
+    // decided HERE, once, from the recording as it stands before the press,
+    // and fed WHOLE: one range, one `audio:start`, one operation. Nothing
+    // later in this attempt recomputes it from a state the attempt changed.
+    final bool keptWords = PendingRecoveryStore.redoesKeptWords(
+        manifest: fresh.manifest, kind: kind);
+    _Candidate? asFed(_Candidate? x) =>
+        x == null || !keptWords ? x : x.whole();
+    c = asFed(fresh)!;
     if (_heldForAnotherAccount(c) ||
         (kind == RecoveryAttemptKind.autoRetry &&
             !c.status.mayAutoAttemptAt(_clock()))) {
@@ -133,7 +141,8 @@ extension _RecoveryLegAttempt on RecoveryJournalLeg {
       }
       // Opening/existence checks yielded too. Never commit a stale handle
       // over a final's narrowed range, nor close it (close commits again).
-      final _Candidate? opened = await _freshCandidate(identity.recordingId);
+      final _Candidate? opened =
+          asFed(await _freshCandidate(identity.recordingId));
       if (opened == null ||
           recoveryRelevantProjection(opened.manifest, opened.range) !=
               recoveryRelevantProjection(c.manifest, c.range) ||
@@ -161,7 +170,8 @@ extension _RecoveryLegAttempt on RecoveryJournalLeg {
       // The durable attempt write is another yield. Revalidate its range and
       // debt before opening a cursor or sending audio. A changed snapshot is
       // retried from disk, with a new identity; no old-range bytes are sent.
-      final _Candidate? committed = await _freshCandidate(identity.recordingId);
+      final _Candidate? committed =
+          asFed(await _freshCandidate(identity.recordingId));
       if (committed == null ||
           recoveryRelevantProjection(committed.manifest, committed.range) !=
               recoveryRelevantProjection(j.manifest, c.range)) {
@@ -186,7 +196,12 @@ extension _RecoveryLegAttempt on RecoveryJournalLeg {
       // ⚠️ A candidate that is NOT an article closes any cursor a previous
       // candidate in this sweep left open: its rows are ordinary rows, and a
       // stale cursor would file them inside somebody else's recording.
-      final ArticleReplayTarget? target = articleReplayTargetFor(
+      // NR-137 round 2 — a re-transcription of kept words that does NOT
+      // replace in place makes a new note: no cursor, ordinary rows, which
+      // `_finishKeptWords` folds into that one note (recovery_leg_kept_words).
+      final bool asNote = keptWords &&
+          !await _keptWordsPathFor(c, identity.attemptId);
+      final ArticleReplayTarget? target = asNote ? null : articleReplayTargetFor(
         articles: _session.articles,
         timeline: _timeline,
         sessionKey: RetainedAudioSpill.sessionKeyOf(identity.recordingId),
@@ -195,11 +210,20 @@ extension _RecoveryLegAttempt on RecoveryJournalLeg {
         // `_accountOwedTail`), and unlike the in-memory stretch start it
         // survives a relaunch — the row derivation would otherwise land a
         // retry of a shortfall AFTER its own partial rows.
-        persistedStartMs: c.manifest.transcribedPrefixBytes == null
+        //
+        // NR-137 — and for a re-transcription of kept words: their rows ARE
+        // at the range start, and without this the derivation below puts the
+        // new rows after the END of the existing ones
+        // (article_replay_target.dart), where the replacement in `_finish`
+        // finds nothing to replace and the page carries both copies.
+        persistedStartMs: c.manifest.transcribedPrefixBytes == null &&
+                !keptWords
             ? null
             : pcmBytesToMs(c.range.start),
         // RC-K — this stretch's own placement, when it was recorded with one.
-        pinnedStartMs: c.scan.owedRange?.atMs,
+        // NR-137 round 3 — not for a whole-recording kept-words feed: it
+        // starts at the recording's start, not at a stretch.
+        pinnedStartMs: keptWords ? null : c.scan.owedRange?.atMs,
       );
       if (target != null) {
         _session.articles.beginReplay(target);

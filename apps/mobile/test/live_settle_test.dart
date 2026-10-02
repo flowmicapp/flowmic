@@ -23,7 +23,11 @@
 // cap — `verify:lint file-size`). The shared rig both files drive is
 // `support/live_settle_rig.dart`.
 
+import 'dart:async';
 import 'dart:io';
+
+import 'package:flowmic/src/timeline/timeline_entry.dart';
+import 'package:flowmic/src/timeline/timeline_persistence.dart';
 
 import 'package:flowmic/src/audio/retained_audio_journal.dart';
 import 'package:flowmic/src/audio/retained_audio_spill.dart';
@@ -269,6 +273,133 @@ void main() {
               'to the leg that opened that attempt');
       expect(r.pcmOf(id).existsSync(), isTrue,
           reason: 'and nothing was deleted on the strength of it');
+    });
+  });
+
+  group('all live result rows must be durable', () {
+    Future<String> segmentedPress({Future<void> Function()? beforeStop}) async {
+      await r.session.pttDown();
+      final String id = r.spill.liveAttempt!.recordingId;
+      r.recorder.feed(makePcm(frameBytes));
+      await r.pump();
+      r.transport.pushSoftSegment('earlier segment');
+      await r.pump();
+      await beforeStop?.call();
+      r.recorder.feed(makePcm(frameBytes));
+      await r.pump();
+      await r.session.pttUp();
+      await r.pump(4);
+      return id;
+    }
+
+    for (final bool corrupt in <bool>[false, true]) {
+      test('terminal persisted, earlier result ${corrupt ? "mismatched" : "failed"}: keep manual', () async {
+        final SelectivePersistence p = SelectivePersistence(
+            'earlier segment', corrupt: corrupt);
+        r = await Rig.open(persistence: p);
+        final String id = await segmentedPress();
+        await r.awaitSettleOf(id);
+        final TimelineEntry earlier = r.timeline.entries
+            .firstWhere((TimelineEntry e) => e.sourceText == 'earlier segment');
+        final TimelineEntry terminal = r.timeline.entries
+            .firstWhere((TimelineEntry e) => e.sourceText == r.transport.finalText);
+        expect(await p.loadById(terminal.id), isNotNull);
+        if (corrupt) {
+          expect((await p.loadById(earlier.id))!.outputText,
+              isNot(earlier.outputText));
+        } else {
+          expect(await p.loadById(earlier.id), isNull);
+          expect(p.refused, greaterThan(0));
+        }
+        expect(r.pcmOf(id).existsSync(), isTrue);
+        final RecordingManifest m = (await r.manifestOf(id))!;
+        expect(m.settled, isFalse);
+        expect(m.recoveryState, RecoveryQueueState.settledUnverified);
+        expect(m.resultRef, terminal.id);
+        expect(m.attempts.last.failureCode, 'rowNotPersisted');
+        final List<PendingRecoveryItem> pending = await PendingRecoveryStore(
+            runner: r.controller.backfill, sourceLang: () => 'zh').list();
+        final PendingRecoveryItem item = pending.singleWhere((PendingRecoveryItem item) => item.id == id);
+        expect(item.state, PendingRecoveryState.settledUnverified);
+        // ⚠️ 更正（NR-137 round 2, MAIN 2026-10-02）: was `{delete}`. A kept
+        // ordinary press now offers the user's Re-transcribe, which makes one
+        // new note and never touches these rows
+        // (nr137_unverified_retranscribe_test.dart). What this case is about
+        // still holds: nothing retries it AUTOMATICALLY (the line below).
+        expect(item.actions, <PendingRecoveryAction>{
+          PendingRecoveryAction.retryNow,
+          PendingRecoveryAction.delete,
+        });
+        expect(item.retranscribeAsNote, isTrue);
+        expect(RecoveryJobStatus.fromManifest(m).mayAutoAttemptAt(1 << 50), isFalse);
+      });
+    }
+
+    for (final bool userDeleted in <bool>[true, false]) {
+      test('missing row stays conservative: userDeleted=$userDeleted', () async {
+        final InMemoryTimelinePersistence p = userDeleted
+            ? InMemoryTimelinePersistence()
+            : SelectivePersistence('earlier segment');
+        r = await Rig.open(persistence: p);
+        final String id = await segmentedPress(beforeStop: () async {
+          final TimelineEntry earlier = r.timeline.entries
+              .singleWhere((TimelineEntry e) => e.sourceText == 'earlier segment');
+          await r.timeline.awaitPersisted(earlier.id);
+          if (userDeleted) {
+            expect(await p.loadById(earlier.id), isNotNull);
+            // The production batch deleter finishes before settlement.
+            await r.timeline.deleteMany(<TimelineEntry>[earlier]);
+          } else {
+            // A failed save vanishes when the store reloads its first page.
+            await r.timeline.load();
+          }
+          expect(r.timeline.findById(earlier.id), isNull);
+          expect(await p.loadById(earlier.id), isNull);
+        });
+        await r.awaitSettleOf(id);
+        final RecordingManifest m = (await r.manifestOf(id))!;
+        expect(m.recoveryState, RecoveryQueueState.settledUnverified);
+        expect(m.attempts.last.failureCode, 'rowNotPersisted');
+        expect(m.settled, isFalse);
+        expect(r.pcmOf(id).existsSync(), isTrue);
+      });
+    }
+
+    test('serialized writes wait for earlier row before terminal save and delete', () async {
+      final Completer<void> gate = Completer<void>();
+      addTearDown(() { if (!gate.isCompleted) gate.complete(); });
+      final SelectivePersistence p = SelectivePersistence('earlier segment', gate: gate);
+      r = await Rig.open(persistence: p);
+      final String id = await segmentedPress();
+      final TimelineEntry terminal = r.timeline.entries
+          .firstWhere((TimelineEntry e) => e.sourceText == r.transport.finalText);
+      // NR-146: the shared queue holds later writes behind the earlier save.
+      expect(await p.loadById(terminal.id), isNull);
+      expect(r.pcmOf(id).existsSync(), isTrue);
+      expect((await r.manifestOf(id))!.settled, isFalse);
+      gate.complete();
+      await r.awaitSettleOf(id);
+      expect((await r.manifestOf(id))!.settled, isTrue);
+      expect(r.pcmOf(id).existsSync(), isFalse);
+    });
+
+    test('no receipt and failed segment stay beyond TTL without expiry notice', () async {
+      int now = 0;
+      final SelectivePersistence p = SelectivePersistence('earlier segment');
+      r = await Rig.open(persistence: p, capabilities: const <String>[], clock: () => now);
+      r.transport.withReceipt = false;
+      final List<RetainedAudioNotice> notices = <RetainedAudioNotice>[];
+      final StreamSubscription<RetainedAudioNotice> sub = r.store.notices.listen(notices.add);
+      addTearDown(sub.cancel);
+      final String id = await segmentedPress();
+      await r.awaitSettleOf(id);
+      now = DateTime.now().add(const Duration(days: 2)).millisecondsSinceEpoch;
+      await r.store.sweep();
+      await r.pump();
+      expect(r.pcmOf(id).existsSync(), isTrue);
+      expect((await r.manifestOf(id))!.recoveryState, RecoveryQueueState.settledUnverified);
+      expect((await r.manifestOf(id))!.settled, isFalse);
+      expect(notices.where((RetainedAudioNotice n) => n.code == RetainedAudioNotice.codeExpired), isEmpty);
     });
   });
 

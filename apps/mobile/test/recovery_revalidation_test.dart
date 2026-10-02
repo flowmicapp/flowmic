@@ -28,7 +28,7 @@ import 'support/rc3_rig.dart' show Rc3Relay;
 class _JournalOnlyStore extends RetainedAudioStore {
   _JournalOnlyStore() : super(dir: Directory('memory-revalidation'));
   @override
-  Future<List<String>> pendingSessions() async => [];
+  Future<List<String>> pendingSessions({bool includeUnverified = false}) async => [];
 }
 
 class _Fs extends MemoryJournalFs {

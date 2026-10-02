@@ -21,7 +21,7 @@ import type { QuotaGuard } from '../billing/quota-guard';
 import { withQuotaBudget } from './stt-quota-budget';
 import { SttAllowancePool } from '../billing/stt-allowance-pool';
 import type { IntegratorSessionCaps } from '../billing/integrator-session-caps';
-import { reserveSessionAllowance } from './stt-session-allowance';
+import { reserveSessionAllowance, settleSessionUsage } from './stt-session-allowance';
 import { cappedRemainingSttMs } from '../billing/capped-remaining';
 import type { RoomStore } from '../room/store';
 import { markFlushSent, markFlushBacklog, markTerminalFinal } from '../obs/latency';
@@ -428,9 +428,10 @@ export function makeSttSessionFactory(
       ...(args.targetLang !== undefined ? { targetLang: args.targetLang } : {}),
       // card CV-1 — carried, not interpreted: the bridge echoes these on the terminal final (engine/stt-session-receipt.ts).
       ...(args.recovery !== undefined ? { recovery: args.recovery } : {}),
-      onComplete: (ms, byok, chars) => allowance
-        ? allowance.settle(ms, (billedMs) => args.onComplete(billedMs, byok, chars))
-        : args.onComplete(ms, byok, chars),
+      // NR-138 item 5 (book 22 §4.10) — charged ⇒ commit min(ms, hold); an engine failure with no usable transcript
+      // ⇒ the hold goes back whole and nothing is committed. One function, in stt-session-allowance.ts. *** billing ***
+      onComplete: (ms, byok, chars, failure) =>
+        settleSessionUsage(allowance, ms, byok, chars, failure, (m, b, c, f) => (f === undefined ? args.onComplete(m, b, c) : args.onComplete(m, b, c, f))),
       ...(args.onPolishUsage !== undefined ? { onPolishUsage: args.onPolishUsage } : {}),
       finalText,
       // `traceId` is attached HERE rather than inside resolvePolishDep so that

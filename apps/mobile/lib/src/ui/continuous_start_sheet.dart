@@ -31,17 +31,25 @@ class ContinuousSheetKeys {
   const ContinuousSheetKeys._();
   static const ValueKey<String> sheet = ValueKey<String>('continuous.sheet');
   static const ValueKey<String> cap = ValueKey<String>('continuous.sheet.cap');
-  static const ValueKey<String> left = ValueKey<String>('continuous.sheet.left');
+  static const ValueKey<String> left = ValueKey<String>(
+    'continuous.sheet.left',
+  );
 
   /// B-2 only. Its own key, because 「the sheet warned about the balance」 and
   /// 「the sheet printed a balance」 are different claims and a shared key would
   /// let a test meaning the first be satisfied by the second.
-  static const ValueKey<String> earlyStop =
-      ValueKey<String>('continuous.sheet.earlyStop');
-  static const ValueKey<String> noCancel =
-      ValueKey<String>('continuous.sheet.noCancel');
-  static const ValueKey<String> start = ValueKey<String>('continuous.sheet.start');
-  static const ValueKey<String> cancel = ValueKey<String>('continuous.sheet.cancel');
+  static const ValueKey<String> earlyStop = ValueKey<String>(
+    'continuous.sheet.earlyStop',
+  );
+  static const ValueKey<String> noCancel = ValueKey<String>(
+    'continuous.sheet.noCancel',
+  );
+  static const ValueKey<String> start = ValueKey<String>(
+    'continuous.sheet.start',
+  );
+  static const ValueKey<String> cancel = ValueKey<String>(
+    'continuous.sheet.cancel',
+  );
 }
 
 /// Ask before a continuous recording starts. `true` only on an explicit press of
@@ -80,6 +88,7 @@ Future<bool> askToStartContinuous(
   final bool? ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: Colors.transparent,
     builder: (BuildContext ctx) => account == null || reread == null
         ? _Sheet(offer: offer, strings: strings, cap: cap)
@@ -110,99 +119,101 @@ class _Sheet extends StatelessWidget {
     final bool short = offer.boundedByBalance;
     return SafeArea(
       top: false,
-      child: Container(
-        key: ContinuousSheetKeys.sheet,
-        margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        decoration: BoxDecoration(
-          color: FlowMicDockColors.panel,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: FlowMicDockColors.line),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: FlowMicDockColors.line,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              strings.continuousEntryTitle,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: FlowMicDockColors.ink,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _Line(
-              key: ContinuousSheetKeys.cap,
-              icon: Icons.timer_outlined,
-              text: strings.continuousSheetCap(cap),
-            ),
-            // §5-2 「读不到就不画」: a balance we could not read is a line that is
-            // not there. It is NOT rendered as 0, and the sheet does not soften
-            // into a vaguer sentence to cover for it — the ceiling line above is
-            // still exactly true.
-            if (left != null) ...<Widget>[
-              const SizedBox(height: 8),
-              _Line(
-                key: ContinuousSheetKeys.left,
-                icon: Icons.schedule,
-                text: strings.continuousSheetLeft(left),
-              ),
-            ],
-            if (short && left != null) ...<Widget>[
-              const SizedBox(height: 8),
-              _Line(
-                key: ContinuousSheetKeys.earlyStop,
-                icon: Icons.flag_outlined,
-                text: strings.continuousSheetEarlyStop(left),
-                accent: FlowMicDockColors.processing,
-              ),
-            ],
-            const SizedBox(height: 8),
-            _Line(
-              key: ContinuousSheetKeys.noCancel,
-              icon: Icons.error_outline,
-              text: strings.continuousSheetNoCancel,
-              accent: FlowMicDockColors.rec,
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: _Button(
-                    key: ContinuousSheetKeys.cancel,
-                    label: strings.continuousSheetCancel,
-                    onTap: () => Navigator.of(context).pop(false),
+      child: SingleChildScrollView(
+        child: Container(
+          key: ContinuousSheetKeys.sheet,
+          margin: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          decoration: BoxDecoration(
+            color: FlowMicDockColors.panel,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: FlowMicDockColors.line),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: FlowMicDockColors.line,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _Button(
-                    key: ContinuousSheetKeys.start,
-                    // The label changes with the warning above it. A button
-                    // still reading 「start recording」 under 「this will be cut
-                    // short」 reads as though the warning were decoration.
-                    label: short
-                        ? strings.continuousSheetStartAnyway
-                        : strings.continuousSheetStart,
-                    primary: true,
-                    onTap: () => Navigator.of(context).pop(true),
-                  ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                strings.continuousEntryTitle,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: FlowMicDockColors.ink,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _Line(
+                key: ContinuousSheetKeys.cap,
+                icon: Icons.timer_outlined,
+                text: strings.continuousSheetCap(cap),
+              ),
+              // §5-2 「读不到就不画」: a balance we could not read is a line that is
+              // not there. It is NOT rendered as 0, and the sheet does not soften
+              // into a vaguer sentence to cover for it — the ceiling line above is
+              // still exactly true.
+              if (left != null) ...<Widget>[
+                const SizedBox(height: 8),
+                _Line(
+                  key: ContinuousSheetKeys.left,
+                  icon: Icons.schedule,
+                  text: strings.continuousSheetLeft(left),
                 ),
               ],
-            ),
-          ],
+              if (short && left != null) ...<Widget>[
+                const SizedBox(height: 8),
+                _Line(
+                  key: ContinuousSheetKeys.earlyStop,
+                  icon: Icons.flag_outlined,
+                  text: strings.continuousSheetEarlyStop(left),
+                  accent: FlowMicDockColors.processing,
+                ),
+              ],
+              const SizedBox(height: 8),
+              _Line(
+                key: ContinuousSheetKeys.noCancel,
+                icon: Icons.error_outline,
+                text: strings.continuousSheetNoCancel,
+                accent: FlowMicDockColors.rec,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: _Button(
+                      key: ContinuousSheetKeys.cancel,
+                      label: strings.continuousSheetCancel,
+                      onTap: () => Navigator.of(context).pop(false),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _Button(
+                      key: ContinuousSheetKeys.start,
+                      // The label changes with the warning above it. A button
+                      // still reading 「start recording」 under 「this will be cut
+                      // short」 reads as though the warning were decoration.
+                      label: short
+                          ? strings.continuousSheetStartAnyway
+                          : strings.continuousSheetStart,
+                      primary: true,
+                      onTap: () => Navigator.of(context).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

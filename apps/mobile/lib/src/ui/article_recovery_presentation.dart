@@ -41,6 +41,9 @@ articleRecoveryPresentation(
               state,
               strings,
               otherAccount: item?.otherAccount ?? false,
+              retranscribable: item?.retranscribable ?? false,
+              asNote: item?.retranscribeAsNote ?? false,
+              blockedByServer: item?.retranscribeBlockedByServer ?? false,
             ),
     null => null,
   };

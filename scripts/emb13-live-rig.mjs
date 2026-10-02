@@ -6,6 +6,8 @@
 // OPT-IN, AND IT SPENDS MANAGED MINUTES. Without FLOWMIC_EMB13_LIVE=1 it prints
 // one `SKIP:` line and exits 2 (the repo's skip code, scripts/run-script-tests.mjs)
 // before touching a socket, so no gate can start it by accident.
+// Exception: WV7 cold-first-word with FLOWMIC_EMB13_FAKE_STT=1 is offline
+// recognition and needs no LIVE opt-in or credentials. See emb13-cold-first-word.md.
 //
 // COST PER RUN. A full run makes 27 recordings of the 6 s fixture: 20 field-type runs (4 types x 5),
 // 3 follow-focus edge cases (password, opted-out field, switching field mid-sentence), 3 fixed-selector
@@ -41,7 +43,8 @@
 // speech WAV (default: apps/mobile/integration_test/fixtures/zh-6s.wav, a real
 // 6 s human clip); FLOWMIC_PLAYWRIGHT_MODULE (as scripts/linux-copy-render.mjs).
 // FLOWMIC_EMB13_DRY=1 resolves and prints the configuration and stops (no relay, no browser, no
-// minutes). FLOWMIC_EMB13_ONLY=A,B,C,D,E,F picks scenarios; FLOWMIC_EMB13_RUNS / _KINDS shrink scenario B
+// minutes). FLOWMIC_EMB13_ONLY=A,B,C,D,E,F picks scenarios (G, card WV-T4's cold press, runs only
+// when named: FLOWMIC_EMB13_ONLY=G, with _T4_RUNS / _T4_ROOM_DELAY_MS / _T4_PREFIX / _T4_REFERENCE); FLOWMIC_EMB13_RUNS / _KINDS shrink scenario B
 // (debugging the rig only: the card asks for 5 runs of every field type). FLOWMIC_EMB13_KEEP_CHUNKS=1 keeps
 // every audio:chunk frame in report.json (thousands of rows) to inspect how much audio each press streamed.
 // Output: .local/emb13-live/<stamp>/report.json (+ screenshots on failure).
@@ -53,7 +56,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { liveEnabled, padWavWithSilence, parseEnvFile, redact, RIG_FLAG } from './emb13-live-rig-lib.mjs';
 
-if (!liveEnabled(process.env)) {
+import { coldScenes } from './emb13-cold-lib.mjs';
+
+const coldScenario = process.argv.find((a) => a.startsWith('--wv7-scenario='))?.split('=')[1] ?? process.env.FLOWMIC_EMB13_WV7_SCENARIO;
+const coldFake = process.env.FLOWMIC_EMB13_FAKE_STT === '1'
+  && process.env.FLOWMIC_EMB13_WV7 === '1'
+  && coldScenes.includes(coldScenario);
+if (process.env.FLOWMIC_EMB13_FAKE_STT === '1' && !coldFake) throw new Error('FAKE_STT supports only WV7 cold scenes');
+if (!liveEnabled(process.env) && !coldFake) {
   console.log(`SKIP: ${RIG_FLAG} is not 1; this rig spends managed transcription minutes and only runs on request.`);
   process.exit(2);
 }
@@ -79,11 +89,11 @@ function resolveConfig() {
     throw new Error('no built web client: set FLOWMIC_EMB13_WEB_ROOT to a checkout where `pnpm --filter @flowmic/web-core build && pnpm --filter @flowmic/web-sdk build` has run (packages/sdk/dist/flowmic-sdk.heavy.json is missing)');
   }
   const common = gitCommonRoot();
-  const sonioxPath = firstExisting([
+  const sonioxPath = coldFake ? null : firstExisting([
     process.env.FLOWMIC_EMB13_SONIOX_ENV, join(REPO, '.local', 'soniox.env'), common && join(common, '.local', 'soniox.env'),
   ]);
-  if (!sonioxPath) throw new Error('no Soniox credentials file: set FLOWMIC_EMB13_SONIOX_ENV or provide .local/soniox.env');
-  const soniox = parseEnvFile(readFileSync(sonioxPath, 'utf8'));
+  if (!coldFake && !sonioxPath) throw new Error('no Soniox credentials file: set FLOWMIC_EMB13_SONIOX_ENV or provide .local/soniox.env');
+  const soniox = coldFake ? { FLOWMIC_MANAGED_STT_ENGINE: 'soniox', FLOWMIC_MANAGED_STT_API_KEY: 'local-fixture-no-vendor' } : parseEnvFile(readFileSync(sonioxPath, 'utf8'));
   for (const k of ['FLOWMIC_MANAGED_STT_ENGINE', 'FLOWMIC_MANAGED_STT_API_KEY']) {
     if (!soniox[k]) throw new Error(`${sonioxPath} has no ${k}`);
   }
@@ -95,9 +105,9 @@ function resolveConfig() {
   const reactDomDir = join(webRoot, 'node_modules', 'react-dom', 'umd');
   const react = existsSync(join(reactDir, 'react.production.min.js')) && existsSync(join(reactDomDir, 'react-dom.production.min.js'))
     ? { react: join(reactDir, 'react.production.min.js'), dom: join(reactDomDir, 'react-dom.production.min.js') } : null;
-  const cloudModule = join(REPO, 'packages', 'stt-cloud', 'dist', 'index.cjs');
+  const cloudModule = coldFake ? join(HERE, 'emb13-cold-stt.cjs') : join(REPO, 'packages', 'stt-cloud', 'dist', 'index.cjs');
   if (!existsSync(cloudModule)) throw new Error('packages/stt-cloud/dist/index.cjs is missing: run `pnpm --filter @flowmic/stt-cloud build`');
-  return { webRoot, dist, heavyFile: heavy.file, soniox, sonioxPath, wav, react, cloudModule };
+  return { webRoot, dist, heavyFile: heavy.file, soniox, sonioxPath, wav, react, cloudModule, fakeStt: coldFake };
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +120,9 @@ async function startSdkHost(cfg) {
   const requests = [];
   const loader = readFileSync(join(cfg.dist, 'flowmic-sdk.v1.js'));
   const heavy = readFileSync(join(cfg.dist, cfg.heavyFile));
+  const qrManifest = join(cfg.dist, 'flowmic-sdk.qr.json');
+  const qrFile = existsSync(qrManifest) ? JSON.parse(readFileSync(qrManifest, 'utf8')).file : null;
+  const qr = qrFile ? readFileSync(join(cfg.dist, qrFile)) : null;
   const server = createServer((req, res) => {
     const path = new URL(req.url, 'http://x').pathname;
     requests.push({ at: Date.now(), path });
@@ -119,6 +132,7 @@ async function startSdkHost(cfg) {
     };
     if (path === '/go/integrator/v1.js') return send(loader, 'public, max-age=300, must-revalidate');
     if (path === `/go/integrator/${cfg.heavyFile}`) return send(heavy, 'public, max-age=31536000, immutable');
+    if (qrFile && path === `/go/integrator/${qrFile}`) return send(qr, 'public, max-age=31536000, immutable');
     res.writeHead(404).end();
   });
   const port = await listen(server);
@@ -199,11 +213,33 @@ const NOISE = new Set(['sys:ping', 'sys:pong', 'heartbeat', 'stt:level', 'audio:
 const fmt = (s) => (s && s.n ? `${s.p50} / ${s.max}` : 'n/a');
 
 async function main() {
+  let wv7;
+  if (process.env.FLOWMIC_EMB13_WV7 === '1') {
+    const { resolveWv7Config, assertBudget } = await import('./emb13-wv7-acceptance.mjs');
+    wv7 = resolveWv7Config();
+    if (coldScenes.includes(wv7.scenario) && !coldFake) throw new Error('cold-first-word requires FLOWMIC_EMB13_FAKE_STT=1; no managed recognition');
+    console.log(`WV7 CONFIG: ${JSON.stringify(wv7)}`);
+    assertBudget(wv7); // Before credentials, servers, accounts, or managed audio.
+  } else if ((process.env.FLOWMIC_EMB13_ONLY ?? '').split(',').includes('G')) {
+    const { resolveWv7Config, assertBudget } = await import('./emb13-wv7-acceptance.mjs');
+    const plan = resolveWv7Config({ ...process.env, FLOWMIC_EMB13_WV7_SCENARIO: 'first-word', FLOWMIC_EMB13_WV7_SURFACES: 'sdk' }, []);
+    // Conservative: includes two reference recordings (G normally uses one).
+    if (process.env.FLOWMIC_EMB13_ONLY !== 'G') { plan.estimatedMinutes += 3; plan.verdict = plan.estimatedMinutes <= plan.maxMinutes ? 'PASS' : 'FAIL'; }
+    console.log(`WV-T4 CONFIG: ${JSON.stringify(plan)}`); assertBudget(plan);
+  }
   const cfg = resolveConfig();
+  cfg.wv7 = wv7;
+  if (wv7 && (!process.env.FLOWMIC_EMB13_WEBSITE_ROOT || !existsSync(join(process.env.FLOWMIC_EMB13_WEBSITE_ROOT, 'dist', 'index.html')))) {
+    throw new Error('WV7 needs FLOWMIC_EMB13_WEBSITE_ROOT with a built dist/index.html');
+  }
   if (process.env.FLOWMIC_EMB13_DRY === '1') {
     // FLOWMIC_EMB13_DRY=1: resolve and print the configuration, start nothing, spend nothing.
-    console.log(`DRY: web client ${cfg.webRoot} (loader ${cfg.heavyFile}); soniox env ${cfg.sonioxPath}; speech ${cfg.wav}; react ${cfg.react ? 'yes' : 'no'}; nothing was started.`);
+    console.log(`DRY: web client ${cfg.webRoot} (loader ${cfg.heavyFile}); recognition ${cfg.fakeStt ? 'local PCM fixture; credentials not read' : `managed; soniox env ${cfg.sonioxPath}`}; speech ${cfg.wav}; react ${cfg.react ? 'yes' : 'no'}; nothing was started.`);
     return;
+  }
+  if (process.env.FLOWMIC_EMB13_WV7 === '1') {
+    const { runWv7 } = await import('./emb13-wv7.mjs');
+    return runWv7(cfg, { startRelay, startSdkHost, startSite, mintKey, listen, repo: REPO });
   }
   // Loaded only now: the skip path above must not import node:sqlite (its warning) or open anything.
   const { SILENCE_PAD_MS } = await import('./emb13-live-driver.mjs');
@@ -213,7 +249,13 @@ async function main() {
   mkdirSync(runDir, { recursive: true });
   const secrets = [cfg.soniox.FLOWMIC_MANAGED_STT_API_KEY];
   const padded = join(runDir, 'speech-padded.wav');
-  writeFileSync(padded, padWavWithSilence(readFileSync(cfg.wav), SILENCE_PAD_MS));
+  // Card WV-T4 round 2: scene G (the cold press) hears the fixture onset-aligned,
+  // its lead-in moved to the end (`onsetAlignedWav`, same length, so LOOP_MS still
+  // holds); a run without G hears the fixture exactly as before.
+  const onsetAligned = (process.env.FLOWMIC_EMB13_ONLY ?? '').split(',').includes('G');
+  const { onsetAlignedWav } = await import('./emb13-wv7-lib.mjs');
+  const speechSource = onsetAligned ? onsetAlignedWav(readFileSync(cfg.wav)) : readFileSync(cfg.wav);
+  writeFileSync(padded, padWavWithSilence(speechSource, SILENCE_PAD_MS));
   const only = (process.env.FLOWMIC_EMB13_ONLY ?? '').split(',').filter(Boolean);
   const wanted = (letter) => only.length === 0 || only.includes(letter);
   const state = { runDir, roomBuilds: [] };
@@ -243,6 +285,9 @@ async function main() {
     });
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['microphone'] });
     const plan = [['A', S.sceneLoadCost], ['B', S.sceneFollowFocus], ['C', S.sceneFixedSelector], ['D', S.sceneNoTarget], ['E', S.sceneForeignOrigin]];
+    // Card WV-T4 (web client): G runs only when named (FLOWMIC_EMB13_ONLY=G), so a
+    // full A-F run costs what it always did; G alone is 1 + FLOWMIC_EMB13_T4_RUNS recordings.
+    if (only.includes('G')) plan.push(['G', S.sceneColdPress]);
     for (const [letter, scene] of plan) {
       if (!wanted(letter)) continue;
       console.log(`scenario ${letter} ...`);

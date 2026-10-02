@@ -10,8 +10,23 @@ String recoveryStatusSentence(
   PendingRecoveryState state,
   AppStrings s, {
   bool otherAccount = false,
+  // NR-137 — `PendingRecoveryItem.retranscribable`: the unverified sentence
+  // that also says what the card's Re-transcribe does.
+  bool retranscribable = false,
+  // NR-137 round 2 — the press makes a new note (earlier rows untouched).
+  bool asNote = false,
+  // NR-137 round 2 — kept words the server would refuse: say why (tier C).
+  bool blockedByServer = false,
 }) {
   if (otherAccount) return s.pendingRecoveryOtherAccount;
+  if (state == PendingRecoveryState.settledUnverified) {
+    if (blockedByServer) return s.pendingRecoveryStateServerUnsupported;
+    if (retranscribable) {
+      return asNote
+          ? s.pendingRecoveryStateUnverifiedRetranscribeNote
+          : s.pendingRecoveryStateUnverifiedRetranscribe;
+    }
+  }
   return switch (state) {
     PendingRecoveryState.waitingAuto => s.pendingRecoveryStateWaiting,
     PendingRecoveryState.needsManual => s.pendingRecoveryStateNeedsManual,

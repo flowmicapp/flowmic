@@ -10,7 +10,7 @@
 //
 // Finds audio that was captured while the link was down, feeds it back through
 // the ordinary transcription path one stretch at a time, and deletes each
-// stretch the moment its words have become rows.
+// stretch once all its transcript rows have passed durable readback.
 //
 // It is the piece that makes 「断网期间说的话也在这一篇里」 (「what you said while
 // the link was down is in this piece too」) true — C3, which the task unit calls
@@ -34,17 +34,14 @@
 // is the boundary FB-2 depends on (a store that kept them 「just in case」 would
 // BE the voice archive this product is forbidden to build). But deleting them
 // before the rows exist would lose the words outright, so the delete is the LAST
-// step and a failed attempt deletes nothing: the bytes stay, the stretch is
-// retried, and the worst case is that the same audio is transcribed twice —
-// which costs quota and loses nothing.
-//
-// ⚠️ Duplicate rows from a double transcription are possible in that worst case
-// and are NOT deduplicated here. Stated rather than hidden: the idempotency key
-// family is `(session, segment_idx)` and a retry produces the SAME pair, so the
-// place to close it is the settle path's existing watermark — not a second
-// dedupe invented here, which is how a mechanism ends up with two owners.
+// step. Only existing, unconfirmed results mark a segment unverified; transient
+// failures retain main's next-sweep retry behavior without such a marker.
+// PendingRecoveryStore lists marked results as settledUnverified for deletion.
+// Empty recognition retains main's existing disposal behavior (no rows to lose).
 
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:typed_data' show BytesBuilder; // NR-137 round 3 (backfill_legacy_kept)
 
 import 'package:flutter/foundation.dart';
 
@@ -56,17 +53,30 @@ import '../ptt/ptt_session.dart';
 import '../settings/phone_prefs_payload.dart';
 import '../signaling/state_machine.dart';
 import '../signaling/wire_payloads.dart' show FlowMode;
+import '../stt/segment_buffer.dart';
 import '../timeline/article.dart';
+import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart';
+import '../timeline/timeline_verified_reads.dart' show TimelineReleaseClaim;
+import '../timeline/timeline_write_gate.dart';
 import 'article_replay_target.dart';
 import 'backfill_progress.dart';
 export 'backfill_progress.dart';
 import 'instance_probe.dart' show ServerChannel;
+import 'kept_words_retranscribe.dart';
+import 'legacy_recovery_identity.dart';
+import 'legacy_retry_budget.dart';
 import 'pending_recovery.dart'
     show PendingRetryOutcome, PendingRecoveryItem, PendingRecoveryState;
 import 'recovery_gate.dart';
+import 'recovery_identity.dart' show RecoveryAttemptKind;
 import 'recovery_journal_leg.dart';
 import 'recovery_retry_timer.dart';
+
+// NR-138 — the legacy segment leg, with its retry budget (that header says why
+// it is a part).
+part 'backfill_legacy_leg.dart';
+part 'backfill_legacy_kept.dart'; // NR-137 round 2
 
 /// Feeds retained audio back through the ordinary transcription path.
 ///
@@ -161,14 +171,66 @@ class BackfillRunner {
   /// it. [passStartedMs] is read before the pass checks anything, so every
   /// deadline the pass could not have honoured is still armed (at once, when
   /// it has already passed); one it did see as due was the pass's to try.
-  Future<void> _armRetry(String sourceLang, {required int passStartedMs}) async {
+  ///
+  /// NR-138 ② — and for the legacy leg's earliest due time as well, by the
+  /// same rule. ⚠️ 更正: this used to return early when the spill was not on
+  /// the journal face, so a legacy-only phone never armed anything; the
+  /// legacy half is armed whichever face is on.
+  Future<void> _armRetry(RetainedAudioStore store, String sourceLang,
+      {required int passStartedMs}) async {
+    if (_disposed) return;
     final RetainedAudioSpill? spill = _session.audio.retainedAudio;
-    if (_disposed || spill == null || !spill.retainFromFirstFrame) return;
+    final int? journal = spill == null || !spill.retainFromFirstFrame
+        ? null
+        : await RecoveryRetryTimer.earliestDueMs(spill, passStartedMs);
+    final int? legacy = await _legacyEarliestDueMs(store, passStartedMs);
+    if (_disposed) return;
     _retrySourceLang = sourceLang;
-    _retry.arm(await RecoveryRetryTimer.earliestDueMs(spill, passStartedMs));
+    _retry.arm(journal == null || legacy == null
+        ? journal ?? legacy
+        : math.min(journal, legacy));
   }
 
   int _nowMs() => (_clock ?? () => DateTime.now().millisecondsSinceEpoch)();
+
+  /// NR-138 ① — who THIS runner is when it reserves a legacy attempt, and
+  /// which session its one attempt is out on (single-flight, so at most one).
+  /// Only that reservation is in flight; any other one a reader finds is an
+  /// attempt whose ending was never written.
+  final String _legacyOwner =
+      'r-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
+      '-${(_ownerSeq++).toRadixString(36)}';
+  static int _ownerSeq = 0;
+  String? _legacyInFlight;
+
+  /// Legacy sessions whose retry record this runner could not write.
+  final Set<String> _legacyUnwritable = <String>{};
+
+  static int _idSeq = 0;
+
+  /// NR-138 ③ — an attempt / operation id for the legacy leg: the injected
+  /// seam when a test provides one, otherwise a time-and-counter string (the
+  /// journal leg's default shape).
+  String _mintId() =>
+      (_newId ??
+          () => '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
+              '-${(_idSeq++).toRadixString(36)}')();
+
+  /// 🔴 A7-3's 「can an account be charged here」, ONE answer for both legs:
+  /// the journal leg is built with this same function. NULL (not probed yet)
+  /// reads as metered — the fail-closed direction.
+  bool Function() get _meteredFn =>
+      _metered ?? () => _session.serverChannel.value != ServerChannel.lan;
+
+  /// NR-138 ③ — may the legacy leg send at all right now? Evaluated the way
+  /// the journal leg evaluates its tier (same parsed ack, same metered
+  /// answer, same verifier), so the capability rules have one author.
+  LegacyRecoveryGate get legacyGate =>
+      legacyRecoveryGateOf(evaluateRecoveryGate(
+        caps: _session.reconnect.serverCapabilities,
+        metered: _meteredFn(),
+        verifier: _legacyVerifier,
+      ));
 
   /// Card RC-1a - THE JOURNAL LEG, built once and only when the spill is
   /// actually running the journal face.
@@ -206,15 +268,20 @@ class BackfillRunner {
       // can be charged. The channel probe answers that; NULL (not yet probed)
       // reads as metered, which is the fail-closed direction - guessing
       // 「standalone」 would drop the requirement on the deployment where getting
-      // it wrong costs the user money.
-      metered: _metered ??
-          () => _session.serverChannel.value != ServerChannel.lan,
+      // it wrong costs the user money. NR-138: the legacy leg reads the same
+      // function ([_meteredFn]).
+      metered: _meteredFn,
       sleep: _sleep,
     );
   }
 
   RecoveryJournalLeg? _journalLeg;
   RecoveryLegOutcome _lastLegOutcome = RecoveryLegOutcome.none;
+
+  /// NR-137 — the user presses queued or running, by recording (see
+  /// [retranscribe]).
+  final Map<String, Future<PendingRetryOutcome>> _pressesInFlight =
+      <String, Future<PendingRetryOutcome>>{};
 
   /// 🔴 THE SINGLE-FLIGHT LATCH. See the header: two stretches at once is a
   /// corruption, not a performance problem.
@@ -275,6 +342,17 @@ class BackfillRunner {
   /// time is how two answers appear (recovery_gate.dart's own rule).
   RecoveryTier? get lastServerTier => _lastLegOutcome.tier;
 
+  /// NR-137 — which of [articleIds] a re-transcription of kept words can
+  /// REPLACE, asked of THIS runner's timeline (the one the leg replaces rows
+  /// in), so the list and the press read one answer
+  /// (`kept_words_retranscribe.dart`).
+  Future<Set<String>> replaceableKeptWordArticles(Set<String> articleIds) =>
+      replaceableArticles(_timeline, articleIds);
+
+  /// NR-137 round 2 — would a press be metered here? The same A7-3 answer
+  /// both legs use ([_meteredFn]; NULL, not yet probed, reads as metered).
+  bool get pressIsMetered => _meteredFn();
+
   /// Whether the microphone is open right now.
   ///
   /// A COURTESY FOR THE SCREEN, NOT A GATE. The authority is
@@ -305,16 +383,48 @@ class BackfillRunner {
   /// awaiting caller (the screen, which then re-reads its list) must not be
   /// told "done" about somebody else's pass - the same mistake `sweep`'s own
   /// header records as measured.
+  ///
+  /// NR-138 ④ — [legacy]: [recordingId] is a LEGACY session key, and the
+  /// press goes to that session's segments only
+  /// (`backfill_legacy_leg.dart` `_retranscribeLegacy`), through this same
+  /// latch. NR-137's re-transcription of `settled_unverified` audio would
+  /// enter here too, for both faces, once its design decides what happens to
+  /// the rows already saved.
+  /// ⚠️ 更正（NR-137, 2026-10-02）: it enters here for the JOURNAL face only
+  /// (`legacy: false` → `RecoveryJournalLeg.runOne`), and only for an article
+  /// whose earlier rows can be replaced (`kept_words_retranscribe.dart`).
+  /// Legacy unverified segments stay delete-only: nothing records which rows
+  /// they produced (design `_dispatch/2026-10-02-nr137-design.md` §1).
+  ///
+  /// NR-137 — 🔴 A SECOND PRESS ON THE SAME RECORDING JOINS THE FIRST. Each
+  /// press is metered (O-4), and a request queued behind one still running
+  /// would start a second billed attempt as soon as the first left the card
+  /// in place (an unproven or empty answer does). The page hides the buttons
+  /// while a press is in flight; this is the lock behind that courtesy.
   Future<PendingRetryOutcome> retranscribe({
     required String recordingId,
     required String sourceLang,
+    bool legacy = false,
   }) {
+    final String pressKey = '${legacy ? 'l' : 'j'}:$recordingId';
+    final Future<PendingRetryOutcome>? joining = _pressesInFlight[pressKey];
+    if (joining != null) {
+      diag('audio.recovery.user_retry_joined', <String, Object?>{
+        'recording_id': recordingId,
+      });
+      return joining;
+    }
     final Completer<PendingRetryOutcome> out =
         Completer<PendingRetryOutcome>();
+    _pressesInFlight[pressKey] = out.future;
+    unawaited(out.future
+        .whenComplete(() => _pressesInFlight.remove(pressKey)));
     final Future<void> queued =
         (_inFlight ?? Future<void>.value()).then((_) async {
       try {
-        out.complete(await _retranscribe(recordingId, sourceLang));
+        out.complete(legacy
+            ? await _retranscribeLegacy(recordingId, sourceLang)
+            : await _retranscribe(recordingId, sourceLang));
       } on Object catch (e) {
         // A throw here would leave the caller awaiting a future nobody ever
         // completes - a screen frozen on a spinner, which is the silent
@@ -340,6 +450,8 @@ class BackfillRunner {
     // drive. Said as its own answer rather than as a failure, because nothing
     // failed - `pending_recovery_store.dart` only ever offers the button for
     // journal recordings, so this arm is the defensive one.
+    // ⚠️ 更正（NR-138）: the store now offers it for legacy sessions too, and
+    // routes those with `legacy: true` to `_retranscribeLegacy` instead.
     if (leg == null) return PendingRetryOutcome.unavailable;
     final RetainedAudioStore? store = _storeOf();
     if (store != null) await _publish(store, running: true);
@@ -400,6 +512,7 @@ class BackfillRunner {
     final RetainedAudioStore? store = _storeOf();
     if (store == null) return;
     await _publish(store, running: true);
+    final int passStartedMs = _nowMs(); // Codex rc3 ⑦ — see `_armRetry`
     // 🔴 THE JOURNAL LEG GOES FIRST, AND THE ORDER IS NOT ARBITRARY: when the
     // journal face is on, the segment store is not being written at all (see
     // retained_audio_spill.dart's header - the two faces never store the same
@@ -408,7 +521,6 @@ class BackfillRunner {
     // a user would choose.
     final RecoveryJournalLeg? leg = journalLeg;
     if (leg != null) {
-      final int passStartedMs = _nowMs(); // Codex rc3 ⑦ — see `_armRetry`
       _lastLegOutcome = await leg.run(
         fallbackSourceLang: sourceLang,
         onScanned: (RecoveryLegOutcome debt) async {
@@ -416,20 +528,17 @@ class BackfillRunner {
           await _publish(store, running: true);
         },
       );
-      await _armRetry(sourceLang, passStartedMs: passStartedMs); // RC-O
       if (_lastLegOutcome.stopEarly) {
+        await _armRetry(store, sourceLang, passStartedMs: passStartedMs);
         await _publish(store, running: false);
         return;
       }
     }
-    for (final String key in await store.pendingSessions()) {
-      // The session currently being written to is LIVE audio, not a debt: a
-      // recording in progress with the link down is still filling that file.
-      if (key == store.sessionKey) continue;
-      // Refused (no link, or a press is holding the session) ⇒ stop this pass.
-      // The debt stays on disk and the next edge asks again.
-      if (!await _replaySession(store, key, sourceLang)) break;
-    }
+    // NR-138 — the legacy loop and its budget live in backfill_legacy_leg.dart.
+    await _runLegacy(store, sourceLang);
+    // RC-O — armed at the END of the pass, after both legs (NR-138 ②: the
+    // legacy leg's due times are armed by the same timer).
+    await _armRetry(store, sourceLang, passStartedMs: passStartedMs);
     // 🔴 EXPLICITLY `running: false`, not `_inFlight != null` — that field is
     // still set here (it is cleared in the `whenComplete` that wraps this),
     // so deriving it would make the final publish say 「still working」 every
@@ -437,156 +546,12 @@ class BackfillRunner {
     await _publish(store, running: false);
   }
 
-  /// Recover one session's retained stretches. Returns false when the caller
-  /// should stop trying for now (no link, a press in progress).
-  Future<bool> _replaySession(
-    RetainedAudioStore store,
-    String key,
-    String sourceLang,
-  ) async {
-    for (final int idx in await store.pendingSegments(session: key)) {
-      // Per SEGMENT, not per session: each retained file is one outage (the
-      // server's segment index freezes for the length of a gap and advances
-      // when the link returns), so each one has its own start.
-      final ArticleReplayTarget? target = _targetFor(key);
-      final Uint8List? pcm = await store.read(idx, session: key);
-      if (pcm == null || pcm.isEmpty) {
-        // Nothing to recover, and nothing to keep. An empty retained file is
-        // not audio anyone said.
-        await store.settle(idx, session: key);
-        continue;
-      }
-      final bool ok = await _replayOne(
-        pcm: pcm,
-        target: target,
-        sourceLang: sourceLang,
-      );
-      if (!ok) return false;
-      // 🔴 LAST, and only now: the words are rows. See the header. The
-      // recorded gap start is dropped in the same breath and for the same
-      // reason — it describes a stretch that no longer needs recovering.
-      await store.settle(idx, session: key);
-      _session.articles.dropStretchStart(key);
-      await _publish(store, running: true);
-    }
-    return true;
-  }
-
-  /// One stretch: open, feed, close, wait for the words.
-  Future<bool> _replayOne({
-    required Uint8List pcm,
-    required ArticleReplayTarget? target,
-    required String sourceLang,
-  }) async {
-    if (target != null) _session.articles.beginReplay(target);
-    if (!_session
-        .beginBackfill(
-          mode: kRecoveryMode,
-          sourceLang: sourceLang,
-          prefs: _phonePrefs?.call(),
-        )
-        .ok) {
-      _session.articles.endReplay();
-      return false;
-    }
-    final int frames = _session.feedBackfill(pcm);
-    if (frames == 0) {
-      // The wire refused everything — nothing was transcribed, so nothing may
-      // be deleted. Put the FSM back and let the next sweep try again.
-      _session.abortBackfill();
-      _session.articles.endReplay();
-      return false;
-    }
-    _session.endBackfill();
-    // 🔴 THE CURSOR IS **NOT** CLOSED HERE ON SUCCESS, and that is not an
-    // omission — see ArticleScribe.endReplay for what closing it cost. The
-    // rows this recovery is for settle a microtask after the FSM comes to
-    // rest, so a `finally` around this closes the cursor first and the
-    // recovered sentences get filed at the end of the recording. It is closed
-    // by the next press or the next recording, and nothing between those two
-    // points can mint a row.
-    return _awaitSettled();
-  }
-
-  /// Wait for the recovery utterance to finish producing rows.
-  ///
-  /// ⚠️ THE TIMEOUT IS NOT A GUESS ABOUT THE ENGINE, it is a bound on how long
-  /// this object holds the single-flight latch. Expiring does NOT mean the
-  /// stretch failed — the finals may still be arriving and still settling — so
-  /// it returns false and leaves the bytes alone. A later sweep will find them
-  /// again, which costs a second transcription and loses nothing; deleting on a
-  /// timeout is the one choice here that could lose words.
-  ///
-  /// 🔴 P0-1 (2026-09-02 audit) — `sessionAcceptsPttDown` WAS THE PREDICATE
-  /// HERE, and it is the wrong one: it answers 「idle, or the JUST_DONE face」,
-  /// which is also what `state_machine.dart`'s own 15 s processing watchdog and
-  /// its terminal-`stt:error` stall (`_stallProcessing`) produce on their way
-  /// BACK TO IDLE. A stall is not a completion — no terminal final arrived, no
-  /// row was built — but this predicate could not tell the two apart, so an
-  /// engine hiccup made this function report 「done」 and the caller deleted a
-  /// stretch of audio that had never been transcribed. Only [SessionState
-  /// .justDone] is reachable exclusively through [FlowmicStateMachine
-  /// .onSttFinal] — a REAL terminal final — so it is the one state this
-  /// function may treat as settled.
-  ///
-  /// ⚠️ THE SYNCHRONOUS CASE, AND WHY IT IS CHECKED BEFORE SUBSCRIBING TO
-  /// ANYTHING: a terminal `stt:error` that arrived while capture was still
-  /// open is LATCHED (`onSttTerminalError`, RECORDING branch) and consumed the
-  /// instant `endBackfill()` — called by our caller one line above this
-  /// function — calls `fsm.onPttUp()`. That stall (PROCESSING → IDLE) and its
-  /// `sttStalled` event both fire synchronously, before this function has had
-  /// a chance to listen for anything. A generic `SessionState.processing` check
-  /// at entry, done ONCE, catches that miss: anything other than PROCESSING or
-  /// JUST_DONE at this exact instant means a stall already happened and there
-  /// is nothing left to wait for.
-  Future<bool> _awaitSettled() async {
-    final SessionState atEntry = _session.fsm.session;
-    if (atEntry == SessionState.justDone) return true;
-    if (atEntry != SessionState.processing) {
-      // A stall already ran to completion — and its own event already fired —
-      // before this function subscribed to anything. Say so and stop, rather
-      // than sitting out the full [_settleTimeout] waiting for an event that
-      // has already happened and gone.
-      diag('audio.backfill.stall', <String, Object?>{
-        'reason': 'synchronous',
-        'session': atEntry.name,
-      });
-      return false;
-    }
-    final Completer<bool> done = Completer<bool>();
-    late final StreamSubscription<FlowmicStateSnapshot> stateSub;
-    late final StreamSubscription<SttStall> stallSub;
-    final Timer timer = Timer(_settleTimeout, () {
-      if (!done.isCompleted) {
-        diag('audio.backfill.settle_timeout', const <String, Object?>{});
-        // Card RC-M — a recovery session has no GA-03 net any more
-        // (`endBackfill`), so this clock is the one that ends its wait.
-        _session.abortBackfill();
-        done.complete(false);
-      }
-    });
-    stateSub = _session.fsm.changes.listen((FlowmicStateSnapshot s) {
-      if (!done.isCompleted && s.session == SessionState.justDone) {
-        done.complete(true);
-      }
-    });
-    stallSub = _session.sttStalled.listen((SttStall stall) {
-      if (!done.isCompleted) {
-        diag('audio.backfill.stall', <String, Object?>{
-          'reason': stall.reason.name,
-          if (stall.code != null) 'code': stall.code,
-        });
-        done.complete(false);
-      }
-    });
-    try {
-      return await done.future;
-    } finally {
-      timer.cancel();
-      await stateSub.cancel();
-      await stallSub.cancel();
-    }
-  }
+  /// NR-138 — the state the pending page and the article give one LEGACY
+  /// session. ONE author: [_publish] and `PendingRecoveryStore._addLegacy`
+  /// both ask this, so the banner and the list cannot disagree.
+  Future<PendingRecoveryState> legacyStateOf(
+          RetainedAudioStore store, String key) =>
+      _legacyStateIn(store, key);
 
   /// Where one retained session's rows belong — card RC-3 moved the body,
   /// unchanged, to session/article_replay_target.dart so the journal leg asks
@@ -622,24 +587,33 @@ class BackfillRunner {
     // immediately before the write is the one that makes the claim.
     if (_disposed) return;
     int bytes = 0;
+    int unverified = 0;
+    int legacyManual = 0; // NR-138 ④
     // Card RC-G — per session key: legacy bytes (all outage, see below) and
     // the journal leg's own split.
     final Map<String, (int, int, bool, PendingRecoveryItem?)> perKey =
         <String, (int, int, bool, PendingRecoveryItem?)>{};
-    for (final String key in await store.pendingSessions()) {
+    for (final String key in
+        await store.pendingSessions(includeUnverified: true)) {
       if (key == store.sessionKey) continue;
-      final int b = await store.bytesForSession(key);
+      final bool kept = (await store.unverifiedSegments(key)).isNotEmpty;
+      if (kept) unverified++;
+      final int b = await store.bytesForSession(key, pendingOnly: true);
       bytes += b;
+      // NR-138 — the state has one author ([legacyStateOf]); 「waiting」 only
+      // while the persisted budget can still redeem it.
+      final PendingRecoveryState state = await _legacyStateIn(store, key);
+      if (state == PendingRecoveryState.needsManual) legacyManual++;
       final (int, int, bool, PendingRecoveryItem?) was =
           perKey[key] ?? (0, 0, false, null);
       perKey[key] = (
         was.$1 + b,
         was.$2 + b,
-        true,
+        b > 0 && state == PendingRecoveryState.waitingAuto,
         PendingRecoveryItem(
           id: key,
-          state: PendingRecoveryState.waitingAuto,
-          durationMs: pcmBytesToMs(b),
+          state: state,
+          durationMs: pcmBytesToMs(await store.bytesForSession(key)),
           legacy: true,
         ),
       );
@@ -661,7 +635,7 @@ class BackfillRunner {
       byArticle: <String, ArticleBackfill>{
         for (final MapEntry<String, (int, int, bool, PendingRecoveryItem?)> e
             in perKey.entries)
-          if (e.value.$1 > 0)
+          if (e.value.$1 > 0 || e.value.$4?.legacy == true)
             e.key: ArticleBackfill(
               waitingAuto: e.value.$3,
               recoveryItem: e.value.$4,
@@ -675,8 +649,8 @@ class BackfillRunner {
       pendingFromOutage: bytes > 0 || _lastLegOutcome.outagePendingBytes > 0,
       running: running,
       serverTier: _lastLegOutcome.tier,
-      needsManual: _lastLegOutcome.needsManual,
-      settledUnverified: _lastLegOutcome.settledUnverified,
+      needsManual: _lastLegOutcome.needsManual + legacyManual,
+      settledUnverified: _lastLegOutcome.settledUnverified + unverified,
     );
   }
 

@@ -448,11 +448,24 @@ pub(super) fn run_inject(
     if req.is_malformed_image() {
         forensic::record("inject", "source='image' without image_b64+image_mime — rejecting");
     }
+    let mut payload_chars = req.text.chars().count();
     let outcome = if req.source == "image" {
         let (b64, mime) = req.image().unwrap_or(("", ""));
         inject::inject_image(b64, mime, locked, focus::set_foreground_window)
     } else {
-        inject::inject_text(&req.text, locked, app_id, focus::set_foreground_window)
+        let preflight = (!req.text.is_empty())
+            .then(inject::preflight::synthetic_input_preflight).flatten();
+        // Known refusal leaves the payload unchanged. Reuse the same OS reading
+        // inside the pipeline; macOS/Linux preflight also records diagnostics.
+        let text = if preflight.is_some() {
+            std::borrow::Cow::Borrowed(req.text.as_str())
+        } else {
+            inject::delivery_spacing::delivery_text(&req.text)
+        };
+        payload_chars = text.chars().count();
+        inject::pipeline::inject_text_with_preflight(
+            &text, locked, app_id, focus::set_foreground_window, preflight,
+        )
     };
     // Release the lock AFTER the keystroke resolved (ruling 2), then disarm the
     // watchdog ONLY when this inject's own lock released. A new utterance whose
@@ -515,7 +528,7 @@ pub(super) fn run_inject(
     forensic::record(
         "inject",
         &format!(
-            "resolve ok={} mode={} err={:?} target={:?} source={} request_id={:?} chars={} detail={:?}",
+            "resolve ok={} mode={} err={:?} target={:?} source={} request_id={:?} wire_chars={} payload_chars={} detail={:?}",
             outcome.ok,
             outcome.mode.wire(),
             outcome.error_code,
@@ -523,6 +536,7 @@ pub(super) fn run_inject(
             req.source,
             req.request_id,
             req.text.chars().count(),
+            payload_chars,
             outcome.error_message.as_deref().unwrap_or("-"),
         ),
     );

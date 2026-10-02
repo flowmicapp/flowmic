@@ -64,15 +64,15 @@ function ssrEscape(text: string): string {
  *  tables rather than 「contains the English word」 because a half-translated
  *  catalogue is exactly the failure four-language copy is supposed to prevent. */
 const STEP_MARKERS: Record<Loc, readonly string[]> = {
-  'zh-CN': ['手机采集音频', '语音识别', '语言模型处理', '打进当前输入框', '留下什么'],
+  'zh-CN': ['手机采集音频', '语音识别', '语言模型处理', '注入当前焦点窗口', '留下什么'],
   en: ['records audio', 'Speech recognition', 'Language-model processing', 'typed into the focused box', 'left behind'],
   ja: ['音声を取得', '音声認識', '言語モデル処理', 'フォーカス中の入力欄', '何が残るのか'],
   ko: ['음성을 수집', '음성 인식', '언어 모델 처리', '포커스된 입력창', '무엇이 남는가'],
-  'zh-TW': ['擷取音訊', '語音辨識', '語言模型處理', '取得焦點的輸入框', '留下什麼'],
+  'zh-TW': ['擷取音訊', '語音辨識', '語言模型處理', '打進目前輸入框', '留下什麼'],
   fr: ['votre téléphone capte', 'Reconnaissance vocale', 'Traitement par le modèle de langage', 'saisi dans le champ actif', 'Ce qui reste'],
-  es: ['capta el audio', 'Reconocimiento de voz', 'Procesado por el modelo de lenguaje', 'se escribe en el campo enfocado', 'Qué queda guardado'],
-  de: ['nimmt dein Handy Audio auf', 'Spracherkennung', 'Verarbeitung durch das Sprachmodell', 'in das fokussierte Feld getippt', 'Was zurückbleibt'],
-  ru: ['записывает звук', 'Распознавание речи', 'Обработка языковой моделью', 'вводится в активное поле', 'Что остаётся'],
+  es: ['capta el audio', 'Reconocimiento de voz', 'Procesado por el modelo de lenguaje', 'escritura en el campo activo', 'Qué queda guardado'],
+  de: ['nimmt dein Handy Audio auf', 'Spracherkennung', 'Verarbeitung durch das Sprachmodell', 'ins Fokusfeld eingefügt', 'Was zurückbleibt'],
+  ru: ['записывает звук', 'Распознавание речи', 'Обработка языковой моделью', 'вставлено в активное поле', 'Что остаётся'],
 };
 
 /** The vendors that actually process the data, per stage. Both are proper nouns

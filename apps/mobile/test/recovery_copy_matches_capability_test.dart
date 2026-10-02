@@ -272,20 +272,24 @@ void main() {
           reason: '§A6 R-2: the entry must reach the queue, not just exist');
     });
 
-    testWidgets('🔴 a legacy recording gets the sentence but no button',
+    // ⚠️ 更正（NR-138, 2026-10-01）: this case was 「🔴 a legacy recording gets
+    // the sentence but no button」 — 「there is no per-recording entry into the
+    // legacy leg; a button here would have to sweep everything」. NR-138 built
+    // a per-recording entry (`BackfillRunner.retranscribe(legacy: true)`), so
+    // the button is offered and must reach the queue for THIS recording.
+    testWidgets('🔴 a legacy recording gets the sentence and a working button',
         (WidgetTester tester) async {
-      // There is no per-recording entry into the legacy leg; a button here
-      // would have to sweep everything, i.e. this card would transcribe some
-      // other recording.
-      await mountPage(
-          tester,
+      final FakePendingRecoverySource src =
           FakePendingRecoverySource(<PendingRecoveryItem>[
-            itemIn(PendingRecoveryState.waitingAuto,
-                id: 'run-1757000000000000', legacy: true),
-          ]),
-          en);
-      expect(find.text(en.pendingRecoveryStateWaiting), findsOneWidget);
-      expect(find.text(en.pendingRecoveryRetryNow), findsNothing);
+        itemIn(PendingRecoveryState.needsManual,
+            id: 'run-1757000000000000', legacy: true),
+      ]);
+      await mountPage(tester, src, en);
+      expect(find.text(en.pendingRecoveryStateNeedsManual), findsOneWidget);
+      expect(find.text(en.pendingRecoveryRetryNow), findsOneWidget);
+      await tester.tap(find.text(en.pendingRecoveryRetryNow));
+      await tester.pumpAndSettle();
+      expect(src.retried, hasLength(1));
     });
 
     testWidgets('while a recording is running, no card offers a retry',

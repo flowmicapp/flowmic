@@ -14,7 +14,7 @@
   "TrayStatusConnected": "● Connected · {n} phone(s)",
   "TrayTooltipConnected": "FlowMic — connected ({n} phone(s) online)",
   "QuitConfirmTitle": "Quit FlowMic",
-  "QuitConfirmBody": "After you quit, phones can no longer connect to this PC, and any transcription in progress will be interrupted.\n\nQuit FlowMic?",
+  "QuitConfirmBody": "After you quit, phones can no longer connect to this computer, and any transcription in progress will be interrupted.\n\nQuit FlowMic?",
   "AutostartWriteFailed": "Failed to write the startup entry: {detail}",
   "AutostartRemoveFailed": "Failed to remove the startup entry: {detail}",
   "AutostartReadFailed": "Failed to read the startup state: {detail}",

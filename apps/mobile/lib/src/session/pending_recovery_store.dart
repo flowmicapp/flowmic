@@ -33,6 +33,8 @@ import '../audio/retained_audio_spill.dart';
 import '../audio/retained_audio_store.dart';
 import '../diag/diag_log.dart';
 import 'backfill_runner.dart';
+import 'kept_words_retranscribe.dart';
+import 'legacy_recovery_identity.dart' show LegacyRecoveryGate;
 import 'pending_recovery.dart';
 import 'recovery_backoff.dart';
 import 'recovery_gate.dart';
@@ -93,6 +95,9 @@ class PendingRecoveryStore implements PendingRecoverySource {
       // manifest back and the card returns with no audio behind it.
       deleted: spill.deletedRecordings,
     );
+    // NR-137 — list index → the recording behind a `settledUnverified` row.
+    final Map<int, (RecordingManifest, RecordingScan)> keptWords =
+        <int, (RecordingManifest, RecordingScan)>{};
     for (final RecordingScan s in scans) {
       final RecordingManifest? m = s.manifest;
       // THE EXCLUSIONS MIRROR `RecoveryJournalLeg._scanCandidates`, WITH ONE
@@ -213,27 +218,67 @@ class PendingRecoveryStore implements PendingRecoverySource {
         }
         continue;
       }
-      out.add(
-        itemOf(
-          cancelled: s.cancelled,
-          manifest: m,
-          tier: tier,
-          durationMs: _journalMs(s, m),
-          currentAccount: spill.recordingAccount.currentDigest(),
-        ),
+      final PendingRecoveryItem item = itemOf(
+        cancelled: s.cancelled,
+        manifest: m,
+        tier: tier,
+        durationMs: _journalMs(s, m),
+        currentAccount: spill.recordingAccount.currentDigest(),
+      );
+      out.add(item);
+      if (item.state == PendingRecoveryState.settledUnverified) {
+        keptWords[out.length - 1] = (m, s);
+      }
+    }
+    // NR-137 — which of the kept-words recordings a press can REPLACE: one
+    // timeline storage scan for all of them, then the same `itemOf`.
+    if (keptWords.isEmpty) return;
+    final Set<String> replaceable = await _runner.replaceableKeptWordArticles(
+      <String>{
+        for (final (RecordingManifest, RecordingScan) e in keptWords.values)
+          RetainedAudioSpill.sessionKeyOf(e.$1.recordingId),
+      },
+    );
+    for (final MapEntry<int, (RecordingManifest, RecordingScan)> e
+        in keptWords.entries) {
+      final (RecordingManifest m, RecordingScan s) = e.value;
+      out[e.key] = itemOf(
+        cancelled: s.cancelled,
+        manifest: m,
+        tier: tier,
+        durationMs: _journalMs(s, m),
+        currentAccount: spill.recordingAccount.currentDigest(),
+        keptWordsReplaceable:
+            replaceable.contains(RetainedAudioSpill.sessionKeyOf(m.recordingId)),
+        pressMetered: _runner.pressIsMetered,
       );
     }
   }
 
   /// The same recording facts for the list, tally and pre-scan article.
+  ///
+  /// NR-137 — [keptWordsReplaceable]: the caller asked the timeline
+  /// (`replaceableArticles`) and this recording's article can have its rows
+  /// replaced. False by default, which offers Delete only (the safe side).
   static PendingRecoveryItem itemOf({
     required bool cancelled,
     required RecordingManifest manifest,
     required RecoveryTier? tier,
     required int durationMs,
     required String? currentAccount,
+    bool keptWordsReplaceable = false,
+    bool pressMetered = true,
   }) {
     final state = stateOf(cancelled: cancelled, manifest: manifest, tier: tier);
+    final bool otherOwner =
+        recordingOwnerOf(manifest.configSnapshot, currentAccount) ==
+            RecordingOwner.other;
+    final bool keptWordsHere = state == PendingRecoveryState.settledUnverified &&
+        manifestAllowsKeptWordsRetranscribe(manifest);
+    // A7-3 tier C: `runOne` refuses every press (R8 — no button, say why).
+    final bool blocked = keptWordsHere &&
+        tier == RecoveryTier.awaitingServerCapability;
+    final bool keptWords = keptWordsHere && !otherOwner && !blocked;
     final item = PendingRecoveryItem(
       id: manifest.recordingId,
       state: state,
@@ -249,9 +294,16 @@ class PendingRecoveryStore implements PendingRecoverySource {
       legacy: item.legacy,
       recordedAtMs: item.recordedAtMs,
       partlySaved: item.partlySaved,
-      otherAccount: item.awaitingTranscription &&
-          recordingOwnerOf(manifest.configSnapshot, currentAccount) ==
-              RecordingOwner.other,
+      // NR-137 round 2 — kept words under another account say so too: the
+      // press would be refused (RC-S), and the sentence names the way back.
+      otherAccount: (item.awaitingTranscription || keptWordsHere) && otherOwner,
+      retranscribeBlockedByServer: blocked && !otherOwner,
+      // NR-137 — words exist under this account. ⚠️ 更正（round 2, MAIN
+      // 2026-10-02）: no longer only where they can be replaced; elsewhere
+      // the press makes a new note ([retranscribeAsNote]).
+      retranscribable: keptWords,
+      retranscribeAsNote: keptWords && !keptWordsReplaceable,
+      pressUsesMinutes: keptWords && pressMetered,
     );
   }
 
@@ -326,6 +378,23 @@ class PendingRecoveryStore implements PendingRecoverySource {
     }
     return PendingRecoveryState.waitingAuto;
   }
+
+  /// NR-137 — is an attempt of [kind] on this recording a re-transcription of
+  /// words the user already has (pending state [PendingRecoveryState
+  /// .settledUnverified])?
+  ///
+  /// Read off [stateOf], the one author of that state, so the leg's two rules
+  /// for such an attempt (replace the earlier rows; an empty answer leaves
+  /// them standing) cannot drift from the card that offered the press. The
+  /// `emptyResult` / `emptyConfirmed` / tier-B routes share the queue state
+  /// `settled_unverified` and are NOT this: their retry keeps today's rules.
+  static bool redoesKeptWords({
+    required RecordingManifest manifest,
+    required RecoveryAttemptKind kind,
+  }) =>
+      kind == RecoveryAttemptKind.userRetranscribe &&
+      stateOf(cancelled: false, manifest: manifest, tier: null) ==
+          PendingRecoveryState.settledUnverified;
 
   /// Card LK-2 — is this recording actually OWED a transcription?
   ///
@@ -457,24 +526,34 @@ class PendingRecoveryStore implements PendingRecoverySource {
   Future<void> _addLegacy(List<PendingRecoveryItem> out) async {
     final RetainedAudioStore? store = _runner.retainedStore;
     if (store == null) return;
-    final Set<String> tombstoned = await store.tombstonedSessions();
-    for (final String key in await store.pendingSessions()) {
+    for (final String key in
+        await store.pendingSessions(includeUnverified: true)) {
       // The session being written to is live audio, the same exclusion
       // `BackfillRunner._run` makes one layer up.
       if (key == store.sessionKey) continue;
       final int bytes = await store.bytesForSession(key);
       if (bytes <= 0) continue;
+      final PendingRecoveryState state = await _runner.legacyStateOf(store, key);
+      // NR-137 round 2 — kept legacy words: a press makes a new note
+      // (backfill_legacy_kept.dart). Not offered where the gate already
+      // refuses the server: the press would be refused every time (R8).
+      final bool keptHere = state == PendingRecoveryState.settledUnverified;
+      final bool blocked =
+          keptHere && _runner.legacyGate == LegacyRecoveryGate.refused;
+      final bool keptWords = keptHere && !blocked;
       out.add(PendingRecoveryItem(
         id: key,
         legacy: true,
-        // A legacy session has no manifest, so it carries no attempt history
-        // and no queue state: the automatic route re-reads it on every edge
-        // and spends no budget. It therefore cannot be `needsManual`, and
-        // `PendingRecoveryItem.actions` withholds the retry button from it for
-        // the matching reason - there is no per-recording entry point to press.
-        state: tombstoned.contains(key)
-            ? PendingRecoveryState.cancelled
-            : PendingRecoveryState.waitingAuto,
+        retranscribable: keptWords,
+        retranscribeAsNote: keptWords,
+        pressUsesMinutes: keptWords && _runner.pressIsMetered,
+        retranscribeBlockedByServer: blocked,
+        // A sidecar keeps unverified audio visible without offering a retry.
+        // Untouched sibling segments remain eligible for the automatic sweep.
+        // NR-138 — the runner is the one author of this state (its retry
+        // budget decides 「waiting」 versus 「stopped」), so the list and the
+        // banner read the same answer.
+        state: state,
         durationMs: _legacyMs(bytes),
         recordedAtMs: recordedAtMsFromId(key),
       ));
@@ -489,17 +568,16 @@ class PendingRecoveryStore implements PendingRecoverySource {
 
   @override
   Future<PendingRetryOutcome> retryNow(PendingRecoveryItem item) {
-    if (item.legacy) {
-      // There is no per-recording entry into the legacy leg, and inventing one
-      // that swept everything would make a button on THIS card transcribe some
-      // OTHER recording. `PendingRecoveryItem.actions` already withholds the
-      // button; this arm is the structural half of the same refusal.
-      return Future<PendingRetryOutcome>.value(
-          PendingRetryOutcome.unavailable);
-    }
+    // ⚠️ 更正（NR-138, 2026-10-01）: a legacy item used to be answered
+    // `unavailable` here — 「there is no per-recording entry into the legacy
+    // leg, and inventing one that swept everything would make a button on THIS
+    // card transcribe some OTHER recording」. NR-138 built that entry, and it
+    // is per recording: `BackfillRunner.retranscribe(legacy: true)` feeds only
+    // this session's segments, through the runner's single-flight latch.
     return _runner.retranscribe(
       recordingId: item.id,
       sourceLang: _sourceLang(),
+      legacy: item.legacy,
     );
   }
 
@@ -591,12 +669,18 @@ class PendingRecoveryStore implements PendingRecoverySource {
   Future<void> _deleteLegacy(String key) async {
     final RetainedAudioStore? store = _runner.retainedStore;
     if (store == null) return;
+    final List<int> segments = await store.pendingSegments(
+      session: key,
+      includeUnverified: true,
+    );
     await store.tombstoneSession(session: key);
-    for (final int idx in await store.pendingSegments(session: key)) {
+    for (final int idx in segments) {
       // `settle` is the store's own byte removal - the same call the recovery
       // queue makes once a stretch has become rows. Reused rather than
       // reimplemented so there is one deletion path per storage face.
       await store.settle(idx, session: key);
     }
+    // NR-138 — LAST, it is bookkeeping: the retry record of audio that is gone.
+    await store.clearLegacyRetry(key);
   }
 }

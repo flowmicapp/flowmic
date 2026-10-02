@@ -156,16 +156,20 @@ void main() {
     final String store = File('lib/src/timeline/timeline_store.dart').readAsStringSync()
       .split('\n').where((String line) => !line.trimLeft().startsWith('//')).join('\n');
     expect(RegExp(r'_persistence\.upsert\(').allMatches(store), isEmpty);
-    expect(RegExp(r'_persistence\.saveLocalRecord\(entry, source: source\)').allMatches(store), hasLength(1));
+    final String writer = File('lib/src/timeline/timeline_store_external_writes.dart').readAsStringSync();
+    expect(RegExp(r'_persistence\.saveLocalRecord\(entry, source: source\)').allMatches(writer), hasLength(1));
+    expect(store, contains('_writeRecord(this, entry, source: source)'));
     expect(store, contains('void _persistOne(TimelineEntry entry, {required LocalRecordSource source})'));
     final Set<String> callers = Directory('lib/src').listSync(recursive: true).whereType<File>()
       .where((File f) => f.path.endsWith('.dart') && RegExp(r'\w+\.buildFromUtterance\(').hasMatch(f.readAsStringSync()))
       .map((File f) => f.uri.pathSegments.last).toSet();
     expect(callers, <String>{'chat_mode_chip.dart', 'chat_utterance_processing.dart',
-      'chat_utterance_settle.dart', 'image_send_controller.dart', 'manual_delivery.dart', 'manual_delivery_noted.dart'});
+      'chat_utterance_settle.dart', 'image_send_controller.dart', 'kept_words_retranscribe.dart',
+      'manual_delivery.dart', 'manual_delivery_noted.dart'});
     // Every known transcript producer names readiness, including the pending
     // reprocess path. Image readiness is pinned at the single store classifier.
-    for (final String path in <String>['chat_mode_chip', 'chat_utterance_processing', 'chat_utterance_settle', 'manual_delivery_noted']) {
+    for (final String path in <String>['chat_mode_chip', 'chat_utterance_processing', 'chat_utterance_settle',
+        'kept_words_retranscribe', 'manual_delivery_noted']) {
       expect(File('lib/src/session/$path.dart').readAsStringSync(), contains('mcpContentReady:'));
     }
     expect(store, contains('mcpContentReady || entryType == TimelineEntry.kImage'));

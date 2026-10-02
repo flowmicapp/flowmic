@@ -30,7 +30,7 @@ import type { QuotaGuard } from '../../billing/quota-guard';
 import type { UsageTracker } from '../../billing/usage-tracker';
 import type { RoomStore } from '../../room/store';
 import type { SttOrchestrator } from '../../engine/orchestrator';
-import type { SttCharCounts } from '../../engine/stt-session-deps';
+import type { SttCharCounts, SttEngineFailure } from '../../engine/stt-session-deps'; import type { ClaimBinding } from '../../db/repos/usage-effects.repo';
 import { EngineNotWiredError } from '../../engine/orchestrator';
 import { recoveryEchoOf, type RecoveryEcho } from '../../engine/stt-session-receipt';
 import {
@@ -133,9 +133,9 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   // more fact in hand. Which is the point of R11 — the layer that decides must
   // hold what the decision needs.
   function commitSttUsage(
-    userId: string, durationMs: number, isByok: boolean, chars: SttCharCounts, operationId?: string,
-  ): void {
-    usageTracker.recordSttUsage(userId, { is_byok: isByok }, durationMs, chars, principalRefOf(socket), operationId);
+    userId: string, durationMs: number, isByok: boolean, chars: SttCharCounts, operationId?: string, failure?: SttEngineFailure, binding?: ClaimBinding,
+  ): void { // NR-138 item 5: [failure] ⇒ nothing charged or claimed (book 22 §4.10); round 6: [binding] binds the claim (§4.11)
+    usageTracker.recordSttUsage(userId, { is_byok: isByok }, durationMs, chars, principalRefOf(socket), operationId, failure, binding);
   }
 
   // *** billing call site (LLM metering) — the SECOND recordLlmUsage site ***
@@ -151,9 +151,9 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   // actually call an LLM: the compose turn and the polish pass.
   // 🔴 card MP-9 — it carries the SAME principal `commitSttUsage` passes (whole argument at `principalRefOf`).
   function commitPolishUsage(
-    userId: string, tokensIn: number, tokensOut: number, isByok: boolean, operationId?: string,
+    userId: string, tokensIn: number, tokensOut: number, isByok: boolean, operationId?: string, binding?: ClaimBinding,
   ): void {
-    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut, principalRefOf(socket), operationId);
+    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut, principalRefOf(socket), operationId, binding);
   }
 
   /** Mirror an utterance-lifecycle edge to the paired PC — iff this utterance
@@ -487,7 +487,7 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
       deps.recoveryOps, auth.userId,
       {
         operation_id: parsed.data.operation_id,
-        recording_id: parsed.data.recording_id,
+        recording_id: parsed.data.recording_id, job_id: parsed.data.job_id, // NR-138 round 6: the job is bound too
         range_start_sample: parsed.data.range_start_sample,
         range_end_sample: parsed.data.range_end_sample,
         attempt_kind: parsed.data.attempt_kind,
@@ -608,10 +608,10 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
           slot !== local
             ? (): Pick<Socket, 'emit'> | null => (slot as AudioSessionEntry).socket
             : (): Socket => socket,
-        onComplete: (durationMs, isByok, chars) =>
-          commitSttUsage(auth.userId, durationMs, isByok, chars, operationId),
+        onComplete: (durationMs, isByok, chars, failure) =>
+          commitSttUsage(auth.userId, durationMs, isByok, chars, operationId, failure, operation.binding),
         onPolishUsage: (tIn, tOut, isByok) =>
-          commitPolishUsage(auth.userId, tIn, tOut, isByok, operationId),
+          commitPolishUsage(auth.userId, tIn, tOut, isByok, operationId, operation.binding),
         // card S2-02 — push point 4 of 4. Fired by the stt emitter at the exact
         // instant it is about to send `audio:auto-stopped{quota_exhausted}`, so
         // 「the meter reached zero」 and 「the recording was ended」 are one event
@@ -749,12 +749,12 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
           // Codex item 4: the window grows with the flush cap this recording can need (audio-stop-watchdog.ts).
           const cancelWatchdog = armFinishWatchdog(s, AUDIO_STOP_FINISH_WATCHDOG_MS, () => {
             console.error('[audio.handler] finish() did not settle within the fallback window — disposing anyway');
-            s.dispose();
+            s.noteFinishFailure?.('finish_watchdog'); s.dispose(); // NR-138 item 5: an engine-failure fact (book 22 §4.10)
           });
           const f = state !== local ? { entry: state as AudioSessionEntry, engine: s } : null;
           if (f) flushing = f;
           void s.finish()
-            .catch((err) => console.error('[audio.handler] finish error:', err))
+            .catch((err) => { console.error('[audio.handler] finish error:', err); s.noteFinishFailure?.('finish_failed'); }) // NR-138 item 5
             .finally(() => { cancelWatchdog(); s.dispose(); if (flushing === f) flushing = null; });
         }
       }

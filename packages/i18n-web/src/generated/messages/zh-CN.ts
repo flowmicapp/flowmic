@@ -213,7 +213,7 @@ export const ZH_CN: WebMessages = {
   "utteranceComposeError__7": "{why} · 这句未发送，也没有发原文 · 可长按补投",
   "composeSendError__1": "未连接到电脑，无法发送",
   "composeSendError__2": "输入框是空的",
-  "composeSendError__3": "轻记录没有 PC 焦点窗口，无法注入",
+  "composeSendError__3": "轻记录没有电脑焦点窗口，无法注入",
   "composeSendError__4": "发送失败，内容已保留",
   "composeSendError__5": "连接已断开，内容未能发出 · 已妥善保留，正在重连",
   "composeSendError__6": "电脑端未响应，未能确认投递结果",

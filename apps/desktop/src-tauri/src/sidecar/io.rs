@@ -281,6 +281,8 @@ pub fn spawn_and_await_handshake(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(unix)]
+    super::parent_death::configure(&mut cmd);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -296,7 +298,11 @@ pub fn spawn_and_await_handshake(
         ),
     );
 
-    let mut child = match cmd.spawn() {
+    #[cfg(unix)]
+    let spawned = super::parent_death::spawn(cmd);
+    #[cfg(not(unix))]
+    let spawned = cmd.spawn();
+    let mut child = match spawned {
         Ok(c) => c,
         Err(e) => return HandshakeOutcome::SpawnError { detail: e.to_string() },
     };
@@ -308,6 +314,9 @@ pub fn spawn_and_await_handshake(
     // force-kill / crash of the desktop — the orphan an adopt-first probe later
     // finds is then never ours in the first place.
     job::guard_child(child.id());
+    #[cfg(unix)]
+    forensic::record("sidecar", &format!("parent-death: pid={} armed {}",
+        child.id(), super::parent_death::description()));
 
     // Reader thread for stdout: signal the FLOWMIC_LISTENING port over a channel.
     let (tx, rx) = mpsc::channel::<HandshakeSignal>();
@@ -692,11 +701,17 @@ pub fn bring_up(opts: &BringUpOptions) -> BringUp {
             }
             Action::ProbePort => match probe_existing(&opts.host, opts.port, server_js.as_deref()) {
                 ProbeVerdict::AdoptableFlowMic => {
+                    #[cfg(unix)]
+                    if server_js.as_deref().is_some_and(|script| super::orphan::is_orphan_listener(opts.port, script)) {
+                        forensic::record("sidecar", "probe: verified stale orphan → reclaim instead of adopt");
+                        action = m.on_event(Event::ProbeForeign);
+                        continue;
+                    }
                     Event::ProbeAdoptable { endpoint: format!("http://{}:{}", opts.host, opts.port) }
                 }
                 ProbeVerdict::ForeignOrDead => Event::ProbeForeign,
             },
-            Action::LocateAndKill => match super::portclear::clear_port(opts.port) {
+            Action::LocateAndKill => match clear_stale_port(opts.port, server_js.as_deref()) {
                 Ok(()) => Event::PortCleared,
                 Err(detail) => Event::ClearFailed { detail },
             },
@@ -726,6 +741,13 @@ pub fn bring_up(opts: &BringUpOptions) -> BringUp {
         child = None;
     }
     BringUp { phase, child, stderr_tail: stderr_tail_buf }
+}
+
+fn clear_stale_port(port: u16, script: Option<&Path>) -> Result<(), String> {
+    #[cfg(unix)]
+    { super::orphan::clear(port, script.ok_or("cannot reclaim without resolved script")?) }
+    #[cfg(not(unix))]
+    { let _ = script; super::portclear::clear_port(port) }
 }
 
 

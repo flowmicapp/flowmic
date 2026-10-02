@@ -14,7 +14,7 @@
   "TrayStatusConnected": "● Verbunden · {n} Telefon(e)",
   "TrayTooltipConnected": "FlowMic — verbunden ({n} Telefon(e) online)",
   "QuitConfirmTitle": "FlowMic beenden",
-  "QuitConfirmBody": "Nach dem Beenden können sich Telefone nicht mehr mit diesem PC verbinden, und eine laufende Transkription wird abgebrochen.\n\nFlowMic beenden?",
+  "QuitConfirmBody": "Nach dem Beenden können sich Telefone nicht mehr mit diesem Computer verbinden, und eine laufende Transkription wird abgebrochen.\n\nFlowMic beenden?",
   "AutostartWriteFailed": "Der Autostart-Eintrag konnte nicht geschrieben werden: {detail}",
   "AutostartRemoveFailed": "Der Autostart-Eintrag konnte nicht entfernt werden: {detail}",
   "AutostartReadFailed": "Der Autostart-Status konnte nicht gelesen werden: {detail}",

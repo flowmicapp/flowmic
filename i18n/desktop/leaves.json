@@ -1357,6 +1357,12 @@
       "name": "set_prefs_autostart_hint"
     },
     {
+      "key": "dev_set_prefs_autostart_hint_macos",
+      "shard": "settings",
+      "kind": "string",
+      "name": "dev_set_prefs_autostart_hint_macos"
+    },
+    {
       "key": "set_prefs_autostart_path",
       "shard": "settings",
       "kind": "string",
@@ -4422,6 +4428,12 @@
       "shard": "capsule",
       "kind": "string",
       "name": "INJECT_SUBMISSION_UNCERTAIN"
+    },
+    {
+      "key": "openSourceLicenses",
+      "shard": "settings",
+      "kind": "string",
+      "name": "openSourceLicenses"
     }
   ]
 }

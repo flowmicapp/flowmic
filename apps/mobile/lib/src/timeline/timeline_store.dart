@@ -8,8 +8,8 @@
 // TimelineStore owns the COMMITTED chat-flow entries (the live in-flight draft
 // lives on ChatController). It is the single writer of the local table: build
 // on utterance-final, write-back on inject:result, set the edited overlay on an
-// edit, soft-remove on delete. Every mutation persists then notifies. It never
-// touches the wire.
+// edit, soft-remove on delete. Row writes start before notifying; their futures
+// report local failures through writeFailures. It never touches the wire.
 //
 // 0.2.27 (owner's architecture ruling, docs/decisions/2026-07-31-no-cloud-sync-for-phone-pc.md):
 // it is no longer a copy of anything. There is no server table behind these rows
@@ -38,6 +38,10 @@ import 'article_view.dart' show articleMembersIn;
 import 'entry_metrics.dart' show textWordCount;
 import 'timeline_entry.dart';
 import 'timeline_persistence.dart';
+import 'timeline_verified_reads.dart';
+import 'timeline_write_failures.dart';
+import 'timeline_recovery_failures.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'local_record_persistence.dart';
 import 'timeline_purge.dart';
 import 'timeline_reaper.dart';
@@ -65,6 +69,7 @@ part 'timeline_store_article_rows.dart';
 // reason as every split above; that file's header argues why the five belong
 // together.
 part 'timeline_store_edit_family.dart';
+part 'timeline_store_external_writes.dart';
 
 /// V2-06a-1 — the seam that answers「这条是对谁说的」("who this entry was
 /// spoken to") at the moment a row is born.
@@ -121,14 +126,50 @@ class TimelineStore extends ChangeNotifier {
     // vault the exporter uses; tests: `TimelineReaper(...)` over in-memory
     // doubles (test/support/di.dart's newTestReaper()).
     required TimelineReaper reaper,
+    SharedPreferences? recoveryPrefs,
     String deviceId = 'mobile',
     InstanceOwnerProbe? owner,
-  }) : _persistence = persistence,
+  }) : recoveryFailures = TimelineRecoveryFailures(prefs: recoveryPrefs),
+       _persistence = persistence,
        _reaper = reaper,
        _deviceId = deviceId,
-       _owner = owner ?? const _NoOwner();
+       _owner = owner ?? const _NoOwner() {
+    if (persistence is TimelineReadIssues) {
+      (persistence as TimelineReadIssues).readFailures.addListener(_onReadFailure);
+      _onReadFailure();
+    }
+  }
 
+  void _onReadFailure() {
+    final persistence = _persistence;
+    if (persistence is TimelineReadIssues &&
+        (persistence as TimelineReadIssues).readFailures.entryIds.isNotEmpty) {
+      recoveryFailures.recordCorruption('unreadable-storage', (persistence as TimelineReadIssues).unreadableRowIds);
+    }
+  }
+
+  final ValueNotifier<int> successfulLocalWrites = ValueNotifier<int>(0);
   final TimelinePersistence _persistence;
+  final TimelineWriteFailures writeFailures = TimelineWriteFailures();
+  final TimelineRecoveryFailures recoveryFailures;
+  final TimelineWriteFailures deleteFailures = TimelineWriteFailures();
+  Future<void>? _writeTail;
+  final Set<String> _deleting = <String>{};
+  final Set<String> _reapedWhileQueued = <String>{};
+
+  @override
+  void dispose() {
+    final persistence = _persistence;
+    if (persistence is TimelineReadIssues) {
+      (persistence as TimelineReadIssues).readFailures.removeListener(_onReadFailure);
+    }
+    writeFailures.dispose();
+    deleteFailures.dispose();
+    recoveryFailures.dispose();
+    successfulLocalWrites.dispose();
+    super.dispose();
+  }
+
   final TimelineReaper _reaper;
   final String _deviceId;
 
@@ -228,9 +269,18 @@ class TimelineStore extends ChangeNotifier {
     final List<TimelineEntry> loaded = await _persistence.loadPage(
       limit: pageSize,
     );
+    final Set<String> loadedIds = loaded.map((row) => row.id).toSet();
+    final List<String> missing = _entries.where((row) => !loadedIds.contains(row.id))
+        .map((row) => row.id).toList();
+    diag('timeline.replace_from_storage', <String, Object?>{
+      'previous_rows': _entries.length, 'loaded_rows': loaded.length,
+      'missing_rows': missing.length,
+      if (missing.isNotEmpty) 'missing_ids': boundedDiagnosticIds(missing),
+    });
     _entries
       ..clear()
       ..addAll(loaded.where((TimelineEntry e) => !e.deleted));
+    writeFailures.clearEntries();
     // Short page ⇒ that was everything. Judged on the RAW page length, not on
     // the filtered result: a page made entirely of soft-deleted rows still means
     // there is more above it.
@@ -370,6 +420,7 @@ class TimelineStore extends ChangeNotifier {
     // D7 ③ — the server-minted utterance id off the terminal final, so a
     // late `stt:refined` can name this row. Null for every non-speech caller.
     String? utteranceId,
+    String? retranscribedFrom, // NR-137
     // Callers that have finished composition say so explicitly. Unspecified
     // readiness is conservative and never dispatches unfinished content.
     bool mcpContentReady = false,
@@ -398,6 +449,7 @@ class TimelineStore extends ChangeNotifier {
       articleOffsetMs: articleOffsetMs,
       pauseBeforeMs: pauseBeforeMs,
       utteranceId: utteranceId,
+      retranscribedFrom: retranscribedFrom,
       // V2-06a-1: snapshot 「这条是对谁说的」("who this entry was spoken to") at
       // BIRTH, not at delivery. Doing it
       // here is what makes noted rows (「留在手机」("kept on the phone"), which
@@ -415,13 +467,12 @@ class TimelineStore extends ChangeNotifier {
     return entry;
   }
 
-  /// Put a NEWLY BUILT row at the head and make it durable + visible, in the one
+  /// Put a NEWLY BUILT row at the head and start its write, in the one
   /// order every builder here uses: insert → sort → persist → notify.
   ///
   /// 🔴 EXTRACTED VERBATIM from [buildFromUtterance]'s tail — the four lines were
-  /// already exactly this, in exactly this order, and that ordering is load-bearing
-  /// (a notify before the persist would publish a row the disk has not accepted).
-  /// Nothing about it changed in the move.
+  /// already exactly this, in exactly this order. Persistence is asynchronous:
+  /// the row is visible before the write completes; _persistOne reports failure.
   ///
   /// It is a method rather than four inline lines because `notifyListeners` is
   /// `@protected`: a `part` file shares the library but not the class, so any
@@ -543,6 +594,9 @@ class TimelineStore extends ChangeNotifier {
   // timeline_store_batch_delete.dart at the 800-line cap; the delegates below
   // keep every caller and every test double untouched.
 
+  Future<void> applyRemoteTombstone(TimelineEntry entry) =>
+      _applyRemoteTombstone(this, entry);
+
   /// Trigger ① —— the user deletes one row on the timeline.
   void delete(String id) => _deleteOne(this, id);
 
@@ -552,12 +606,12 @@ class TimelineStore extends ChangeNotifier {
       _deleteMany(this, doomed);
 
   /// `notifyListeners` is `@protected`, so a `part`'s top-level function — not
-  /// being an instance of this class — cannot call it. These two are the seam,
+  /// being an instance of this class — cannot call it. _dropRows is the seam,
   /// for the same reason `_insertNew` is the seam for the control-row split.
-  void _notify() => notifyListeners();
-
   void _dropRows(Set<String> ids) {
     _entries.removeWhere((TimelineEntry e) => ids.contains(e.id));
+    writeFailures.forgetEntries(ids);
+    deleteFailures.forgetDeletedEntries(ids);
     notifyListeners();
   }
 
@@ -634,26 +688,22 @@ class TimelineStore extends ChangeNotifier {
   // a phone reaches no DiagLog, no screen and no diagnosing human. Silent in
   // the only sense that matters, but by THIS line's doing, not the store's.
   //
-  // THE HONEST MINIMUM, and why it stops here (documented per D9): the failure
-  // now lands in DiagLog — the one phone-side trail that reaches a diagnosing
-  // human — with the row id and the error. The in-memory row is deliberately
-  // KEPT: it is true for this session (the user did say it, the text is on
-  // screen), and no per-row UI surface claims durability — the only durability
-  // claim in the product is the full-history footnote, which speaks per-STORE
-  // (storageKind), not per-row. A user-visible per-row 「未落盘」("not yet
-  // written to disk") marker would
-  // need new copy, which this wave may not add; reported as a follow-up need.
-  //
-  // Pinned by timeline_persist_failure_test.dart (throwing persistence ⇒ the
-  // diag line MUST appear; the old path shows nothing).
+  // Keep the row in memory, record its local write failure, and notify the
+  // shared chat/Notes banner via chat_controller_wiring.dart. Delivery status
+  // answers a different question. Pinned by timeline_persist_failure_test.dart
+  // and timeline_persist_failure_screen_test.dart.
   void _persistOne(TimelineEntry entry, {required LocalRecordSource source}) {
-    final Future<void> write = _persistence.saveLocalRecord(entry, source: source).then<void>(
-      (_) {},
-      onError: (Object e) => diag('timeline.persist_failed', <String, Object?>{
-        'entry_id': entry.id,
-        'status': entry.status.name,
-        'error': e,
-      }),
+    final Future<void> write = _writeRecord(this, entry, source: source).then<void>(
+      (_) => writeFailures.saved(entry.id),
+      onError: (Object e) {
+        diag('timeline.persist_failed', <String, Object?>{
+          'entry_id': entry.id,
+          'status': entry.status.name,
+          'error': e.runtimeType,
+          'error_type': e.runtimeType.toString(),
+        });
+        writeFailures.record(entry.id);
+      },
     );
     _inFlightWrites[entry.id] = write;
     unawaited(write.whenComplete(() {
@@ -664,6 +714,13 @@ class TimelineStore extends ChangeNotifier {
       }
     }));
   }
+
+  /// Import/cloud merge use the same serialized write and failure notice.
+  Future<void> saveExternalRecord(TimelineEntry entry, {bool recovery = false, bool notifyFailure = true}) =>
+      _saveExternalRecord(this, entry, recovery: recovery, notifyFailure: notifyFailure);
+
+  Future<void> saveExternalRecords(List<TimelineEntry> entries, {bool recovery = false, bool notifyFailure = true}) =>
+      _saveExternalRecords(this, entries, recovery: recovery, notifyFailure: notifyFailure, batch: true);
 
   /// Card RC-1a (audit P2-9) - THE AWAITABLE PERSISTED-COMMIT HANDLE.
   ///
@@ -697,33 +754,28 @@ class TimelineStore extends ChangeNotifier {
   /// 🔴 THE DISTINCTION IS THE WHOLE POINT (§A6-3 / P2-9): 「it is on screen」 is
   /// what the in-memory list answers, and E48 measured that the in-memory row
   /// is deliberately kept even when its write failed. This asks the store.
-  Future<bool> isPersisted(String entryId) async {
-    try {
-      return await _persistence.loadById(entryId) != null;
-    } on Object catch (e) {
-      // A read that threw is not a read that said 「absent」. Report false (the
-      // direction that KEEPS the audio) and name it, rather than letting an
-      // unreadable store license a delete.
-      diag('timeline.readback_failed', <String, Object?>{
-        'entry_id': entryId,
-        'error': e,
-      });
-      return false;
-    }
-  }
+  Future<bool> isPersisted(String entryId) =>
+      // A read that threw is not a read that said "absent": false, the
+      // direction that KEEPS the audio (round 10: through `TimelineProof`).
+      TimelineProof.persistedAs(_persistence, entryId);
 
   /// Codex rc2 ⑤ — [isPersisted], and the stored row passes [test]. For a
   /// caller that changed a persisted row and must know the CHANGE is on disk
   /// (the recovery settle, before it deletes audio). False on a read failure.
   Future<bool> isPersistedAs(
-      String entryId, bool Function(TimelineEntry stored) test) async {
-    try {
-      final TimelineEntry? e = await _persistence.loadById(entryId);
-      return e != null && test(e);
-    } on Object {
-      return false;
-    }
-  }
+          String entryId, bool Function(TimelineEntry stored) test) =>
+      TimelineProof.persistedAs(_persistence, entryId, test);
+
+  /// NR-137 round 10 (review r9 B1) — may audio whose release stands on
+  /// [claim] go NOW? One fresh, complete proof (`TimelineProof.authorizeRelease`).
+  Future<bool> releaseAuthorized(TimelineReleaseClaim claim) =>
+      TimelineProof.authorizeRelease(_persistence, claim);
+
+  /// NR-137 round 9 — THE proof of a removal, a row or a membership
+  /// (`TimelineProof`, timeline_verified_reads.dart): one census of every
+  /// registered store, plus a keyed read of each of [ids]. Nothing else decides.
+  Future<TimelineProof> proof({Iterable<String> ids = const <String>[]}) =>
+      TimelineProof.take(_persistence, ids: ids);
 
   /// In-flight writes by row id. See [awaitPersisted].
   final Map<String, Future<void>> _inFlightWrites = <String, Future<void>>{};

@@ -57,6 +57,9 @@ extension ChatControllerWiring on ChatController {
   }
 
   void _wireSubscriptions() {
+    store.writeFailures.addListener(notifyUi);
+    store.deleteFailures.addListener(notifyUi);
+    store.recoveryFailures.addListener(notifyUi);
     _finalSub = session.stt.finals.listen(_onFinal);
     _interimSub = session.stt.interims.listen(_onInterim);
     _injectSub = session.injectResults.listen(_onInjectResult);

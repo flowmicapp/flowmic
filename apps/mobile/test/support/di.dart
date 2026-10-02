@@ -7,6 +7,7 @@
 // production-path defaults).
 
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flowmic/src/audio/audio_capture.dart';
 import 'package:flowmic/src/auth/account_store.dart';
@@ -131,6 +132,7 @@ TimelineReaper newTestReaper({
 
 /// One-liner TimelineStore with an explicit InMemoryTimelinePersistence.
 TimelineStore newTestStore({
+  SharedPreferences? recoveryPrefs,
   TimelinePersistence? persistence,
   String deviceId = 'mobile',
   InstanceOwnerProbe? owner,
@@ -139,6 +141,7 @@ TimelineStore newTestStore({
   final TimelinePersistence p = persistence ?? InMemoryTimelinePersistence();
   return TimelineStore(
     persistence: p,
+    recoveryPrefs: recoveryPrefs,
     // Same persistence instance on both sides by default: a reaper deleting from
     // a DIFFERENT table than the store reads would make every deletion test pass
     // while proving nothing.

@@ -45,6 +45,7 @@ Future<void> showExportSheet(
     context: context,
     backgroundColor: FlowMicColors.surface,
     isScrollControlled: true,
+    useSafeArea: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -62,125 +63,129 @@ class _ExportSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: ListenableBuilder(
-        listenable: controller,
-        builder: (BuildContext context, _) {
-          final tally = controller.tally;
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  strings.exportTitle,
-                  style: TextStyle(
-                    color: FlowMicColors.t1,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+      top: false,
+      child: SingleChildScrollView(
+        child: ListenableBuilder(
+          listenable: controller,
+          builder: (BuildContext context, _) {
+            final tally = controller.tally;
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    strings.exportTitle,
+                    style: TextStyle(
+                      color: FlowMicColors.t1,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
+                  const SizedBox(height: 12),
 
-                // ── §7-1 plaintext warning ────────────────────────────────
-                Container(
-                  padding: const EdgeInsets.all(11),
-                  decoration: BoxDecoration(
-                    color: FlowMicColors.amberSoft,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Icon(
-                        Icons.lock_open_outlined,
-                        size: 16,
-                        color: FlowMicColors.amber,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          strings.exportPlaintextWarning,
-                          style: TextStyle(
-                            color: FlowMicColors.t1,
-                            fontSize: 12.5,
-                            height: 1.4,
+                  // ── §7-1 plaintext warning ────────────────────────────────
+                  Container(
+                    padding: const EdgeInsets.all(11),
+                    decoration: BoxDecoration(
+                      color: FlowMicColors.amberSoft,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Icon(
+                          Icons.lock_open_outlined,
+                          size: 16,
+                          color: FlowMicColors.amber,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            strings.exportPlaintextWarning,
+                            style: TextStyle(
+                              color: FlowMicColors.t1,
+                              fontSize: 12.5,
+                              height: 1.4,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
+                  const SizedBox(height: 12),
 
-                // ── §4.1 scope: what's exported is not 「你说过的全部」
-                //    ("everything you have ever said") ───────────────────
-                Text(strings.exportScopeNote, style: kRowSub),
-                const SizedBox(height: 6),
-                if (tally == null)
-                  Row(
-                    children: <Widget>[
-                      const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 1.6),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(strings.exportRunning, style: kRowSub),
-                    ],
-                  )
-                else ...<Widget>[
-                  Text(
-                    strings.exportScopeCount(tally.entryCount),
-                    style: kRowTitle,
-                  ),
-                  if (tally.oldest != null && tally.newest != null) ...<Widget>[
-                    const SizedBox(height: 2),
+                  // ── §4.1 scope: what's exported is not 「你说过的全部」
+                  //    ("everything you have ever said") ───────────────────
+                  Text(strings.exportScopeNote, style: kRowSub),
+                  const SizedBox(height: 6),
+                  if (tally == null)
+                    Row(
+                      children: <Widget>[
+                        const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.6),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(strings.exportRunning, style: kRowSub),
+                      ],
+                    )
+                  else ...<Widget>[
                     Text(
-                      strings.exportRange(
-                        _day(tally.oldest!),
-                        _day(tally.newest!),
-                      ),
-                      style: kRowSub,
+                      strings.exportScopeCount(tally.entryCount),
+                      style: kRowTitle,
                     ),
-                  ],
-                  const SizedBox(height: 14),
+                    if (tally.oldest != null &&
+                        tally.newest != null) ...<Widget>[
+                      const SizedBox(height: 2),
+                      Text(
+                        strings.exportRange(
+                          _day(tally.oldest!),
+                          _day(tally.newest!),
+                        ),
+                        style: kRowSub,
+                      ),
+                    ],
+                    const SizedBox(height: 14),
 
-                  // ── owner ruling 5 + §8-2: checkbox + a genuinely
-                  //    computed size ───────────────────────────────────
-                  if (tally.imageFileCount == 0)
-                    Text(strings.exportNoImages, style: kRowSub)
-                  else
-                    settingsCheckRow(
-                      title: strings.exportIncludeImages(
-                        tally.imageFileCount,
-                        tally.imageBytes,
+                    // ── owner ruling 5 + §8-2: checkbox + a genuinely
+                    //    computed size ───────────────────────────────────
+                    if (tally.imageFileCount == 0)
+                      Text(strings.exportNoImages, style: kRowSub)
+                    else
+                      settingsCheckRow(
+                        title: strings.exportIncludeImages(
+                          tally.imageFileCount,
+                          tally.imageBytes,
+                        ),
+                        sub: strings.exportWithoutImagesNote,
+                        checked: controller.includeImages,
+                        onTap: () => controller.includeImages =
+                            !controller.includeImages,
+                        last: true,
                       ),
-                      sub: strings.exportWithoutImagesNote,
-                      checked: controller.includeImages,
-                      onTap: () =>
-                          controller.includeImages = !controller.includeImages,
-                      last: true,
-                    ),
-                ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: controller.busy || tally == null
-                        ? null
-                        : () => _run(context),
-                    child: Text(
-                      controller.busy
-                          ? strings.exportRunning
-                          : strings.exportAction,
+                  ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: controller.busy || tally == null
+                          ? null
+                          : () => _run(context),
+                      child: Text(
+                        controller.busy
+                            ? strings.exportRunning
+                            : strings.exportAction,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -206,12 +211,12 @@ class _ExportSheet extends StatelessWidget {
             required bool hasAttachments,
             required String? appVersion,
           }) => strings.portableReadme(
-        exportedAt: exportedAt.toIso8601String(),
-        entryCount: entryCount,
-        attachmentCount: attachmentCount,
-        hasAttachments: hasAttachments,
-        appVersion: appVersion,
-      ),
+            exportedAt: exportedAt.toIso8601String(),
+            entryCount: entryCount,
+            attachmentCount: attachmentCount,
+            hasAttachments: hasAttachments,
+            appVersion: appVersion,
+          ),
     );
     if (nav.canPop()) nav.pop();
     messenger.showSnackBar(

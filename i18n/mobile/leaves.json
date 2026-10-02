@@ -1,6 +1,16 @@
 {
   "leaves": [
     {
+      "key": "openSourceLicenses",
+      "leaf": "_lfOpenSourceLicenses",
+      "params": []
+    },
+    {
+      "key": "timelineLocalSaveFailed",
+      "leaf": "_lfTimelineLocalSaveFailed",
+      "params": []
+    },
+    {
       "key": "_diagTail",
       "leaf": "_lf_diagTail",
       "params": [
@@ -5821,6 +5831,48 @@
     {
       "key": "webMicConfigurationFailed",
       "leaf": "_lfWebMicConfigurationFailed",
+      "params": []
+    },
+    {
+      "key": "dev_retainedAudioCommitFailed",
+      "leaf": "_lfDev_retainedAudioCommitFailed",
+      "params": []
+    },
+    {
+      "key": "dev_timelineRecoveryFailed",
+      "leaf": "_lfDev_timelineRecoveryFailed",
+      "params": []
+    },
+    {
+      "key": "dev_pendingRecoveryRetranscribe",
+      "leaf": "_lfDev_pendingRecoveryRetranscribe",
+      "params": []
+    },
+    {
+      "key": "dev_pendingRecoveryStateUnverifiedRetranscribe",
+      "leaf": "_lfDev_pendingRecoveryStateUnverifiedRetranscribe",
+      "params": []
+    },
+    {
+      "key": "dev_pendingRecoveryStateUnverifiedRetranscribeNote",
+      "leaf": "_lfDev_pendingRecoveryStateUnverifiedRetranscribeNote",
+      "params": []
+    },
+    {
+      "key": "dev_pendingRecoveryRetranscribeUsesMinutes",
+      "leaf": "_lfDev_pendingRecoveryRetranscribeUsesMinutes",
+      "params": []
+    },
+    {
+      "key": "dev_retranscribedNoteMarker",
+      "leaf": "_lfDev_retranscribedNoteMarker",
+      "params": [
+        "when"
+      ]
+    },
+    {
+      "key": "dev_retranscribedNoteMarkerUndated",
+      "leaf": "_lfDev_retranscribedNoteMarkerUndated",
       "params": []
     }
   ]

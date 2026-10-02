@@ -28,6 +28,7 @@
 // should stop here: that is option 甲 and it was set aside.
 
 import type { RecoveryOperationsRepo } from '../../db/repos/recovery-operations.repo';
+import { claimBindingOf, type ClaimBinding } from '../../db/repos/usage-effects.repo';
 import type { ErrorPayload } from '../../errors';
 
 /** The subset of a parsed `audio:start` this step reads. Structural rather than
@@ -36,6 +37,8 @@ import type { ErrorPayload } from '../../errors';
 export interface OperationStartFacts {
   operation_id?: string | undefined;
   recording_id?: string | undefined;
+  /** NR-138 round 6 (review B6) — bound like the recording and the range. */
+  job_id?: string | undefined;
   range_start_sample?: number | undefined;
   range_end_sample?: number | undefined;
   attempt_kind?: string | undefined;
@@ -106,7 +109,9 @@ export const OPERATION_REGISTRY_UNWIRED_CODE = 'STT_NO_ENGINE_REACHED';
 export type OperationAdmissionResult =
   /** Admitted. `operation_id` is undefined for a frame that named none — every
    *  ordinary press, and every phone that predates card PR-1. */
-  | { ok: true; operation_id?: string | undefined; registered?: 'registered' | 'resend' }
+  | { ok: true; operation_id?: string | undefined; registered?: 'registered' | 'resend';
+      /** NR-138 round 6 — the frame's recording / job / range, when all four are present; the claim stores it. */
+      binding?: ClaimBinding | undefined }
   /** Refused. The caller must go through `refuseStart` so the refusal reaches the
    *  phone and the journal, not through a bare ack (QTA-1). */
   | { ok: false; error: ErrorPayload };
@@ -142,6 +147,7 @@ export function admitOperation(
   }
   const verdict = repo.admit(userId, operation_id, {
     recording_id: start.recording_id,
+    job_id: start.job_id,
     range_start_sample: start.range_start_sample,
     range_end_sample: start.range_end_sample,
     attempt_kind: start.attempt_kind,
@@ -157,5 +163,5 @@ export function admitOperation(
       },
     };
   }
-  return { ok: true, operation_id, registered: verdict.outcome };
+  return { ok: true, operation_id, registered: verdict.outcome, binding: claimBindingOf(start) };
 }

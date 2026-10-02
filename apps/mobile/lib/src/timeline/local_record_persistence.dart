@@ -1,5 +1,6 @@
 // SPEC-REF: Task C plan §9.1. A local birth is not a generic database upsert.
-// Import and cloud merge continue calling upsert and never enter this API.
+// Import/cloud merge share TimelineStore._writeRecord but do not register
+// local-birth submissions (timeline_external_write_test.dart).
 import 'timeline_entry.dart';
 import 'timeline_persistence.dart';
 

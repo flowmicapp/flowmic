@@ -19,7 +19,7 @@ mixin _ChatControllerState on ChangeNotifier {
   // Card RC-B follow-up — the rows THIS live press has settled so far, and the
   // `recording_id` of the live attempt they belong to. Written in `_settleSpan`
   // for live sessions only (a recovery's rows are not the press's); read by the
-  // terminal final's empty-text branch, which hands them to `settleSilentTail`.
+  // terminal final's live settlement, with or without terminal text.
   String? _pressRowsRecordingId;
   final List<String> _pressRowIds = <String>[];
 

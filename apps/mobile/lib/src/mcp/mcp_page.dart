@@ -23,7 +23,7 @@ class McpPage extends StatelessWidget {
     builder: (BuildContext context, _) {
       final AppStrings s = AppStrings.of(settings.locale);
       return Scaffold(appBar: AppBar(title: Text(s.mcp(McpText.title))),
-        body: ListView(padding: const EdgeInsets.all(16), children: <Widget>[
+        body: SafeArea(top: false, child: ListView(padding: const EdgeInsets.all(16), children: <Widget>[
           Text(s.mcp(McpText.scope)), const SizedBox(height: 8),
           Text(s.mcp(McpText.noRemoteDelete)), const SizedBox(height: 16),
           if (!service.available) Text(s.mcp(McpText.storageUnavailable)),
@@ -57,7 +57,7 @@ class McpPage extends StatelessWidget {
           if (service.channels.length < 3) Align(alignment: Alignment.centerLeft,
             child: FilledButton(key: const ValueKey<String>('mcp.add'),
               onPressed: service.available ? () => _edit(context, null) : null, child: Text(s.add))),
-        ]));
+        ])));
     },
   );
   Future<void> _edit(BuildContext context, McpChannel? channel) => Navigator.of(context).push<void>(MaterialPageRoute<void>(

@@ -14,7 +14,7 @@
   "TrayStatusConnected": "● 接続済み · スマホ {n} 台",
   "TrayTooltipConnected": "FlowMic — 接続済み（スマホ {n} 台がオンライン）",
   "QuitConfirmTitle": "FlowMic を終了",
-  "QuitConfirmBody": "終了するとスマホはこの PC に接続できなくなり、進行中の文字起こしは中断されます。\n\nFlowMic を終了しますか？",
+  "QuitConfirmBody": "終了するとスマホはこのパソコンに接続できなくなり、進行中の文字起こしは中断されます。\n\nFlowMic を終了しますか？",
   "AutostartWriteFailed": "自動起動エントリの書き込みに失敗しました：{detail}",
   "AutostartRemoveFailed": "自動起動エントリの削除に失敗しました：{detail}",
   "AutostartReadFailed": "自動起動状態の読み取りに失敗しました：{detail}",

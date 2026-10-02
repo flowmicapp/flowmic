@@ -14,7 +14,7 @@
   "TrayStatusConnected": "● 연결됨 · 휴대폰 {n}대",
   "TrayTooltipConnected": "FlowMic — 연결됨 (휴대폰 {n}대 온라인)",
   "QuitConfirmTitle": "FlowMic 종료",
-  "QuitConfirmBody": "종료하면 휴대폰이 이 PC에 연결할 수 없게 되며, 진행 중인 전사는 중단됩니다.\n\nFlowMic을 종료하시겠습니까?",
+  "QuitConfirmBody": "종료하면 휴대폰이 이 컴퓨터에 연결할 수 없게 되며, 진행 중인 전사는 중단됩니다.\n\nFlowMic을 종료하시겠습니까?",
   "AutostartWriteFailed": "시작 프로그램 항목 쓰기 실패: {detail}",
   "AutostartRemoveFailed": "시작 프로그램 항목 제거 실패: {detail}",
   "AutostartReadFailed": "시작 프로그램 상태 읽기 실패: {detail}",

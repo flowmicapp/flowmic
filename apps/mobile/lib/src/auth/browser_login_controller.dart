@@ -15,7 +15,8 @@
 //   · the user cancels and comes back with nothing → nothing on either OS emits
 //     a "the user gave up" event, so [kBrowserLoginWaitTimeout] is the only
 //     mechanism there can be: the wait ends, the spinner stops, the sheet says
-//     so and offers a retry;
+//     so and offers a retry. The stored request is NOT dropped then — a link
+//     that comes back later, inside [kBrowserLoginStateTtl], still signs in;
 //   · the deep link is not registered → indistinguishable, FROM HERE, from a
 //     user who cancelled — the OS tells this process nothing in either case, so
 //     it lands on the same timeout and the same retry. Stated rather than
@@ -109,6 +110,9 @@ class BrowserLoginController extends ChangeNotifier {
   StreamSubscription<Uri>? _sub;
   Timer? _waitTimer;
   bool _disposed = false;
+
+  bool panelVisible = false;
+  VoidCallback? onBackgroundResult;
 
   /// The URL this process was launched with, once consumed. Kept so a second
   /// [drainInitialLink] — the sheet is opened, closed and opened again — does
@@ -241,7 +245,7 @@ class BrowserLoginController extends ChangeNotifier {
     if (_disposed) return;
 
     if (!verdict.ok) {
-      _fail(verdict.refusal!);
+      _fail(verdict.refusal!, fromLink: true);
       return;
     }
 
@@ -257,22 +261,33 @@ class BrowserLoginController extends ChangeNotifier {
     // controller goes quiet rather than paraphrasing it.
     _phase = BrowserLoginPhase.idle;
     _notify();
+    if (!panelVisible) onBackgroundResult?.call();
   }
 
   void _armWaitTimer() {
     _waitTimer?.cancel();
-    _waitTimer = Timer(_waitTimeout, () async {
+    _waitTimer = Timer(_waitTimeout, () {
       if (_disposed || _phase != BrowserLoginPhase.waiting) return;
-      await _store.clear();
-      if (_disposed) return;
+      // 🔴 THE STORED REQUEST IS KEPT. This timer ends the SPINNER, not the
+      // binding: a first-time user can still be in the browser (registering,
+      // waiting on an email code) and the link they bring back is theirs.
+      // Whether it is accepted is [kBrowserLoginStateTtl]'s call, made in
+      // verifyBrowserLoginCallback — the same rule the cold-start path, where no
+      // timer survives the process, has always followed. Clearing here refused
+      // those users as 「not requested from this phone」 (measured 2026-09-30,
+      // 0.3.102 on a tablet; pinned by the LATE CALLBACK group in
+      // test/browser_login_flow_test.dart). The binding still ends on every
+      // verdict (_onLink), a new start(), cancel(), and a failed launch.
       _fail(BrowserLoginCodes.timedOut);
     });
   }
 
-  void _fail(String code) {
+  void _fail(String code, {bool fromLink = false}) {
     _phase = BrowserLoginPhase.failed;
     _errorCode = code;
     _notify();
+    // Background messages answer an actual delivered link, never a wait timer.
+    if (fromLink && !panelVisible) onBackgroundResult?.call();
   }
 
   void _notify() {
@@ -282,6 +297,7 @@ class BrowserLoginController extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
     _waitTimer?.cancel();
     _waitTimer = null;

@@ -515,8 +515,18 @@ void onFsmChangeRouted(ChatController c, FlowmicStateSnapshot s) {
   // was overwritten three lines in. Testing the overwritten copy would make
   // this fire on every snapshot instead of on the edge, i.e. a sweep per
   // frame rather than a sweep per recording.
+  //
+  // 🔴 NR-138 ② — AND ONLY FOR A RECORDING A PERSON MADE. A recovery drives
+  // the same FSM (`beginBackfill` → `onPttDown`, `endBackfill` → `onPttUp`),
+  // so every recovery attempt used to cross this edge and queue the NEXT
+  // sweep itself: a stalled legacy replay re-queued its own successor with no
+  // link edge and no user action (root cause 2026-10-01 §1). The session's
+  // opener is the discriminator (`PttSession.openSessionIsRecovery`, written
+  // before the FSM edge by both openers). Due retries come from the RC-O
+  // timer; a pass held for live speech resumes through `_resumeHeldRecovery`.
   if (prevSess == SessionState.recording &&
-      s.session != SessionState.recording) {
+      s.session != SessionState.recording &&
+      !c.session.openSessionIsRecovery) {
     unawaited(c.backfill.sweep(sourceLang: c._recoverySourceLang));
   }
   // Card RC-3 — the session came to rest: an owed tail whose journal already

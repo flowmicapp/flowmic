@@ -13,6 +13,7 @@ assert.match(contents, /run_stage clippy-core cargo clippy/);
 assert.match(contents, /run_stage clippy-app cargo clippy/);
 assert.match(contents, /run_stage tests-core cargo test/);
 assert.match(contents, /run_stage tests-app cargo test/);
+assert.match(contents, /run_stage sidecar-parent-death node scripts\/sidecar-parent-death.test.mjs/);
 assert.match(contents, /run_stage desktop-build pnpm --filter @flowmic\/desktop tauri:build/);
 assert.doesNotMatch(contents, /gate-receipt|pnpm verify:delivery\s/);
 if (process.platform !== 'linux') {
@@ -45,7 +46,7 @@ try {
   });
   const positive = run(false);
   assert.equal(positive.status, 0, positive.stderr + positive.stdout);
-  assert.match(positive.stdout, /LINUX GATE PASS .*tests-core, tests-app, production-preflight, doctests, desktop-build/);
+  assert.match(positive.stdout, /LINUX GATE PASS .*tests-core, tests-app, production-preflight, sidecar-parent-death, doctests, desktop-build/);
   const blocked = run(false, {FAKE_NODE_VERSION:'v20.0.0', FAKE_NATIVE_EXIT:'1'});
   assert.equal(blocked.status, 2, blocked.stdout + blocked.stderr);
   assert.match(blocked.stdout, /PREREQUISITE NODE_PIN/);

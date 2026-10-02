@@ -72,9 +72,11 @@ class BackfillProgress {
 
   /// Journal recordings whose automatic budget is spent (owner ruling O-9:
   /// five attempts). Only a user action moves them; that action is RC-1b.
+  /// NR-138 — plus legacy sessions whose automatic route stopped (budget
+  /// spent, or retry record unreadable).
   final int needsManual;
 
-  /// Journal recordings that produced a row without a complete proof (A5-3).
+  /// Journal recordings and legacy sessions kept without a complete proof.
   /// Kept, never auto-retried, never swept.
   final int settledUnverified;
 
@@ -141,4 +143,3 @@ class BackfillProgress {
       settledUnverified > 0 ||
       serverTier == RecoveryTier.awaitingServerCapability;
 }
-

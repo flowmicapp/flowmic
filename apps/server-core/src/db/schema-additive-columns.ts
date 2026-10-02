@@ -130,6 +130,11 @@ export const ADDITIVE_TEXT_COLUMNS: Readonly<Record<string, readonly string[]>> 
   // column there IS no "most recent redelivery", and NULL is the only honest
   // value for it. Its INTEGER sibling `redelivery_count` rides the other loop.
   billing_events: ['last_notification_id'],
+  // NR-138 round 6 (book 22 §4.11) — nullable TEXT is honest for both: a row that predates the column named no job
+  // (registry) or carries no binding (claim). The claim's two INTEGER range columns are nullable too and get their
+  // own guarded step in reconcileSchema (the INT loop would invent a 0 range).
+  recovery_operations: ['job_id'],
+  usage_effects: ['recording_id', 'job_id'],
   // The billing tables' additive columns live with their DDL, in
   // ./schema-billing.ts — including the `contract_concluded_at` note, which the
   // withdrawal surface has to respect and which belongs beside the column.
@@ -167,4 +172,8 @@ export const ADDITIVE_INT_COLUMNS: Readonly<Record<string, readonly string[]>> =
   // before we started counting — is why `last_notification_id` stays NULL there
   // rather than being invented.)
   billing_events: ['redelivery_count'],
+  // NR-138 round 4 — a COUNTER, like the one above: a claim that predates the column was replayed an unknown number
+  // of times, and 0 is what we counted. (Its sibling `billed_ms` is NULLABLE and needs its own step in
+  // reconcileSchema: 0 there would claim 「paid nothing」, which is a different and false statement.)
+  usage_effects: ['replays'],
 };

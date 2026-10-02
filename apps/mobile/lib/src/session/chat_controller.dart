@@ -202,9 +202,11 @@ class ChatController extends ChangeNotifier
     // Card RC6 — the recovery queue's clock and its due-time retry (RC-O), so a
     // test can run a backoff of minutes in milliseconds.
     @visibleForTesting int Function()? recoveryClock,
+    @visibleForTesting Future<void> Function(Duration)? recoverySleep,
     @visibleForTesting Timer Function(Duration, void Function())? recoveryRetryTimer,
   }) : _recoveryTimeouts = recoveryTimeouts,
        _recoveryClock = recoveryClock,
+       _recoverySleep = recoverySleep,
        _recoveryRetryTimer = recoveryRetryTimer,
        favorites = FavoritesStore(prefs: localPrefs),
        composeGate =
@@ -271,9 +273,11 @@ class ChatController extends ChangeNotifier
       phonePrefs: phonePrefs,
       recoveryTimeouts: _recoveryTimeouts,
       clock: _recoveryClock,
+      sleep: _recoverySleep,
       retryTimer: _recoveryRetryTimer);
   final RecoveryTimeouts _recoveryTimeouts;
   final int Function()? _recoveryClock;
+  final Future<void> Function(Duration)? _recoverySleep;
   final Timer Function(Duration, void Function())? _recoveryRetryTimer;
 
   final DestinationController destination;

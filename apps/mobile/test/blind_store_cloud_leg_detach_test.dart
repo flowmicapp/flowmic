@@ -30,6 +30,7 @@ import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
+import 'support/di.dart';
 
 final Argon2Cost kFast = Argon2Cost.reducedForTestsOnly(
   memoryKiB: 64,
@@ -72,6 +73,7 @@ void main() {
         client: BlindStoreCloudClient(transport: FakeSocketTransport()),
         state: InMemoryBlindStoreCloudStateStore(),
         bridge: BlindStoreTimelineBridge(
+        store: newTestStore(persistence: InMemoryTimelinePersistence()),
           persistence: InMemoryTimelinePersistence(),
           reaper: TimelineReaper(
             persistence: InMemoryTimelinePersistence(),
@@ -123,6 +125,7 @@ void main() {
         client: BlindStoreCloudClient(transport: transport),
         state: InMemoryBlindStoreCloudStateStore(),
         bridge: BlindStoreTimelineBridge(
+        store: newTestStore(persistence: InMemoryTimelinePersistence()),
           persistence: InMemoryTimelinePersistence(),
           reaper: TimelineReaper(
             persistence: InMemoryTimelinePersistence(),

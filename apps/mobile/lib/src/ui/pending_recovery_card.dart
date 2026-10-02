@@ -92,6 +92,9 @@ class PendingRecoveryCard extends StatelessWidget {
               item.state,
               strings,
               otherAccount: item.otherAccount,
+              retranscribable: item.retranscribable,
+              asNote: item.retranscribeAsNote,
+              blockedByServer: item.retranscribeBlockedByServer,
             ),
             key: ValueKey<String>('pendingRecovery.sentence.${item.id}'),
             style: TextStyle(
@@ -106,6 +109,21 @@ class PendingRecoveryCard extends StatelessWidget {
           // still true (this recording is still owed an attempt, and the attempt
           // can still succeed on what survived), and overwriting it would take
           // the retry button's explanation away. Absent on every healthy card.
+          // NR-137 round 2 — owner billing transparency (R11): a press re-makes
+          // words that were metered once already, and is metered again. Only
+          // where it is true (a metered channel), only where it can be pressed.
+          if (item.pressUsesMinutes) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              strings.pendingRecoveryRetranscribeUsesMinutes,
+              key: ValueKey<String>('pendingRecovery.usesMinutes.${item.id}'),
+              style: TextStyle(
+                color: FlowMicColors.t3,
+                fontSize: 11.5,
+                height: 1.35,
+              ),
+            ),
+          ],
           if (item.partlySaved) ...<Widget>[
             const SizedBox(height: 4),
             Text(
@@ -127,7 +145,11 @@ class PendingRecoveryCard extends StatelessWidget {
                 if (mayRetry) ...<Widget>[
                   _button(
                     key: ValueKey<String>('pendingRecovery.retry.${item.id}'),
-                    label: strings.pendingRecoveryRetryNow,
+                    // NR-137 — words already on the page: re-transcribe,
+                    // not 「try again」 (see the getter's doc).
+                    label: item.retranscribable
+                        ? strings.pendingRecoveryRetranscribe
+                        : strings.pendingRecoveryRetryNow,
                     ink: FlowMicColors.brand,
                     background: FlowMicColors.brandSoft,
                     onTap: onRetry!,

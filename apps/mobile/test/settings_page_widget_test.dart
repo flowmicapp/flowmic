@@ -10,6 +10,9 @@
 // real ChatController in phone_prefs_payload_test.dart. Here the claim is the
 // screen half plus its negative: the settings screen's socket stays silent.
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flowmic/src/session/outbox_blob_store.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/generated/flowmic_events.g.dart';
@@ -25,6 +28,7 @@ import 'package:flowmic/src/settings/settings_client.dart';
 import 'package:flowmic/src/ui/settings_page.dart';
 import 'package:flowmic/src/ui/tokens.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -72,6 +76,7 @@ class _Rig {
   }
 
   Widget widget() => MaterialApp(
+        title: 'Settings test app',
         home: SettingsPage(
           scenario: scenario,
           appSettings: appSettings,
@@ -104,6 +109,41 @@ class _Rig {
 }
 
 void main() {
+  testWidgets('Settings opens the package license page', (WidgetTester tester) async {
+    final _Rig rig = await _Rig.create();
+    addTearDown(rig.dispose);
+
+    // Flutter's test binding disables the production NOTICES.Z collector.
+    // Register a real dependency's shipped license through the same registry.
+    final File config = File('.dart_tool/package_config.json').absolute;
+    final Map<String, dynamic> packages =
+        jsonDecode(config.readAsStringSync()) as Map<String, dynamic>;
+    final Map<String, dynamic> collection =
+        (packages['packages'] as List<dynamic>).cast<Map<String, dynamic>>()
+            .singleWhere((Map<String, dynamic> p) => p['name'] == 'collection');
+    final Uri root = config.uri.resolve('${collection['rootUri']}/');
+    final String license = File.fromUri(root.resolve('LICENSE')).readAsStringSync();
+    LicenseRegistry.addLicense(() => Stream<LicenseEntry>.value(
+      LicenseEntryWithLineBreaks(const <String>['collection'], license),
+    ));
+    addTearDown(LicenseRegistry.reset);
+
+    await tester.pumpWidget(rig.widget());
+    await tester.pumpAndSettle();
+    final Finder row = find.byKey(const ValueKey<String>('settings.openLicenses'));
+    await tester.scrollUntilVisible(row, 500);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+
+    final LicensePage page = tester.widget<LicensePage>(find.byType(LicensePage));
+    expect(page.applicationName, 'Settings test app');
+    expect(page.applicationVersion, '0.0.0-test');
+    expect(find.text('collection'), findsOneWidget);
+    await tester.tap(find.text('collection'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Redistribution and use'), findsWidgets);
+  });
+
   testWidgets('structured scenario surfaces render + a chip tap writes '
       'settings:update', (WidgetTester tester) async {
     // Tall viewport so the whole anchored settings list lays out at once.

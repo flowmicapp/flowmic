@@ -60,6 +60,7 @@ function makeDeps(): ConsoleRoutesDeps {
     opsAudit: db.opsAudit,
     pcs: db.pcs,
     mobiles: db.mobiles,
+    recoveryOps: db.recoveryOps, usageEffects: db.usageEffects, // NR-138 round 5: the account export
     // 2026-08-28: the console's device surface now takes live room membership.
     // An EMPTY store is the honest fixture for these suites — none of them has a
     // socket, so every PC reads absent, which is what "no relay session here" means.

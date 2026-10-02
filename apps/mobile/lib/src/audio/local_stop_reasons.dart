@@ -24,7 +24,8 @@
 //     (settings/strings/recording_strings.dart).
 
 /// The 3 s drop grace expired while the capture was live, AND the tail was
-/// handed to a live retention layer: the notice may state the retention fact.
+/// confirmed by AudioCapture.tailRetentionConfirmed (NR-146).
+/// Regression: ptt_retention_confirmation_test.dart.
 /// 🔴 The sentence for this value must never promise transcription — the
 /// upload/re-transcription mechanism does not exist (design §6).
 const String kLocalStopReasonLinkLossKept = 'local:link-loss-kept';

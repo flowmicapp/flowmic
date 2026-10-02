@@ -38,7 +38,9 @@ function attachWire(page, sink) {
       const ev = parseSocketIoEvent(f.payload);
       if (!ev) return;
       let detail = ev.payload ?? null;
-      if (ev.event === 'audio:chunk') detail = { ms: chunkMs(ev.payload?.data_b64), seq: ev.payload?.seq };
+      // `ts` is the chunk's own capture clock (card WV-T4: a chunk held before the
+      // room carries a `ts_ms` from before its `audio:start`).
+      if (ev.event === 'audio:chunk') detail = { ms: chunkMs(ev.payload?.data_b64), seq: ev.payload?.seq, ts: ev.payload?.ts_ms ?? null };
       else if (detail && typeof detail === 'object') {
         detail = Object.fromEntries(Object.entries(detail).filter(([k]) => !/token|authorization/i.test(k))
           .map(([k, v]) => [k, typeof v === 'string' && v.length > 160 ? `${v.slice(0, 160)}...` : v]));

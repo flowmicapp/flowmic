@@ -46,13 +46,26 @@ class _Candidate {
     required this.scan,
     required this.manifest,
     required this.status,
+    this.rangeOverride,
   });
 
   final RecordingScan scan;
   final RecordingManifest manifest;
   final RecoveryJobStatus status;
 
-  JournalByteRange get range => scan.verifiedRecoverableRange;
+  /// NR-137 round 3 (review B1) — set only for a kept-words press, which
+  /// feeds the WHOLE verified recording as one range (one operation).
+  final JournalByteRange? rangeOverride;
+
+  JournalByteRange get range => rangeOverride ?? scan.verifiedRecoverableRange;
+
+  /// This candidate, fed whole: `[0, verifiedEnd)`.
+  _Candidate whole() => _Candidate(
+        scan: scan,
+        manifest: manifest,
+        status: status,
+        rangeOverride: scan.wholeRange,
+      );
 }
 
 /// Three timestamps, so the four deadlines each measure their own thing.

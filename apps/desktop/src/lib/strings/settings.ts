@@ -94,6 +94,7 @@ export const SETTINGS_KEYS = [
   // (criterion 4), not a locally stored setting value.
   'set_prefs_autostart',
   'set_prefs_autostart_hint',
+  'dev_set_prefs_autostart_hint_macos',
   'set_prefs_autostart_path',
   'set_prefs_autostart_dead',
   'set_prefs_autostart_failed',
@@ -131,6 +132,7 @@ export const SETTINGS_KEYS = [
   'set_inject_clip_body',
   'set_inject_clip_backup',
   'set_about_version',
+  'openSourceLicenses',
   'set_about_log_title',
   'set_about_log_hint',
   'set_about_log_path',

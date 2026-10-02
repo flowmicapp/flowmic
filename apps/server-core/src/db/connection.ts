@@ -252,6 +252,11 @@ export function reconcileSchema(db: DatabaseSync): void {
       if (!present.has(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`);
     }
   }
+  // NR-138 round 4 (book 22 §4.11) — usage_effects.billed_ms, INTEGER NULL, NO backfill: NULL is the honest value for
+  // a claim written before anyone recorded what it paid, and usage-effects.repo.ts reads it as 「a pre-change claim」.
+  if (!tableColumns(db, 'usage_effects').has('billed_ms')) db.exec('ALTER TABLE usage_effects ADD COLUMN billed_ms INTEGER');
+  // NR-138 round 6 — the claim's binding range, INTEGER NULL, no backfill: NULL ⇔ an unbound claim (billed normally).
+  for (const c of ['range_start_sample', 'range_end_sample']) if (!tableColumns(db, 'usage_effects').has(c)) db.exec(`ALTER TABLE usage_effects ADD COLUMN ${c} INTEGER`);
   // ── VERIFY-1 (2026-08-11): users.email_verified_at, guarded ADD COLUMN ─────
   //
   // Deliberately NOT in ADDITIVE_TEXT_COLUMNS / ADDITIVE_INT_COLUMNS: those

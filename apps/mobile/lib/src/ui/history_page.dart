@@ -267,6 +267,7 @@ class _HistoryPageState extends State<HistoryPage> {
             return Column(
               children: <Widget>[
                 _header(context, s),
+                if (widget.storageKind == TimelineStorageKind.sharedPrefsFallback) _capFootnote(s),
                 // Card NR-3 — directly under the header, exactly where the chat
                 // page docks it, and present only in the mode.
                 if (_selection.active) _selectionBar(context, s, entries),
@@ -382,7 +383,7 @@ class _HistoryPageState extends State<HistoryPage> {
                           },
                         ),
                 ),
-                _capFootnote(s),
+                if (widget.storageKind == TimelineStorageKind.sqlite) _capFootnote(s),
               ],
             );
           },
@@ -526,10 +527,8 @@ class _HistoryPageState extends State<HistoryPage> {
     ),
   );
 
-  /// Hard requirement ④ — pinned so it is visible even at the full 100 rows (a
-  /// footnote
-  /// that only appears after scrolling to the oldest row would be the quiet
-  /// kind of disclosure). Small type, always there.
+  /// Fallback history disclosure is pinned above search and the scrolling list.
+  /// The healthy storage caption remains in the footer.
   Widget _capFootnote(AppStrings s) => Container(
     width: double.infinity,
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -544,14 +543,16 @@ class _HistoryPageState extends State<HistoryPage> {
         TimelineStorageKind.sqlite => s.historyAllPersisted,
         TimelineStorageKind.sharedPrefsFallback => s.historyFallbackNote,
       },
-      textAlign: TextAlign.center,
+      textAlign: widget.storageKind == TimelineStorageKind.sharedPrefsFallback
+          ? TextAlign.start : TextAlign.center,
       style: TextStyle(
         // The fallback line is a fault report, not a caption — it gets the
         // amber the rest of the app uses for "something didn't get done" (有事没做成).
         color: widget.storageKind == TimelineStorageKind.sharedPrefsFallback
             ? FlowMicColors.amber
             : FlowMicColors.t3,
-        fontSize: 11,
+        fontSize: widget.storageKind == TimelineStorageKind.sharedPrefsFallback ? 13.5 : 11,
+        fontWeight: widget.storageKind == TimelineStorageKind.sharedPrefsFallback ? FontWeight.w600 : FontWeight.normal,
       ),
     ),
   );

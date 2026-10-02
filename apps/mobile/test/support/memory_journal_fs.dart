@@ -62,6 +62,21 @@ class GatedMemoryJournalFs extends MemoryJournalFs {
   Completer<void>? gate;
   bool blocked = false;
 
+  /// NR-137 round 10b — after each write lands.
+  void Function(String path, Uint8List bytes)? onWrite;
+
+  /// NR-137 round 10b — as each file is deleted, before it goes.
+  Future<void> Function(String path)? onDelete;
+
+  /// NR-137 round 10c — as each file is renamed (a commit publishing), before.
+  Future<void> Function(String from, String to)? onRename;
+
+  @override
+  Future<void> rename(String from, String to) async {
+    await onRename?.call(from, to);
+    return super.rename(from, to);
+  }
+
   @override
   Future<void> writeBytes(String path, Uint8List bytes, {bool flush = true}) async {
     final Completer<void>? g = gate;
@@ -70,7 +85,14 @@ class GatedMemoryJournalFs extends MemoryJournalFs {
       await g.future;
       blocked = false;
     }
-    return super.writeBytes(path, bytes, flush: flush);
+    await super.writeBytes(path, bytes, flush: flush);
+    onWrite?.call(path, bytes);
+  }
+
+  @override
+  Future<void> deleteFile(String path) async {
+    await onDelete?.call(path);
+    return super.deleteFile(path);
   }
 }
 

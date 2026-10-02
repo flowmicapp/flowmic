@@ -66,6 +66,8 @@ import 'package:flowmic/src/destination/destination_controller.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
 import 'package:flowmic/src/settings/local_prefs.dart';
+import 'package:flowmic/src/settings/app_settings.dart';
+import 'package:flowmic/src/ui/text_scale_scope.dart';
 import 'package:flowmic/src/signaling/socket_core.dart' show SocketStatus;
 import 'package:flowmic/src/signaling/wire_payloads.dart' show ControlKeyKind;
 import 'package:flowmic/src/timeline/timeline_sync.dart';
@@ -74,6 +76,8 @@ import 'package:flowmic/src/ui/compose_band.dart';
 import 'package:flowmic/src/ui/recording_panel.dart';
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fakes.dart';
 import 'support/di.dart';
@@ -95,6 +99,7 @@ Future<ChatController> _pumpPage(
   WidgetTester tester, {
   required double width,
   required double height,
+  AppSettingsController? settings,
 }) async {
   tester.view.physicalSize = Size(width * 3, height * 3);
   tester.view.devicePixelRatio = 3.0;
@@ -124,7 +129,10 @@ Future<ChatController> _pumpPage(
   await controller.loadSendPolicy();
   transport.pushStatus(SocketStatus.connected);
   await tester.pumpWidget(
-    MaterialApp(home: ChatFlowPage(controller: controller)),
+    MaterialApp(
+      builder: settings == null ? null : (context, child) => TextScaleScope(appSettings: settings, child: child!),
+      home: ChatFlowPage(controller: controller, appSettings: settings),
+    ),
   );
   await tester.pump();
   return controller;
@@ -182,6 +190,62 @@ void _expectTwoColumn(WidgetTester tester, {required double width}) {
 }
 
 void main() {
+  testWidgets(
+    'NR-147 ja xxlarge: the 92dp column wraps quick-key labels in full',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final settings = AppSettingsController(
+        prefs: await SharedPreferences.getInstance(),
+      );
+      addTearDown(settings.dispose);
+      settings.chooseLocale(AppLocale.ja);
+      settings.setTextScale(AppTextScale.xxlarge);
+      final controller = await _pumpPage(
+        tester,
+        width: 800,
+        height: 900,
+        settings: settings,
+      );
+      _expectTwoColumn(tester, width: 800);
+      bool wrapped = false;
+      for (final kind in kComposeControlKeys) {
+        final label = find.byKey(
+          ValueKey<String>('compose.ctrl.${kind.name}.label'),
+        );
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: label, matching: find.byType(RichText)),
+        );
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: '${kind.name} clipped',
+        );
+        final boxes = paragraph.getBoxesForSelection(
+          TextSelection(
+            baseOffset: 0,
+            extentOffset: paragraph.text.toPlainText().length,
+          ),
+        );
+        wrapped |= boxes.map((box) => box.top).toSet().length > 1;
+        final keyRect = tester.getRect(_key(kind));
+        final labelRect = tester.getRect(label);
+        expect(keyRect.contains(labelRect.topLeft), isTrue);
+        expect(keyRect.contains(labelRect.bottomRight), isTrue);
+        for (final box in boxes) {
+          expect(box.right, lessThanOrEqualTo(paragraph.size.width + 0.01));
+          expect(box.bottom, lessThanOrEqualTo(paragraph.size.height + 0.01));
+        }
+      }
+      expect(
+        wrapped,
+        isTrue,
+        reason: 'positive control: a label really rendered on two lines',
+      );
+      expect(tester.takeException(), isNull);
+      controller.session.debugStopIdlePresencePoll();
+    },
+  );
+
   testWidgets('🔴 A-TAB @560dp: the idle dock is TWO columns — 92dp keys on the '
       'right, the speak column limited and centred beside them', (
     WidgetTester tester,

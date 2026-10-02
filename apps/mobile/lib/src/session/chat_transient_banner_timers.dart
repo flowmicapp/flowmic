@@ -94,6 +94,8 @@ const List<String> _autoHideBannerKeys = <String>[
   // entries above (and unlike [BannerIds.pcBusy]/[BannerIds.link]) it
   // describes something already over, not a live condition.
   BannerIds.retainedAudioNotice,
+  BannerIds.timelineWriteFailure,
+  BannerIds.timelineDeleteFailure,
   // Card MP-14 — a press that is already over by the time the receipt arrives.
   // It belongs here for the same reason every entry above does, and it is the
   // clearest case of the rule: the FACT is 「that key did nothing」, which is
@@ -154,6 +156,18 @@ const List<String> _autoHideBannerKeys = <String>[
   BannerIds.retainedAudioNotice => (
     value: c.retainedAudioNotice,
     dismiss: c.dismissRetainedAudioNotice,
+  ),
+  BannerIds.timelineRecoveryFailure => (
+    value: c.store.recoveryFailures.noticeTicket,
+    dismiss: c.store.recoveryFailures.dismissNotice,
+  ),
+  BannerIds.timelineDeleteFailure => (
+    value: c.store.deleteFailures.noticeTicket,
+    dismiss: c.store.deleteFailures.dismissNotice,
+  ),
+  BannerIds.timelineWriteFailure => (
+    value: c.timelineWriteFailure,
+    dismiss: c.dismissTimelineWriteFailure,
   ),
   // The TICKET is the face value, not the kind or the reason: two refusals of
   // the same key for the same cause are two pieces of news, and comparing the
@@ -239,6 +253,9 @@ Future<void> disposeRouted(ChatController c) async {
   // argument as the loop directly above: a torn-down controller must not leave
   // one running.
   c.pairingSuccess.dispose();
+  c.store.writeFailures.removeListener(c.notifyUi);
+  c.store.deleteFailures.removeListener(c.notifyUi);
+  c.store.recoveryFailures.removeListener(c.notifyUi);
   AlbumAway.instance.removeListener(c._onAlbumAwayChanged);
   c.session.pcPresence.removeListener(c._onPcPresenceChanged); // RV-92
   // 2026-09-04 — this one owns listeners on two of the session's notifiers, so

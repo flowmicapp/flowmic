@@ -695,24 +695,13 @@ void main() {
     c.session.debugStopIdlePresencePoll();
   });
 
-  testWidgets('EN mode+policy stay on ONE line at 360dp', (
-    WidgetTester tester,
-  ) async {
-    // Ahem makes EN words ~2× true width, so this does NOT claim the labels
-    // paint in full — only that the policy chip did not wrap onto a second
-    // run (the Wrap bug). Reverse control: restore Wrap in
-    // `_modePolicyRowRouted` → policy.dy jumps ~20dp and this goes red.
-    final ChatController c =
-        await _pumpPageAt(tester, width: 360, locale: AppLocale.en);
-    expect(tester.takeException(), isNull);
-    final double modeY = tester.getCenter(_segRealtime).dy;
-    final double policyY = tester.getCenter(_policy).dy;
-    expect(
-      (policyY - modeY).abs(),
-      lessThan(8),
-      reason: 'EN policy chip wrapped off the mode row '
-          '(modeY=$modeY policyY=$policyY)',
-    );
-    c.session.debugStopIdlePresencePoll();
-  });
+  // ── 「EN mode+policy stay on ONE line at 360dp」 MOVED (2026-09-30) ───────
+  // It stood here under Ahem, and it was pinning the defect: to keep the chip
+  // on the line it let the Row lay the chip out first, and the mode words were
+  // what gave (device-measured at 360dp: 「Re… / Tra… / Or…」). Under Ahem the
+  // three EN words alone are wider than the row, so row 1 now — correctly —
+  // puts the chip on its own line there, and this case read 47dp of drop.
+  // The 0.2.65 promise it guarded (EN keeps ONE line) is asserted under a real
+  // Latin face in compose_row_one_fit_test.dart, where it is falsifiable;
+  // under Ahem it could only ever be true by clipping the words.
 }

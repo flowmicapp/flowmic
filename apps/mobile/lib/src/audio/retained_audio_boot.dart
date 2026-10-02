@@ -76,12 +76,12 @@ const bool kRetainFromFirstFrameDefault = true;
 ///      `tombstoneCurrentRecording`;
 ///   ③ space policy (owner ruling O-2, card LS-3) — the cap refuses new bytes
 ///      and says so instead of evicting unrecovered audio:
-///      apps/mobile/lib/src/audio/retained_audio_store.dart:507 `_capBytes`;
+///      apps/mobile/lib/src/audio/retained_audio_store.dart:526 `_capBytes`;
 ///   ④ a live-path settle call site (P1-4, card LS-1b) — the healthy recording
 ///      that simply worked now has an exit:
-///      apps/mobile/lib/src/session/live_settle.dart:59 `settleLiveRecording`,
+///      apps/mobile/lib/src/session/live_settle.dart:58 `settleLiveRecording`,
 ///      called from `_settleSpan` in
-///      apps/mobile/lib/src/session/chat_utterance_settle.dart:254;
+///      apps/mobile/lib/src/session/chat_utterance_settle.dart:262;
 ///   ⑤ the coverage / cleanup policy (A7-1, card CV-1; owner ruling
 ///      2026-09-06) — one predicate decides what proof licenses a delete, and
 ///      both the live path and the recovery leg ask it:

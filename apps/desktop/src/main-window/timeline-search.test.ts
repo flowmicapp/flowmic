@@ -272,7 +272,7 @@ describe('TimelinePage — the bound and the write are stated out loud', () => {
     h.entries.value = [row()];
     h.timelineRetention.value = { kept: 7, cutoff: '2026-01-05T08:30:00.000Z', cutoffs: { text: '2026-01-05T08:30:00.000Z', images: '2026-01-05T08:30:00.000Z' } };
     setLocale('en');
-    expect(await html()).toContain('This PC keeps only the most recent entries');
+    expect(await html()).toContain('This computer keeps only the most recent entries');
     setLocale('ja');
     expect(await html()).toContain('最近の記録だけを保存しています');
     setLocale('ko');

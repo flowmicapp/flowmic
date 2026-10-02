@@ -443,10 +443,17 @@ void main() {
   for (final AppLocale locale in AppLocale.values) {
     testWidgets('🔴 PA-6 four locales: ${locale.name} key labels + group label render '
         'un-clipped at the measuring width', (WidgetTester tester) async {
-      // 640 is the RULER's width, not a product width — the Ahem discipline
+      // 680 is the RULER's width, not a product width — the Ahem discipline
       // from compose_preview_strip_test.dart applies verbatim: this asserts
       // 「each locale has an un-clipped layout」, not 「it fits at 360」.
-      tester.view.physicalSize = const Size(640 * 3, 780 * 3);
+      // ⚠️ It was 640 until 2026-09-30, and fr's 「Retour arrière」 (14 Ahem
+      // squares = 140dp) fitted it with 0.5dp to spare. The group label of
+      // every Latin/Cyrillic locale then went from a stacked 「P/C」 to one
+      // horizontal line (the EN mock; compose_band.dart `_groupLabel`), which
+      // costs ~14 Ahem-dp of the group ⇒ 3.5 per key, and the knife edge fell.
+      // What this does to the PRODUCT width is read under a real Latin face
+      // in compose_row_one_fit_test.dart (its `keysClipped` column).
+      tester.view.physicalSize = const Size(680 * 3, 780 * 3);
       tester.view.devicePixelRatio = 3.0;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(_Host(spy: _Spy(), locale: locale));

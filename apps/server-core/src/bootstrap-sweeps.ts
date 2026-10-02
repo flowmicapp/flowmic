@@ -267,9 +267,24 @@ export function startBackgroundSweeps(w: SweepWiring): BackgroundSweeps {
   // tables on the shared connection, unlike `forwardLedger` above (node plumbing
   // that only exists on a writer). Retention window and the accepted residual —
   // a re-send after expiry is charged again — are argued in db/schema-recovery.ts.
+  // ⚠️ Correction (NR-138 round 3, B5, 2026-10-01; book 22 §4.11): the sentence above is kept as written; only the
+  // REGISTRY is swept here now. The metering claims (`usage_effects`) are no longer age-pruned, so a re-send after
+  // the registry row expired is registered again and NOT charged again. *** billing ***
+  // ⚠️ Correction (NR-138 round 5, 2026-10-01; book 22 §4.11): the claims ARE swept again, at 90 days by their
+  // original `applied_at` — the privacy policy's per-use window — and every registry row goes at 90 days by
+  // `first_seen_at`. An automatic re-send after the claim is gone is billed again (needs a >84-day clock rollback).
+  // Round 6 (review B7, MAIN decision): the registry and the claims are pruned in ONE transaction.
   const recoveryHandle = setI(() => {
-    db.recoveryOps.prune(now?.() ?? Date.now());
-    db.usageEffects.prune(now?.() ?? Date.now());
+    const at = now?.() ?? Date.now();
+    db.raw.exec('BEGIN IMMEDIATE');
+    try {
+      db.recoveryOps.prune(at);
+      db.usageEffects.prune(at);
+      db.raw.exec('COMMIT');
+    } catch (err) {
+      try { db.raw.exec('ROLLBACK'); } catch { /* already gone */ }
+      log.error('recovery prune failed — nothing was deleted', { error: err instanceof Error ? err.message : String(err) });
+    }
   }, RECOVERY_PRUNE_INTERVAL_MS);
   const recoveryPrune = { stop: () => clearI(recoveryHandle) };
 

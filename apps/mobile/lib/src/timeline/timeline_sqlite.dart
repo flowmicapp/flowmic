@@ -31,6 +31,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../diag/diag_log.dart';
+import 'timeline_fallback_receipts_schema.dart';
 import '../mcp/mcp_schema.dart';
 import '../mcp/mcp_store.dart';
 import '../session/instance_machine_map.dart';
@@ -40,12 +41,20 @@ import 'owner_timeline_pager.dart';
 import 'local_record_persistence.dart';
 import 'timeline_entry.dart';
 import 'timeline_persistence.dart';
+import 'timeline_corrupt_archive.dart';
+import 'timeline_row_stores.dart';
+import 'timeline_unresolved_rows.dart';
+import 'timeline_verified_reads.dart';
+import 'timeline_write_gate.dart';
+
+export 'timeline_row_stores.dart' show kTimelineMigratedKey;
 
 // card F2 — the frozen per-version migration steps + their test hooks, moved out
 // VERBATIM when v5 pushed this file over the 800-line src cap. A `part`, not an
 // import, so `_upgradeVn` stays private to this library and every call site in
 // `onUpgrade` above is untouched. See that file's header for the diff rule.
 part 'timeline_sqlite_migrations.dart';
+part 'timeline_fallback_import.dart';
 // card E-CL pre-split — the FINAL `onCreate` schema (`_createSchema` + the four
 // `_create*Schema` DDL functions), moved out VERBATIM when this file reached
 // 788/800 and the next edit would have crossed the cap. A `part`, same as the
@@ -153,7 +162,7 @@ enum TimelineStorageKind {
   /// SQLite. Every row is kept; there is no cap.
   sqlite,
 
-  /// The old shared_preferences blob, still capped at 100 rows. Reached ONLY
+  /// The shared_preferences blob; NR-146 removed its lossy disk cap. Reached ONLY
   /// when SQLite could not be opened or the one-time import failed — never as
   /// a routine choice.
   sharedPrefsFallback,
@@ -169,6 +178,8 @@ class TimelineStorageOpen {
     this.cloudState,
     this.failure,
     this.importedRows = 0,
+    this.corruptionCounts = const {},
+    this.corruptionRowIds = const {},
   });
 
   final TimelinePersistence persistence;
@@ -205,31 +216,24 @@ class TimelineStorageOpen {
   /// in that state rather than running it against a store that cannot remember.
   final SqfliteBlindStoreCloudStateStore? cloudState;
 
-  /// Non-null ⇔ [kind] is [TimelineStorageKind.sharedPrefsFallback]. Carries the
+  /// Non-null on a storage-open or fallback-import/cleanup failure. Carries the
   /// reason so the UI can state it. NOT swallowed, NOT rethrown: rethrowing
   /// here would turn a storage-upgrade problem into an app that will not start,
   /// which is a worse outcome for the user and is not 「loud」("响亮") in any useful
   /// sense — a crash is not a message.
   final String? failure;
 
-  /// Rows carried over from shared_preferences by the one-time import.
+  /// Rows newly carried over from fallback storage during this open.
   final int importedRows;
+  final Map<String, int> corruptionCounts;
+  final Map<String, Set<String>> corruptionRowIds;
 }
 
-/// Opens the timeline store, importing the shared_preferences table once.
-///
-/// FAILURE CONTRACT — the part worth reading:
-///   * The import runs in ONE transaction. It lands whole or not at all; there
-///     is no half-migrated state to reason about.
-///   * The shared_preferences blob is NEVER deleted, not even after a clean
-///     import. It is a ≤100-row remnant and it is the rollback net. Deleting it
-///     to be tidy would trade the only copy of the user's history for nothing.
-///   * The「migrated」flag is set ONLY after the transaction commits. A failure
-///     therefore retries on the next launch by construction.
-///   * A failure falls back to the shared_preferences implementation for this
-///     session and REPORTS the reason. It does not return an empty SQLite
-///     store: an empty 「全部历史」("all history") page is the loudest possible lie about data
-///     the user still has.
+/// Opens SQLite and imports any fallback rows from earlier failed sessions.
+/// Each imported payload has a receipt in the same transaction as its row.
+/// Clear fallback rows only after commit and receipt read-back. If cleanup
+/// fails, SQLite remains available and leftover copies are diagnostic only.
+/// A transaction failure keeps fallback data and surfaces the fallback notice.
 Future<TimelineStorageOpen> openTimelinePersistence({
   required SharedPreferences prefs,
   required DatabaseFactory factory,
@@ -290,10 +294,18 @@ Future<TimelineStorageOpen> openTimelinePersistence({
         onDowngrade: (Database d, int from, int to) =>
             throw TimelineDbDowngradeRefused(dbVersion: from, appVersion: to),
         onConfigure: (Database d) => d.execute('PRAGMA foreign_keys = ON'),
+        // Auxiliary receipts do not alter any table the previous v8 build reads.
+        // Install on every open without stamping a downgrade-incompatible v9.
+        // NR-137 round 8: the unresolved-row ledger is the same kind of table.
+        onOpen: (Database d) async {
+          await installTimelineFallbackReceiptsSchema(d);
+          await installTimelineUnresolvedSchema(d);
+        },
       ),
     );
-    final SqfliteTimelinePersistence store = SqfliteTimelinePersistence(db);
-    final int imported = await _importOnce(db: db, prefs: prefs, legacy: legacy);
+    final SqfliteTimelinePersistence store =
+        SqfliteTimelinePersistence(db, prefs: prefs);
+    final imported = await _importOnce(db: db, prefs: prefs, legacy: legacy);
     // A failed optional migration retries without dropping primary history to
     // shared preferences. Its own diagnostic and settings state name failure.
     await installMcpSchemaV8(db);
@@ -318,7 +330,16 @@ Future<TimelineStorageOpen> openTimelinePersistence({
         db,
         timelineTable: kTimelineTable,
       ),
-      importedRows: imported,
+      importedRows: imported.rows,
+      corruptionRowIds: {
+        if (legacy.unreadableRows > 0) 'fallback_unreadable_rows': legacy.unreadableRowIds,
+        if (imported.unreadablePrimary > 0) 'fallback_unreadable_primary_rows': imported.unreadablePrimaryIds,
+      },
+      corruptionCounts: {
+        if (legacy.unreadableRows > 0) 'fallback_unreadable_rows': legacy.unreadableRows,
+        if (imported.unreadablePrimary > 0) 'fallback_unreadable_primary_rows': imported.unreadablePrimary,
+      },
+      failure: imported.failure,
     );
   } on TimelineDbDowngradeRefused catch (e) {
     // D13 ① — the downgrade refusal, BY NAME. Same session-level disposition as
@@ -335,11 +356,11 @@ Future<TimelineStorageOpen> openTimelinePersistence({
     });
     diag('timeline.storage_fallback', <String, Object?>{
       'reason': 'downgrade_refused',
-      'history_cap': SharedPrefsTimelinePersistence.maxPersistedEntries,
+      'history_cap': null,
       'outbox_persistent': false,
     });
     return TimelineStorageOpen(
-      persistence: legacy,
+      persistence: legacy..sqliteFile = await _sqliteFileEvidence(factory, path),
       kind: TimelineStorageKind.sharedPrefsFallback,
       failure: e.toString(),
     );
@@ -353,53 +374,30 @@ Future<TimelineStorageOpen> openTimelinePersistence({
     // truth-telling line as the downgrade branch, different reason.
     diag('timeline.storage_fallback', <String, Object?>{
       'reason': 'open_failed',
-      'history_cap': SharedPrefsTimelinePersistence.maxPersistedEntries,
+      'history_cap': null,
       'outbox_persistent': false,
-      'error': e,
+      'error': e.runtimeType,
     });
     return TimelineStorageOpen(
-      persistence: legacy,
+      persistence: legacy..sqliteFile = await _sqliteFileEvidence(factory, path),
       kind: TimelineStorageKind.sharedPrefsFallback,
-      failure: e.toString(),
+      failure: 'timeline_storage:${e.runtimeType}',
     );
   }
 }
 
-/// SharedPreferences key marking the one-time import done. Its ABSENCE is what
-/// makes a failed import retry, so it is written last and only on success.
-const String kTimelineMigratedKey = 'flowmic.timeline.migrated.sqlite.v1';
-
-Future<int> _importOnce({
-  required Database db,
-  required SharedPreferences prefs,
-  required SharedPrefsTimelinePersistence legacy,
-}) async {
-  if (prefs.getBool(kTimelineMigratedKey) == true) return 0;
-
-  final List<TimelineEntry> old = await legacy.loadAll();
-  if (old.isNotEmpty) {
-    await db.transaction((Transaction txn) async {
-      for (final TimelineEntry e in old) {
-        // INSERT OR REPLACE on the PRIMARY KEY: re-running the import can only
-        // rewrite a row with itself. Idempotent by construction rather than by
-        // a guard someone has to remember.
-        //
-        // NOTE what is NOT here: no field is invented. A pre-V2-06a-1 row has
-        // no `spoken_to_instance_id` and keeps none — adopting it into
-        // 「whoever is connected right now」would make history lie, the same red
-        // line requirement ③ drew when it refused to back-fill `now` onto old pairings.
-        // The import is a MOVE, not an enrichment.
-        await txn.insert(
-          kTimelineTable,
-          _row(e),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-    });
+/// NR-137 round 8/9 — what this session knows about the database it could not
+/// open: absent only when the check succeeded and found no file.
+/// (Compatibility marker `kTimelineMigratedKey` lives in timeline_row_stores.dart.)
+Future<SqliteFileEvidence> _sqliteFileEvidence(
+    DatabaseFactory factory, String path) async {
+  try {
+    return await factory.databaseExists(path)
+        ? SqliteFileEvidence.unknown
+        : SqliteFileEvidence.absent;
+  } on Object {
+    return SqliteFileEvidence.unknown;
   }
-  // Only now — a throw above leaves the flag unset and the blob intact.
-  await prefs.setBool(kTimelineMigratedKey, true);
-  return old.length;
 }
 
 /// The single writer of the projected columns. See the file header.
@@ -458,11 +456,18 @@ String _likeArg(String query) {
   return '%$esc%';
 }
 
-class SqfliteTimelinePersistence
-    implements TimelinePersistence, OwnerScopedTimelineSource, LocalRecordPersistence {
-  SqfliteTimelinePersistence(this._db) : mcp = McpStore(_db);
+class SqfliteTimelinePersistence with TimelineReadIssues
+    implements TimelinePersistence, OwnerScopedTimelineSource, LocalRecordPersistence,
+        TimelineKeyedPersistence, TimelineBatchPersistence, TimelineVerifiedReads {
+  SqfliteTimelinePersistence(this._db, {SharedPreferences? prefs})
+      : _prefs = prefs,
+        mcp = McpStore(_db);
 
   final Database _db;
+
+  /// NR-137 round 9 — the SharedPreferences stores its census reads live.
+  /// Null (a test building the store by hand): those stores are UNREAD.
+  final SharedPreferences? _prefs;
   final McpStore mcp;
   Future<void> _mcpWrites = Future<void>.value();
 
@@ -499,7 +504,9 @@ class SqfliteTimelinePersistence
   Future<void> _writes = Future<void>.value();
 
   Future<void> _serialize(Future<void> Function() op) {
-    final Future<void> next = _writes.then((_) => op());
+    // NR-137 round 10b: and the process's timeline write gate.
+    final Future<void> next =
+        _writes.then((_) => TimelineWriteGate.timeline.run(op));
     // Keep the chain alive after a failure — one failed write must not wedge
     // every later write behind a rejected future.
     _writes = next.catchError((Object _) {});
@@ -512,11 +519,109 @@ class SqfliteTimelinePersistence
   );
 
   @override
+  Future<TimelineEntry?> readRecord(String id) async {
+    final rows = await _decode(_db.query(kTimelineTable, columns: _payloadOnly,
+      where: 'id = ?', whereArgs: [id]));
+    return rows.isEmpty ? null : rows.single;
+  }
+
+  /// NR-137 round 6 — the whole table, with every row whose payload will not
+  /// decode named by its id and its projected `article_id` column.
+  ///
+  /// ⚠️ NR-137 round 8/9 (reviews r7/r8): was the table alone. Now every
+  /// registered store, in one exhaustive switch: the table, the archive (read,
+  /// never a row), and the SharedPreferences stores read live
+  /// (`sqliteResidueHoles`), or UNREAD when this store has no preferences. A
+  /// table row is attributed only by what agrees: its id column and the
+  /// payload's id, its `article_id` column and the payload's (round 9, B1/B3);
+  /// a payload that decodes to another id is a conflict, not a row. The
+  /// unreadable-rows report stays the table's undecodable rows, as before.
+  @override
+  Future<TimelineInventory> loadInventory() async {
+    final List<TimelineEntry> out = <TimelineEntry>[];
+    final List<UnreadableRow> holes = <UnreadableRow>[];
+    final Set<String> undecodable = <String>{};
+    final Set<TimelineRowStore> unread = <TimelineRowStore>{};
+    for (final TimelineRowStore store in TimelineRowStore.values) {
+      switch (store) {
+        case TimelineRowStore.sqliteRows:
+          for (final Map<String, Object?> r in await _db.query(kTimelineTable,
+              columns: const <String>['id', 'article_id', 'payload'],
+              orderBy: _newestFirst)) {
+            final TimelineEntry? entry = decodeTimelineRow(r['payload']);
+            if (entry != null && entry.id == r['id']) {
+              out.add(entry);
+            } else if (entry != null) {
+              holes.add(const UnreadableRow()); // filed under another id
+            } else {
+              undecodable.add(r['id']! as String);
+              holes.add(unreadableRowOf(r['payload'],
+                  id: r['id']! as String, articles: <Object?>[r['article_id']]));
+            }
+          }
+        case TimelineRowStore.sqliteCorruptArchive:
+          // Read like every store; its rows are recovery copies, never rows.
+          if (await hasTimelineCorruptArchive(_db)) {
+            await _db.rawQuery('SELECT COUNT(*) FROM $kTimelineCorruptArchiveTable');
+          }
+        case TimelineRowStore.prefsLegacyArray:
+        case TimelineRowStore.prefsV2Rows:
+        case TimelineRowStore.prefsV3Rows:
+        case TimelineRowStore.prefsCorruptArchive:
+        case TimelineRowStore.prefsCloudRetries:
+          if (_prefs == null) unread.add(store);
+      }
+    }
+    final SharedPreferences? prefs = _prefs;
+    if (prefs != null) holes.addAll(await sqliteResidueHoles(_db, prefs));
+    reportUnreadableRows(undecodable);
+    return TimelineInventory(out, holes, unread: unread);
+  }
+
+  /// NR-137 round 6/9 — may a row keyed [id] be physically there, in any
+  /// store? From the census, so it can never disagree with it.
+  @override
+  Future<bool> mayHoldRow(String id) async {
+    final TimelineInventory inv = await loadInventory();
+    return inv.unread.isNotEmpty ||
+        inv.rows.any((TimelineEntry e) => e.id == id) ||
+        inv.unreadable.any((UnreadableRow u) => u.mayBe(id));
+  }
+
+  @override
+  Future<void> writeRecordBatch(TimelineBatchAction action) => _serialize(() async {
+    final replaced = <String>[];
+    final superseded = <String>[];
+    await _db.transaction((txn) async {
+      final raw = await txn.query(kTimelineTable, columns: _payloadOnly);
+      final originals = {for (final row in raw) row['id'] as String: row};
+      final rows = await _decode(Future.value(raw));
+      await action({for (final row in rows) row.id: row}, (entry) async {
+        final original = originals[entry.id];
+        if (original != null && unreadableTimelineValue(original['payload'], entry)) {
+          // Only a corrupt replacement needs the complete recovery projection.
+          final full = await txn.query(kTimelineTable,
+            where: 'id = ?', whereArgs: [entry.id]);
+          if (await archiveCorruptTimelineRow(txn, full.firstOrNull,
+              table: kTimelineTable)) {
+            replaced.add(entry.id);
+          }
+        }
+        await txn.insert(kTimelineTable, _row(entry), conflictAlgorithm: ConflictAlgorithm.replace);
+        if (await supersedeUnresolvedTimelineRows(txn, entry.id) > 0) superseded.add(entry.id);
+        originals[entry.id] = {'id': entry.id, 'payload': jsonEncode(entry.toJson())};
+      });
+    });
+    for (final id in replaced) { reportCorruptTimelineReplacement(id); }
+    reportUnresolvedTimelineRowsSuperseded(superseded);
+  });
+
+  @override
   Future<List<TimelineEntry>> loadPage({
     DateTime? before,
     required int limit,
-  }) => _decode(
-    _db.query(
+  }) => _readLimited(
+    (count) => _db.query(
       kTimelineTable,
       columns: _payloadOnly,
       // Keyset, not OFFSET — see [TimelinePersistence.loadPage]. Strict `<` so
@@ -526,8 +631,9 @@ class SqfliteTimelinePersistence
           ? null
           : <Object?>[before.toUtc().millisecondsSinceEpoch],
       orderBy: _newestFirst,
-      limit: limit,
+      limit: count,
     ),
+    limit,
   );
 
   /// card F10 — the narrowed view's page, asked as a QUERY.
@@ -571,15 +677,16 @@ class SqfliteTimelinePersistence
       where = '$where AND created_at < ?';
       args.add(before.toUtc().millisecondsSinceEpoch);
     }
-    return _decode(
-      _db.query(
+    return _readLimited(
+      (count) => _db.query(
         kTimelineTable,
         columns: _payloadOnly,
         where: where,
         whereArgs: args,
         orderBy: _newestFirst,
-        limit: limit,
+        limit: count,
       ),
+      limit,
     );
   }
 
@@ -589,20 +696,45 @@ class SqfliteTimelinePersistence
   @override
   Future<List<TimelineEntry>> search(String query, {int limit = 1000}) {
     if (query.trim().isEmpty) return Future<List<TimelineEntry>>.value(<TimelineEntry>[]);
-    return _decode(
-      _db.query(
+    return _readLimited(
+      (count) => _db.query(
         kTimelineTable,
         columns: _payloadOnly,
         where: _kSearchWhere,
         whereArgs: <Object?>[_likeArg(query.trim()), r'\'],
         orderBy: _newestFirst,
-        limit: limit,
+        limit: count,
       ),
+      limit,
     );
   }
 
-  static const List<String> _payloadOnly = <String>['payload'];
+  static const List<String> _payloadOnly = <String>['id', 'payload'];
   static const String _newestFirst = 'created_at DESC';
+
+  /// Fill the requested page with readable rows. A corrupt row must not make
+  /// the UI infer the end of history while older healthy rows remain on disk.
+  Future<List<TimelineEntry>> _readLimited(
+    Future<List<Map<String, Object?>>> Function(int count) query, int limit,
+  ) async {
+    if (limit <= 0) return <TimelineEntry>[];
+    int count = limit;
+    while (true) {
+      final rows = await query(count);
+      final List<TimelineEntry> out = [];
+      final Set<String> unreadable = {};
+      for (final row in rows) {
+        final entry = decodeTimelineRow(row['payload']);
+        if (entry == null) { unreadable.add(row['id']! as String); } else { out.add(entry); }
+        if (out.length == limit) break;
+      }
+      if (out.length >= limit || rows.length < count) {
+        reportUnreadableRows(unreadable);
+        return out;
+      }
+      count *= 2;
+    }
+  }
 
   /// Rows in → entries out. A row whose payload will not parse is SKIPPED, not
   /// substituted: half an entry rendered as if it were whole is worse than a
@@ -611,31 +743,38 @@ class SqfliteTimelinePersistence
     Future<List<Map<String, Object?>>> rows,
   ) async {
     final List<TimelineEntry> out = <TimelineEntry>[];
+    final Set<String> unreadable = {};
     for (final Map<String, Object?> r in await rows) {
-      final Object? raw = r['payload'];
-      if (raw is! String) continue;
-      final Object? decoded = jsonDecode(raw);
-      if (decoded is! Map) continue;
-      final TimelineEntry? e =
-          TimelineEntry.fromJson(decoded.cast<String, Object?>());
-      if (e != null) out.add(e);
+      final TimelineEntry? entry = decodeTimelineRow(r['payload']);
+      if (entry == null) { unreadable.add(r['id']! as String); } else { out.add(entry); }
     }
+    reportUnreadableRows(unreadable);
     return out;
   }
 
   @override
-  Future<void> upsert(TimelineEntry entry) => _serialize(
-    () => _db.insert(
-      kTimelineTable,
-      _row(entry),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    ),
-  );
+  Future<void> upsert(TimelineEntry entry) => _serialize(() async {
+    bool replaced = false;
+    int superseded = 0;
+    await _db.transaction((txn) async {
+      final rows = await txn.query(kTimelineTable, where: 'id = ?', whereArgs: [entry.id]);
+      replaced = await archiveCorruptTimelineRow(txn, rows.firstOrNull, table: kTimelineTable);
+      await txn.insert(kTimelineTable, _row(entry), conflictAlgorithm: ConflictAlgorithm.replace);
+      // NR-137 round 8: a valid record for this id, written by the active store.
+      superseded = await supersedeUnresolvedTimelineRows(txn, entry.id);
+    });
+    if (replaced) reportCorruptTimelineReplacement(entry.id);
+    if (superseded > 0) reportUnresolvedTimelineRowsSuperseded(<String>[entry.id]);
+  });
 
   @override
-  Future<void> delete(String id) => _serialize(
-    () => _db.delete(kTimelineTable, where: 'id = ?', whereArgs: <Object?>[id]),
-  );
+  Future<void> delete(String id) => _serialize(() => _db.transaction((txn) async {
+    if (await hasTimelineCorruptArchive(txn)) {
+      await txn.delete(kTimelineCorruptArchiveTable,
+        where: 'row_id = ?', whereArgs: [id]);
+    }
+    await txn.delete(kTimelineTable, where: 'id = ?', whereArgs: [id]);
+  }));
 
   /// Whole-list write — MIGRATION and tests only, never a mutation path (see
   /// [TimelinePersistence.saveAll]). One transaction so a caller that does use
@@ -650,6 +789,7 @@ class SqfliteTimelinePersistence
           _row(e),
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
+        await supersedeUnresolvedTimelineRows(txn, e.id);
       }
     });
   });

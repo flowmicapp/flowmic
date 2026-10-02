@@ -35,7 +35,8 @@ import '../ptt/ptt_session.dart'
     show ContinuousOffline, PttSessionContinuous, PttSessionLinkLoss;
 import '../session/backfill_runner.dart' show ArticleBackfill;
 import '../session/chat_controller.dart';
-import '../session/engine_reconnect_state.dart' show EngineReconnectFace; // NR-96-B
+import '../session/engine_reconnect_state.dart'
+    show EngineReconnectFace; // NR-96-B
 import '../settings/app_strings.dart';
 import '../signaling/wire_payloads.dart' show Delivery, FlowMode;
 import '../timeline/article_paragraphs.dart';
@@ -246,8 +247,9 @@ class ArticlePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String title =
-        head.outputText.isEmpty ? strings.articleNoTitle : head.outputText;
+    final String title = head.outputText.isEmpty
+        ? strings.articleNoTitle
+        : head.outputText;
     final List<ArticleParagraph> paragraphs =
         _live?.paragraphs ?? paragraphsOf(rows);
     final int? focus = _focusIndex(paragraphs);
@@ -257,34 +259,40 @@ class ArticlePage extends StatelessWidget {
         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
       bottomNavigationBar: _live?.bar ?? recoveryStatus,
-      body: _liveFrame(ListView(
-        key: const Key('article.body'),
-        controller: _live?.scroll,
-        // A lazy list never builds a paragraph below the fold, and an unbuilt
-        // paragraph cannot be scrolled to; with a focus every paragraph is
-        // built (a recording is a few dozen of them).
-        cacheExtent: focus == null ? null : _kFocusCacheExtent,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: <Widget>[
-          _header(context),
-          if (pendingBackfillMs > 0) _pending(),
-          const SizedBox(height: 8),
-          for (int k = 0; k < paragraphs.length; k++)
-            k == focus
-                ? _ScrollIntoViewOnce(child: _paragraph(k, paragraphs[k]))
-                : _paragraph(k, paragraphs[k]),
-          ?_live?.draft,
-          if (rows.isEmpty && _live == null)
-            Padding(
-              padding: const EdgeInsets.only(top: 24),
-              child: Text(
-                strings.articleNoTitle,
-                key: const Key('article.empty'),
-                style: TextStyle(color: FlowMicColors.t3, fontSize: 13),
-              ),
-            ),
-        ],
-      )),
+      body: SafeArea(
+        top: false,
+        bottom: (_live?.bar ?? recoveryStatus) == null,
+        child: _liveFrame(
+          ListView(
+            key: const Key('article.body'),
+            controller: _live?.scroll,
+            // A lazy list never builds a paragraph below the fold, and an unbuilt
+            // paragraph cannot be scrolled to; with a focus every paragraph is
+            // built (a recording is a few dozen of them).
+            cacheExtent: focus == null ? null : _kFocusCacheExtent,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: <Widget>[
+              _header(context),
+              if (pendingBackfillMs > 0) _pending(),
+              const SizedBox(height: 8),
+              for (int k = 0; k < paragraphs.length; k++)
+                k == focus
+                    ? _ScrollIntoViewOnce(child: _paragraph(k, paragraphs[k]))
+                    : _paragraph(k, paragraphs[k]),
+              ?_live?.draft,
+              if (rows.isEmpty && _live == null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 24),
+                  child: Text(
+                    strings.articleNoTitle,
+                    key: const Key('article.empty'),
+                    style: TextStyle(color: FlowMicColors.t3, fontSize: 13),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -296,7 +304,10 @@ class ArticlePage extends StatelessWidget {
     if (banner == null) return list;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[banner, Expanded(child: list)],
+      children: <Widget>[
+        banner,
+        Expanded(child: list),
+      ],
     );
   }
 
@@ -307,8 +318,9 @@ class ArticlePage extends StatelessWidget {
       children: <Widget>[
         Text(
           strings.articleStartedAt(
-            MaterialLocalizations.of(context)
-                .formatMediumDate(head.createdAt.toLocal()),
+            MaterialLocalizations.of(
+              context,
+            ).formatMediumDate(head.createdAt.toLocal()),
           ),
           key: const Key('article.started'),
           style: TextStyle(color: FlowMicColors.t3, fontSize: 12),
@@ -345,9 +357,12 @@ class ArticlePage extends StatelessWidget {
     child: Text(
       key: const Key('article.backfill.text'),
       pendingBackfillFromOutage
-          ? strings.articleBackfillPending(formatEntryDuration(pendingBackfillMs))
+          ? strings.articleBackfillPending(
+              formatEntryDuration(pendingBackfillMs),
+            )
           : strings.articleBackfillUnconfirmed(
-              formatEntryDuration(pendingBackfillMs)),
+              formatEntryDuration(pendingBackfillMs),
+            ),
       style: TextStyle(color: FlowMicColors.t2, fontSize: 12),
     ),
   );
@@ -383,7 +398,11 @@ class ArticlePage extends StatelessWidget {
               runSpacing: 2,
               children: <Widget>[
                 if (range != null)
-                  Text(range, key: Key('article.paragraph.$k'), style: headStyle),
+                  Text(
+                    range,
+                    key: Key('article.paragraph.$k'),
+                    style: headStyle,
+                  ),
                 if (metrics != null)
                   Text(
                     metrics,
@@ -404,8 +423,11 @@ class ArticlePage extends StatelessWidget {
   /// paragraph, the plain `Text` it always was.
   Widget _body(int k, ArticleParagraph p) {
     final String text = paragraphText(p);
-    final TextStyle style =
-        TextStyle(color: FlowMicColors.t1, fontSize: 14.5, height: 1.5);
+    final TextStyle style = TextStyle(
+      color: FlowMicColors.t1,
+      fontSize: 14.5,
+      height: 1.5,
+    );
     final String? q = highlight;
     if (q == null || matchRanges(text, q).isEmpty) {
       return Text(text, key: Key('article.paragraph.$k.text'), style: style);

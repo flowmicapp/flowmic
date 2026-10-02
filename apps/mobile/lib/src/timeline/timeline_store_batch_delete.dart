@@ -49,27 +49,24 @@ void _deleteOne(TimelineStore store, String id) {
     unawaited(store.articleHolds.waitFor(article).then((_) => _deleteOne(store, id)));
     return;
   }
-  final TimelineEntry gone = store._entries.removeAt(i);
-  // Fire-and-forget like every other persist on this class — order is held by
-  // the single-writer invariant (every mutation goes through this class, on
-  // one isolate) plus sqflite's own serialised write chain.
-  //
-  // D9: fire-and-forget, NOT fail-silent. A reap that throws means the row
-  // (or its bytes) is still on disk while the screen shows it gone — the
-  // mirror image of the persist_failed case below, and it gets the same loud
-  // trail instead of vanishing into an unawaited future.
-  _healArticles(store, <TimelineEntry>[gone]);
+  final TimelineEntry gone = store._entries[i];
+  if (!store._deleting.add(id)) return;
+  // NR-146: keep the row until reap succeeds. Regression: timeline_reap_failure_test.dart.
   unawaited(
-    store._reaper.reap(<TimelineEntry>[gone]).then<void>(
-      (_) {},
-      onError: (Object e) => diag('timeline.reap_failed', <String, Object?>{
-        'entry_id': gone.id,
-        'is_image': gone.isImage,
-        'error': e,
-      }),
-    ),
+    _reapRecords(store, <TimelineEntry>[gone]).then<void>(
+      (_) {
+        _healArticles(store, <TimelineEntry>[gone]);
+      },
+      onError: (Object e) {
+        store.deleteFailures.record(id);
+        diag('timeline.reap_failed', <String, Object?>{
+          'entry_id': gone.id,
+          'is_image': gone.isImage,
+          'error': e.runtimeType,
+        });
+      },
+    ).whenComplete(() => store._deleting.remove(id)),
   );
-  store._notify();
 }
 
 /// Trigger ①b —— card NR-3: the multi-select toolbar's batch delete.
@@ -167,16 +164,15 @@ Future<ReapResult> _deleteMany(
   final List<TimelineEntry> rows = unique.values.toList(growable: false);
   final ReapResult out;
   try {
-    out = await store._reaper.reap(rows);
+    out = await _reapRecords(store, rows);
   } catch (e) {
     diag('timeline.reap_failed', <String, Object?>{
       'batch': rows.length,
       'images': rows.where((TimelineEntry r) => r.isImage).length,
-      'error': e,
+      'error': e.runtimeType,
     });
     rethrow;
   }
-  store._dropRows(unique.keys.toSet());
   _healArticles(store, rows);
   return out;
 }
@@ -212,6 +208,7 @@ Future<ReapResult> _clear(
   DateTime? now,
 }) async {
   if (store.articleHolds.isNotEmpty) await store.articleHolds.waitForAll();
+  await store._writeTail;
   final DateTime? horizon = horizonOf(window, now ?? DateTime.now().toUtc());
   final List<TimelineEntry> doomed = planClear(
     await store._persistence.loadAll(),
@@ -226,10 +223,9 @@ Future<ReapResult> _clear(
       cutoffs: store._reaper.cutoffs,
     );
   }
-  final Set<String> ids = doomed.map((TimelineEntry e) => e.id).toSet();
   final ReapResult out;
   try {
-    out = await store._reaper.reap(doomed, advance: kind);
+    out = await _reapRecords(store, doomed, advance: kind);
   } catch (e) {
     // 🔴 D7, partial-failure form — a delete that did not finish must not
     // leave the SCREEN claiming it did, for the same reason the cutoff is
@@ -246,10 +242,9 @@ Future<ReapResult> _clear(
       'kind': kind.name,
       'window': window.name,
       'planned_rows': doomed.length,
-      'error': e,
+      'error': e.runtimeType,
     });
     rethrow;
   }
-  store._dropRows(ids);
   return out;
 }

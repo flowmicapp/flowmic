@@ -31,6 +31,7 @@ import 'package:flowmic/src/signaling/server_capabilities.dart';
 import 'package:flowmic/src/signaling/socket_core.dart';
 import 'package:flowmic/src/signaling/state_machine.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
+import 'package:flowmic/src/timeline/timeline_persistence.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flowmic/src/ui/article_page.dart';
@@ -160,6 +161,12 @@ class Rc3Rig {
     // Card RC6 — the recovery queue's clock and RC-O retry timer.
     int Function()? recoveryClock,
     Timer Function(Duration, void Function())? recoveryRetryTimer,
+    // NR-137 round 2 — false: an ordinary press goes to the paired PC
+    // (`inject:request`), so a test can hold a row that was really sent.
+    bool fixedRecordOnly = true,
+    // NR-137 round 4 — a timeline persistence a test controls (a refused
+    // delete, a refused readback). Null: the ordinary in-memory one.
+    TimelinePersistence? persistence,
   }) async {
     final Directory tmp = await Directory.systemTemp.createTemp('flowmic-rc3-a-');
     final RetainedAudioStore store = RetainedAudioStore(dir: tmp, clock: () => 0);
@@ -168,7 +175,8 @@ class Rc3Rig {
     final GatedMemoryJournalFs fs = GatedMemoryJournalFs();
     final Rc3Rig r = Rc3Rig._(tmp, store, fs,
         RetainedAudioSpill(store: store, retainFromFirstFrame: true, journalFs: fs));
-    r._build(processingTimeout, recoveryTimeouts, recoveryClock, recoveryRetryTimer, retainAudio);
+    r._build(processingTimeout, recoveryTimeouts, recoveryClock, recoveryRetryTimer, retainAudio,
+        fixedRecordOnly, persistence);
     r.session.fsm.longStopCeiling = longStopCeiling;
     return r;
   }
@@ -186,7 +194,8 @@ class Rc3Rig {
   int _frame = 0;
 
   void _build(Duration processingTimeout, RecoveryTimeouts timeouts,
-      int Function()? recoveryClock, Timer Function(Duration, void Function())? recoveryRetryTimer, bool retainAudio) {
+      int Function()? recoveryClock, Timer Function(Duration, void Function())? recoveryRetryTimer, bool retainAudio,
+      bool fixedRecordOnly, TimelinePersistence? persistence) {
     relay = Rc3Relay();
     session = newTestSession(
       transport: relay,
@@ -205,13 +214,13 @@ class Rc3Rig {
         kCapabilityIdempotentOperation,
       ],
     });
-    timeline = newTestStore(owner: SessionOwnerProbe(session));
+    timeline = newTestStore(persistence: persistence, owner: SessionOwnerProbe(session));
     controller = ChatController(
       outboxStore: newTestOutboxStore(),
       outboxBlobs: newTestOutboxBlobs(),
       session: session,
       store: timeline,
-      destination: DestinationController(fixedRecordOnly: true),
+      destination: DestinationController(fixedRecordOnly: fixedRecordOnly),
       syncGate: TimelineSyncGate(transport: relay),
       localPrefs: InMemoryLocalPrefs(),
       recoveryTimeouts: timeouts,

@@ -1,6 +1,6 @@
 [package]
 name = "flowmic-desktop"
-version = "0.3.102"
+version = "0.3.106"
 description = "FlowMic desktop — Tauri 2 shell + Rust injection layer (SendInput / focus tracking / clipboard fallback / window enum) and the socket.io client to server-core."
 edition = "2021"
 # 🔴 RAISED 1.78 → 1.89 (W3, 2026-08-07). This is a CORRECTION, not a new
@@ -88,6 +88,7 @@ path = "examples/instance_probe.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
@@ -370,6 +371,7 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = [
 block2 = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 # Already resolved by Tauri. Linux focus uses Xlib without launching helper binaries;
 # GTK is app-only for reading the real display backend and capsule focus hints.
 x11-dl = "2.21"

@@ -43,7 +43,7 @@ import 'support/di.dart';
 void main() {
   group('card F11 ② — a verdict for a row we do not have settles NOTHING', () {
     test('a named correlation that resolves nothing never lands on another row',
-        () {
+        () async {
       final TimelineStore store = newTestStore();
       // The row this verdict is really about: built, delivered, then deleted by
       // the user while its queue item was still owed.
@@ -63,6 +63,7 @@ void main() {
       );
       expect(bystander.status, EntryStatus.cached);
       store.delete(deleted.id);
+      await pumpEventQueue();
       expect(store.findById(deleted.id), isNull);
 
       final bool applied = store.applyInjectResult(
@@ -85,7 +86,7 @@ void main() {
       expect(after.pcName, isNull);
     });
 
-    test('a failure verdict for a vanished row does not fail somebody else', () {
+    test('a failure verdict for a vanished row does not fail somebody else', () async {
       final TimelineStore store = newTestStore();
       final TimelineEntry gone = store.buildFromUtterance(
         clientId: 'u-gone',
@@ -100,6 +101,7 @@ void main() {
         text: 'still waiting',
       );
       store.delete(gone.id);
+      await pumpEventQueue();
 
       store.applyInjectResult(
         correlationId: 'u-gone',

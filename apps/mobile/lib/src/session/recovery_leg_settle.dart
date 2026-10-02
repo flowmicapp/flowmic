@@ -58,78 +58,8 @@ extension RecoveryJournalLegSettle on RecoveryJournalLeg {
     }
   }
 
-  /// Card RC-3 — a manual retry of a [RecoveryQueueState.shortfall] came back
-  /// whole: remove the rows the short attempt left in the SAME range, so the
-  /// recording holds one set of words for that stretch (MAIN ruling
-  /// 2026-09-24: 「the article must not show both the 8 characters and the full
-  /// tail, and the part count must not grow」).
-  ///
-  /// ⚠️ 更正（RC-3b，2026-09-24）：原为「came back whole」only. A retry that comes
-  /// back short AGAIN replaces too: two partial sets of one stretch is never
-  /// the right page, whichever of the two is longer.
-  ///
-  /// 🔴 THE RANGE IS WHERE THE NEW ROWS WERE PLACED, not a guess: the replay
-  /// cursor put them at the stretch start, and the fed range fixes the end.
-  /// Rows of the same article inside `[start, start + range)` that this attempt
-  /// did not produce are the earlier attempt's. A row the user EDITED is left
-  /// alone — replacing it would throw their work away — and said in the diag.
-  ///
-  /// Card RC-3b — an edited row in the range is kept AND the new rows are
-  /// added beside it, and the attempt settles as it would without the edit
-  /// (MAIN ruling 2026-09-24: nothing is thrown away, the user is never stuck,
-  /// and deletes the copy they do not want). Whether the edited row covers the
-  /// WHOLE range (the earlier attempt's one row, at the stretch start with the
-  /// range's length — `_spanMsFor` in chat_utterance_settle.dart) or only part
-  /// of it, the page shows both; the diag line says which.
-  /// ⚠️ 更正（RC-3b follow-up，2026-09-24）：原为 a whole-range edited row
-  /// withdrew this attempt's rows and left the recording `shortfall` with
-  /// `failed / kept_edited_row` — every later retry was thrown away the same
-  /// way, and deleting the recording was the only exit.
-  void _replacePartialRows(
-    RecoveryIdentity identity,
-    _Candidate c,
-    List<String> newRowIds,
-  ) {
-    final Set<String> fresh = newRowIds.toSet();
-    String? article;
-    int? start;
-    for (final String id in fresh) {
-      final TimelineEntry? e = _timeline.findById(id);
-      final int? off = e?.articleOffsetMs;
-      if (e == null || off == null || e.articleId == null) continue;
-      article = e.articleId;
-      if (start == null || off < start) start = off;
-    }
-    if (article == null || start == null) return;
-    final int end = start + pcmBytesToMs(c.range.length);
-    final List<String> replaced = <String>[];
-    final List<TimelineEntry> keptEdited = <TimelineEntry>[];
-    for (final TimelineEntry m in articleMembersOf(_timeline, article)) {
-      final int? off = m.articleOffsetMs;
-      if (fresh.contains(m.id) || off == null || off < start || off >= end) {
-        continue;
-      }
-      if (m.edited) {
-        keptEdited.add(m);
-        continue;
-      }
-      _timeline.delete(m.id);
-      replaced.add(m.id);
-    }
-    final int from = start;
-    final bool editCoversRange = keptEdited.any((TimelineEntry e) =>
-        (e.articleOffsetMs ?? end) <= from &&
-        (e.articleOffsetMs ?? 0) + (e.durationMs ?? 0) >= end);
-    diag('audio.recovery.shortfall_replaced', <String, Object?>{
-      'recording_id': identity.recordingId,
-      'attempt_id': identity.attemptId,
-      'replaced': replaced.length,
-      'kept_edited': keptEdited.length,
-      // RC-3b — which of the two edited-row outcomes this was.
-      'edited_covers_range': editCoversRange,
-      'edited_covers_part': keptEdited.isNotEmpty && !editCoversRange,
-    });
-  }
+  // Card RC-3's `_replacePartialRows` moved to recovery_leg_rows.dart (NR-137
+  // round 5), where its removals are proven against storage.
 
   /// Card RC-3b — an owed stretch in the MIDDLE of a long recording
   /// (`owedRangeEndBytes`) was recovered and came back EMPTY: the time it took
@@ -429,6 +359,21 @@ extension RecoveryJournalLegSettle on RecoveryJournalLeg {
     if (allRead && r.newRowIds.isNotEmpty) {
       allRead = await _takeBackLentSpan(identity, c, r.newRowIds);
     }
+    // NR-137 — a kept-words press settles by its own rules (recovery_leg_
+    // kept_words.dart); round 4 (D2): before the unawaited withdrawal below.
+    if (_isKeptWordsAttempt(identity.attemptId)) {
+      final _KeptRows kept = await _keptWordsRows(j, c, identity, r, verdict,
+          rowId: allRead ? rowId : null, allRead: allRead);
+      if (!await _fs.exists(_manifestPathOf(identity.recordingId))) return;
+      return _finishKeptWords(j, identity, r, evaluateRecoverySettle(kept.inputs),
+          rowId: allRead ? rowId : null,
+          result: kept.result,
+          storageFailed: kept.storageFailed,
+          claim: kept.claim);
+    }
+    // NR-137 round 5 — a withdrawal or replacement that storage could not
+    // confirm; it is written onto the attempt and holds every later release.
+    String? withdrawFailure;
     if (!allRead) {
       diag('audio.recovery.rows_not_all_persisted', <String, Object?>{
         'recording_id': identity.recordingId,
@@ -439,10 +384,28 @@ extension RecoveryJournalLegSettle on RecoveryJournalLeg {
       // did reach storage are withdrawn too. Left in place, the next attempt
       // that succeeds adds its rows beside them (replacement runs only for a
       // shortfall) and the article carries the same paragraph twice.
-      for (final String id in r.newRowIds) {
-        if (_timeline.findById(id) != null) _timeline.delete(id);
-      }
+      // ⚠️ 更正（NR-137 round 5）: 原为 an unawaited `_timeline.delete` per
+      // loaded row — a refused reap was only logged, and a row paged out was
+      // never withdrawn. Now from storage, awaited, proven.
+      withdrawFailure =
+          await _withdrawOwnRows(j, identity.attemptId, r.newRowIds);
       rowId = null;
+    }
+    // RC-3 — a retry of a shortfall that produced rows: they take the place of
+    // the partial ones BEFORE anything is committed about them (RC-3b: short
+    // again replaces too). NR-137 round 5: proven against storage, or the
+    // attempt counts as rows not persisted — withdrawn, audio kept.
+    // NR-137 round 10: what a release would stand on is kept, and proven
+    // again at the release (below).
+    TimelineReleaseClaim? replaceClaim;
+    if (rowId != null && c.status.state == RecoveryQueueState.shortfall) {
+      replaceClaim = await _replacePartialRows(identity, c, r.newRowIds);
+      if (replaceClaim == null) {
+        withdrawFailure =
+            await _withdrawOwnRows(j, identity.attemptId, r.newRowIds) ??
+                'replaceNotProven';
+        rowId = null;
+      }
     }
     // 🔴 ASKED AGAIN, AFTER THOSE AWAITS AND IMMEDIATELY BEFORE THE FIRST
     // WRITE. The check above this block ran before two round trips through
@@ -481,13 +444,6 @@ extension RecoveryJournalLegSettle on RecoveryJournalLeg {
       'decision': decision.reasonCode,
       'row': rowId,
     });
-    // RC-3 — a retry of a shortfall that produced rows: they take the place of
-    // the partial ones BEFORE anything is committed about them.
-    // ⚠️ 更正（RC-3b，2026-09-24）：原为 only when this attempt came back whole
-    // (`&& !decision.receiptShowsShortfall`); short again replaces too.
-    final bool replacesShortfall =
-        rowId != null && c.status.state == RecoveryQueueState.shortfall;
-    if (replacesShortfall) _replacePartialRows(identity, c, r.newRowIds);
     // Card RC-K — a stretch that is NOT the recording's last owed one. Its
     // words came back (proven or not) or it came back empty: it is concluded,
     // marked done, and the recording stays `pending` so the next stretch is fed
@@ -555,17 +511,40 @@ extension RecoveryJournalLegSettle on RecoveryJournalLeg {
       _placeSettled(identity, c, rowId);
       return;
     }
+    if (decision.mayDeleteBytes && !await _earlierWithdrawalsGone(c.manifest)) {
+      // NR-137 round 5 — an earlier attempt's rows are not proven gone: the
+      // words are here, the bytes stay (they would be the only way back).
+      if (rowId != null) j.setResultRef(rowId);
+      j.closeAttempt(identity.attemptId,
+          outcome: JournalAttempt.outcomeSettledUnverified,
+          failureCode: 'earlierWithdrawNotProven');
+      j.setRecoveryState(RecoveryQueueState.settledUnverified,
+          clearNextEligibleAt: true);
+      await j.commit();
+      _placeSettled(identity, c, rowId);
+      return;
+    }
+    // 🔴 NR-137 round 10/10b/10c — a release that stands on a removal (a RC-3
+    // replacement, or rows any attempt of this recording withdrew) is
+    // authorized LAST, by one fresh proof of its claim, and sealed inside the
+    // timeline write gate's bounded hold (`_sealRelease`).
+    final TimelineReleaseClaim releaseClaim =
+        (replaceClaim ?? const TimelineReleaseClaim()).and(TimelineReleaseClaim(
+            present: rowId == null ? const <String>[] : r.newRowIds,
+            gone: _withdrawnEarlier(j.manifest)));
     if (decision.mayDeleteBytes) {
       // A6-3 (3): resultRef and the settled flag are published BEFORE the
       // bytes go. A crash between the two leaves audio that is merely
-      // eligible, which is the safe direction.
-      if (rowId != null) j.setResultRef(rowId); // RC6 (F3): silence settles with no row
-      j.closeAttempt(identity.attemptId,
-          outcome: JournalAttempt.outcomeSettled);
-      j.markSettledForCleanup();
-      j.setRecoveryState(RecoveryQueueState.settled,
-          clearNextEligibleAt: true);
-      await j.commit();
+      // eligible, which is the safe direction. RC6 (F3): silence settles with
+      // no row.
+      final bool removes = releaseClaim.removes;
+      if (!await _sealRelease(j, identity.attemptId,
+          resultRef: rowId,
+          claim: removes ? releaseClaim : null,
+          keepCode: 'releaseNotProven')) {
+        if (removes) _placeSettled(identity, c, rowId);
+        return;
+      }
       // Card FX-4 — armed here, fired once this leg's handle on the PCM is
       // closed (see `_releaseAfterClose`). Deleting from here would throw a
       // sharing violation on Windows and be swallowed.
@@ -667,7 +646,10 @@ extension RecoveryJournalLegSettle on RecoveryJournalLeg {
         outcome: JournalAttempt.outcomeFailed,
         // The server's own word for it wins over a clock label: `stall_*` says
         // 「something ended the wait」, the code says which refusal it was.
-        failureCode: r.refusalCode ?? r.timeoutKind ?? decision.reasonCode);
+        failureCode: withdrawFailure ??
+            r.refusalCode ??
+            r.timeoutKind ??
+            decision.reasonCode);
     // CARD RC-1b - A USER'S OWN FAILED ATTEMPT CHANGES NOTHING ABOUT THE
     // AUTOMATIC ROUTE. Two things would otherwise go wrong at once: the queue
     // state would be recomputed from `stateAfterAutoFailure()` (which reads the

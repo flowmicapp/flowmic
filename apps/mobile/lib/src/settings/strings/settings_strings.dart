@@ -42,6 +42,8 @@ mixin SettingsStrings on AppStringsLeaves {
   // in settings itself, which version is currently installed. Word-of-mouth
   // support (「what version are you on?」) has no way to be answered.
   String get secAbout => _lfSecAbout;
+  // NR-135 follow-up: D-47 copy review is pending in all nine locales.
+  String get openSourceLicenses => _lfOpenSourceLicenses;
   String get appVersionLabel =>
       _lfAppVersionLabel;
   /// [v] comes straight from [AppVersionPort.appVersion] (pubspec's `version:`

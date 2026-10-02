@@ -87,6 +87,7 @@ function makeDeps(): ConsoleRoutesDeps {
     opsAudit: db.opsAudit,
     pcs: db.pcs,
     mobiles: db.mobiles,
+    recoveryOps: db.recoveryOps, usageEffects: db.usageEffects, // NR-138 round 5: the account export
     // 2026-08-28: the console's device surface now takes live room membership.
     // An EMPTY store is the honest fixture for these suites — none of them has a
     // socket, so every PC reads absent, which is what "no relay session here" means.
@@ -207,7 +208,7 @@ async function seedAccount(email: string): Promise<Seeded> {
     recording_id: `rec-${user.id}`, range_start_sample: 0, range_end_sample: 16_000,
     attempt_kind: 'live', mode: 'realtime',
   }, NOW);
-  db.usageEffects.once({ user_id: user.id, operation_id: `op-${user.id}`, kind: 'stt', at: NOW }, () => {});
+  db.usageEffects.meter({ user_id: user.id, operation_id: `op-${user.id}`, kind: 'stt', at: NOW }, 1_000, () => {});
   db.timeline.push(user.id, [{ id: `blob-${user.id}`, ciphertext: 'e2e:v1:opaque', created_at: NOW, schema_ver: 1 }]);
   // SALT-1: the blind-store key metadata row — through the repo, like everything
   // else here, so the 16-byte-salt validation is exercised on the way in.
@@ -522,6 +523,36 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
 
 // ── ② EXPORT ────────────────────────────────────────────────────────────────
 describe('GET /api/account/export', () => {
+  // NR-138 round 5 (book 22 §4.11): the recovery-operation registry and its metering claims are records ABOUT the
+  // account (kept 90 days, no content), so the export carries them — this export's own contract is 「an export that
+  // silently drops fields is indistinguishable from an account that never had them」. Scoped like everything else.
+  it("carries the account's recovery operations and metering claims, and nobody else's (NR-138 round 5)", async () => {
+    const a = await seedAccount('exp-claims@b.co');
+    const b = await seedAccount('exp-claims-other@b.co');
+    db.recoveryOps.admit(a.id, 'op-a', {
+      recording_id: 'run-a__seg-0', job_id: 'job-a', range_start_sample: 0, range_end_sample: 16_000, attempt_kind: 'auto_retry', mode: 'realtime',
+    }, NOW);
+    db.usageEffects.meter({
+      user_id: a.id, operation_id: 'op-a', kind: 'stt', at: NOW,
+      binding: { recording_id: 'run-a__seg-0', job_id: 'job-a', range_start_sample: 0, range_end_sample: 16_000 },
+    }, 1_000, () => {});
+    db.recoveryOps.admit(b.id, 'op-b', { mode: 'realtime' }, NOW);
+    db.usageEffects.meter({ user_id: b.id, operation_id: 'op-b', kind: 'stt', at: NOW }, 2_000, () => {});
+    const { status, json } = await get('/api/account/export', a.bearer);
+    expect(status).toBe(200);
+    const at = new Date(NOW).toISOString();
+    expect(json.recovery_operations).toContainEqual({
+      operation_id: 'op-a', recording_id: 'run-a__seg-0', job_id: 'job-a', range_start_sample: 0, range_end_sample: 16_000,
+      attempt_kind: 'auto_retry', mode: 'realtime', first_seen_at: at, last_seen_at: at, resend_count: 0,
+    });
+    expect(json.metering_claims).toContainEqual({
+      operation_id: 'op-a', kind: 'stt', billed_at: at, billed_ms: 1_000, replays: 0,
+      recording_id: 'run-a__seg-0', job_id: 'job-a', range_start_sample: 0, range_end_sample: 16_000,
+    });
+    const ids = [...json.recovery_operations, ...json.metering_claims].map((r: { operation_id: string }) => r.operation_id);
+    expect(ids, "another account's operation is not in this export").not.toContain('op-b');
+  });
+
   it('returns the account, devices, pairings, settings and monthly usage', async () => {
     const a = await seedAccount('exp@b.co');
     const { status, json } = await get('/api/account/export', a.bearer);
@@ -980,7 +1011,7 @@ describe('buildAccountExport — the redaction mirrors the repo it reads from', 
     });
     const user = db.users.findById(a.id);
     if (!user) throw new Error('unreachable');
-    const json = JSON.stringify(buildAccountExport(user, { pcs: db.pcs, mobiles: db.mobiles, settings: db.settings, usage: db.usage }, NOW));
+    const json = JSON.stringify(buildAccountExport(user, { pcs: db.pcs, mobiles: db.mobiles, settings: db.settings, usage: db.usage, recoveryOps: db.recoveryOps, usageEffects: db.usageEffects }, NOW));
     for (const secret of ['sk-nested-1', 'sk-nested-2', 'sk-nested-3']) {
       expect(json).not.toContain(secret);
     }
@@ -1007,7 +1038,7 @@ describe('buildAccountExport — the redaction mirrors the repo it reads from', 
     db.settings.write(a.id, 'llm.config', { protocol: 'openai', endpoint: 'https://llm.example.test', model: 'ACCOUNT-OWNED-LLM' });
     const user = db.users.findById(a.id);
     if (!user) throw new Error('unreachable');
-    const out = buildAccountExport(user, { pcs: db.pcs, mobiles: db.mobiles, settings: db.settings, usage: db.usage }, NOW);
+    const out = buildAccountExport(user, { pcs: db.pcs, mobiles: db.mobiles, settings: db.settings, usage: db.usage, recoveryOps: db.recoveryOps, usageEffects: db.usageEffects }, NOW);
     const text = JSON.stringify(out);
     const keys = out.settings.map((s) => s.key);
     for (const key of ['scenario.card', 'stt.polish', 'stt.refine', 'stt.dictionary', 'scenario.inference']) {

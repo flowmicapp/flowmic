@@ -13,6 +13,7 @@
 // magic number in a test that exists to measure money.
 
 import { createServer } from 'node:http';
+import { answeringPool } from './stt-answering-engine.mjs';
 // card MP-11 — `makeBaseEnv` spreads it; the harness owns the file-mail wiring.
 import { mailFileEnv } from './harness.mjs';
 
@@ -52,10 +53,8 @@ export const GUEST_UID = 'wb-a1b2c3d4e5f60718';
 export const DEMO_UID = 'wb-fedcba9876543210';
 export const SITE_ORIGIN = 'http://localhost:5173';
 
-export const POOL = JSON.stringify([{
-  id: 'g30-unreachable', provider: 'custom-openai-compatible', model: 'g30',
-  api: 'http://127.0.0.1:9/v1', api_key: 'g30', enabled: true, priority: 1,
-}]);
+// NR-138 item 5 — an engine that ANSWERS (stt-answering-engine.mjs says why the closed port had to go).
+export const POOL = answeringPool('g30-answering');
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const budgets = (rec) => rec.frames.filter((f) => f.event === 'billing:budget').map((f) => f.args[0]);
@@ -142,6 +141,11 @@ export function makeProbes(db) {
   const START = {
     sample_rate: 16_000, channels: 1, encoding: 'pcm_s16le',
     mode: 'realtime', delivery: 'inject', source_lang: 'en',
+    // NR-138 item 5 — the engine answers now (stt-answering-engine.mjs), so a recording has words, and with polish
+    // on its terminal final would spend LLM tokens on the stub vendor: an extra `llm` usage_events row landing while
+    // section 6b counts the AI turn's ONE row. Polish never ran here before (the closed-port engine gave no text);
+    // off keeps the case about what it asserts. The phone owns this setting and sends it on every audio:start.
+    prefs: { 'stt.polish': { enabled: false } },
   };
   const speak = async (socket, forMs) => {
     let seq = 0;

@@ -338,9 +338,9 @@ export const TL_BATCH_MSG_BY_LOCALE: Record<UiLocale, TlBatchMsg> = {
 
 const TL_RETENTION_MSG_EN: TlRetentionMsg = {
   keptNote: (kept, when) =>
-    `This PC keeps only the most recent entries: ${kept} are stored here, and everything before ${when} has been removed from it.`,
+    `This computer keeps only the most recent entries: ${kept} are stored here, and everything before ${when} has been removed from it.`,
   searchNoneTrimmed: (kept, when) =>
-    `No matching entries. The search covers only the ${kept} entries kept on this PC — everything before ${when} has been removed from it.`,
+    `No matching entries. The search covers only the ${kept} entries kept on this computer — everything before ${when} has been removed from it.`,
 };
 
 // zh-CN (中文) — 2/2 translated;
@@ -356,9 +356,9 @@ const TL_RETENTION_MSG_ZH_CN: TlRetentionMsg = {
 const TL_RETENTION_MSG_ZH_TW: TlRetentionMsg = {
   ...TL_RETENTION_MSG_EN,
   keptNote: (kept, when) =>
-      `這台電腦只保留最近的記錄：目前存有 ${kept} 筆，${when} 之前的已從本機清除。`,
+    `這台電腦只保留最近的記錄：目前存有 ${kept} 筆，${when} 之前的已從本機清除。`,
   searchNoneTrimmed: (kept, when) =>
-      `沒有符合的項目。搜尋範圍只有本機保留的 ${kept} 筆，${when} 之前的記錄已從本機清除。`,
+    `沒有符合的項目。搜尋範圍只有本機保留的 ${kept} 筆，${when} 之前的記錄已從本機清除。`,
 };
 
 // fr (Français) — 2/2 translated;
@@ -366,9 +366,9 @@ const TL_RETENTION_MSG_ZH_TW: TlRetentionMsg = {
 const TL_RETENTION_MSG_FR: TlRetentionMsg = {
   ...TL_RETENTION_MSG_EN,
   keptNote: (kept, when) =>
-      `Ce PC ne conserve que les entrées les plus récentes : ${kept} y sont stockées, et tout ce qui précède ${when} en a été supprimé.`,
+    `Cet ordinateur ne conserve que les entrées les plus récentes : ${kept} y sont stockées, et tout ce qui précède ${when} en a été supprimé.`,
   searchNoneTrimmed: (kept, when) =>
-      `Aucune entrée correspondante. La recherche ne porte que sur les ${kept} entrées conservées sur ce PC — tout ce qui précède ${when} en a été supprimé.`,
+    `Aucune entrée correspondante. La recherche ne porte que sur les ${kept} entrées conservées sur cet ordinateur — tout ce qui précède ${when} en a été supprimé.`,
 };
 
 // es (Español) — 2/2 translated;
@@ -376,9 +376,9 @@ const TL_RETENTION_MSG_FR: TlRetentionMsg = {
 const TL_RETENTION_MSG_ES: TlRetentionMsg = {
   ...TL_RETENTION_MSG_EN,
   keptNote: (kept, when) =>
-      `Este PC solo conserva las entradas más recientes: hay ${kept} almacenadas aquí y todo lo anterior a ${when} se ha eliminado de él.`,
+    `Este ordenador solo conserva las entradas más recientes: hay ${kept} almacenadas aquí y todo lo anterior a ${when} se ha eliminado de él.`,
   searchNoneTrimmed: (kept, when) =>
-      `No hay entradas coincidentes. La búsqueda solo abarca las ${kept} entradas conservadas en este PC; todo lo anterior a ${when} se ha eliminado.`,
+    `No hay entradas coincidentes. La búsqueda solo abarca las ${kept} entradas conservadas en este ordenador; todo lo anterior a ${when} se ha eliminado.`,
 };
 
 // de (Deutsch) — 2/2 translated;
@@ -386,9 +386,9 @@ const TL_RETENTION_MSG_ES: TlRetentionMsg = {
 const TL_RETENTION_MSG_DE: TlRetentionMsg = {
   ...TL_RETENTION_MSG_EN,
   keptNote: (kept, when) =>
-      `Dieser PC behält nur die neuesten Einträge: ${kept} sind hier gespeichert, alles vor ${when} wurde von ihm entfernt.`,
+    `Dieser Computer behält nur die neuesten Einträge: ${kept} sind hier gespeichert, alles vor ${when} wurde von ihm entfernt.`,
   searchNoneTrimmed: (kept, when) =>
-      `Keine passenden Einträge. Die Suche umfasst nur die ${kept} auf diesem PC behaltenen Einträge — alles vor ${when} wurde entfernt.`,
+    `Keine passenden Einträge. Die Suche umfasst nur die ${kept} auf diesem Computer behaltenen Einträge — alles vor ${when} wurde entfernt.`,
 };
 
 // ja (日本語) — 2/2 translated;
@@ -396,7 +396,7 @@ const TL_RETENTION_MSG_DE: TlRetentionMsg = {
 const TL_RETENTION_MSG_JA: TlRetentionMsg = {
   ...TL_RETENTION_MSG_EN,
   keptNote: (kept, when) =>
-    `このPCには最近の記録だけを保存しています：現在 ${kept} 件。${when} より前の記録は本機から削除されました。`,
+    `このパソコンには最近の記録だけを保存しています：現在 ${kept} 件。${when} より前の記録は本機から削除されました。`,
   searchNoneTrimmed: (kept, when) =>
     `一致する項目はありません。検索対象は本機に残っている ${kept} 件のみで、${when} より前の記録は削除されています。`,
 };
@@ -406,9 +406,9 @@ const TL_RETENTION_MSG_JA: TlRetentionMsg = {
 const TL_RETENTION_MSG_KO: TlRetentionMsg = {
   ...TL_RETENTION_MSG_EN,
   keptNote: (kept, when) =>
-    `이 PC에는 최근 기록만 보관합니다: 현재 ${kept}개. ${when} 이전 기록은 이 PC에서 삭제되었습니다.`,
+    `이 컴퓨터에는 최근 기록만 보관합니다: 현재 ${kept}개. ${when} 이전 기록은 이 컴퓨터에서 삭제되었습니다.`,
   searchNoneTrimmed: (kept, when) =>
-    `일치하는 항목이 없습니다. 검색 범위는 이 PC에 남아 있는 ${kept}개이며, ${when} 이전 기록은 삭제되었습니다.`,
+    `일치하는 항목이 없습니다. 검색 범위는 이 컴퓨터에 남아 있는 ${kept}개이며, ${when} 이전 기록은 삭제되었습니다.`,
 };
 
 // ru (Русский) — 2/2 translated;
@@ -416,9 +416,9 @@ const TL_RETENTION_MSG_KO: TlRetentionMsg = {
 const TL_RETENTION_MSG_RU: TlRetentionMsg = {
   ...TL_RETENTION_MSG_EN,
   keptNote: (kept, when) =>
-      `На этом компьютере хранятся только последние записи: сейчас их ${kept}, всё до ${when} с него удалено.`,
+    `На этом компьютере хранятся только последние записи: сейчас их ${kept}, всё до ${when} с него удалено.`,
   searchNoneTrimmed: (kept, when) =>
-      `Совпадений нет. Поиск охватывает только ${kept} записей, оставшихся на этом компьютере, — всё до ${when} удалено.`,
+    `Совпадений нет. Поиск охватывает только ${kept} записей, оставшихся на этом компьютере, — всё до ${when} удалено.`,
 };
 
 export const TL_RETENTION_MSG_BY_LOCALE: Record<UiLocale, TlRetentionMsg> = {

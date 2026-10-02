@@ -354,7 +354,7 @@ extension PttSessionContinuous on PttSession {
   bool _stopAtCeilingWithoutLink() {
     if (!continuousStillCapturing) return false;
     final RecorderState was = audio.currentState;
-    final bool kept = audio.stopKeepingTail(reason: JournalInterrupt.capReached);
+    final bool requested = audio.stopKeepingTail(reason: JournalInterrupt.capReached);
     // `pttUp` — the heartbeat's only other stopper — will never run for this
     // recording, and a surviving timer would resume emitting keepalives for a
     // session that no longer exists the moment the socket returns.
@@ -362,7 +362,7 @@ extension PttSessionContinuous on PttSession {
     endContinuous();
     articles.attempts.liveSettled(); // follow-up: no stop reached the relay
     diag('audio.continuous.cap_reached_offline', <String, Object?>{
-      'kept': kept,
+      'retention_requested': requested,
       'recorder_was': was.name,
       'session': fsm.session.name,
     });

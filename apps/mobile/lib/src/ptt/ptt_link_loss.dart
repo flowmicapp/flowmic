@@ -60,21 +60,14 @@ extension PttSessionLinkLoss on PttSession {
     final RecorderState rec = audio.currentState;
     if (rec != RecorderState.recording && rec != RecorderState.paused) return;
     if (_keepOpenForContinuous(rec)) return;
-    final bool kept = audio.stopForLinkLoss();
+    final bool requested = audio.stopForLinkLoss();
     _stopHeartbeat();
-    // The banner chain is the SAME one the wire `audio:auto-stopped` rides
-    // (chat_controller → banner_queue); only the reason value is local. The
-    // kept/plain split is the honesty bound: the retention sentence is only
-    // shown when the tail really went to a live retention layer (see
-    // `stopForLinkLoss`'s return-value doc).
-    final String reason =
-        kept ? kLocalStopReasonLinkLossKept : kLocalStopReasonLinkLoss;
     diag('audio.link_loss.stopped', <String, Object?>{
-      'kept': kept,
+      'retention_requested': requested,
       'recorder_was': rec.name,
       'has_listener': _autoStoppedCtl.hasListener,
     });
-    if (!_autoStoppedCtl.isClosed) _autoStoppedCtl.add(reason);
+    unawaited(_announceConfirmedLinkLoss(audio.tailRetentionConfirmed));
   }
 
   /// Card CR-3 — a CONTINUOUS session keeps its microphone through a link
@@ -234,7 +227,7 @@ extension PttSessionLinkLoss on PttSession {
     // RC-3 — the owed tail is measured while the journal is still open; the
     // stop below closes it (see `_accountOutageForArticle`).
     _accountOutageForArticle(recordingEnding: true);
-    final bool kept = audio.stopForLinkLoss();
+    final bool requested = audio.stopForLinkLoss();
     _stopHeartbeat();
     // CR-9 (C8, exit 1 of 5 — this is the offline half of the user's stop).
     // Widened from `continuous.end()`: the flag was never the only thing this
@@ -245,12 +238,19 @@ extension PttSessionLinkLoss on PttSession {
     // live final is owed on this socket: the wire is free for recovery (an
     // owed tail keeps its own hold, `ArticleScribe.owedTailPendingFor`).
     articles.attempts.liveSettled();
-    diag('audio.continuous.stopped_offline', <String, Object?>{'kept': kept});
-    final String reason =
-        kept ? kLocalStopReasonLinkLossKept : kLocalStopReasonLinkLoss;
-    if (!_autoStoppedCtl.isClosed) _autoStoppedCtl.add(reason);
+    diag('audio.continuous.stopped_offline', <String, Object?>{'retention_requested': requested});
+    unawaited(_announceConfirmedLinkLoss(audio.tailRetentionConfirmed));
     timings.active?.close(incomplete: true);
     return true;
+  }
+
+  // NR-146: snapshot the future at the stop; a later press cannot replace it.
+  // Regression: ptt_retention_confirmation_test.dart.
+  Future<void> _announceConfirmedLinkLoss(Future<bool> confirmation) async {
+    final bool kept = await confirmation;
+    if (!_autoStoppedCtl.isClosed) {
+      _autoStoppedCtl.add(kept ? kLocalStopReasonLinkLossKept : kLocalStopReasonLinkLoss);
+    }
   }
 
   bool _keepOpenForContinuous(RecorderState rec) {

@@ -67,6 +67,7 @@ const List<String> _tierA = <String>[
 ];
 
 class _CountingTransport extends FakeSocketTransport {
+  void Function()? report;
   int chunkFrames = 0;
 
   /// Card RC-M — the rig's virtual clock, and when each frame went out on it.
@@ -80,6 +81,14 @@ class _CountingTransport extends FakeSocketTransport {
       chunkFrames += 1;
       final int Function()? c = clock;
       if (c != null) chunkAt.add(c());
+      report?.call();
+    }
+    if (event == FlowMicEvents.audioStop) {
+      // Finish by a protocol fact, without racing a real terminal timer.
+      scheduleMicrotask(() => pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
+        'text': 'fixture', 'confidence': 0.9, 'language': 'zh',
+        'segment_idx': 0, 'is_segment': false, 'duration_ms': 0,
+      }));
     }
   }
 
@@ -100,7 +109,7 @@ class _Rig {
   final BackfillRunner runner;
   final List<int> _skew;
 
-  int now() => DateTime.now().millisecondsSinceEpoch + _skew[0];
+  int now() => _skew[0];
 
   static Future<_Rig> open() async {
     final Directory tmp =
@@ -131,10 +140,11 @@ class _Rig {
         totalBudgetBase: Duration(milliseconds: 600),
         totalBudgetPerAudioMinute: Duration.zero,
       ),
-      clock: () => DateTime.now().millisecondsSinceEpoch + skew[0],
+      clock: () => skew[0],
       sleep: (Duration d) async {
         skew[0] += d.inMilliseconds;
-        await Future<void>.delayed(const Duration(milliseconds: 1));
+        transport.report?.call();
+        await Future<void>.delayed(Duration.zero);
       },
     );
     transport.pushStatus(SocketStatus.connected);
@@ -160,12 +170,10 @@ class _Rig {
     await j.close();
   }
 
-  /// The fake relay: an interim every 5 ms of real time, carrying whatever
-  /// [ackedMs] says (null = an older relay, no field).
+  /// Report at every logical sleep and send edge; scheduler delay cannot
+  /// change the relationship between engine progress and the feed clock.
   void Function() relayReports(int? Function() ackedMs) {
-    bool on = true;
-    unawaited(Future<void>.microtask(() async {
-      while (on) {
+    transport.report = () {
         final int? a = ackedMs();
         transport.pushIncoming(FlowMicEvents.sttInterim, <String, Object?>{
           'text': '…',
@@ -174,10 +182,8 @@ class _Rig {
           'segment_idx': 0,
           'acked_audio_ms': ?a,
         });
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
-    }));
-    return () => on = false;
+    };
+    return () => transport.report = null;
   }
 
   Future<void> dispose() async {

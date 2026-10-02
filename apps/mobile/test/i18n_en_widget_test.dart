@@ -73,7 +73,7 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    expect(find.text('Inject to PC'), findsOneWidget);
+    expect(find.text('Inject to computer'), findsOneWidget);
     expect(find.text('Re-deliver to the focused window'), findsOneWidget);
     // NR-89: the one 「Re-translate / re-organize」 row became two. Read from
     // the catalogue rather than quoted: the English sentences are written by
@@ -113,7 +113,7 @@ void main() {
     expect(find.text('256 px preview, not the original'), findsOneWidget);
     // …and the menu still withholds the actions an image cannot honour.
     expect(find.text('Edit'), findsNothing);
-    expect(find.text('Inject to PC'), findsNothing);
+    expect(find.text('Inject to computer'), findsNothing);
   });
 
   testWidgets('EN: the delivery status pill + edited overlay + source line '

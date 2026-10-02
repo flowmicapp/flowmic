@@ -502,6 +502,7 @@ void main() {
       await diskSpill.journalFlush();
       await pumpEventQueue();
       expect(roomy.lastNotice.value?.code, RetainedAudioNotice.codeWriteFailed);
+      expect(diskSpill.journal!.failedAppendCount, greaterThan(0));
 
       // The two codes are what routes the two sentences; they must not be one.
       expect(RetainedAudioNotice.codeCapReached,

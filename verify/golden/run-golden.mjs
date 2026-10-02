@@ -103,7 +103,7 @@
 // reshuffles itself run to run cannot be diffed against the last one.
 //
 // 🔴 A CLAIM THIS CHANGE MADE STALE, AND WHAT REPLACED IT:
-// verify/golden/g31-integrator-arm.mjs:613 used to argue that a G31 edit could
+// verify/golden/g31-integrator-arm.mjs:619 used to argue that a G31 edit could
 // not have caused a G10 failure because the suite ran one case at a time. That
 // reason is gone. The schedule now "puts G31 in the `pool` group and G10 in the
 // `chain` group", so the two DO overlap whenever FLOWMIC_GOLDEN_CONCURRENCY > 1.
@@ -196,6 +196,7 @@ import { G31 } from './g31-integrator-arm.mjs';
 import { G32 } from './g32-continuous-minutes-cap.mjs';
 import { G33 } from './g33-control-key-receipt.mjs';
 import { G34 } from './g34-trial-cap-enforced.mjs';
+import { G35 } from './g35-engine-failure-not-charged.mjs';
 
 // `AUDIO` left with G10 (card G10-TIMING) — it was this file's only reader.
 
@@ -577,6 +578,9 @@ const GOLDEN = [
   // only the browser's grant, so the only ceiling in its room is the one owner's
   // 2026-09-16 default-on ruling put between a stranger and our engines.
   G34,
+  // NR-138 item 5 — an engine failure with no usable transcript is not charged, through the built relay and a
+  // real engine that refuses; its positive control is the same account answered and charged.
+  G35,
 ];
 
 async function main() {

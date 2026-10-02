@@ -17,6 +17,9 @@
 /// (observing / taken over / pairing expired) add a const here rather than
 /// inventing a literal.
 class BannerIds {
+  static const String timelineRecoveryFailure = "timeline_recovery_failure";
+  static const String timelineDeleteFailure = 'timeline_delete_failure';
+  static const String timelineWriteFailure = 'timeline_write_failure';
   const BannerIds._();
 
   /// Transport truth (disconnected/reconnecting). One id for both severities so

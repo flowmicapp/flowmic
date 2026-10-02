@@ -118,6 +118,17 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
   String get pendingRecoveryStateServerKeepsAudio =>
       _lfPendingRecoveryStateServerKeepsAudio;
 
+  /// NR-137 — [pendingRecoveryStateUnverified]'s recording, when a
+  /// re-transcription can REPLACE its words (`PendingRecoveryItem
+  /// .retranscribable`): words exist, completeness is unproven, and the
+  /// card's Re-transcribe button replaces this piece's earlier text.
+  ///
+  /// 🔴 A DEV PLACEHOLDER (pending copy, owner ruling 2026-09-01 D-47): the
+  /// wording is AGY's; the facts it must carry are in
+  /// `_dispatch/2026-10-02-nr137-copy-context.md`.
+  String get pendingRecoveryStateUnverifiedRetranscribe =>
+      _lfDev_pendingRecoveryStateUnverifiedRetranscribe;
+
   /// A5-4 - the engine answered and produced no words.
   ///
   /// 🔴 IT MUST NOT READ AS A FAILURE OF THE RECORDING. Nothing is
@@ -239,6 +250,38 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
   /// would be a promise made by the one layer that cannot keep it.
   String get pendingRecoveryRetryNow => _lfPendingRecoveryRetryNow;
 
+  /// NR-137 — the button on a [pendingRecoveryStateUnverifiedRetranscribe]
+  /// card. Not [pendingRecoveryRetryNow]: 「try again」 says an earlier attempt
+  /// failed, and this recording's earlier attempt produced the words on the
+  /// page. A DEV placeholder, like the sentence above it.
+  String get pendingRecoveryRetranscribe => _lfDev_pendingRecoveryRetranscribe;
+
+  /// NR-137 round 2 — [pendingRecoveryStateUnverifiedRetranscribe]'s sibling
+  /// for a recording whose earlier rows are NOT replaced (`PendingRecoveryItem
+  /// .retranscribeAsNote`): the press adds one new note marked as a
+  /// re-transcription, and the earlier text stays exactly as it is. DEV
+  /// placeholder; context in `_dispatch/2026-10-02-nr137-copy-context.md`.
+  String get pendingRecoveryStateUnverifiedRetranscribeNote =>
+      _lfDev_pendingRecoveryStateUnverifiedRetranscribeNote;
+
+  /// NR-137 round 2 — owner billing transparency (R11): pressing
+  /// Re-transcribe uses transcription minutes again. Shown only on a card
+  /// that offers the press, on a metered channel. DEV placeholder.
+  String get pendingRecoveryRetranscribeUsesMinutes =>
+      _lfDev_pendingRecoveryRetranscribeUsesMinutes;
+
+  /// NR-137 round 2 — the mark on the note a re-transcription made: which
+  /// recording it was made from, by the date that recording was made ([when],
+  /// already formatted). DEV placeholder.
+  String retranscribedNoteMarker(String when) =>
+      _lfDev_retranscribedNoteMarker(when);
+
+  /// NR-137 round 2 — the same mark when this build cannot read the source
+  /// recording's date out of its id (`recordedAtMsFromId` returned null).
+  /// Absence, never a guessed date. DEV placeholder.
+  String get retranscribedNoteMarkerUndated =>
+      _lfDev_retranscribedNoteMarkerUndated;
+
   /// [PendingRetryOutcome.refusedBusy] — a press is holding the microphone.
   String get pendingRecoveryRetryBusy => _lfPendingRecoveryRetryBusy;
 
@@ -293,6 +336,9 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
   /// on screen — when the recording went away with the press, the row's absence
   /// is the answer and a sentence about it would name something that is no
   /// longer there.
+  /// ⚠️ 更正（NR-138）: the legacy face has a route now; what is left is no
+  /// retained-audio layer, or a recording with nothing a press may feed (only
+  /// audio kept unverified, or cancelled). The sentence is unchanged.
   String get pendingRecoveryRetryUnavailable =>
       _lfPendingRecoveryRetryUnavailable;
 

@@ -14,7 +14,7 @@
   "TrayStatusConnected": "● Connecté · {n} téléphone(s)",
   "TrayTooltipConnected": "FlowMic — connecté ({n} téléphone(s) en ligne)",
   "QuitConfirmTitle": "Quitter FlowMic",
-  "QuitConfirmBody": "Après la fermeture, les téléphones ne pourront plus se connecter à ce PC et toute transcription en cours sera interrompue.\n\nQuitter FlowMic ?",
+  "QuitConfirmBody": "Après la fermeture, les téléphones ne pourront plus se connecter à cet ordinateur et toute transcription en cours sera interrompue.\n\nQuitter FlowMic ?",
   "AutostartWriteFailed": "Échec de l'écriture de l'entrée de démarrage : {detail}",
   "AutostartRemoveFailed": "Échec de la suppression de l'entrée de démarrage : {detail}",
   "AutostartReadFailed": "Échec de la lecture de l'état de démarrage : {detail}",

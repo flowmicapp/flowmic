@@ -1,3 +1,4 @@
+import 'dart:convert';
 // V2-06a-2 step 2 — the SQLite store and the one-time shared_preferences import.
 //
 // These run against a REAL database (sqflite_common_ffi on the host VM), not a
@@ -283,7 +284,7 @@ void main() {
     /// Seeds the legacy blob the way the old store wrote it.
     Future<SharedPreferences> seedLegacy(List<TimelineEntry> rows) async {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await SharedPrefsTimelinePersistence(prefs).saveAll(rows);
+      await prefs.setString('flowmic.timeline.entries.v1', jsonEncode(rows.map((e) => e.toJson()).toList()));
       return prefs;
     }
 
@@ -339,7 +340,7 @@ void main() {
       // lost (app data cleared, prefs migration), a PRIMARY KEY cannot.
       await prefs.remove(kTimelineMigratedKey);
       final TimelineStorageOpen third = await _open(prefs);
-      expect(third.importedRows, 2, reason: 'it ran again, as intended');
+      expect(third.importedRows, 0, reason: 'confirmed fallback was cleared');
       expect(
         await third.persistence.loadAll(),
         hasLength(2),
@@ -347,14 +348,16 @@ void main() {
       );
     });
 
-    test('NEVER deletes the legacy blob — it is the rollback net', () async {
+    test('keeps the pre-migration rollback copy after confirmed import', () async {
       final SharedPreferences prefs = await seedLegacy(<TimelineEntry>[_entry('a')]);
-      await _open(prefs);
+      final opened = await _open(prefs);
+      expect(await opened.persistence.loadById('a'), isNotNull);
 
-      // Read it back through the legacy reader: the ≤100-row remnant stays.
+      expect(prefs.getString('flowmic.timeline.entries.v1'), isNotNull);
+      // The migrated store ignores its retained rollback source.
       final List<TimelineEntry> stillThere =
           await SharedPrefsTimelinePersistence(prefs).loadAll();
-      expect(stillThere, hasLength(1));
+      expect(stillThere, isEmpty);
     });
   });
 
@@ -374,8 +377,8 @@ void main() {
 
       expect(open.kind, TimelineStorageKind.sharedPrefsFallback);
       expect(open.failure, isNotNull);
-      expect(open.failure, contains('disk is on fire'),
-          reason: 'the reason must survive to the UI, not be flattened to a bool');
+      expect(open.failure, contains('StateError'),
+          reason: 'the failure type must survive without logging payload-bearing errors');
 
       // The whole point: the user still sees their history. An empty SQLite
       // store here would be the loudest possible lie about data they still have.
@@ -401,7 +404,7 @@ void main() {
       for (final AppLocale l in AppLocale.values) {
         final AppStrings s = AppStrings.of(l);
         expect(s.historyFallbackNote.trim(), isNotEmpty);
-        expect(s.historyFallbackNote, contains('100'));
+        expect(s.historyFallbackNote, isNot(startsWith('DEV:')));
         expect(s.historyFallbackNote, isNot(equals(s.historyAllPersisted)));
       }
     });

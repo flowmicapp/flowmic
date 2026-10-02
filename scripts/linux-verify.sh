@@ -94,6 +94,7 @@ run_stage clippy-app cargo clippy --manifest-path "$MANIFEST" --lib --features a
 run_stage tests-core cargo test --manifest-path "$MANIFEST" --lib --locked
 run_stage tests-app cargo test --manifest-path "$MANIFEST" --lib --features app --locked
 run_stage production-preflight cargo test --manifest-path "$MANIFEST" --test linux_production_preflight --features app --locked
+run_stage sidecar-parent-death node scripts/sidecar-parent-death.test.mjs
 run_stage doctests cargo test --manifest-path "$MANIFEST" --doc --locked
 run_stage desktop-build pnpm --filter @flowmic/desktop tauri:build
 

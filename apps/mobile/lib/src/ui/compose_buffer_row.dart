@@ -279,11 +279,62 @@ class SendPolicyChip extends StatelessWidget {
     required this.strings,
     required this.onTap,
     this.muted = false,
+    this.compact = false,
   });
 
   final SendPolicy policy;
   final AppStrings strings;
   final VoidCallback onTap;
+
+  /// The glyph-only face: the same pill, fill and border, the word dropped and
+  /// only the ' ⇄' left, at [kSendPolicyChipCompactWidth].
+  ///
+  /// Row 1 (`_modePolicyRowRouted`) asks for it when the mode words and the
+  /// full chip do not fit one line — measured at 360dp on a real phone
+  /// (2026-09-30), the full chip starved the segments to 「Re… / Tra… / Or…」.
+  /// A mode word the user cannot read hides the product's core control; a
+  /// state word dropped here is still carried by the face itself (outline =
+  /// direct, brand fill = manual), by the tooltip and the accessible label
+  /// below (both keep the full sentence), and by the flash that names the new
+  /// state on every toggle.
+  final bool compact;
+
+  /// `.strat{padding:…12px}`.
+  static const double _hPad = 12;
+
+  static TextStyle _labelStyle(Color fg) =>
+      TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w600);
+
+  /// What the FULL face needs to paint its word in full, billed for the WIDER
+  /// of the two policies (same constants and style as [build]).
+  ///
+  /// 🔴 The wider of the two, not the current one, and on purpose: a tap on
+  /// this chip flips the word, and a bill that followed the word could flip
+  /// row 1's arrangement under the finger that just tapped — and a
+  /// rearrangement that moves the chip to another parent would also drop the
+  /// flash's state mid-way.
+  static double naturalWidth(BuildContext context, AppStrings strings) {
+    final TextStyle ambient = DefaultTextStyle.of(context).style;
+    double widest = 0;
+    for (final String label in <String>[
+      strings.sendPolicyDirect,
+      strings.sendPolicyManual,
+    ]) {
+      final TextPainter p = TextPainter(
+        text: TextSpan(
+          text: '$label ⇄',
+          style: ambient.merge(_labelStyle(FlowMicDockColors.pri)),
+        ),
+        textDirection: TextDirection.ltr,
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
+        maxLines: 1,
+      )..layout();
+      if (p.width > widest) widest = p.width;
+    }
+    // + the 1dp border on each side, which a Container adds to its padding.
+    return _hPad * 2 + 2 + widest;
+  }
 
   /// A-11 (record-only): `<span class="strat" style="color:var(--sub);
   /// border-color:var(--line)">` — the chip goes neutral because there is no
@@ -333,7 +384,12 @@ class SendPolicyChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(99),
           child: Container(
             height: 32,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            // A fixed width is safe from the `alignment:` trap below: the box
+            // is tight on purpose, and the Row(min) child sits centred in it.
+            width: compact ? kSendPolicyChipCompactWidth : null,
+            padding: compact
+                ? EdgeInsets.zero
+                : const EdgeInsets.symmetric(horizontal: _hPad),
             // NO `alignment:` here — a Container with alignment set EXPANDS
             // to its max constraint, and inside row 1's Wrap that meant the
             // chip measured the full band width, fell to its own run, and
@@ -354,17 +410,14 @@ class SendPolicyChip extends StatelessWidget {
             // announced button nobody can activate is worse than a stray glyph.
             child: ExcludeSemantics(
               child: Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize: compact ? MainAxisSize.max : MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
                   Text(
-                    '$label ⇄',
+                    compact ? '⇄' : '$label ⇄',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: fg,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: _labelStyle(fg),
                   ),
                 ],
               ),
@@ -409,6 +462,7 @@ class SendPolicyFlashChip extends StatefulWidget {
     required this.strings,
     required this.onToggle,
     this.muted = false,
+    this.compact = false,
   });
 
   /// The policy the chip currently wears (pre-toggle).
@@ -417,6 +471,9 @@ class SendPolicyFlashChip extends StatefulWidget {
 
   /// Passed straight through to [SendPolicyChip.muted] (A-11 record-only).
   final bool muted;
+
+  /// Passed straight through to [SendPolicyChip.compact] (row 1 decides it).
+  final bool compact;
 
   /// Flips the policy (ChatController.toggleSendPolicy). The usage counter and
   /// the flash both fire HERE, so every entry point that renders this widget
@@ -542,6 +599,7 @@ class _SendPolicyFlashChipState extends State<SendPolicyFlashChip> {
         policy: widget.policy,
         strings: widget.strings,
         muted: widget.muted,
+        compact: widget.compact,
         onTap: _handleToggle,
       ),
     );

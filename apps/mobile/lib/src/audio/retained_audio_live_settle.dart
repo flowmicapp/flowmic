@@ -281,6 +281,7 @@ Future<void> _publishLiveSettle(
     // growing a check of its own.
     deleted: s.deletedRecordings,
   );
+  j.notices.listen(s.handleJournalNotice);
   try {
     j.addAttempt(
       JournalAttempt(
@@ -304,7 +305,7 @@ Future<void> _publishLiveSettle(
     j.clearLiveSettlePending();
     if (mayDelete) j.markSettledForCleanup();
     j.setRecoveryState(recoveryState, clearNextEligibleAt: true);
-    await j.commit();
+    if (!await j.commit()) return;
   } finally {
     // The handle goes back even when the commit failed (§A9 P1-1 ③); an
     // uncommitted manifest simply leaves the recording where it was, which is

@@ -24,6 +24,7 @@ void main() {
       // list is the only thing that notices a code shipping without nine
       // sentences behind it, and 0.2.53 is what that costs on a screen.
       RetainedAudioNotice.codeWriteFailed,
+      RetainedAudioNotice.codeCommitFailed,
     ];
     for (final AppLocale locale in AppLocale.values) {
       final AppStrings s = AppStrings.of(locale);

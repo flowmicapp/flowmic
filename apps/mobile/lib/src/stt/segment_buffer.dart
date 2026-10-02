@@ -29,7 +29,17 @@ final RegExp _sttContentChar = RegExp(r'[\p{L}\p{N}]', unicode: true);
 
 bool sttTextHasContent(String s) => _sttContentChar.hasMatch(s);
 
+/// One utterance's settled result. Kept alive across [SegmentBuffer.clear] so
+/// a persistence barrier cannot accidentally read the next press's rows.
+class SegmentSettlement {
+  final List<String> _rowIds = <String>[];
+
+  List<String> get rowIds => List<String>.unmodifiable(_rowIds);
+}
+
 class SegmentBuffer {
+  SegmentSettlement _settlement = SegmentSettlement();
+  SegmentSettlement get settlement => _settlement;
   final Map<int, String> _texts = <int, String>{};
   final Set<int> _finalized = <int>{};
 
@@ -79,6 +89,7 @@ class SegmentBuffer {
   int get finalizedCount => _finalized.length;
 
   void clear() {
+    _settlement = SegmentSettlement();
     _texts.clear();
     _finalized.clear();
     _durations.clear();
@@ -428,7 +439,8 @@ class SegmentBuffer {
   /// replayed final and a second row carrying the same words (J5), so it must
   /// never move backwards: a reconnect-replay storm re-emits OLD indices, and
   /// accepting one would re-open spans that are already on screen.
-  void markSettled(int idx) {
+  void markSettled(int idx, {String? rowId}) {
+    if (rowId != null) settlement._rowIds.add(rowId);
     if (idx > _settledThrough) _settledThrough = idx;
   }
 

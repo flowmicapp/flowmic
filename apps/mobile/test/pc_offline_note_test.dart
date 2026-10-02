@@ -367,17 +367,21 @@ void main() {
         AppLocale.zh => <String>['电脑重新上线', '电脑回来', '电脑恢复', '电脑上线后'],
         AppLocale.zhTw => <String>['電腦重新上線', '電腦回來', '電腦恢復', '電腦上線後'],
         AppLocale.en => <String>[
-          'once the pc is back',
-          'when the pc is back',
-          'once the pc comes back',
-          'pc is back online',
+          'once the computer is back',
+          'when the computer is back',
+          'once the computer comes back',
+          'computer is back online',
         ],
-        AppLocale.fr => <String>['quand le pc', 'lorsque le pc', 'dès que le pc'],
-        AppLocale.es => <String>['cuando el pc', 'en cuanto el pc'],
-        AppLocale.de => <String>['wenn der pc', 'sobald der pc'],
+        AppLocale.fr => <String>[
+          'quand l\'ordinateur',
+          'lorsque l\'ordinateur',
+          'dès que l\'ordinateur',
+        ],
+        AppLocale.es => <String>['cuando el ordenador', 'en cuanto el ordenador'],
+        AppLocale.de => <String>['wenn der computer', 'sobald der computer'],
         AppLocale.ja => <String>['パソコンが再びオンライン', 'パソコンが戻っ'],
-        AppLocale.ko => <String>['PC가 다시 온라인', 'PC가 돌아'],
-        AppLocale.ru => <String>['когда пк', 'как только пк'],
+        AppLocale.ko => <String>['컴퓨터가 다시 온라인', '컴퓨터가 돌아'],
+        AppLocale.ru => <String>['когда компьютер', 'как только компьютер'],
       };
       for (final AppLocale locale in AppLocale.values) {
         final String note = AppStrings.of(

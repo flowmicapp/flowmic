@@ -171,6 +171,10 @@ class JournalAttempt {
   ///   grep -rn "failureCode" apps/mobile/lib
   final String? failureCode;
 
+  /// NR-137 round 10b — rows this attempt withdrew (proven or not). A later
+  /// release re-proves them gone (`recovery_leg_rows.dart` `_withdrawnEarlier`).
+  final List<String> withdrawnRowIds;
+
   const JournalAttempt({
     required this.attemptId,
     required this.startedAtMs,
@@ -179,6 +183,7 @@ class JournalAttempt {
     this.operationId,
     this.kind,
     this.failureCode,
+    this.withdrawnRowIds = const <String>[],
   });
 
   JournalAttempt closedWith({
@@ -193,7 +198,13 @@ class JournalAttempt {
         operationId: operationId,
         kind: kind,
         failureCode: failureCode,
+        withdrawnRowIds: withdrawnRowIds,
       );
+
+  JournalAttempt withWithdrawn(Iterable<String> ids) => JournalAttempt(
+      attemptId: attemptId, startedAtMs: startedAtMs, outcome: outcome,
+      jobId: jobId, operationId: operationId, kind: kind, failureCode: failureCode,
+      withdrawnRowIds: <String>{...withdrawnRowIds, ...ids}.toList());
 
   Map<String, Object?> toJson() => <String, Object?>{
         'attemptId': attemptId,
@@ -203,6 +214,7 @@ class JournalAttempt {
         if (operationId != null) 'operationId': operationId,
         if (kind != null) 'kind': kind,
         if (failureCode != null) 'failureCode': failureCode,
+        if (withdrawnRowIds.isNotEmpty) 'withdrawnRowIds': withdrawnRowIds,
       };
 
   static JournalAttempt fromJson(Map<String, Object?> j) => JournalAttempt(
@@ -213,6 +225,10 @@ class JournalAttempt {
         operationId: _str(j['operationId']),
         kind: _str(j['kind']),
         failureCode: _str(j['failureCode']),
+        withdrawnRowIds: <String>[
+          if (j['withdrawnRowIds'] case final List<Object?> ids)
+            for (final Object? id in ids) if (id is String) id,
+        ],
       );
 }
 

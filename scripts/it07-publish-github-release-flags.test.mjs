@@ -126,6 +126,17 @@ const noChangelogSection = /CHANGELOG\.md has no section for/;
 // still reachable (no ./publish override for THAT), but collectArtifacts()
 // always dies on "no VERSION installers" -- the same already-accepted local
 // failure shape, just no longer coupled to whatever the real ./publish holds.
+// note-D (2026-10-02, 0.3.106 release gate): a FOURTH local failure, and the
+// same shape as note-C -- this control depended on state it did not create.
+// Without --notes the body is built from the CHANGELOG.md section of the
+// current version, and assertConcise() (body gates run before collectArtifacts,
+// see note-B) refuses any section over six items or 1200 characters. The
+// CHANGELOG section is not bound by those caps (the public body is passed with
+// --notes), so a long, correct 0.3.106 section turned this flag-parsing control
+// red while 0.3.102's five-item section had kept it green. The refusal is past
+// flag parsing, so it is a legitimate "reached main()" path; the IT-07
+// assertion above (bare --dry-run is never rejected) is untouched.
+const conciseBodyRefusal = /the release body is not the short, human summary/;
 const isolatedOut = mkdtempSync(join(tmpdir(), 'it07-gh-release-out-'));
 section('IT-07 positive control — bare --dry-run is NOT rejected (github-release)');
 try {
@@ -138,8 +149,9 @@ try {
     /Zero network requests were made/.test(r.stdout ?? '')
     || /no \.\/publish|no .+ installers|no \.sha256/.test(r.stderr ?? '')
     || detectRepoLocalFailure.test(r.stderr ?? '')
-    || noChangelogSection.test(r.stderr ?? '');
-  assertTrue(accepted, 'reached main() local path (dry-run message, collectArtifacts local error against the isolated empty ./publish, no CHANGELOG.md section, or a legitimate detectRepo() environment gap — no "origin", or "origin" not github-shaped)');
+    || noChangelogSection.test(r.stderr ?? '')
+    || conciseBodyRefusal.test(r.stderr ?? '');
+  assertTrue(accepted, 'reached main() local path (dry-run message, collectArtifacts local error against the isolated empty ./publish, no CHANGELOG.md section, a CHANGELOG section over the concise caps, or a legitimate detectRepo() environment gap — no "origin", or "origin" not github-shaped)');
 } finally {
   rmSync(isolatedOut, { recursive: true, force: true });
 }

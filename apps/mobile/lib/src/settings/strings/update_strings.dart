@@ -117,8 +117,8 @@ mixin UpdateStrings on AppStringsLeaves {
   // ── the store-delivered channel (iOS, owner 2026-08-20) ───────────────────
 
   /// Under 「version x is available」 when the verdict came from a
-  /// `store_platforms` entry: the update arrives through TestFlight / the App
-  /// Store, and this app downloads nothing itself. A different sentence from
+  /// `store_platforms` entry: the update arrives through TestFlight, and this
+  /// app downloads nothing itself. A different sentence from
   /// [updateKindUnknownNote] on purpose — that one promises 「download it from
   /// the address below」, which on this channel would point at an address that
   /// does not exist.
@@ -130,7 +130,7 @@ mixin UpdateStrings on AppStringsLeaves {
   /// 🔴 The SAME channel, and a **different fact**: the store entry exists but
   /// **nobody has minted its link yet** ([UpdateCheckResult.storeUrl] is null).
   ///
-  /// [updateStoreChannelNote] sends the user to TestFlight / the App Store —
+  /// [updateStoreChannelNote] sends the user to TestFlight —
   /// which, with no link, is an instruction they cannot carry out. Owner ruled
   /// the sentence on 2026-08-24: 「有新版本：XXXX，联系官方团队获取」. It is a
   /// different sentence because it points at a different action, the same

@@ -308,6 +308,30 @@ class StallingPersistence extends InMemoryTimelinePersistence {
   Future<void> upsert(TimelineEntry entry) => released.future;
 }
 
+/// Selectively fail, stall, or corrupt every write/rewrite of one result.
+class SelectivePersistence extends InMemoryTimelinePersistence {
+  SelectivePersistence(this.text, {this.gate, this.corrupt = false});
+  final String text;
+  final Completer<void>? gate;
+  final bool corrupt;
+  int refused = 0;
+
+  @override
+  Future<void> upsert(TimelineEntry entry) async {
+    if (entry.sourceText == text) {
+      if (gate != null) {
+        await gate!.future;
+      } else if (corrupt) {
+        return super.upsert(entry.copyWith(outputText: 'stale stored result'));
+      } else {
+        refused += 1;
+        throw StateError('disk refused this result');
+      }
+    }
+    await super.upsert(entry);
+  }
+}
+
 class Rig {
   Rig._(this.tmp, this.store, this.spill, this.recorder, this.journalFs);
 
@@ -315,11 +339,12 @@ class Rig {
     List<String> capabilities = tierA,
     TimelinePersistence? persistence,
     bool keepBackfill = false,
+    int Function()? clock,
   }) async {
     final Directory tmp =
         await Directory.systemTemp.createTemp('flowmic-ls1b-');
     final RetainedAudioStore store =
-        RetainedAudioStore(dir: tmp, clock: () => 0);
+        RetainedAudioStore(dir: tmp, clock: clock ?? () => 0);
     await store.open();
     // See [RigJournalFs]: the rig's manifest poll and the product's manifest
     // publish are the same file, and on Windows they are mutually exclusive.

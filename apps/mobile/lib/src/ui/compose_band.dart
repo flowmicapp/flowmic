@@ -132,6 +132,11 @@ const double kDockPaddingTop = 10;
 /// The uniform gap between the dock's rows (`.dock{…gap:9px}`).
 const double kDockRowGap = 9;
 
+/// The policy chip's glyph-only face ([SendPolicyChip.compact]) — one touch
+/// target wide. Shared because row 1 (`_modePolicyRowRouted`) reserves exactly
+/// this much for it before it lets the mode segments have the rest.
+const double kSendPolicyChipCompactWidth = kComposeTouchTarget;
+
 // ── VF-8 · tablet (mock frame A-TAB) ────────────────────────────────────────
 // `<div class="dock" style="flex-direction:row;gap:12px;align-items:stretch;
 //                           padding:12px 20px 16px">`
@@ -514,8 +519,15 @@ class _ComposeBandState extends State<ComposeBand> {
 
   /// The 电脑/PC (computer/PC) edge label. The zh/ja/ko mocks write it vertically (two CJK
   /// glyphs stacked); the EN mock switches to horizontal 「PC」 — the decision
-  /// is made on the LABEL's own length, not on the locale, so a future locale
-  /// with a short label gets the vertical face for free.
+  /// is made on the LABEL itself, not on the locale, so a future locale
+  /// with a short CJK label gets the vertical face for free.
+  ///
+  /// 🔴 Length alone was the wrong test (2026-09-30, measured on a 360dp
+  /// phone): 「PC」 is two characters too, so EN — and every locale whose label
+  /// is Latin or Cyrillic (「PC」, 「ПК」) — got the CJK stack and printed 「P」
+  /// over 「C」, the opposite of the EN mock. Stacking reads as vertical
+  /// writing only for scripts that are written vertically, so the label must
+  /// be SHORT and every glyph CJK ([_isVerticalScript]).
   ///
   /// [forceHorizontal] is the A-TAB override: in the key COLUMN the label sits
   /// across the top whatever its length, because there is no left edge for it
@@ -546,7 +558,7 @@ class _ComposeBandState extends State<ComposeBand> {
         ),
       );
     }
-    if (label.characters.length <= 2) {
+    if (label.characters.length <= 2 && label.runes.every(_isVerticalScript)) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 3),
         child: Column(
@@ -570,6 +582,10 @@ class _ComposeBandState extends State<ComposeBand> {
         child: Text(
           label,
           key: const ValueKey<String>('compose.keys.groupLabel'),
+          // One line, always: a label broken across lines is the stacked face
+          // by accident.
+          maxLines: 1,
+          softWrap: false,
           // The EN mock lays 「PC」 horizontally; the same 1px tracking the
           // frame gives it keeps the two capitals from reading as a word.
           style: style.copyWith(letterSpacing: 1),
@@ -577,6 +593,16 @@ class _ComposeBandState extends State<ComposeBand> {
       ),
     );
   }
+
+  /// Han, kana and Hangul — the scripts whose readers take a vertical stack
+  /// as writing. Anything else (Latin 「PC」, Cyrillic 「ПК」) stacked is two
+  /// stray letters.
+  static bool _isVerticalScript(int rune) =>
+      (rune >= 0x3040 && rune <= 0x30FF) || // Hiragana, Katakana
+      (rune >= 0x3400 && rune <= 0x4DBF) || // CJK Extension A
+      (rune >= 0x4E00 && rune <= 0x9FFF) || // CJK Unified Ideographs
+      (rune >= 0xAC00 && rune <= 0xD7AF) || // Hangul syllables
+      (rune >= 0xF900 && rune <= 0xFAFF); // CJK Compatibility Ideographs
 
   Widget _controlButton(ControlKeyKind kind) {
     final AppStrings s = widget.strings;
@@ -661,11 +687,36 @@ class _ComposeBandState extends State<ComposeBand> {
               // Plan A′ §5-1: the key's visible label — the four words reuse
               // keyEnter/Backspace/Undo/Clear, the same names the history rows
               // print (controlRowLabel), so one key has one name everywhere.
+              //
+              // 🔴 TWO LINES, NEVER AN ELLIPSIS (2026-09-30, measured on the
+              // 360dp phone across nine locales × the app's whole text-size
+              // ladder): a key holds a QUARTER of the group, and words like
+              // ja 「バックスペース」 (7 full-em glyphs, 93dp at xxlarge) or fr
+              // 「Retour arrière」 cannot be bought room — trimming the mock's
+              // paddings recovers ~3dp a key, shrinking the word would undo
+              // the rung the user raised (the ladder exists to make text
+              // BIGGER), and shorter copy is off the table. So the word WRAPS:
+              // CJK breaks between glyphs, Latin at its spaces, and the
+              // engine hard-breaks a single over-wide word (measured in
+              // support/legibility.dart's `expectParagraphLegible`).
+              // The 44dp ruler is a FLOOR, not a cap — the key grows to hold
+              // its second line (measured, ja at 360dp: the wrapped key is
+              // 48 / 52 / 58dp at the large / xlarge / xxlarge rungs — at
+              // medium the second line still lands inside 44 — while the
+              // row's other three keys stay 44 and centre; making the four
+              // faces equal-height instead would need `stretch`, which
+              // asserts in this Row's unbounded height, or `IntrinsicHeight`,
+              // which is this file's own measured trap: see `_pcKeyColumn`'s
+              // account of intrinsics predicting instead of measuring). The
+              // ellipsis stays only as the >2-line last resort — nothing in
+              // the nine locales reaches it; compose_row_one_fit_test.dart
+              // asserts that per cell.
               Text(
                 label,
                 key: ValueKey<String>('compose.ctrl.${kind.name}.label'),
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
                 // `.kt{font-size:10px;color:var(--sub)}`
                 style: TextStyle(color: FlowMicDockColors.sub, fontSize: 10),
               ),

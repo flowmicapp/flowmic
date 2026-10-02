@@ -65,6 +65,7 @@ export const SCENARIO_ISOLATION = new Map(Object.entries({
   G32: { group: 'pool', why: 'own startSaasServer(), mkdtemp file db + mkdtemp mail dir' },
   G33: { group: 'chain', why: 'registerAndPair(url)' },
   G34: { group: 'pool', why: 'own startSaasServer() ×2, mkdtemp file db + mkdtemp mail dir' },
+  G35: { group: 'pool', why: 'own startSaasServer(), mkdtemp file db + mkdtemp mail dir; engine switch keyed by its own id' },
 }));
 
 /** Longest-first execution order, measured (see run-golden.mjs's header for the

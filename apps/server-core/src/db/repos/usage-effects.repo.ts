@@ -51,118 +51,233 @@
 // re-send do not share a forward id; they share `(user, operation, kind)`, which
 // is this table's primary key. ONE claim now governs BOTH paths.
 
+// *** billing *** NR-138 round 3 (MAIN decision B5, 2026-10-01; book 22 §4.11): THERE IS NO AGE PRUNE ANY MORE.
+// A claim is kept for the life of the account and goes only with it (`ON DELETE CASCADE`, schema-recovery.ts).
+// Until this change the daily recovery tick deleted claims older than RECOVERY_RETENTION_MS by their ORIGINAL
+// `applied_at` (never refreshed), and that deletion — not the registry's own prune — is what let a re-send of the
+// same operation be debited a second time after seven days. The phone keeps unrecovered audio with no time limit
+// (owner ruling O-2), so no finite window could cover every re-send it may make.
+// ⚠️ Correction (NR-138 round 5, MAIN decision, 2026-10-01; book 22 §4.11): the paragraph above is kept as
+// written; its conclusion is superseded. Claims ARE pruned again, at RECOVERY_CLAIM_RETENTION_MS = 90 days by
+// the original `applied_at` — the privacy policy's per-use window. What reaches the relay automatically is bounded
+// by the phone's six-day window and its one-way `needsManual`, not by how long the audio stays on the phone.
+
 import type { DatabaseSync } from 'node:sqlite';
-import { RECOVERY_RETENTION_MS } from '../schema-recovery';
+import { RECOVERY_CLAIM_RETENTION_MS } from '../schema-recovery';
 
 /** The two metering kinds that can each happen once per operation. They are the
  *  two things `usage_records` counts in different columns (STT minutes / LLM
  *  tokens), which is why one operation owns up to two rows here. */
 export type UsageEffectKind = 'stt' | 'llm';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// *** billing *** NR-138 round 4 (MAIN decision, 2026-10-01; book 22 §4.11 「The bound on a free replay」).
+//
+// Once claims were kept for the life of the account (round 3), 「a re-send of a claimed operation is free」 had no
+// limit: the registry binds no content hash, so a client could reuse one claimed `operation_id` and send any audio,
+// free, forever. A claim now remembers what it paid (`billed_ms`) and how often it was replayed (`replays`), and a
+// replay is free only inside that. The decision is ONE pure function ({@link replayCharge}) so the rule is read in
+// one place and tested without a database.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Free replays per claim: the phone's own automatic cap (`kRecoveryMaxAutoAttempts` in
+ *  apps/mobile/lib/src/session/recovery_backoff.dart), pinned by test/claimed-operation-replay-bound.test.ts. */
+export const REPLAY_FREE_LIMIT = 5;
+
+/** How much longer than what it paid a replay may be and still be free: max(1 s, 2%). An honest re-send carries
+ *  the same bytes, so its §4.9 basis repeats to within one Soniox processed-position step (120 ms) per engine leg
+ *  and one 20 ms gate frame; 1 s covers eight legs, 2% scales with a long recording's extra reconnects. */
+export function replayToleranceMs(billedMs: number): number {
+  return Math.max(1_000, Math.round(billedMs * 0.02));
+}
+
+/** What one metering of an operation did. */
+export type MeterVerdict =
+  | 'applied' // the first metering: claim written, the full amount charged
+  | 'replay_free' // a replay inside the bound: nothing charged
+  | 'replay_excess' // a replay longer than what was paid: the excess charged
+  | 'replay_billed' // past the free limit: charged in full
+  | 'replay_unbound'; // round 6: the claim has no binding, or it differs from the operation's: charged in full, claim untouched
+
+/** A claim as stored. `billed_ms` NULL ⇔ written before NR-138 round 4 (nobody recorded what it paid). */
+export interface ClaimRow { applied_at: number; billed_ms: number | null; replays: number }
+
 /**
- * The one method a metering tracker needs: 「run this effect at most once for
- * this triple」. Narrower than {@link UsageEffectLedger} on purpose — the tracker
- * must not be able to prune the ledger it writes, and the narrowing is also what
- * lets ONE tracker implementation serve both transaction shapes (see
- * {@link claimInCallerTransaction}).
+ * THE RULE, for a replay of an existing claim at [at] whose basis is [amount] (ms for STT, tokens for LLM).
+ * Returns what to charge and the claim's new `billed_ms`. Every replay also increments `replays` (the caller).
+ */
+export function replayCharge(
+  row: ClaimRow, kind: UsageEffectKind, amount: number, _at: number,
+): { charge: number; verdict: Exclude<MeterVerdict, 'applied'>; billed_ms: number | null } {
+  const counted = row.replays < REPLAY_FREE_LIMIT;
+  // LLM: tokens vary between runs, so the counter is the only bound.
+  if (kind === 'llm') {
+    return counted
+      ? { charge: 0, verdict: 'replay_free', billed_ms: row.billed_ms }
+      : { charge: amount, verdict: 'replay_billed', billed_ms: row.billed_ms };
+  }
+  // ⚠️ Round 6 (book 22 §4.11): the round-4 「pre-change claim keeps its seven-day promise」 branch is gone. A claim
+  // written before round 4 has no binding, and step() bills its replays normally before this function is reached;
+  // an STT claim with no `billed_ms` can only be one of those, so it is billed in full here too.
+  if (row.billed_ms === null) return { charge: amount, verdict: 'replay_billed', billed_ms: null };
+  if (!counted) return { charge: amount, verdict: 'replay_billed', billed_ms: row.billed_ms + amount };
+  if (amount <= row.billed_ms + replayToleranceMs(row.billed_ms)) {
+    return { charge: 0, verdict: 'replay_free', billed_ms: row.billed_ms };
+  }
+  return { charge: amount - row.billed_ms, verdict: 'replay_excess', billed_ms: amount };
+}
+
+/** NR-138 round 6 (book 22 §4.11, review B6 + B7) — what a claim is bound to: the recording, the job and the audio
+ *  range of the frame that was metered. Stored on the claim row itself, so the two expire together. */
+export interface ClaimBinding { recording_id: string; job_id: string; range_start_sample: number; range_end_sample: number }
+
+/** The frame's binding, or undefined unless ALL FOUR are present — a partial binding binds nothing. */
+export function claimBindingOf(f: {
+  recording_id?: string | undefined; job_id?: string | undefined;
+  range_start_sample?: number | undefined; range_end_sample?: number | undefined;
+}): ClaimBinding | undefined {
+  const { recording_id, job_id, range_start_sample, range_end_sample } = f;
+  if (typeof recording_id !== 'string' || recording_id === '' || typeof job_id !== 'string' || job_id === '') return undefined;
+  if (!Number.isFinite(range_start_sample) || !Number.isFinite(range_end_sample)) return undefined;
+  return { recording_id, job_id, range_start_sample: range_start_sample as number, range_end_sample: range_end_sample as number };
+}
+
+function sameClaimBinding(a: ClaimBinding, b: ClaimBinding): boolean {
+  return a.recording_id === b.recording_id && a.job_id === b.job_id
+    && a.range_start_sample === b.range_start_sample && a.range_end_sample === b.range_end_sample;
+}
+
+type ClaimRef = {
+  user_id: string; operation_id: string; kind: UsageEffectKind; at?: number;
+  /** Round 6 — the metered frame's binding. Absent ⇒ the claim (if new) is unbound, and a replay is billed normally. */
+  binding?: ClaimBinding | undefined;
+};
+
+/**
+ * The one method a metering tracker needs: 「meter [amount] for this triple — in full the first time, inside the
+ * bound on a replay」. [effect] receives what to charge, and is not called when that is nothing. Narrower than
+ * {@link UsageEffectLedger} on purpose: it is what lets ONE tracker implementation serve both transaction shapes
+ * (see {@link claimInCallerTransaction}).
  */
 export interface UsageEffectClaim {
-  once(
-    ref: { user_id: string; operation_id: string; kind: UsageEffectKind; at?: number },
-    effect: () => void,
-  ): 'applied' | 'duplicate';
+  meter(ref: ClaimRef, amount: number, effect: (charge: number) => void): MeterVerdict;
 }
 
 export interface UsageEffectLedger extends UsageEffectClaim {
   /**
-   * Apply `effect` for this `(user, operation, kind)` at most once.
+   * The same metering, for a caller that ALREADY HOLDS A TRANSACTION.
    *
-   * Returns `'applied'` when the effect ran, `'duplicate'` when this triple was
-   * already applied. Throws only when `effect` throws — and then NOTHING was
-   * written, so the caller must not treat the operation as metered.
+   * 🔴 IT OPENS NO TRANSACTION, AND THAT IS THE ONLY DIFFERENCE: the claim (or its replay count) and the effect are
+   * still committed or rolled back together, because the caller's `BEGIN` encloses both. Calling this OUTSIDE a
+   * transaction would degrade to write-then-apply, the ordering that loses minutes on a throw.
+   *
+   * ONE production caller: the writer's forwarded-record replay tracker (node/node-runtime.ts `replayUsage`,
+   * reached from `forward-ledger.once`).
    */
-  /**
-   * The same claim, for a caller that ALREADY HOLDS A TRANSACTION.
-   *
-   * 🔴 IT OPENS NO TRANSACTION, AND THAT IS THE ONLY DIFFERENCE. The three
-   * orderings argued above still hold — they hold because the caller's `BEGIN`
-   * encloses both the claim and the effect, so a throw anywhere rolls back both
-   * and the failure mode stays 「try again」. Calling this OUTSIDE a transaction
-   * would silently degrade to claim-then-apply, i.e. the ordering that loses
-   * minutes on a throw, which is why the name says whose transaction it needs.
-   *
-   * ONE production caller: the writer's forwarded-record replay tracker
-   * (node/node-runtime.ts `replayUsage`, reached from `forward-ledger.once`).
-   */
-  onceInCallerTransaction(
-    ref: { user_id: string; operation_id: string; kind: UsageEffectKind; at?: number },
-    effect: () => void,
-  ): 'applied' | 'duplicate';
-  /** Drop markers older than the retention window. Returns how many went.
-   *  A re-send after that is metered again — the accepted residual, argued in
-   *  schema-recovery.ts. */
+  meterInCallerTransaction(ref: ClaimRef, amount: number, effect: (charge: number) => void): MeterVerdict;
+  /** NR-138 round 5 — drop claims whose original `applied_at` is older than RECOVERY_CLAIM_RETENTION_MS (90 days).
+   *  Returns how many went. An automatic re-send after that is metered again (book 22 §4.11, rule ⑧ consequence). */
   prune(now?: number): number;
+  /** NR-138 round 5 — this account's claims, for the account export (http/account-lifecycle.ts). */
+  listByUser(user_id: string): {
+    operation_id: string; kind: string; applied_at: number; billed_ms: number | null; replays: number;
+    recording_id: string | null; job_id: string | null; range_start_sample: number | null; range_end_sample: number | null;
+  }[];
 }
 
 export function makeUsageEffectLedger(db: DatabaseSync): UsageEffectLedger {
-  const claim = db.prepare(
-    'INSERT INTO usage_effects (user_id, operation_id, kind, applied_at) VALUES (?, ?, ?, ?)',
+  // *** billing *** Round 6 (book 22 §4.11, review B6 + B7): the claim stores the binding of the frame it metered, in
+  // the same row — so claim and binding expire together. No binding ⇒ an unbound claim, whose replays bill normally.
+  const insert = db.prepare(
+    `INSERT INTO usage_effects
+       (user_id, operation_id, kind, applied_at, billed_ms, replays, recording_id, job_id, range_start_sample, range_end_sample)
+     VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
   );
-  const seen = db.prepare(
-    'SELECT 1 AS hit FROM usage_effects WHERE user_id = ? AND operation_id = ? AND kind = ?',
+  const select = db.prepare(
+    `SELECT applied_at, billed_ms, replays, recording_id, job_id, range_start_sample, range_end_sample
+       FROM usage_effects WHERE user_id = ? AND operation_id = ? AND kind = ?`,
+  );
+  const replayed = db.prepare(
+    'UPDATE usage_effects SET replays = replays + 1, billed_ms = ? WHERE user_id = ? AND operation_id = ? AND kind = ?',
   );
   const sweep = db.prepare('DELETE FROM usage_effects WHERE applied_at < ?');
+  const byUser = db.prepare(
+    `SELECT operation_id, kind, applied_at, billed_ms, replays, recording_id, job_id, range_start_sample, range_end_sample
+       FROM usage_effects WHERE user_id = ? ORDER BY applied_at DESC`,
+  );
+
+  /** Read, decide, write, apply — inside whatever transaction the caller of this function holds. A throw from
+   *  [effect] must reach that transaction's rollback, so nothing here catches it. */
+  function step(ref: ClaimRef, amount: number, effect: (charge: number) => void): MeterVerdict {
+    const at = ref.at ?? Date.now();
+    type Bound = { recording_id: string | null; job_id: string | null; range_start_sample: number | null; range_end_sample: number | null };
+    const r = select.get(ref.user_id, ref.operation_id, ref.kind) as
+      ({ applied_at: number; billed_ms: number | null; replays: number } & Bound) | undefined;
+    if (r === undefined) {
+      const b = ref.binding;
+      insert.run(ref.user_id, ref.operation_id, ref.kind, at, ref.kind === 'stt' ? Math.round(amount) : null,
+        b?.recording_id ?? null, b?.job_id ?? null, b?.range_start_sample ?? null, b?.range_end_sample ?? null);
+      effect(amount);
+      return 'applied';
+    }
+    // Round 6: a replay may use the claim only if the claim is bound AND the metered frame carries the same binding.
+    // Admission already refuses a different binding while the claim lives (recovery-operations.repo.ts `admit`); this
+    // is the second lock, for a path that reached here without that check. Untouched claim, full charge.
+    const stored = claimBindingOf({
+      recording_id: r.recording_id ?? undefined, job_id: r.job_id ?? undefined,
+      range_start_sample: r.range_start_sample === null ? undefined : Number(r.range_start_sample),
+      range_end_sample: r.range_end_sample === null ? undefined : Number(r.range_end_sample),
+    });
+    if (stored === undefined || ref.binding === undefined || !sameClaimBinding(stored, ref.binding)) {
+      effect(amount);
+      return 'replay_unbound';
+    }
+    const d = replayCharge(
+      { applied_at: Number(r.applied_at), billed_ms: r.billed_ms === null ? null : Number(r.billed_ms), replays: Number(r.replays) },
+      ref.kind, amount, at,
+    );
+    replayed.run(d.billed_ms === null ? null : Math.round(d.billed_ms), ref.user_id, ref.operation_id, ref.kind);
+    if (d.charge > 0) effect(d.charge);
+    return d.verdict;
+  }
 
   return {
-    once(ref, effect): 'applied' | 'duplicate' {
-      // Checked before opening the transaction so the common duplicate costs one
-      // indexed lookup rather than a rollback. The INSERT below is still the
-      // authority — this is a fast path, not the guard.
-      if (seen.get(ref.user_id, ref.operation_id, ref.kind)) return 'duplicate';
+    meter(ref, amount, effect): MeterVerdict {
+      // The read is INSIDE `BEGIN IMMEDIATE`: every replay now writes its count, so there is no read-only fast path
+      // left to take, and reading under the write lock is what keeps two concurrent replays from both seeing
+      // 「replays = 4」.
       db.exec('BEGIN IMMEDIATE');
       try {
-        claim.run(ref.user_id, ref.operation_id, ref.kind, ref.at ?? Date.now());
-        effect();
+        const v = step(ref, amount, effect);
         db.exec('COMMIT');
-        return 'applied';
+        return v;
       } catch (err) {
         try {
           db.exec('ROLLBACK');
         } catch {
-          /* the transaction is already gone; the original error is the one that
-             matters and rethrowing this one would hide it */
+          /* the transaction is already gone; the original error is the one that matters */
         }
-        // A UNIQUE violation here means a concurrent start claimed the same
-        // triple between the fast path above and this INSERT. That is a
-        // duplicate, not a failure — reporting it as a failure would make the
-        // caller believe an account was NOT metered when it was.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (/UNIQUE constraint failed: usage_effects\./.test(msg)) return 'duplicate';
         throw err;
       }
     },
-    onceInCallerTransaction(ref, effect): 'applied' | 'duplicate' {
-      if (seen.get(ref.user_id, ref.operation_id, ref.kind)) return 'duplicate';
-      try {
-        claim.run(ref.user_id, ref.operation_id, ref.kind, ref.at ?? Date.now());
-      } catch (err) {
-        // A constraint violation aborts the STATEMENT, not the caller's
-        // transaction, so returning 「duplicate」 here leaves that transaction
-        // intact and its other work committable. Anything else is the caller's
-        // problem and is rethrown — their `BEGIN` is what rolls it back.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (/UNIQUE constraint failed: usage_effects\./.test(msg)) return 'duplicate';
-        throw err;
-      }
-      // NOT wrapped: a throw must reach the caller so THEIR rollback undoes the
-      // claim above with it. Swallowing it here would spend the key and lose the
-      // minutes — the exact ordering this module refuses to have.
-      effect();
-      return 'applied';
+    meterInCallerTransaction(ref, amount, effect): MeterVerdict {
+      return step(ref, amount, effect);
     },
     prune(now = Date.now()): number {
-      const r = sweep.run(now - RECOVERY_RETENTION_MS);
-      return Number(r.changes ?? 0);
+      return Number(sweep.run(now - RECOVERY_CLAIM_RETENTION_MS).changes ?? 0);
+    },
+    listByUser(user_id) {
+      return (byUser.all(user_id) as Record<string, unknown>[]).map((r) => ({
+        operation_id: String(r['operation_id']),
+        kind: String(r['kind']),
+        applied_at: Number(r['applied_at']),
+        billed_ms: r['billed_ms'] === null ? null : Number(r['billed_ms']),
+        replays: Number(r['replays']),
+        recording_id: r['recording_id'] === null ? null : String(r['recording_id']),
+        job_id: r['job_id'] === null ? null : String(r['job_id']),
+        range_start_sample: r['range_start_sample'] === null ? null : Number(r['range_start_sample']),
+        range_end_sample: r['range_end_sample'] === null ? null : Number(r['range_end_sample']),
+      }));
     },
   };
 }
@@ -170,17 +285,13 @@ export function makeUsageEffectLedger(db: DatabaseSync): UsageEffectLedger {
 /**
  * The same ledger, seen by a caller that already holds a transaction.
  *
- * 🔴 THIS ADAPTER IS THE JOIN BETWEEN THE TWO DEDUPE PATHS (audit F1). The
- * writer's local metering takes `once`; the writer's replay of a replica's
- * forwarded record takes `onceInCallerTransaction` through this wrapper. Both
- * land on the SAME `(user, operation, kind)` row, so a re-send that reaches the
- * account by the other path finds the claim already spent.
+ * 🔴 THIS ADAPTER IS THE JOIN BETWEEN THE TWO DEDUPE PATHS (audit F1). The writer's local metering takes `meter`;
+ * the writer's replay of a replica's forwarded record takes `meterInCallerTransaction` through this wrapper. Both
+ * land on the SAME `(user, operation, kind)` row, so a re-send that reaches the account by the other path is a
+ * replay of that claim, inside the same bound.
  *
- * ⚠️ Only ever hand the result to a tracker whose calls are made inside a
- * transaction. Given to an ordinary tracker it would meter correctly and
- * degrade the failure ordering, which is precisely the kind of quiet wrongness
- * this module's header refuses.
+ * ⚠️ Only ever hand the result to a tracker whose calls are made inside a transaction.
  */
 export function claimInCallerTransaction(ledger: UsageEffectLedger): UsageEffectClaim {
-  return { once: (ref, effect) => ledger.onceInCallerTransaction(ref, effect) };
+  return { meter: (ref, amount, effect) => ledger.meterInCallerTransaction(ref, amount, effect) };
 }

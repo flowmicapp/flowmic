@@ -195,6 +195,15 @@ BannerQueue _liveSources({
   // exist as far as the user is concerned (the same sentence CR-3/CR-9/fix-026
   // earned their own fields above).
   retainedAudioNotice: controller.retainedAudioNotice,
+  retainedAudioSecondaryNotice: controller.retainedAudioNotice == null ? null
+      : controller.session.audio.retainedAudio?.store.lastNotice.value?.secondaryCode,
+  timelineWriteFailure: controller.timelineWriteFailure != null,
+  timelineRecoveryFailure: controller.store.recoveryFailures.noticeTicket != null,
+  timelineRecoveryPersistent: controller.store.recoveryFailures.hasPersistentFailures,
+  onDismissTimelineRecoveryFailure: controller.store.recoveryFailures.dismissNotice,
+  timelineDeleteFailure: controller.store.deleteFailures.noticeTicket != null,
+  onDismissTimelineDeleteFailure: controller.store.deleteFailures.dismissNotice,
+  onDismissTimelineWriteFailure: controller.dismissTimelineWriteFailure,
   onDismissRetainedAudioNotice: controller.dismissRetainedAudioNotice,
   // 🔴 Card NR-123 — THE PRODUCTION READER of `ChatStatusSurface.polishNoModelHint`.
   polishNoModelHint: controller.polishNoModelHint,

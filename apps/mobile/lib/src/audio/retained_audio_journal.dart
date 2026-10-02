@@ -309,14 +309,8 @@ class RetainedAudioJournal {
 
   /// Announcements a UI layer can surface.
   ///
-  /// 🔴 SUBSCRIBER: `RetainedAudioSpill._onJournalNotice` (card LS-2), which
-  /// folds the two codes a user can act on ([codeAppendFailed],
-  /// [codeShortWrite]) into `RetainedAudioStore.lastNotice` — the one value
-  /// the banner queue already reads (`onRetainedAudioNoticeRouted` in
-  /// `session/chat_notices.dart`). The rest stay on the
-  /// diagnostics line on purpose: a failed commit under-claims, which is the
-  /// safe direction, and a banner for it would be an alarm that fires when
-  /// nothing was lost.
+  /// Production: RetainedAudioSpill.handleJournalNotice (capture, live settle,
+  /// and RecoveryJournalLeg._openJournal). Commit failures have their own notice.
   Stream<JournalNotice> get notices => _notices.stream;
 
   /// Append captured PCM. Returns whether the bytes reached the file.
@@ -419,7 +413,7 @@ class RetainedAudioJournal {
   }
 
   /// Publish the manifest now, in the §A3-3 order. Idempotent.
-  Future<void> commit() => _enqueue<void>(_commitLocked);
+  Future<bool> commit() => _enqueue<bool>(_commitLocked);
 
   /// Record a named interrupt (§A3-9). Committed on the next [commit].
   void noteInterrupt(String reason) =>
@@ -449,6 +443,11 @@ class RetainedAudioJournal {
   /// removes nothing; §A5-1 wants exactly that failure direction.
   void markSettledForCleanup() =>
       _manifest = _manifest.copyWith(settled: true);
+
+  /// NR-137 round 10c — a release that marked and then did not seal puts the
+  /// mark back (`recovery_leg_rows.dart` `_sealRelease`).
+  void unmarkSettledForCleanup() =>
+      _manifest = _manifest.copyWith(settled: false);
 
   /// SD-2 — declare that the live settle for this recording is about to run,
   /// so the recovery queue does not open a second, billable attempt on it in
@@ -542,6 +541,14 @@ class RetainedAudioJournal {
         ],
       );
 
+  /// NR-137 round 10b — [ids] were withdrawn by [attemptId]; committed on the
+  /// next [commit] (a closed attempt keeps its outcome).
+  void recordWithdrawn(String attemptId, Iterable<String> ids) =>
+      _manifest = _manifest.copyWith(attempts: <JournalAttempt>[
+        for (final JournalAttempt a in _manifest.attempts)
+          a.attemptId == attemptId ? a.withWithdrawn(ids) : a,
+      ]);
+
   /// Card RC-1a (A6 R-3) — persist where the recovery queue stands, and when
   /// the next automatic attempt is due. Committed on the next [commit].
   void setRecoveryState(String state,
@@ -597,7 +604,7 @@ class RetainedAudioJournal {
     _pending?.cancel();
     _pending = null;
     try {
-      await _enqueue<void>(_commitLocked);
+      await _enqueue<bool>(_commitLocked);
     } finally {
       if (_manifestBehind) {
         // Card FX-1 - the closing commit failed too (on a full disk it always
@@ -640,13 +647,13 @@ class RetainedAudioJournal {
     if (_closed || _pending != null) return;
     _pending = _timerFactory(_commitInterval, () {
       _pending = null;
-      unawaited(commit().catchError((Object _) {}));
+      unawaited(commit().catchError((Object _) => false));
     });
   }
 
-  Future<void> _commitLocked() async {
+  Future<bool> _commitLocked() async {
     final JournalFileHandle? h = _handle;
-    if (h == null) return;
+    if (h == null) return false;
     // 🔴 THE ONE CHOKE POINT FOR 「the user deleted this while we were
     // writing about it」. Publishing here would put the manifest of a deleted
     // recording back on disk; the scan would list it again, claim ahead of an
@@ -663,9 +670,9 @@ class RetainedAudioJournal {
       // Not `_manifestBehind`: there is nothing to catch up to. Leaving the
       // flag raised would hand this manifest to the republish queue at close.
       _manifestBehind = false;
-      return;
+      return false;
     }
-    await _flushOrRecordHole(h);
+    final bool flushed = await _flushOrRecordHole(h);
     try {
       // (2) happened above: the PCM is flushed BEFORE the manifest learns of it.
       final int observed = await h.length();
@@ -706,32 +713,23 @@ class RetainedAudioJournal {
           // that the scan reads as claim-ahead-of-absent-file.
         }
         _manifestBehind = false;
-        return;
+        return false;
       }
       // (5) only now is the claim ours to state.
       _manifest = next;
       _manifestBehind = false;
+      return flushed;
     } on Object catch (e) {
       _announce(JournalNotice(
         code: JournalNotice.codeCommitFailed,
         recordingId: _recordingId,
         detail: '$e',
       ));
-      // Still swallowed - a commit failure must not stop capture (A9 P1-1 (3)).
-      //
-      // BUT NO LONGER FORGOTTEN, AND THE COMMENT THAT STOOD HERE WAS HALF TRUE.
-      // It read: "a failed commit leaves the PREVIOUS manifest standing, which
-      // under-claims, and under-claiming is the safe direction". True of
-      // `committedClaimBytes`. FALSE of `holes` and `interruptReason`: the
-      // standing manifest does not under-report those, it DENIES them, and on
-      // the first failure of a recording it denies them with `[]` and `none`.
-      // Drill D-5b measured exactly that (26.5 s missing, `"holes":[]`). So a
-      // failed commit now (a) raises [_manifestBehind], (b) re-arms the timer
-      // so the next tick tries again while the recording is still open, and
-      // (c) at [close] hands the manifest to [ManifestRepublishQueue] for after
-      // space comes back.
+      // NR-146: capture continues, but callers receive false and may not
+      // delete PCM. Regression: journal_commit_failure_notice_test.dart.
       _manifestBehind = true;
       _arm();
+      return false;
     }
   }
 
@@ -748,9 +746,10 @@ class RetainedAudioJournal {
   ///
   /// Never throws: the claim still has to be published when the flush failed,
   /// and it is then published SMALLER than what we handed the platform.
-  Future<void> _flushOrRecordHole(JournalFileHandle h) async {
+  Future<bool> _flushOrRecordHole(JournalFileHandle h) async {
     try {
       await h.flush();
+      return true;
     } on Object catch (e) {
       _failedAppends += 1;
       int after = _observedBytes;
@@ -775,12 +774,8 @@ class RetainedAudioJournal {
         interruptReason: JournalInterrupt.ioError,
         holes: _ledger.holes,
       );
-      // The SAME code an append failure raises, because from where the user
-      // stands it is the same fact - a stretch of this recording has no local
-      // copy. `RetainedAudioSpill._onJournalNotice` forwards this one to the
-      // banner; [JournalNotice.codeCommitFailed] is deliberately NOT forwarded,
-      // because a manifest that could not be written says nothing on its own
-      // about the audio.
+      // Append/flush loss uses the partial-audio notice; a failed manifest
+      // publish uses codeCommitFailed (RetainedAudioSpill.handleJournalNotice).
       _announce(JournalNotice(
         code: JournalNotice.codeAppendFailed,
         recordingId: _recordingId,
@@ -788,6 +783,7 @@ class RetainedAudioJournal {
         bytes: lost,
         detail: 'flush: $e',
       ));
+      return false;
     }
   }
 

@@ -70,12 +70,16 @@
 // No vendor STT engine (the pool points at a closed port — enough to arm the
 // quota deadline; G24's header carries that measurement) and no LAN. Turnstile
 // is the REAL verifier pointed at a local stub. It never SKIPs.
+// ⚠️ 更正（NR-138 item 5, 2026-10-01）: the pool no longer points at a closed port — a flush failure with no
+// transcript is no longer charged (book 22 §4.10), and this case is about a debit. It points at a LOCAL engine that
+// answers (stt-answering-engine.mjs); still no vendor and no LAN, so it still never SKIPs.
 
 import path from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { answeringPool } from './stt-answering-engine.mjs';
 import {
   ROOT, startSaasServer, connect, ack, recordAll, saasJwt, verifyRegisteredEmail,
   mailFileDir, mailFileEnv, PASS, FAIL, waitUntil, settleAfter, LIVENESS_CEILING_MS,
@@ -123,10 +127,8 @@ const HEARTBEAT_MS = 300;
 const BROWSER_UID = 'wb-34aaaaaaaaaaaaaa';
 const FRESH_UID = 'wb-34bbbbbbbbbbbbbb';
 const instanceIdOf = (uid) => `web-${uid.replace(/^[a-z]{2}-/, '').slice(0, 8)}`;
-const POOL = JSON.stringify([{
-  id: 'g34-unreachable', provider: 'custom-openai-compatible', model: 'g34',
-  api: 'http://127.0.0.1:9/v1', api_key: 'g34', enabled: true, priority: 1,
-}]);
+// NR-138 item 5 — an engine that ANSWERS (stt-answering-engine.mjs says why the closed port had to go).
+const POOL = answeringPool('g34-answering');
 const budgets = (rec) => rec.frames.filter((f) => f.event === 'billing:budget').map((f) => f.args[0]);
 /** The window a SECOND frame would have to arrive in for the `!== 1` counts
  *  below to be about duplicates rather than about timing. Same role and same
@@ -316,10 +318,10 @@ export const G34 = {
       visitor.phoneRec.frames.length = 0;
       await speak(visitor.phone, CAP_REMAINING_MS,
         () => visitor.phoneRec.frames.some((f) => f.event === 'audio:auto-stopped'));
-      // ⚠️ `QUOTA_EXCEEDED` SPECIFICALLY, not 「any stt:error」. The pool points at
-      // a closed port on purpose (see the header), so this session also produces
+      // ⚠️ `QUOTA_EXCEEDED` SPECIFICALLY, not 「any stt:error」. The pool pointed at
+      // a closed port until 2026-10-01 (see the header), so this session also produced
       // an ENGINE error — which is not a refusal at the door and must not be read
-      // as one. What this control is about is the gate: a press with time left
+      // as one. The engine answers now; the narrow filter stays, for the same reason. What this control is about is the gate: a press with time left
       // must get past `ensureQuota`.
       const quotaRefusals = (rec) => rec.frames.filter((f) => f.event === 'stt:error' && f.args[0]?.code === 'QUOTA_EXCEEDED');
       if (quotaRefusals(visitor.phoneRec).length > 0) {

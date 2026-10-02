@@ -55,6 +55,7 @@ import 'package:flowmic/src/destination/destination_controller.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/chat_controller.dart';
 import 'package:flowmic/src/settings/local_prefs.dart';
+import 'package:flowmic/src/signaling/server_capabilities.dart';
 import 'package:flowmic/src/signaling/socket_core.dart';
 import 'package:flowmic/src/signaling/state_machine.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
@@ -168,6 +169,18 @@ class _Rig {
       ),
     );
     giveSessionAPairedIdentity(session);
+    // NR-138 ③ — the legacy leg feeds nothing back before a capability ack
+    // (and, on a metered channel, nothing without the idempotency bit).
+    // Production's recovery sweep hangs off `DeliveryLinkUp`, after the ack;
+    // without this the positive control below could not feed anything back,
+    // and the filter under test would be proved by a closed gate instead.
+    session.reconnect.noteServerCapabilities(<String, Object?>{
+      'capabilities': <String>[
+        kCapabilityCoverageReceipt,
+        kCapabilityDeliveryNoneSafe,
+        kCapabilityIdempotentOperation,
+      ],
+    });
     timeline = newTestStore();
     controller = ChatController(
       outboxStore: newTestOutboxStore(),

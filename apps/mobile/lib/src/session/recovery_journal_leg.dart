@@ -38,11 +38,15 @@ import '../ptt/ptt_session.dart';
 import '../settings/phone_prefs_payload.dart';
 import '../signaling/state_machine.dart';
 import '../signaling/wire_payloads.dart' show FlowMode;
+import '../stt/segment_buffer.dart' show SegmentSettlement;
 import '../stt/stt_stream.dart';
 import '../timeline/article.dart' show pcmBytesToMs;
 import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart';
+import '../timeline/timeline_verified_reads.dart' show TimelineReleaseClaim;
+import '../timeline/timeline_write_gate.dart';
 import 'article_replay_target.dart';
+import 'kept_words_retranscribe.dart';
 import 'recovery_backoff.dart';
 import 'recovery_gate.dart';
 import 'recovery_identity.dart';
@@ -59,6 +63,8 @@ part 'recovery_leg_wire.dart';
 part 'recovery_leg_attempt.dart';
 
 part 'recovery_leg_settle.dart';
+part 'recovery_leg_kept_words.dart'; // NR-137
+part 'recovery_leg_rows.dart'; // NR-137 round 5
 
 /// The journal-sourced recovery. One instance per [BackfillRunner].
 class RecoveryJournalLeg {
@@ -116,6 +122,10 @@ class RecoveryJournalLeg {
   /// that looked like it removed it. The live path has the same ordering for
   /// the same reason: it deletes after its own `finally` closes the handle.
   String? _releaseAfterClose;
+
+  /// NR-137 round 3 — the last kept-words attempt could not make its result
+  /// durable (`_finishKeptWords`); `runOne` answers `failed` for it.
+  bool _keptWordsPressFailed = false;
   final int Function() _clock;
   final String Function() _newId;
   final bool Function() _metered;
@@ -279,6 +289,15 @@ class RecoveryJournalLeg {
           _spill.recordingAccount.currentDigest()) ==
       RecordingOwner.other;
 
+  /// NR-137 — can a re-transcription of [c]'s kept words replace them? The
+  /// same two halves the pending list asks (`PendingRecoveryStore._addJournal`).
+  Future<bool> _keptWordsReplaceable(_Candidate c) async {
+    if (!manifestAllowsKeptWordsRetranscribe(c.manifest)) return false;
+    final String article = RetainedAudioSpill.sessionKeyOf(c.scan.recordingId);
+    return (await replaceableArticles(_timeline, <String>{article}))
+        .contains(article);
+  }
+
   /// Card RC-1b (audit A6 R-2, owner ruling O-9) - ONE recording, because the
   /// user asked for it.
   ///
@@ -341,6 +360,12 @@ class RecoveryJournalLeg {
       });
       return PendingRetryOutcome.unavailable;
     }
+    // NR-137 — words the user already has: `_attempt` feeds the whole
+    // recording once, in place or as a new note (recovery_leg_kept_words.dart).
+    // ⚠️ 更正（round 3, review B1/B2）: round 2 reopened the unproven stretches
+    // here and fed them one by one — one operation per stretch, and a later
+    // stretch lost the kept-words rules. Nothing is reopened now.
+    _keptWordsPressFailed = false;
     final _StepOutcome step = await _attemptRanges(
       found,
       verdict,
@@ -348,7 +373,11 @@ class RecoveryJournalLeg {
       kind: RecoveryAttemptKind.userRetranscribe,
     );
     return switch (step) {
-      _StepOutcome.completed => PendingRetryOutcome.done,
+      // NR-137 round 3 (review B4) — a kept-words press whose result could
+      // not be made durable says so, rather than 「tried again」.
+      _StepOutcome.completed => _keptWordsPressFailed
+          ? PendingRetryOutcome.failed
+          : PendingRetryOutcome.done,
       _StepOutcome.refusedByGate => PendingRetryOutcome.refusedBusy,
       // Card WB-6 — the other half of `refusedBusy`. The screen withholds the
       // button when there is no link, so this arm is the race (the link went
@@ -557,7 +586,13 @@ class RecoveryJournalLeg {
         restarts += 1;
         continue; // _attempt starts by reading the current candidate.
       }
-      if (step != _StepOutcome.completed || c.scan.owedStretches <= 1) {
+      // NR-137 round 3 (review B1/B2) — a kept-words press is ONE attempt
+      // over the whole recording: there is no next stretch to feed.
+      if (step != _StepOutcome.completed ||
+          c.scan.owedStretches <= 1 ||
+          (kind == RecoveryAttemptKind.userRetranscribe &&
+              PendingRecoveryStore.redoesKeptWords(
+                  manifest: first.manifest, kind: kind))) {
         return step;
       }
       _Candidate? next;

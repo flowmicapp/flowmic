@@ -142,9 +142,9 @@ const PAIRS = {
 // exists to stop. When one fires, open both files and read them.
 const DIVERGENCES = {
   discLead: {
-    mobile: '32df736ddb5c',
-    desktop: '9fd2dda7a7bf',
-    why: 'point of view — 「this phone / your PC」 vs 「your phone / this PC」. Correct on each device; swapping either would address the reader on the wrong one.',
+    mobile: '816125af5a3f',
+    desktop: '780f87306471',
+    why: 'point of view — 「this phone / your computer」 vs 「your phone / this computer」. Correct on each device; swapping either would address the reader on the wrong one.',
   },
   discStep1Title: {
     mobile: '2bdccff24bec',

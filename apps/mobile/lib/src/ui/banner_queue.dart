@@ -42,6 +42,7 @@ export 'banner_ids.dart';
 import 'banner_ids.dart';
 
 import '../audio/continuous_cap_timer.dart' show kContinuousCapWarningLead;
+import '../audio/retained_audio_store.dart' show RetainedAudioNotice;
 import '../session/compose_gate.dart'
     show AiComposeFailure, AiComposeOutcome, ComposeSendFailure;
 import '../session/image_send_controller.dart' show ImageSendOutcome;
@@ -50,6 +51,7 @@ import '../session/outbox_notice_gate.dart';
 import '../settings/app_strings.dart';
 import 'control_key_face.dart';
 import '../signaling/state_machine.dart';
+part 'banner_timeline_failures.dart';
 // The C5 cross-device conflict vocabulary (timeline_conflict.dart) was deleted
 // in 0.2.27 with the history uplink that produced it — see the retirement notes
 // in timeline_sync.dart. Nothing here imports it any more.
@@ -344,12 +346,9 @@ BannerQueue buildChatBanners({
   /// what keeps owner §5-4 (「a few seconds, never a standing bar」) true in the
   /// code rather than only in a comment.
   bool continuousCapWarning = false,
-  /// AUD-D F6 / P1-6 — the stable [RetainedAudioNotice.code] of the most
-  /// recent retention event nobody has dismissed yet, or null for none. A raw
-  /// code string (not the model type) so this pure function never has to
-  /// import `audio/retained_audio_store.dart` — the SAME shape [autoStopReason]
-  /// already uses for the same reason.
+  /// Primary retention fact, with audio loss first.
   String? retainedAudioNotice,
+  String? retainedAudioSecondaryNotice,
   /// Card RC-1b — opens the pending-recovery screen. 🔴 NULL IS THE NORMAL
   /// CASE, not a default-shaped hole: `chat_banner_sources.dart` attaches it
   /// only when `BackfillProgress.hasKeptAudio`, because a 「show me」 that
@@ -364,6 +363,13 @@ BannerQueue buildChatBanners({
   /// (`ChatStatusSurface.polishModelRejectedHint`). Same slot and severity.
   bool polishModelRejectedHint = false,
   void Function()? onDismissPolishModelRejectedHint,
+  bool timelineWriteFailure = false,
+  bool timelineRecoveryFailure = false,
+  bool timelineRecoveryPersistent = false,
+  void Function()? onDismissTimelineRecoveryFailure,
+  bool timelineDeleteFailure = false,
+  void Function()? onDismissTimelineDeleteFailure,
+  void Function()? onDismissTimelineWriteFailure,
 }) {
   final BannerQueue queue = BannerQueue();
   final BannerItem? link = _linkBanner(
@@ -429,8 +435,6 @@ BannerQueue buildChatBanners({
     queue.push(
       BannerItem(
         id: BannerIds.continuousCapWarning,
-        // DEGRADED, not blocking: nothing is broken and nothing is being asked
-        // of the user. It is a heads-up on a recording that is working.
         severity: BannerSeverity.degraded,
         // The lead is interpolated from the constant that schedules it, so the
         // sentence cannot drift from the timer that produces it.
@@ -450,7 +454,12 @@ BannerQueue buildChatBanners({
         // is continuing unaffected) — this is a heads-up about a FILE, not a
         // live obstruction the user must clear before doing anything else.
         severity: BannerSeverity.degraded,
-        message: strings.retainedAudioNoticeMessage(retainedAudioNotice),
+        message: <String>[
+          strings.retainedAudioNoticeMessage(retainedAudioNotice),
+          if (retainedAudioSecondaryNotice != null &&
+              retainedAudioNotice != RetainedAudioNotice.codeWriteFailed)
+            strings.retainedAudioNoticeMessage(retainedAudioSecondaryNotice),
+        ].join('\n'),
         dismissible: true,
         // Card RC-1b — the M2 two-callback shape: the labelled action opens
         // the list, ✕ just closes. With no opener this collapses to the legacy
@@ -675,6 +684,10 @@ BannerQueue buildChatBanners({
   // façade on the copy face, and the store method that raised it
   // (`removeDeletedByPeer`) would have DELETED a real local row on the strength
   // of an error code that only ever meant 「id 不在表里」("the id isn't in the table").
+  _pushTimelineFailures(queue, strings,
+    recovery: timelineRecoveryFailure, recoveryPersistent: timelineRecoveryPersistent, write: timelineWriteFailure, delete: timelineDeleteFailure,
+    dismissRecovery: onDismissTimelineRecoveryFailure,
+    dismissWrite: onDismissTimelineWriteFailure, dismissDelete: onDismissTimelineDeleteFailure);
   return queue;
 }
 

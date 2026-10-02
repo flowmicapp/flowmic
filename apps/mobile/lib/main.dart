@@ -295,8 +295,9 @@ class _FlowMicAppState extends State<FlowMicApp> {
     );
     final UnknownFieldVault vault = SharedPrefsUnknownFieldVault(widget.prefs);
     _store = TimelineStore(
+      recoveryPrefs: widget.prefs,
       // V2-06a-2: whatever openTimelinePersistence actually managed to open —
-      // SQLite normally, the old capped blob when it could not. Never a store
+      // SQLite normally, uncapped fallback rows when it could not. Never a store
       // chosen here, because this line cannot know which one survived.
       persistence: widget.storage.persistence,
       // 🔴 THE ONE DELETER. Without this argument the store would not compile —
@@ -353,6 +354,8 @@ class _FlowMicAppState extends State<FlowMicApp> {
     );
     // Persist the SaaS JWT + public user (never the password) across launches so
     // the account area shows email/plan on boot (hydrate below).
+    _store.recoveryFailures.reportStorageOpen(
+      widget.storage.failure, widget.storage.corruptionRowIds);
     _login = LoginController(
       transport: _session.transport,
       accountStore: SecureAccountStore(),
@@ -499,6 +502,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
           client: BlindStoreCloudClient(transport: _session.transport),
           state: cloudState,
           bridge: BlindStoreTimelineBridge(
+            store: _store,
             persistence: widget.storage.persistence,
             // The **SAME** reaper semantics TimelineStore holds (the same
             // persistence / picture directory / vault), so 「what deleting a
@@ -515,7 +519,7 @@ class _FlowMicAppState extends State<FlowMicApp> {
             ),
             reload: _store.load,
           ),
-          cursor: SharedPrefsBlindStoreCursorStore(widget.prefs),
+          cursor: SharedPrefsBlindStoreCursorStore(widget.prefs, appVersion: cachedClientVersion()),
           isCloudRelay: () =>
               _session.serverChannel.value == ServerChannel.cloudRelay,
           // Account key: the cursor is a position on **one particular account's**

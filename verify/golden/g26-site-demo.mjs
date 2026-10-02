@@ -60,6 +60,9 @@
 // is the REAL verifier pointed at a local stub through
 // FLOWMIC_TURNSTILE_VERIFY_URL — the seam auth/captcha.ts provides for exactly
 // this — not a double, so what runs here is the production gate. It never SKIPs.
+// ⚠️ 更正（NR-138 item 5, 2026-10-01）: the pool no longer points at a closed port — a flush failure with no
+// transcript is no longer charged (book 22 §4.10), and this case is about a debit. It points at a LOCAL engine that
+// answers (stt-answering-engine.mjs); still no vendor and no LAN, so it still never SKIPs.
 //
 // ── WHY IT STARTS THE SERVER TWICE ─────────────────────────────────────────
 // `FLOWMIC_DEMO_PAYER_USER_ID` names a `users` row, the server generates that

@@ -145,6 +145,7 @@ class TimelineEntry {
     this.articleOffsetMs,
     this.pauseBeforeMs,
     this.utteranceId,
+    this.retranscribedFrom,
   });
 
   /// 2026-09-03 (owner ruling Q2 b, design D7 ③) — the server-minted id of the
@@ -164,6 +165,19 @@ class TimelineEntry {
   /// on the wire: the lookup scans the rows already in memory, and nothing
   /// SELECTs by it.
   final String? utteranceId;
+
+  /// NR-137 (MAIN 2026-10-02) — this row is a RE-TRANSCRIPTION, made at the
+  /// user's request from the pending-recordings page, of the kept recording
+  /// named here (its journal recording id or legacy session key). The row is
+  /// a record-only note; the recording's earlier rows — delivered history —
+  /// are untouched, and the tile marks this row so the two are never read as
+  /// one (`chat_message_tile.dart`, `entry.retranscribedFrom`).
+  ///
+  /// Written once at build time and never revised (no [copyWith] parameter),
+  /// like [utteranceId]: which recording a row was made from is its identity.
+  /// Device-local payload key (`retranscribed_from`), not a projected column
+  /// and not on the wire; absent on every other row.
+  final String? retranscribedFrom;
 
   /// [entryType] values. The first pair mirrors `TimelineEntry.entry_type` in
   /// packages/protocol/src/types.ts — the SAME two values, deliberately not a
@@ -660,6 +674,7 @@ class TimelineEntry {
     pauseBeforeMs: pauseBeforeMs,
     // Same rule: which utterance settled this row is its identity.
     utteranceId: utteranceId,
+    retranscribedFrom: retranscribedFrom,
     // Null cannot clear — see [failureReason] field comment.
     failureReason: failureReason ?? this.failureReason,
     // `false` DOES clear (only null means 「不变」/ "unchanged") — a row put

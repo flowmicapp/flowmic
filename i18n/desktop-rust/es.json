@@ -14,7 +14,7 @@
   "TrayStatusConnected": "● Conectado · {n} teléfono(s)",
   "TrayTooltipConnected": "FlowMic — conectado ({n} teléfono(s) en línea)",
   "QuitConfirmTitle": "Salir de FlowMic",
-  "QuitConfirmBody": "Después de salir, los teléfonos ya no podrán conectarse a este PC y se interrumpirá cualquier transcripción en curso.\n\n¿Salir de FlowMic?",
+  "QuitConfirmBody": "Después de salir, los teléfonos ya no podrán conectarse a este ordenador y se interrumpirá cualquier transcripción en curso.\n\n¿Salir de FlowMic?",
   "AutostartWriteFailed": "No se pudo escribir la entrada de inicio: {detail}",
   "AutostartRemoveFailed": "No se pudo quitar la entrada de inicio: {detail}",
   "AutostartReadFailed": "No se pudo leer el estado de inicio: {detail}",

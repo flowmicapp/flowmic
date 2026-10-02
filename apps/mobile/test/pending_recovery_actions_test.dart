@@ -180,6 +180,9 @@ class _Rig {
     runner = BackfillRunner(
       session: session,
       store: timeline,
+      // NR-138 — a legacy press waits for a result on this clock; the engine
+      // here never answers.
+      settleTimeout: const Duration(milliseconds: 200),
       sleep: (Duration _) async {},
       // The engine in this rig never answers, so every attempt ends on the
       // no-progress / total-budget clocks. Shrunk to milliseconds because the
@@ -311,7 +314,11 @@ void main() {
           reason: 'zero deletes on C');
     });
 
-    test('legacy segment audio is listed too, and offers no retry', () async {
+    // ⚠️ 更正（NR-138, 2026-10-01）: this case was 「legacy segment audio is
+    // listed too, and offers no retry」 — there was no per-recording entry
+    // into the legacy leg. NR-138 built one, so an owed legacy recording
+    // offers the journal table's two actions.
+    test('legacy segment audio is listed too, with retry and delete', () async {
       final _Rig rig = await _Rig.open();
       addTearDown(rig.dispose);
       rig.store.beginSession('run-1757000000000000');
@@ -325,8 +332,10 @@ void main() {
       expect(rows.single.legacy, isTrue);
       expect(rows.single.state, PendingRecoveryState.waitingAuto);
       expect(rows.single.durationMs, 1000);
-      expect(rows.single.actions,
-          <PendingRecoveryAction>{PendingRecoveryAction.delete});
+      expect(rows.single.actions, <PendingRecoveryAction>{
+        PendingRecoveryAction.retryNow,
+        PendingRecoveryAction.delete,
+      });
     });
   });
 
@@ -423,18 +432,35 @@ void main() {
       expect(rig.transport.starts, isEmpty);
     });
 
-    test('a legacy session has no per-recording entry and says so', () async {
+    // ⚠️ 更正（NR-138, 2026-10-01）: was 「a legacy session has no
+    // per-recording entry and says so」 (answer `unavailable`, nothing sent).
+    // The reason it gave still holds and is what this case now pins: a press
+    // on THIS card must never transcribe some other recording.
+    test('a legacy press drives that session only', () async {
       final _Rig rig = await _Rig.open();
       addTearDown(rig.dispose);
-      rig.store.beginSession('run-1757000000000001');
-      await rig.store.append(segmentIdx: 0, bytes: Uint8List(6400));
-      rig.store.endSession();
-      final PendingRecoveryItem item = (await rig.pending.list()).single;
+      for (final String key in <String>[
+        'run-1757000000000001',
+        'run-1757000000000009',
+      ]) {
+        rig.store.beginSession(key);
+        await rig.store.append(segmentIdx: 0, bytes: Uint8List(6400));
+        rig.store.endSession();
+      }
+      final PendingRecoveryItem item = (await rig.pending.list())
+          .singleWhere((PendingRecoveryItem i) => i.id == 'run-1757000000000001');
 
-      expect(await rig.pending.retryNow(item), PendingRetryOutcome.unavailable);
-      expect(rig.transport.starts, isEmpty,
-          reason: 'a press on THIS card must never transcribe some other '
-              'recording');
+      // This rig's engine never answers, so the attempt ends on its clock.
+      expect(await rig.pending.retryNow(item), PendingRetryOutcome.failed);
+      expect(rig.transport.starts, hasLength(1));
+      expect(rig.transport.starts.single['delivery'], 'none');
+      // NR-138 ③ — the press names itself: a person asked, and it is billed
+      // as its own operation (O-4).
+      expect(rig.transport.starts.single['attempt_kind'], 'user_retranscribe');
+      expect(rig.transport.starts.single['recording_id'],
+          'run-1757000000000001__seg-0');
+      expect(await rig.store.bytesForSession('run-1757000000000001'), 6400);
+      expect(await rig.store.bytesForSession('run-1757000000000009'), 6400);
     });
   });
 

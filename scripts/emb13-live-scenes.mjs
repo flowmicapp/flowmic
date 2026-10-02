@@ -3,12 +3,14 @@
 // boundary: an abort becomes a red row with the stack, so one broken step cannot
 // hide the scenarios after it (and cannot be mistaken for a pass).
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { judgeFirstWord, normalizeSpeech as normalized } from './emb13-wv7-acceptance.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { expectedInsert, looksLikeChineseSpeech, summarize, verdict } from './emb13-live-rig-lib.mjs';
 import {
-  FIELDS, INITIAL, RUNS_PER_FIELD, SHADOW, clickIconOn, markBaseline, newPage, openLocalDictation, others, paceRoomBuilds,
-  presetValuesUnfocused, setupField, snapshot, speakOnce, timings,
+  FIELDS, INITIAL, RUNS_PER_FIELD, SHADOW, clickIconOn, markBaseline, markCount, marksSince, newPage, openLocalDictation, others,
+  paceRoomBuilds, presetValuesUnfocused, setupField, snapshot, speakOnce, timings,
 } from './emb13-live-driver.mjs';
 
 const TARGET_URL = (state, target) => `${state.site.origin}/?target=${encodeURIComponent(target)}`;
@@ -331,4 +333,144 @@ export function summarizeByField(bScene) {
     cpuBusyPct: pick(rs, 'cpuBusyPct'),
   });
   return [...new Set(rows.map((r) => r.kind))].map((k) => line(k, rows.filter((r) => r.kind === k))).concat(rows.length ? [line('all', rows)] : []);
+}
+
+// G. card WV-T4, "first word within 200 ms of the press is not lost" (web client
+// design `_dispatch/2026-09-30-wv-t4-design.md` §7, scene "T4 cold press").
+//
+// Each run is a FRESH browser context: no room, no remembered choice, the
+// microphone permission pre-granted, the spoken language pre-selected from the
+// context locale (zh-CN, the fixture's language). The room response is held back
+// ROOM_DELAY_MS, so the join is provably after the first word. The fake device
+// starts the file at getUserMedia resolve (GUM_TO_FILE_START_MS, default 0), so
+// with a fixture whose first word begins at t = 0 the first word begins at the
+// microphone's first sample. One click on the field icon is the talk intent.
+//
+// ⚠️ NOT PROBATIVE UNLESS press -> gum <= 200 ms. Audio from before the stream
+// exists cannot be captured by anyone; a run whose microphone took longer is
+// reported with its number and never counted as a pass.
+// ⚠️ THE REFERENCE is the same fixture heard by the existing aligned path (1.5 s
+// lead-in, room already joined), taken once at the start of this scene, unless
+// FLOWMIC_EMB13_T4_REFERENCE gives it. "First word kept" compares the first
+// FLOWMIC_EMB13_T4_PREFIX characters (default 2, one Chinese word) of both.
+// REVERSE CONTROL (required before this scene may say "verified"): point
+// FLOWMIC_EMB13_WEB_ROOT at a build of flowmic-web 1e7f191 (before WV-T4). There
+// the press waits for the room, so the first word is missing or the press is
+// refused: the scene must go red.
+const ROOM_DELAY_MS = Number(process.env.FLOWMIC_EMB13_T4_ROOM_DELAY_MS ?? 1500);
+const T4_RUNS = Number(process.env.FLOWMIC_EMB13_T4_RUNS ?? 5);
+const T4_PREFIX = Number(process.env.FLOWMIC_EMB13_T4_PREFIX ?? 2);
+const T4_SPEAK_MS = 6300; // the 6 s fixture plus the rig's usual 0.3 s tail
+
+async function t4Reference(ctx, state) {
+  if (process.env.FLOWMIC_EMB13_T4_REFERENCE) return { text: process.env.FLOWMIC_EMB13_T4_REFERENCE, source: 'env' };
+  const s = await newPage(ctx, state, 'G reference (aligned, room joined)');
+  try {
+    await paceRoomBuilds(state);
+    await s.page.goto(TARGET_URL(state, 'focus'));
+    await markBaseline(s.page);
+    await setupField(s.page, FIELDS.input, '', 0);
+    await openLocalDictation(s.page);
+    const t = timings(await speakOnce(s.page, s));
+    return { text: t.sentences.join(''), source: 'aligned run' };
+  } finally {
+    await s.page.close().catch(() => {});
+  }
+}
+
+async function t4ColdRun(browser, state, i, reference) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['microphone'], locale: 'zh-CN' });
+  await ctx.addInitScript({ path: fileURLToPath(new URL('./emb13-wv7-probe.js', import.meta.url)) });
+  const s = await newPage(ctx, state, `G T4 cold press #${i}`);
+  let roomAnsweredAt = null;
+  const rows = [];
+  try {
+    await s.page.route('**/api/web/rooms', async (route) => {
+      await sleep(ROOM_DELAY_MS);
+      await route.continue();
+    });
+    s.page.on('response', (r) => { if (r.url().endsWith('/api/web/rooms') && roomAnsweredAt === null) roomAnsweredAt = Date.now(); });
+    await paceRoomBuilds(state);
+    await s.page.goto(TARGET_URL(state, 'focus'));
+    await markBaseline(s.page);
+    await setupField(s.page, FIELDS.input, '', 0);
+    const before = await snapshot(s.page);
+    const m0 = await markCount(s.page);
+    // The one click: the icon on the field. A first visit may still offer the
+    // device choice or the language; such a click is then the acquiring press.
+    await clickIconOn(s.page, FIELDS.input);
+    await s.page.waitForFunction((k) => window.__marks.slice(k).some((m) => m.name === 'gum'), m0);
+    const early = await marksSince(s.page, m0);
+    const gum = early.find((m) => m.name === 'gum');
+    const presses = early.filter((m) => m.name === 'pointerdown' && m.epoch <= gum.epoch);
+    const press = presses[0]; // Never rebase the claim onto a later chooser press.
+    // Speak the fixture out, then stop through the icon (a stop while a sentence is going).
+    await s.page.evaluate((t) => new Promise((r) => { const w = () => (performance.now() >= t ? r() : setTimeout(w, 4)); w(); }), gum.at + T4_SPEAK_MS);
+    await clickIconOn(s.page, FIELDS.input);
+    const deadline = Date.now() + 25_000;
+    let marks;
+    for (;;) {
+      await sleep(200);
+      marks = await marksSince(s.page, m0);
+      const texts = marks.filter((m) => m.name === 'flowmic:text');
+      const last = texts.length ? texts[texts.length - 1].epoch : 0;
+      if (texts.length && Date.now() - last > 2000) break;
+      if (Date.now() > deadline) break;
+    }
+    const after = await snapshot(s.page);
+    const w = (event) => s.wire.filter((f) => f.event === event && f.dir === 'out');
+    const audioStart = w('audio:start')[0];
+    const chunks = w('audio:chunk');
+    const firstChunk = chunks[0];
+    const audioBeforeRoom = s.wire.filter((f) => f.dir === 'out' && f.event.startsWith('audio:') && (roomAnsweredAt === null || f.at < roomAnsweredAt));
+    const sentences = marks.filter((m) => m.name === 'flowmic:text').map((m) => String(m.detail?.text ?? ''));
+    const heard = normalized(sentences.join(''));
+    const want = normalized(reference.text).slice(0, T4_PREFIX);
+    const receipts = s.wire.filter((f) => f.event === 'inject:result').map((f) => f.detail?.ok);
+    const pressToGumMs = press ? Math.round(gum.epoch - press.epoch) : null;
+    const onset = await s.page.evaluate(() => window.__wv7.marks.find((m) => m.name === 'audio-onset')?.at ?? null);
+    const firstWord = { pressToOnsetMs: onset !== null && press ? onset - press.at : null, presses: presses.length,
+      roomAfterOnset: onset !== null && roomAnsweredAt > gum.epoch - gum.at + onset, noAudioBeforeRoom: roomAnsweredAt !== null && audioBeforeRoom.length === 0,
+      firstSeq: firstChunk?.detail?.seq, buffered: typeof firstChunk?.detail?.ts === 'number' && !!audioStart && firstChunk.detail.ts < audioStart.at,
+      reference: normalized(reference.text), prefix: T4_PREFIX, heard, inserted: after.values['f-input'] !== before.values['f-input'],
+      receiptsOk: receipts.length > 0 && receipts.every((ok) => ok === true) };
+    const checks = {
+      firstWordWithin200ms: judgeFirstWord(firstWord) === 'PASS',
+      probativePressToGumAtMost200ms: pressToGumMs !== null && pressToGumMs <= 200,
+      noAudioFrameBeforeTheRoomAnswered: roomAnsweredAt !== null && audioBeforeRoom.length === 0,
+      audioStartAfterTheRoom: !!audioStart && roomAnsweredAt !== null && audioStart.at > roomAnsweredAt,
+      firstChunkIsSeq0: firstChunk?.detail?.seq === 0,
+      firstChunkWasCapturedBeforeAudioStart: typeof firstChunk?.detail?.ts === 'number' && !!audioStart && firstChunk.detail.ts < audioStart.at,
+      firstWordKept: want.length > 0 && heard.startsWith(want),
+      textLandedInTheField: after.values['f-input'] !== before.values['f-input'] && normalized(after.values['f-input']).length > 0,
+      receiptsAllOk: receipts.length > 0 && receipts.every((ok) => ok === true),
+    };
+    rows.push({
+      label: `T4 cold press #${i}`, ...verdict(checks), checks,
+      data: {
+        firstWord, pressOn: press?.detail?.k ?? null, pressToGumMs, roomDelayMs: ROOM_DELAY_MS,
+        gumToRoomAnsweredMs: roomAnsweredAt === null ? null : Math.round(roomAnsweredAt - gum.epoch),
+        gumToAudioStartMs: audioStart ? Math.round(audioStart.at - gum.epoch) : null,
+        firstChunkHeldMs: audioStart && typeof firstChunk?.detail?.ts === 'number' ? audioStart.at - firstChunk.detail.ts : null,
+        chunks: chunks.length, reference: reference.text, referenceFrom: reference.source, heard: sentences.join(''),
+      },
+    });
+  } catch (e) { await abort(s, state, rows, e, `G${i}`); }
+  const scene = await finish(s, `G T4 cold press #${i}`, rows);
+  await ctx.close().catch(() => {});
+  return scene;
+}
+
+export async function sceneColdPress(ctx, state) {
+  const reference = await t4Reference(ctx, state);
+  const runs = [];
+  for (let i = 1; i <= T4_RUNS; i += 1) runs.push(await t4ColdRun(ctx.browser(), state, i, reference));
+  return {
+    name: 'G T4 cold press (first word before the room)',
+    rows: runs.flatMap((x) => x.rows),
+    pass: runs.length === T4_RUNS && runs.every((x) => x.pass),
+    failed: runs.flatMap((x) => x.failed),
+    shifts: runs.flatMap((x) => x.shifts ?? []), wire: runs.flatMap((x) => x.wire), roomResponses: runs.flatMap((x) => x.roomResponses), pageErrors: runs.flatMap((x) => x.pageErrors),
+    reference,
+  };
 }

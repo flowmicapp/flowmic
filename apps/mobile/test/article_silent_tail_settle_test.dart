@@ -57,7 +57,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/article_rig.dart' show SessionOwnerProbe;
 import 'support/di.dart';
 import 'support/fakes.dart';
-import 'support/live_settle_rig.dart' show FailingPersistence;
+import 'support/live_settle_rig.dart' show FailingPersistence, SelectivePersistence;
 import 'support/memory_journal_fs.dart';
 import 'support/temp_teardown.dart';
 
@@ -137,9 +137,9 @@ class _Relay extends FakeSocketTransport {
 class _Rig {
   _Rig._(this.tmp, this.store, this.fs, this.spill);
 
-  static Future<_Rig> open({TimelinePersistence? persistence}) async {
+  static Future<_Rig> open({TimelinePersistence? persistence, int Function()? clock}) async {
     final Directory tmp = await Directory.systemTemp.createTemp('flowmic-rcb-');
-    final RetainedAudioStore store = RetainedAudioStore(dir: tmp, clock: () => 0);
+    final RetainedAudioStore store = RetainedAudioStore(dir: tmp, clock: clock ?? () => 0);
     await store.open();
     final MemoryJournalFs fs = MemoryJournalFs();
     final _Rig r = _Rig._(tmp, store, fs,
@@ -322,14 +322,27 @@ List<String> _meta(int parts) => <String>[
 Future<RecordingManifest> _expectKept(WidgetTester tester, _Rig r, String refusal) async {
   final RecordingManifest m = (await tester.runAsync<RecordingManifest?>(r.manifest))!;
   expect(m.settled, isFalse, reason: 'condition failed ⇒ not settled');
+  expect(m.recoveryState, RecoveryQueueState.settledUnverified);
   expect(r.pcmPresent, isTrue, reason: 'condition failed ⇒ not one byte goes');
   final JournalAttempt live =
       m.attempts.lastWhere((JournalAttempt a) => a.kind == 'live');
   expect(live.outcome, JournalAttempt.outcomeSettledUnverified);
   expect(live.failureCode, contains(refusal));
   expect(r.relay.recoveryStarts, isEmpty,
-      reason: 'kept is not owed: the words are all in the article');
+      reason: 'manual handling must not start an automatic transcription');
   return m;
+}
+
+/// The journal fake is in memory; the TTL policy reads real files. Publish
+/// that exact snapshot on its existing paths before invoking the real sweep.
+Future<void> _expectExpiryKept(_Rig r) async {
+  for (final String path in r.fs.paths.toList()) {
+    await File(path).writeAsBytes(await r.fs.readBytes(path));
+  }
+  final String pcm = r.fs.paths.singleWhere((String p) =>
+      p.endsWith(RetainedAudioJournal.pcmSuffix));
+  await r.store.sweep();
+  expect(await File(pcm).exists(), isTrue);
 }
 
 void main() {
@@ -380,6 +393,38 @@ void main() {
   for (final bool continuous in <bool>[true, false]) {
     final String kind = continuous ? 'long recording' : 'ordinary press';
 
+    testWidgets('all rows barrier ($kind): second segment never saves',
+        (WidgetTester tester) async {
+      final SelectivePersistence p = SelectivePersistence(_row1Text);
+      late final _Rig r;
+      int now = 0;
+      await tester.runAsync(() async {
+        r = await _Rig.open(persistence: p, clock: () => now);
+        await r.recordAndStop(continuous: continuous);
+        await r.awaitLiveOutcome();
+        await r.thirtySecondsLaterSweep();
+      });
+      addTearDown(() => tester.runAsync(r.dispose));
+      expect(r.spokenRows, hasLength(2));
+      await tester.runAsync(() async {
+        final TimelineEntry first = r.spokenRows.firstWhere((TimelineEntry e) => e.sourceText == _row0Text);
+        final TimelineEntry failed = r.spokenRows.firstWhere((TimelineEntry e) => e.sourceText == _row1Text);
+        expect(await p.loadById(first.id), isNotNull);
+        expect(await p.loadById(failed.id), isNull);
+        expect(p.refused, greaterThan(0));
+        final RecordingManifest m = (await r.manifest())!;
+        expect(r.pcmPresent, isTrue);
+        expect(m.settled, isFalse);
+        expect(m.attempts.last.failureCode, 'rowNotPersisted');
+        expect(r.relay.recoveryStarts, isEmpty);
+        now = DateTime.now().add(const Duration(days: 2)).millisecondsSinceEpoch;
+        await _expectExpiryKept(r);
+        expect(m.recoveryState, RecoveryQueueState.settledUnverified);
+        expect((await r.pending()).map((PendingRecoveryItem i) => i.id), contains(r.recordingId));
+      });
+      if (continuous) await _mountAndOpen(tester, r);
+    });
+
     testWidgets('RC-B negative ② ($kind): fed_frames short by one ⇒ no deletion',
         (WidgetTester tester) async {
       late final _Rig r;
@@ -412,8 +457,9 @@ void main() {
         'RC-B negative ④ ($kind): no row of this recording reads back ⇒ no deletion',
         (WidgetTester tester) async {
       late final _Rig r;
+      int now = 0;
       await tester.runAsync(() async {
-        r = await _Rig.open(persistence: FailingPersistence());
+        r = await _Rig.open(persistence: FailingPersistence(), clock: () => now);
         await r.recordAndStop(continuous: continuous);
         await r.awaitLiveOutcome();
         await r.thirtySecondsLaterSweep();
@@ -421,6 +467,8 @@ void main() {
       addTearDown(() => tester.runAsync(r.dispose));
       expect(r.spokenRows, hasLength(2), reason: 'positive control: rows exist, unread');
       await _expectKept(tester, r, 'rowNotPersisted');
+      now = DateTime.now().add(const Duration(days: 2)).millisecondsSinceEpoch;
+      await tester.runAsync(() => _expectExpiryKept(r));
     });
 
     testWidgets(

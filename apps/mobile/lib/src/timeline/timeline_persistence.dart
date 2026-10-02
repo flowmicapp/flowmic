@@ -14,18 +14,61 @@
 //   * [SharedPrefsTimelinePersistence] — the OLD store. It is still built and
 //     still correct, for exactly two reasons: it is the source the one-time
 //     import reads from, and it is the fallback the app runs on when SQLite
-//     cannot be opened. Its 100-row cap is therefore still live on that path,
-//     which is why the 「entire history」footnote is conditional rather than a constant.
+//     cannot be opened. NR-146 removes its lossy disk cap;
+//     timeline_persistence_test.dart pins complete fallback history.
 //
 // The loc_ id lineage and the "local first landing point" mechanic are unchanged
 // by any of this: an entry is written the instant an utterance closes,
 // independent of any room-sync decision.
 
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:shared_preferences_platform_interface/types.dart';
 
 import 'timeline_entry.dart';
+import 'timeline_row_stores.dart';
+import 'timeline_verified_reads.dart';
+import 'timeline_write_failures.dart';
+import 'timeline_write_gate.dart';
+import '../diag/diag_log.dart';
+import 'timeline_corrupt_archive.dart';
+
+/// Identifies a failed storage operation, separate from a rejected row mutation.
+class TimelineLocalStorageError extends StateError {
+  TimelineLocalStorageError(this.cause) : super('timeline storage operation failed');
+  final Object cause;
+}
+
+class TimelineRecordRejected extends StateError {
+  TimelineRecordRejected() : super('timeline source_text is immutable');
+}
+
+/// Optional read health shared by disk stores. Corrupt bytes are never removed.
+mixin TimelineReadIssues {
+  final TimelineWriteFailures readFailures = TimelineWriteFailures();
+  Set<String> unreadableRowIds = {};
+  int get unreadableRows => unreadableRowIds.length;
+  void reportUnreadableRows(Iterable<String> ids) {
+    unreadableRowIds = ids.toSet();
+    if (unreadableRowIds.isEmpty) return;
+    diag('timeline.unreadable_rows', <String, Object?>{'rows': unreadableRows});
+    final digest = sha256.convert(utf8.encode(jsonEncode(unreadableRowIds.toList()..sort())));
+    readFailures.recordOnce('unreadable-storage:$digest');
+  }
+}
+
+/// Decode exactly one row so type errors and JSON failures cannot abort a scan.
+TimelineEntry? decodeTimelineRow(Object? value) {
+  try {
+    final Object? decoded = value is String ? jsonDecode(value) : value;
+    return decoded is Map ? TimelineEntry.fromJson(decoded.cast<String, Object?>()) : null;
+  } on Object {
+    return null;
+  }
+}
 
 abstract class TimelinePersistence {
   Future<List<TimelineEntry>> loadAll();
@@ -42,9 +85,8 @@ abstract class TimelinePersistence {
   /// SQLite and is exactly as slow — the one outcome that looks like success
   /// and isn't, and that nobody downstream could diagnose.
   ///
-  /// `shared_prefs` still rewrites its blob inside `upsert` (a JSON array has no
-  /// other option). That is honest and stated: the interface no longer FORCES
-  /// the rewrite, so the SQLite implementation can do the right thing.
+  /// Both disk implementations write individual rows. The fallback converts
+  /// the old JSON array before its first mutation, without trimming history.
   Future<void> upsert(TimelineEntry entry);
 
   /// Remove one row by id. A missing id is not an error (idempotent delete).
@@ -82,27 +124,52 @@ abstract class TimelinePersistence {
 /// interface has three implementations in `lib/` and several more in tests, and
 /// widening it for one caller would edit every one of them for no behaviour.
 ///
-/// IT READS THE WHOLE TABLE, AND THAT IS A REAL COST, stated rather than
-/// hidden: it is the amplification the SQLite move removed from the MUTATION
-/// path. It is acceptable here only because the call happens once per settled
-/// recovery attempt - a rare event, off the interactive path - and never during
-/// live capture. A keyed read is the obvious follow-up and belongs on the
-/// interface, which is a change with its own reviewer.
+/// NR-146: SQLite supplies a keyed read; legacy/test implementations retain
+/// the whole-table fallback. External batches use a single snapshot instead.
+abstract interface class TimelineKeyedPersistence {
+  Future<TimelineEntry?> readRecord(String id);
+}
+
+typedef TimelineBatchAction = Future<void> Function(
+  Map<String, TimelineEntry> existing,
+  Future<void> Function(TimelineEntry) write,
+);
+
+/// A snapshot and writes in the same transaction domain, owned by the writer.
+abstract interface class TimelineBatchPersistence {
+  Future<void> writeRecordBatch(TimelineBatchAction action);
+}
+
 extension TimelinePersistenceReadBack on TimelinePersistence {
   Future<TimelineEntry?> loadById(String id) async {
+    final persistence = this;
+    if (persistence is TimelineKeyedPersistence) return (persistence as TimelineKeyedPersistence).readRecord(id);
     for (final TimelineEntry e in await loadAll()) {
       if (e.id == id) return e;
     }
     return null;
   }
+
+  Future<void> withRecordBatch(TimelineBatchAction action) async {
+    final persistence = this;
+    if (persistence is TimelineBatchPersistence) {
+      await (persistence as TimelineBatchPersistence).writeRecordBatch(action);
+    } else {
+      await action({for (final row in await loadAll()) row.id: row}, upsert);
+    }
+  }
 }
 
 /// Tests + a null-object default (no persistence, in-process only).
-class InMemoryTimelinePersistence implements TimelinePersistence {
+class InMemoryTimelinePersistence with TimelineReadIssues
+    implements TimelinePersistence, TimelineVerifiedReads {
   List<Map<String, Object?>> _rows = <Map<String, Object?>>[];
 
   @override
-  Future<void> upsert(TimelineEntry entry) async {
+  Future<void> upsert(TimelineEntry entry) =>
+      TimelineWriteGate.timeline.run(() async => _upsertRow(entry));
+
+  void _upsertRow(TimelineEntry entry) {
     final Map<String, Object?> row = entry.toJson();
     final int i = _rows.indexWhere((Map<String, Object?> r) => r['id'] == entry.id);
     if (i >= 0) {
@@ -113,26 +180,44 @@ class InMemoryTimelinePersistence implements TimelinePersistence {
   }
 
   @override
-  Future<void> delete(String id) async {
-    _rows.removeWhere((Map<String, Object?> r) => r['id'] == id);
-  }
+  Future<void> delete(String id) => TimelineWriteGate.timeline.run(() async {
+        _rows.removeWhere((Map<String, Object?> r) => r['id'] == id);
+      });
 
   @override
   Future<List<TimelineEntry>> loadAll() async {
     final List<TimelineEntry> out = <TimelineEntry>[];
+    final Set<String> unreadable = {};
     for (final Map<String, Object?> r in _rows) {
-      final TimelineEntry? e = TimelineEntry.fromJson(r);
-      if (e != null) out.add(e);
+      final TimelineEntry? e = decodeTimelineRow(r);
+      if (e != null) { out.add(e); } else { unreadable.add(r['id'] as String? ?? jsonEncode(r)); }
     }
+    reportUnreadableRows(unreadable);
     return out;
   }
 
+  /// NR-137 round 6 — through [loadAll] (subclasses hook it), then the
+  /// rows that did not decode, read from the same list.
   @override
-  Future<void> saveAll(List<TimelineEntry> entries) async {
-    // Round-trip through JSON so the in-memory store exercises the exact
-    // serialization the production path uses.
-    _rows = entries.map((TimelineEntry e) => e.toJson()).toList(growable: false);
+  Future<TimelineInventory> loadInventory() async {
+    final List<TimelineEntry> rows = await loadAll();
+    return TimelineInventory(rows, <UnreadableRow>[
+      for (final Map<String, Object?> r in _rows)
+        if (decodeTimelineRow(r) == null) unreadableRowOf(r),
+    ]);
   }
+
+  @override
+  Future<bool> mayHoldRow(String id) async =>
+      _rows.any((Map<String, Object?> r) => r['id'] == id || r['id'] is! String);
+
+  @override
+  Future<void> saveAll(List<TimelineEntry> entries) =>
+      TimelineWriteGate.timeline.run(() async {
+        // Round-trip through JSON so the in-memory store exercises the exact
+        // serialization the production path uses.
+        _rows = entries.map((TimelineEntry e) => e.toJson()).toList();
+      });
 
   @override
   Future<List<TimelineEntry>> loadPage({
@@ -174,80 +259,298 @@ String timelineSearchText(TimelineEntry e) => <String?>[
   e.processedText,
 ].whereType<String>().join('\n').toLowerCase();
 
-/// The PREVIOUS production store: the whole table as one JSON array under a
-/// single key. Superseded by SqfliteTimelinePersistence (V2-06a-2) and kept for
+/// The fallback stores each row under its own key and reads the previous
+/// production JSON array for migration. Superseded by SqfliteTimelinePersistence (V2-06a-2) and kept for
 /// the two roles named in the file header — migration source, and the fallback
 /// the app runs on when SQLite will not open.
 ///
-/// Disk trim (not memory trim): [saveAll] persists at most
-/// [maxPersistedEntries] newest rows. The caller's in-memory list is left
-/// untouched on purpose — a live session must not suddenly lose scrollable
-/// history mid-use; the cap only bounds shared_prefs growth across cold
-/// starts (reload reads back the trimmed set).
-class SharedPrefsTimelinePersistence implements TimelinePersistence {
-  SharedPrefsTimelinePersistence(this._prefs);
+/// NR-146: no disk trim. The old cap only bounded JSON growth
+/// (`timeline_sqlite.dart` header); it was not a correctness constraint.
+/// Regression: timeline_persistence_test.dart persists all 120 rows.
+/// What a session on the fallback knows about the SQLite database file.
+enum SqliteFileEvidence {
+  /// Checked: there is no file, so no SQLite row exists.
+  absent,
+
+  /// The file exists, or nobody checked: any row may be in it.
+  unknown,
+}
+
+class SharedPrefsTimelinePersistence with TimelineReadIssues
+    implements TimelinePersistence, TimelineVerifiedReads {
+  SharedPrefsTimelinePersistence(this._prefs,
+      {this.sqliteFile = SqliteFileEvidence.unknown});
 
   final SharedPreferences _prefs;
-  static const String _kKey = 'flowmic.timeline.entries.v1';
 
-  /// Hard cap on rows written to shared_prefs. Memory / TimelineStore is unbounded.
-  static const int maxPersistedEntries = 100;
+  /// NR-137 round 8/9 — this session cannot see the SQLite file's rows
+  /// (`TimelineRowStore.sqliteRows`, role `unreachable`). Unless the file was
+  /// checked and is not there, both SQLite stores are UNREAD and nothing is
+  /// proven. ⚠️ Round 9: the default is unknown (was "no file"); the app sets
+  /// it in `openTimelinePersistence`, on the instance it returns. Display is
+  /// unaffected.
+  SqliteFileEvidence sqliteFile;
+  bool _cacheNeedsReload = false;
+  static const String _kKey = kTimelineLegacyArrayKey;
+  static const String _legacyRowPrefix = kTimelineV2RowPrefix;
+  static const String _rowPrefix = kTimelineV3RowPrefix;
+  static const String _migratedKey = kTimelineMigratedKey;
+  static const String _convertedKey = kTimelineLegacyConvertedKey;
+
+  String _key(String id) => '$_rowPrefix${Uri.encodeComponent(id)}';
+
 
   @override
-  Future<List<TimelineEntry>> loadAll() async {
-    final String? raw = _prefs.getString(_kKey);
-    if (raw == null || raw.isEmpty) return <TimelineEntry>[];
-    final Object? decoded = jsonDecode(raw);
-    if (decoded is! List) return <TimelineEntry>[];
-    final List<TimelineEntry> out = <TimelineEntry>[];
-    for (final Object? e in decoded) {
-      if (e is Map) {
-        final TimelineEntry? parsed =
-            TimelineEntry.fromJson(e.cast<String, Object?>());
-        if (parsed != null) out.add(parsed);
+  Future<List<TimelineEntry>> loadAll() async => (await loadInventory()).rows;
+
+  /// NR-137 round 6 — the scan [loadAll] always was, with its holes kept: a
+  /// row key whose value will not decode, or a legacy array entry (or the
+  /// whole array) that will not. The display list is unchanged.
+  ///
+  /// ⚠️ 更正（NR-137 round 7, review D2）: 原为 「the legacy array is read only
+  /// until it is converted」. Conversion ([_convertLegacy]) copies the READABLE
+  /// entries to row keys and sets the marker, and leaves the array untouched —
+  /// so an entry it could not decode still exists ONLY in that array, and
+  /// dropping the array from the scan after the marker turned that row into
+  /// 「absent」 (measured: a legacy member proven gone, press `done`, audio
+  /// released). Once converted (or migrated to SQLite) the array's readable
+  /// entries are a rollback copy and are not rows; its undecodable entries
+  /// (or the whole array, if it does not parse) stay HOLES for as long as the
+  /// array exists. The same for a legacy v2 row key after migration. Those
+  /// holes are inventory-only: [reportUnreadableRows] — the notice the user
+  /// sees — reports exactly what it reported before.
+  ///
+  /// ⚠️ NR-137 round 8: the items come from the one enumeration of these
+  /// stores the SQLite import uses too (`timeline_row_stores.dart`); two scans
+  /// would be two answers. A value filed under another id's key is a hole of
+  /// unknown id (it may be either row), frozen or not.
+  ///
+  /// ⚠️ NR-137 round 9 (review r8): every registered store is answered for,
+  /// in one exhaustive switch — the SQLite stores as unread unless the file is
+  /// known to be absent, the cloud retry records as residue, the archive as
+  /// recovery copies — and every unclaimed `flowmic.timeline.` key is an item
+  /// that may be any row. Two readable copies of one id that differ are a
+  /// conflict, not a row (the list still shows the later one, as before).
+  @override
+  Future<TimelineInventory> loadInventory() async {
+    await _recoverCache();
+    final Map<String, TimelineEntry> rows = <String, TimelineEntry>{};
+    final Set<String> unreadable = {};
+    final List<UnreadableRow> holes = <UnreadableRow>[];
+    final Set<TimelineRowStore> unread = <TimelineRowStore>{};
+    final bool migrated = _prefs.getBool(_migratedKey) == true;
+    final bool live = !migrated && _prefs.getBool(_convertedKey) != true;
+    final TimelinePrefsScan scan = scanTimelinePrefs(_prefs);
+    void addRow(TimelineEntry row) {
+      final TimelineEntry? earlier = rows[row.id];
+      if (earlier != null &&
+          jsonEncode(earlier.toJson()) != jsonEncode(row.toJson())) {
+        final ({bool known, String? articleId}) a =
+            agreedArticle(<Object?>[earlier.articleId, row.articleId]);
+        holes.add(UnreadableRow(
+            id: row.id, articleKnown: a.known, articleId: a.articleId));
+      }
+      rows[row.id] = row;
+    }
+    for (final TimelineRowStore store in TimelineRowStore.values) {
+      switch (store) {
+        case TimelineRowStore.sqliteRows:
+        case TimelineRowStore.sqliteCorruptArchive:
+          if (sqliteFile != SqliteFileEvidence.absent) unread.add(store);
+        case TimelineRowStore.prefsLegacyArray:
+        case TimelineRowStore.prefsV2Rows:
+        case TimelineRowStore.prefsV3Rows:
+        case TimelineRowStore.prefsCorruptArchive:
+        case TimelineRowStore.prefsCloudRetries:
+          break; // read from the scan, below, in the platform's key order
       }
     }
-    return out;
-  }
-
-  /// shared_prefs holds ONE json array, so a single-row change still rewrites
-  /// the blob. Stated plainly rather than hidden behind the incremental name:
-  /// this implementation cannot do better, and that is precisely why the SQLite
-  /// one is coming. Correctness is unaffected — only cost.
-  @override
-  Future<void> upsert(TimelineEntry entry) async {
-    final List<TimelineEntry> rows = await loadAll();
-    final int i = rows.indexWhere((TimelineEntry e) => e.id == entry.id);
-    if (i >= 0) {
-      rows[i] = entry;
-    } else {
-      rows.insert(0, entry);
+    for (final TimelineResidueItem item in scan.items) {
+      final TimelineEntry? row = item.row;
+      switch (item.store) {
+        case TimelineRowStore.prefsLegacyArray:
+          if (row == null) {
+            if (live) unreadable.add(item.reportId);
+            holes.add(item.hole);
+          } else if (live) {
+            addRow(row);
+          }
+        case TimelineRowStore.prefsV2Rows when migrated:
+          // Imported into SQLite when readable; an undecodable one never was.
+          if (row == null) holes.add(item.hole);
+        case TimelineRowStore.prefsV2Rows:
+        case TimelineRowStore.prefsV3Rows:
+          if (row == null) {
+            unreadable.add(item.reportId);
+            holes.add(item.hole);
+          } else {
+            addRow(row);
+          }
+        case TimelineRowStore.prefsCloudRetries:
+          if (!item.cloudDeleteRetry) holes.add(item.hole);
+        case TimelineRowStore.prefsCorruptArchive:
+          break; // a recovery copy of a replaced row: never a row
+        case TimelineRowStore.sqliteRows:
+        case TimelineRowStore.sqliteCorruptArchive:
+          break; // never yielded by the SharedPreferences scan
+      }
     }
-    await saveAll(rows);
+    for (final String _ in scan.unclaimed) {
+      holes.add(const UnreadableRow());
+    }
+    reportUnreadableRows(unreadable);
+    return TimelineInventory(rows.values.toList(), holes, unread: unread);
   }
 
   @override
-  Future<void> delete(String id) async {
-    final List<TimelineEntry> rows = await loadAll();
-    final int before = rows.length;
-    rows.removeWhere((TimelineEntry e) => e.id == id);
-    // A missing id is not an error — delete is idempotent by contract.
-    if (rows.length != before) await saveAll(rows);
+  Future<bool> mayHoldRow(String id) async {
+    final TimelineInventory inv = await loadInventory();
+    return inv.unread.isNotEmpty ||
+        inv.rows.any((TimelineEntry e) => e.id == id) ||
+        inv.unreadable.any((UnreadableRow u) => u.mayBe(id));
   }
 
-  @override
-  Future<void> saveAll(List<TimelineEntry> entries) async {
-    // Trim disk only — never mutate [entries] (caller's live list).
-    final List<TimelineEntry> toWrite = _capNewest(entries, maxPersistedEntries);
-    await _prefs.setString(
-      _kKey,
-      jsonEncode(toWrite.map((TimelineEntry e) => e.toJson()).toList()),
+  // A normal mutation encodes only its row. No history cap or whole-list
+  // rewrite. Legacy conversion is retryable and removes its blob only after
+  // every row has been read back from the platform.
+  Future<void> _recoverCache() async {
+    if (!_cacheNeedsReload) return;
+    await _prefs.reload();
+    _cacheNeedsReload = false;
+  }
+
+  Future<void> _verifyOperation(Future<void> Function() action) async {
+    await _recoverCache();
+    try {
+      await action();
+    } on Object {
+      // Legacy SharedPreferences changes its cache before the platform answers,
+      // including when the platform throws. An uncertain cache cannot confirm
+      // an audio cleanup or let a delete retry silently skip the disk row.
+      _cacheNeedsReload = true;
+      await _recoverCache();
+      rethrow;
+    }
+  }
+
+  Future<void> _writeVerified(String key, String value) => _verifyOperation(() async {
+    final bool saved = await _prefs.setString(key, value);
+    final Object? actual = await _readPlatformKey(key);
+    // Foundation's UserDefaults.set returns void; read the platform value.
+    if (!saved || actual != value) throw StateError('timeline shared preferences write refused');
+  });
+
+  Future<Object?> _readPlatformKey(String key) async {
+    // This app uses SharedPreferences' default prefix (no setPrefix callers).
+    // Restrict platform output to one row: reload/getAll would marshal history
+    // back to the UI isolate on every successful save.
+    final String platformKey = 'flutter.$key';
+    final Map<String, Object> actual = await SharedPreferencesStorePlatform.instance.getAllWithParameters(
+      GetAllParameters(filter: PreferencesFilter(prefix: 'flutter.', allowList: <String>{platformKey})),
     );
+    return actual[platformKey];
   }
 
-  // Paging and search over ≤100 rows held in one JSON blob: there is nothing to
-  // optimise, so both just filter the decoded list. Real on this path, not
-  // stubs — the fallback store has to work, not merely compile.
+  Future<void> _removeVerified(String key) => _verifyOperation(() async {
+    final bool removed = await _prefs.remove(key);
+    final Object? actual = await _readPlatformKey(key);
+    if (!removed || actual != null) throw StateError('timeline shared preferences delete refused');
+  });
+
+  Future<void> _convertLegacy() async {
+    await _recoverCache();
+    if (_prefs.getBool(_migratedKey) == true ||
+        _prefs.getBool(_convertedKey) == true || _prefs.get(_kKey) == null) {
+      return;
+    }
+    final List<TimelineEntry> rows = await loadAll();
+    for (final TimelineEntry row in rows) {
+      await _writeRowPreserving(row);
+    }
+    final bool saved = await _prefs.setBool(_convertedKey, true);
+    await _prefs.reload();
+    if (!saved || _prefs.getBool(_convertedKey) != true) {
+      throw StateError('legacy conversion marker refused');
+    }
+  }
+
+  /// NR-137 round 10b: the public writes hold the timeline write gate; the
+  /// private ones they share (and [clearImported], run inside the import's
+  /// hold) do not, because the gate is not re-entrant.
+  @override
+  Future<void> upsert(TimelineEntry entry) =>
+      TimelineWriteGate.timeline.run(() => _upsert(entry));
+
+  Future<void> _upsert(TimelineEntry entry) async {
+    await _convertLegacy();
+    await _writeRowPreserving(entry);
+  }
+
+  Future<void> _writeRowPreserving(TimelineEntry entry) async {
+    final key = _key(entry.id);
+    final previous = _prefs.get(key);
+    final replaced = previous != null && unreadableTimelineValue(previous, entry);
+    if (replaced) {
+      final encoded = jsonEncode(previous);
+      final digest = sha256.convert(utf8.encode(encoded));
+      await _writeVerified('$kTimelineCorruptPrefsPrefix${Uri.encodeComponent(entry.id)}.$digest', encoded);
+    }
+    await _writeVerified(key, jsonEncode(entry.toJson()));
+    if (replaced) reportCorruptTimelineReplacement(entry.id);
+  }
+
+  List<String> _corruptKeys(String id) {
+    final owner = '$kTimelineCorruptPrefsPrefix${Uri.encodeComponent(id)}';
+    return _prefs.getKeys().where((key) =>
+      key.startsWith('$owner.') && key.substring(0, key.lastIndexOf('.')) == owner,
+    ).toList();
+  }
+
+  @override
+  Future<void> delete(String id) =>
+      TimelineWriteGate.timeline.run(() => _delete(id));
+
+  Future<void> _delete(String id) async {
+    await _convertLegacy();
+    // Preferences has no transactions. Remove side copies first: if any
+    // removal fails, keep the visible row so the single deleter can retry.
+    for (final key in _corruptKeys(id)) {
+      await _removeVerified(key);
+    }
+    final String key = _key(id);
+    if (_prefs.containsKey(key)) await _removeVerified(key);
+  }
+
+  @override
+  Future<void> saveAll(List<TimelineEntry> entries) =>
+      TimelineWriteGate.timeline.run(() => _saveAll(entries));
+
+  Future<void> _saveAll(List<TimelineEntry> entries) async {
+    await _convertLegacy();
+    final Set<String> wanted = entries.map((e) => _key(e.id)).toSet();
+    for (final TimelineEntry entry in entries) { await _upsert(entry); }
+    for (final String key in _prefs.getKeys().where((k) => k.startsWith(_rowPrefix)).toList()) {
+      if (!wanted.contains(key) && decodeTimelineRow(_prefs.get(key)) != null) {
+        await _removeVerified(key);
+      }
+    }
+  }
+
+  /// Clear only the exact readable rows confirmed by the import. Concurrent
+  /// changes and unreadable keys remain untouched; the v1 rollback copy stays.
+  Future<void> clearImported(List<TimelineEntry> rows) async {
+    await _recoverCache();
+    for (final TimelineEntry row in rows) {
+      for (final String prefix in [_rowPrefix, _legacyRowPrefix]) {
+        final String key = '$prefix${Uri.encodeComponent(row.id)}';
+        if (_prefs.get(key) == jsonEncode(row.toJson())) {
+          await _removeVerified(key);
+        }
+      }
+    }
+  }
+
+  // Paging/search scan fallback rows; normal mutations encode one row.
 
   @override
   Future<List<TimelineEntry>> loadPage({
@@ -262,11 +565,8 @@ class SharedPrefsTimelinePersistence implements TimelinePersistence {
         .toList(growable: false);
   }
 
-  // Deliberately NOT the SQLite default of 1,000: this store persists at most
-  // [maxPersistedEntries] (100) rows, so a larger default could never return
-  // more and would only pretend a depth that is not there.
   @override
-  Future<List<TimelineEntry>> search(String query, {int limit = 200}) async {
+  Future<List<TimelineEntry>> search(String query, {int limit = 1000}) async {
     final String q = query.trim().toLowerCase();
     if (q.isEmpty) return <TimelineEntry>[];
     final List<TimelineEntry> all = await loadAll();
@@ -276,18 +576,4 @@ class SharedPrefsTimelinePersistence implements TimelinePersistence {
         .take(limit)
         .toList(growable: false);
   }
-}
-
-/// Keep the [limit] newest by [TimelineEntry.createdAt] (desc). Does not
-/// mutate [entries]. When length ≤ limit, returns a shallow copy as-is.
-List<TimelineEntry> _capNewest(List<TimelineEntry> entries, int limit) {
-  if (entries.length <= limit) {
-    return List<TimelineEntry>.from(entries);
-  }
-  final List<TimelineEntry> sorted = List<TimelineEntry>.from(entries)
-    ..sort(
-      (TimelineEntry a, TimelineEntry b) =>
-          b.createdAt.compareTo(a.createdAt),
-    );
-  return sorted.take(limit).toList(growable: false);
 }

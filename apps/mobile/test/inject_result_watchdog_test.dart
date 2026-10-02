@@ -397,6 +397,7 @@ void main() {
       final _Rig r = _Rig();
       final TimelineEntry row = r.syncedRow('待会儿被删掉');
       r.store.delete(row.id);
+      await pumpEventQueue();
       expect(await r.delivery.reInject(row), isNull);
       expect(r.injectedIds, isEmpty);
       r.dispose();

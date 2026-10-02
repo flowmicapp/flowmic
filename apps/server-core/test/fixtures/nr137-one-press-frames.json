@@ -1,0 +1,19 @@
+[
+  {
+    "recording_id": "review-legacy-multi__kept",
+    "job_id": "8a93be9856bb393ac9eded0a2c669442",
+    "attempt_id": "a-hmtrdz598i-0",
+    "operation_id": "o-hmtrdz598i-1",
+    "attempt_kind": "user_retranscribe",
+    "range_start_sample": 0,
+    "range_end_sample": 6400,
+    "audio_format_version": 1,
+    "sample_rate": 16000,
+    "channels": 1,
+    "encoding": "pcm_s16le",
+    "mode": "realtime",
+    "send_policy": "direct",
+    "delivery": "none",
+    "source_lang": "en"
+  }
+]

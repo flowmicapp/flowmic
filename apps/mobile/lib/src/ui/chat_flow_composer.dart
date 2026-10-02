@@ -100,6 +100,10 @@ Future<bool> _pttDownRouted(
 /// Contract §5-1 row 1: `[mode segments][translate chip]…[policy chip]`,
 /// wrapping allowed.
 ///
+/// ⚠️ The Wrap described next is HISTORY: 0.2.65 replaced it with a Row, and
+/// 2026-09-30 with a measured choice of three arrangements (the 🔴 block in the
+/// body). The paragraph is kept because the two-children reasoning still holds.
+///
 /// ── Why a Wrap and what the two children are ────────────────────────────────
 /// `WrapAlignment.spaceBetween` with exactly TWO children gives the mock's
 /// layout for free when one run fits (segments hard left, chip hard right) and
@@ -149,24 +153,78 @@ Widget _modePolicyRowRouted(
       ],
     ],
   );
-  final Widget row = Row(
-    children: <Widget>[
-      Expanded(child: segmentsGroup),
-      const SizedBox(width: 8),
-      // Never wraps onto a second run — EN Realtime|Translate|Organize +
-      // Direct send used to overflow a Wrap at 360dp. The segments ellipsis
-      // if they must; the chip stays on the same baseline.
-      SendPolicyFlashChip(
-        policy: s.controller.sendPolicy,
-        strings: strings,
-        // A-11: record-only ⇒ the neutral face. Read off the SAME `visual`
-        // the band and PttBar get, not off `destination.isRecordOnly` again —
-        // 「现在是哪张脸」("which face is it right now") has one author
-        // (SUP-4's whole point).
-        muted: visual == PttVisual.noted,
-        onToggle: s.controller.toggleSendPolicy,
-      ),
-    ],
+  Widget chip({required bool compact}) => SendPolicyFlashChip(
+    policy: s.controller.sendPolicy,
+    strings: strings,
+    // A-11: record-only ⇒ the neutral face. Read off the SAME `visual`
+    // the band and PttBar get, not off `destination.isRecordOnly` again —
+    // 「现在是哪张脸」("which face is it right now") has one author
+    // (SUP-4's whole point).
+    muted: visual == PttVisual.noted,
+    compact: compact,
+    onToggle: s.controller.toggleSendPolicy,
+  );
+  // 🔴 THE MODE WORDS WIN THE ROW, THE CHIP GIVES WAY (2026-09-30, measured on
+  // a 360dp phone): 0.2.65 made this a Row so the chip would never wrap, and
+  // the Row lays its non-flex chip out FIRST — so in EN the chip took its full
+  // width and the segments were squeezed to 「Re… / Tra… / Or…」. The row now
+  // bills both sides with the widgets' own measurements and picks the first
+  // arrangement in which every mode word paints in full:
+  //   ① segments + full chip on one line;
+  //   ② segments + the chip's glyph-only face on one line (0.2.65's 「one
+  //      line」 still holds; the chip's word is what gives);
+  //   ③ segments alone on the line, the full chip on its own line under them,
+  //      right-aligned — only when even the glyph-only chip does not fit.
+  // The segments' own ellipsis is left as the last resort for a run that is
+  // too narrow for the segments ALONE. compose_row_one_fit_test.dart pins the
+  // rendered result for every UI locale at 360dp × every rung of the app's own
+  // text-size ladder, and prints which arrangement each one landed in.
+  // ⚠️ The chip is billed for the WIDER of its two words
+  // (`SendPolicyChip.naturalWidth`), so a tap on it cannot change the
+  // arrangement under the finger.
+  final Widget row = LayoutBuilder(
+    builder: (BuildContext context, BoxConstraints constraints) {
+      const double gap = 8;
+      double segments = ModeSegmentedControl.naturalWidth(
+        context,
+        strings,
+        s.controller.mode,
+      );
+      if (s.controller.mode == FlowMode.translate) {
+        segments += gap +
+            TranslateTargetChip.naturalWidth(
+              context,
+              strings,
+              s.controller.translateTarget,
+            );
+      }
+      // One dp of slack: a float-rounding under-bill must not be able to tip
+      // a word into its ellipsis.
+      final double room = constraints.maxWidth - 1;
+      final double full = SendPolicyChip.naturalWidth(context, strings);
+      if (segments + gap + full > room &&
+          segments + gap + kSendPolicyChipCompactWidth > room) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            segmentsGroup,
+            const SizedBox(height: kDockRowGap),
+            Align(
+              alignment: Alignment.centerRight,
+              child: chip(compact: false),
+            ),
+          ],
+        );
+      }
+      return Row(
+        children: <Widget>[
+          Expanded(child: segmentsGroup),
+          const SizedBox(width: gap),
+          chip(compact: segments + gap + full > room),
+        ],
+      );
+    },
   );
   // Card LLM-NOTICE (owner 2026-08-25 D1): translate / organize need a language
   // model on the PC. The mode STAYS selectable (owner: no silent disable, no

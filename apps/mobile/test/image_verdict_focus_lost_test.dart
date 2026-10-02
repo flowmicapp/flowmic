@@ -283,13 +283,13 @@ void main() {
       String reachedThePc(AppLocale locale) => switch (locale) {
         AppLocale.zh => '已投递至电脑端',
         AppLocale.zhTw => '已經送到電腦',
-        AppLocale.en => 'reached the PC',
-        AppLocale.fr => 'a atteint la chronologie du PC',
-        AppLocale.es => 'Llegó a la cronología del PC',
-        AppLocale.de => 'erreichte den Verlauf des PC',
+        AppLocale.en => 'reached the computer',
+        AppLocale.fr => 'a atteint la chronologie de l\'ordinateur',
+        AppLocale.es => 'Llegó a la cronología del ordenador',
+        AppLocale.de => 'erreichte den Verlauf des Computers',
         AppLocale.ja => 'パソコンに届いて',
-        AppLocale.ko => 'PC에 도착',
-        AppLocale.ru => 'в ленту ПК',
+        AppLocale.ko => '컴퓨터에 도착',
+        AppLocale.ru => 'в ленту компьютера',
       };
       for (final AppLocale locale in AppLocale.values) {
         expect(

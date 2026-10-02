@@ -35,15 +35,8 @@ import 'unknown_field_vault.dart';
 
 /// Where imported rows land.
 ///
-/// ⚠️ **Deliberately NOT `TimelineStore`.** Window C's boundary froze that class to
-/// one read-only addition (「only a read-only traversal entry point may be
-/// added」), so the import writes through
-/// the SAME `TimelinePersistence` instance the store writes through — which is
-/// what keeps the writes ordered (`SqfliteTimelinePersistence` serialises its
-/// own chain per instance) — and then asks the store to reload. Stated here
-/// rather than left to be discovered: the store's 「single writer of the local
-/// table」 claim now has a second writer, and a later window may well want to
-/// move this behind a store method.
+/// NR-146: the production adapter uses TimelineStore's single write queue.
+/// Batch-capable sinks commit up to 500 entries using one existing-row index.
 abstract interface class ImportRowSink {
   /// Every row id already on this phone, in ANY state.
   ///
@@ -57,6 +50,10 @@ abstract interface class ImportRowSink {
 
   /// Make the freshly written rows visible to the UI.
   Future<void> refresh();
+}
+
+abstract interface class ImportBatchSink {
+  Future<void> insertBatch(List<TimelineEntry> entries);
 }
 
 /// §5.2's four outcomes, plus the file-level refusals. Every line lands in
@@ -273,6 +270,19 @@ class PortableImporter {
     int missingAtt = 0;
     bool first = true;
 
+    final List<TimelineEntry> pending = [];
+    Future<void> flush() async {
+      if (pending.isEmpty) return;
+      final sink = _sink;
+      if (sink is ImportBatchSink) {
+        await (sink as ImportBatchSink).insertBatch(List.of(pending));
+      } else {
+        for (final row in pending) { await sink.insert(row); }
+      }
+      added += pending.length;
+      pending.clear();
+    }
+
     await for (final String line in _lines(recordsPath)) {
       if (first) {
         first = false;
@@ -297,9 +307,9 @@ class PortableImporter {
             (refused[FprLineRefusal.missingId] ?? 0) + 1;
         continue;
       }
-      await _sink.insert(row);
+      pending.add(row);
       known.add(row.id);
-      added += 1;
+      if (pending.length >= 500) await flush();
 
       final FprCarriedFields c = carriedFieldsOf(r);
       if (!c.isEmpty) carried[row.id] = c;
@@ -325,6 +335,7 @@ class PortableImporter {
       }
     }
 
+    await flush();
     await _vault.merge(carried);
     if (added > 0) await _sink.refresh();
 

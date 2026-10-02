@@ -39,6 +39,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import '../diag/diag_log.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -205,6 +206,11 @@ class TimelineReaper {
     if (doomed.isEmpty) return ReapResult(rows: 0, pictures: 0, bytesFreed: 0, cutoffs: cutoffs);
     int pictures = 0;
     int bytes = 0;
+    diag('timeline.delete.request', <String, Object?>{
+      'rows': doomed.length, 'entry_ids': boundedDiagnosticIds(doomed.map((e) => e.id)),
+    });
+    int confirmed = 0;
+    try {
     for (final TimelineEntry e in doomed) {
       // ② The picture file. `clientId`, not `id` — the file is named by the
       // request id, and a picture row's request id IS its clientId
@@ -240,6 +246,14 @@ class TimelineReaper {
       } else {
         await _persistence.delete(e.id);
       }
+      confirmed++;
+    }
+    } finally {
+      diag('timeline.delete.confirmed', <String, Object?>{
+        'rows': confirmed,
+        'entry_ids': boundedDiagnosticIds(doomed.take(confirmed).map((e) => e.id)),
+        if (confirmed < doomed.length) 'unconfirmed_rows': doomed.length - confirmed,
+      });
     }
     // ③ The side table. One write, not one per row — it is a single JSON blob.
     final TimelinePersistence persistence = _persistence;

@@ -22,21 +22,24 @@ part of 'plus_panel.dart';
 extension _PlusPanelFavoritesList on _PlusPanelState {
   Widget _list(BuildContext context) {
     if (favorites.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              strings.favoritesEmpty,
-              style: TextStyle(color: FlowMicColors.t2, fontSize: 13),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              strings.favoritesEmptyHint,
-              style: TextStyle(color: FlowMicColors.t3, fontSize: 11),
-            ),
-          ],
+      return SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                strings.favoritesEmpty,
+                style: TextStyle(color: FlowMicColors.t2, fontSize: 13),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                strings.favoritesEmptyHint,
+                style: TextStyle(color: FlowMicColors.t3, fontSize: 11),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -101,9 +104,7 @@ extension _PlusPanelFavoritesList on _PlusPanelState {
                   Icon(
                     Icons.star_rounded,
                     size: 14,
-                    color: noPcTarget
-                        ? FlowMicColors.t3
-                        : FlowMicColors.amber,
+                    color: noPcTarget ? FlowMicColors.t3 : FlowMicColors.amber,
                   ),
                   const SizedBox(width: 9),
                   Expanded(
@@ -112,9 +113,7 @@ extension _PlusPanelFavoritesList on _PlusPanelState {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: noPcTarget
-                            ? FlowMicColors.t2
-                            : FlowMicColors.t1,
+                        color: noPcTarget ? FlowMicColors.t2 : FlowMicColors.t1,
                         fontSize: 13,
                       ),
                     ),
@@ -143,11 +142,7 @@ extension _PlusPanelFavoritesList on _PlusPanelState {
             message: strings.favoritesRemove,
             child: Padding(
               padding: const EdgeInsets.all(8),
-              child: Icon(
-                Icons.close,
-                size: 14,
-                color: FlowMicColors.t3,
-              ),
+              child: Icon(Icons.close, size: 14, color: FlowMicColors.t3),
             ),
           ),
         ),
@@ -157,22 +152,28 @@ extension _PlusPanelFavoritesList on _PlusPanelState {
 
   Widget _header(BuildContext context) => Row(
     children: <Widget>[
-      Icon(Icons.star_rounded, size: 16, color: FlowMicColors.amber),
-      const SizedBox(width: 7),
-      Text(
-        strings.favorites,
-        style: TextStyle(
-          color: FlowMicColors.t1,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
+      Expanded(
+        child: Wrap(
+          spacing: 7,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: <Widget>[
+            Icon(Icons.star_rounded, size: 16, color: FlowMicColors.amber),
+            Text(
+              strings.favorites,
+              style: TextStyle(
+                color: FlowMicColors.t1,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            Text(
+              strings.favoritesCounter(favorites.length, kFavoritesMax),
+              style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
+            ),
+          ],
         ),
       ),
       const SizedBox(width: 7),
-      Text(
-        strings.favoritesCounter(favorites.length, kFavoritesMax),
-        style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-      ),
-      const Spacer(),
       _saveButton(context),
     ],
   );
@@ -257,7 +258,9 @@ extension _PlusPanelFavoritesList on _PlusPanelState {
             // Same alpha over the TOKEN, following settings_widgets.dart:110:
             // 0x66818CF8 is dark-brand @ .4, so dark stays pixel-identical while
             // light stops being indigo-400 where brand deepens to indigo-600.
-            color: on ? FlowMicColors.brand.withValues(alpha: 0.4) : FlowMicColors.line,
+            color: on
+                ? FlowMicColors.brand.withValues(alpha: 0.4)
+                : FlowMicColors.line,
           ),
         ),
         child: Text(

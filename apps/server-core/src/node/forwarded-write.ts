@@ -41,6 +41,7 @@
 // billing surface.
 
 import type { UsageTracker, EngineUsageMeta, MeteredPrincipalRef } from '../billing/usage-tracker';
+import { claimBindingOf, type ClaimBinding } from '../db/repos/usage-effects.repo';
 import type { SttCharCounts } from '../engine/stt-session-deps';
 import type { UsageEventKind } from '../db/repos/usage-events.repo';
 import { CLIENT_VERSION_MAX_LENGTH, ClientOriginSchema, TargetCapsSchema, type TargetCaps } from '@flowmic/protocol';
@@ -65,6 +66,9 @@ export interface ForwardedStt {
    * ledger's own deterministic id already guards.
    */
   operation_id?: string;
+  /** NR-138 round 6 (book 22 §4.11) — the recording / job / range of the metered frame. OPTIONAL like the id: an older
+   *  replica sends none, and the writer's claim is then unbound (its replays are billed normally). */
+  operation_binding?: ClaimBinding;
   /**
    * card MP-6 — WHY these seconds land on `user_id`, and WHO SPOKE, as the
    * REPLICA's admission recorded it.
@@ -104,6 +108,8 @@ export interface ForwardedLlm {
    * ledger's own deterministic id already guards.
    */
   operation_id?: string;
+  /** NR-138 round 6 — see {@link ForwardedStt.operation_binding}. */
+  operation_binding?: ClaimBinding;
   /**
    * card MP-9 — WHY these tokens land on `user_id`, and WHO SPOKE, as the
    * REPLICA's admission recorded it. Same field, same argument and same failure
@@ -252,6 +258,14 @@ function principalFieldOf(b: Record<string, unknown>): { principal?: MeteredPrin
  *  is the only place on this side of the wire that needs the runtime set. */
 const PAYER_REASONS = ['self', 'peer', 'host', 'demo'] as const;
 
+/** NR-138 round 6 — the binding, only when it came WITH an operation and all four fields are well-formed; anything
+ *  else is dropped (the writer's claim is then unbound, never bound to something half-read). */
+function bindingFieldOf(b: Record<string, unknown>): { operation_binding?: ClaimBinding } {
+  if (!isNonEmpty(b.operation_id) || typeof b.operation_binding !== 'object' || b.operation_binding === null) return {};
+  const binding = claimBindingOf(b.operation_binding as Record<string, unknown> as Parameters<typeof claimBindingOf>[0]);
+  return binding === undefined ? {} : { operation_binding: binding };
+}
+
 export function parseForwardedWrite(body: unknown): ForwardedWrite {
   const b = body as Record<string, unknown> | null;
   if (!b || typeof b !== 'object') throw new UnknownForwardedWrite(body);
@@ -267,6 +281,7 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
         // without it, so 「an older replica sent none」 and 「it sent an empty
         // string」 cannot become the same thing one layer down.
         ...(isNonEmpty(b.operation_id) ? { operation_id: b.operation_id } : {}),
+        ...bindingFieldOf(b),
         // card MP-6 — same spread-or-nothing, and the same reason: an older
         // replica sends nothing and the writer must store NULL rather than a
         // manufactured 'self'.
@@ -283,6 +298,7 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
         kind: 'usage.llm', user_id: b.user_id, engine,
         tokens_in: b.tokens_in, tokens_out: b.tokens_out,
         ...(isNonEmpty(b.operation_id) ? { operation_id: b.operation_id } : {}),
+        ...bindingFieldOf(b),
         // card MP-9 — same spread-or-nothing, same validation of the reason
         // against the union, as the STT arm above.
         ...principalFieldOf(b),
@@ -350,10 +366,10 @@ function parsePcIdentity(b: Record<string, unknown>): ForwardedPcIdentity {
 export function applyForwardedWrite(w: ForwardedWrite, t: ForwardTargets): void {
   switch (w.kind) {
     case 'usage.stt':
-      t.usage.recordSttUsage(w.user_id, w.engine, w.duration_ms, w.chars, w.principal ?? {}, w.operation_id);
+      t.usage.recordSttUsage(w.user_id, w.engine, w.duration_ms, w.chars, w.principal ?? {}, w.operation_id, undefined, w.operation_binding);
       return;
     case 'usage.llm':
-      t.usage.recordLlmUsage(w.user_id, w.engine, w.tokens_in, w.tokens_out, w.principal ?? {}, w.operation_id);
+      t.usage.recordLlmUsage(w.user_id, w.engine, w.tokens_in, w.tokens_out, w.principal ?? {}, w.operation_id, w.operation_binding);
       return;
     case 'usage.quota_refused':
       t.usage.recordQuotaRefusal(w.user_id, w.event_kind, w.refused_user_id, w.principal ?? {});

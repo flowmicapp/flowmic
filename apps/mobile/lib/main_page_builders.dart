@@ -109,6 +109,7 @@ extension _PageBuilders on _FlowMicAppState {
           _navKey.currentContext!,
           controller: _login,
           strings: AppStrings.of(widget.appSettings.locale),
+          currentStrings: () => AppStrings.of(widget.appSettings.locale),
         );
       },
     ),

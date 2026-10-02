@@ -877,11 +877,12 @@ dependencies = [
 
 [[package]]
 name = "flowmic-desktop"
-version = "0.3.102"
+version = "0.3.106"
 dependencies = [
  "block2",
  "flate2",
  "gtk",
+ "libc",
  "objc2",
  "objc2-app-kit",
  "objc2-core-graphics",
@@ -897,6 +898,7 @@ dependencies = [
  "tauri-plugin-shell",
  "thiserror 1.0.69",
  "tokio",
+ "unicode-properties",
  "uuid",
  "windows 0.58.0",
  "winreg 0.10.1",
@@ -4328,6 +4330,12 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "unicode-properties"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7df058c713841ad818f1dc5d3fd88063241cc61f49f5fbea4b951e8cf5a8d71d"
 
 [[package]]
 name = "unicode-segmentation"

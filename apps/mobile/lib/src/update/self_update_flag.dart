@@ -221,7 +221,7 @@ const bool kSelfUpdateEnabled = _selfUpdateBoolForm || _selfUpdateRawForm == '1'
 
 // ── The NOTIFY-ONLY switch (iOS, owner 2026-08-20) ──────────────────────────
 //
-// iOS ships through TestFlight / the App Store, and the 2026-08-19 phase-2
+// iOS ships through TestFlight, and the 2026-08-19 phase-2
 // ruling makes self-INSTALL and a store channel mutually exclusive. What the
 // owner asked for on 2026-08-20 is the half that is compatible with a store:
 // **check + notify** — a dot and a sentence pointing at the store page, never

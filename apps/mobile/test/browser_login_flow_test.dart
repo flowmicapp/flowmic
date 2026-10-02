@@ -88,6 +88,16 @@ class _Harness {
 }
 
 void main() {
+  test('session rejects a different injected browser controller', () async {
+    final first = _Harness();
+    final second = _Harness();
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+    expect(first.login.browserLogin(controller: first.controller), same(first.controller));
+    expect(first.login.browserLogin(), same(first.controller));
+    expect(first.login.browserLogin(controller: first.controller), same(first.controller));
+    expect(() => first.login.browserLogin(controller: second.controller), throwsStateError);
+  });
   test('the happy path: open → callback → the nonce is redeemed', () async {
     final _Harness h = _Harness();
     addTearDown(h.dispose);
@@ -174,18 +184,139 @@ void main() {
     expect(await h.store.read(), isNull);
   });
 
-  test('a callback arriving AFTER the timeout is refused as unsolicited', () async {
-    final _Harness h = _Harness(waitTimeout: const Duration(milliseconds: 20));
-    addTearDown(h.dispose);
-    await h.controller.start();
-    final Uri late = h.callbackFor();
-    await Future<void>.delayed(const Duration(milliseconds: 60));
-    await pumpEventQueue();
+  // 🔴 LATE CALLBACKS (measured 2026-09-30 on a tablet, store build 0.3.102).
+  // A first-time user can spend longer than the wait timeout in the browser:
+  // registering, waiting on an email code, fetching a password. The wait timeout
+  // only ends the spinner; whether a returning link is accepted is decided by the
+  // binding's own lifetime, kBrowserLoginStateTtl. Before this was pinned, the
+  // timer dropped the stored request and the user who did everything right was
+  // told the link 「was not requested from this phone」.
+  group('LATE CALLBACK — after the wait timeout has ended the spinner', () {
+    Future<_Harness> timedOut({bool withAck = false}) async {
+      final _Harness h = _Harness(waitTimeout: const Duration(milliseconds: 20));
+      addTearDown(h.dispose);
+      if (withAck) {
+        h.transport.ackQueue.add(<String, Object?>{
+          'ok': true,
+          'token': 'eyJh.eyJz.sig',
+          'user': <String, Object?>{'id': 'u1', 'email': 'a@b.co', 'plan': 'free'},
+        });
+      }
+      await h.controller.start();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await pumpEventQueue();
+      // Positive control: the timer really fired, so every test below runs
+      // against the post-timeout state and not a still-waiting one.
+      expect(h.controller.errorCode, BrowserLoginCodes.timedOut);
+      expect(h.controller.phase, BrowserLoginPhase.failed);
+      return h;
+    }
 
-    h.links.push(late);
+    test('🔴 inside the state lifetime it still signs in', () async {
+      final _Harness h = await timedOut(withAck: true);
+      // Five minutes in the browser: past the wait, well inside the binding.
+      h.nowMs += const Duration(minutes: 5).inMilliseconds;
+
+      h.links.push(h.callbackFor());
+      await pumpEventQueue();
+
+      expect(h.transport.emitted, hasLength(1));
+      expect(h.transport.emitted.single.name, FlowMicEvents.mobileLogin);
+      final Map<Object?, Object?> payload =
+          h.transport.emitted.single.data! as Map<Object?, Object?>;
+      expect(payload['qr_nonce'], 'nonce-abc');
+      expect(h.login.isLoggedIn, isTrue);
+      expect(h.controller.phase, BrowserLoginPhase.idle);
+      expect(h.controller.errorCode, isNull);
+      // Still single use: the success consumed the binding.
+      expect(await h.store.read(), isNull);
+    });
+
+    test('past the state lifetime it is named as EXPIRED, not as unsolicited', () async {
+      final _Harness h = await timedOut();
+      h.nowMs += kBrowserLoginStateTtl.inMilliseconds + 1;
+
+      h.links.push(h.callbackFor());
+      await pumpEventQueue();
+
+      expect(h.controller.errorCode, BrowserLoginCodes.expired);
+      expect(h.transport.emitted, isEmpty, reason: 'the nonce never left the device');
+      expect(h.login.isLoggedIn, isFalse);
+    });
+
+    // NEGATIVE CONTROLS: keeping the request past the wait must not loosen the
+    // binding. Each of these would be accepted if its check were removed, because
+    // after this change a live request IS on disk when the link arrives.
+    test('🔴 a forged state is still refused, and nothing is emitted', () async {
+      final _Harness h = await timedOut(withAck: true);
+      h.nowMs += const Duration(minutes: 5).inMilliseconds;
+
+      h.links.push(h.callbackFor(state: 'attackers-own-state', nonce: 'attacker-nonce'));
+      await pumpEventQueue();
+
+      expect(h.controller.errorCode, BrowserLoginCodes.stateMismatch);
+      expect(h.transport.emitted, isEmpty);
+      expect(h.login.isLoggedIn, isFalse);
+    });
+
+    test('a link for a different server is still refused', () async {
+      final _Harness h = await timedOut(withAck: true);
+      h.links.push(Uri.parse('flowmic://login').replace(
+        queryParameters: <String, String>{
+          't': 'nonce-abc',
+          'state': h.lastState,
+          'endpoint': 'https://evil.example',
+        },
+      ));
+      await pumpEventQueue();
+
+      expect(h.controller.errorCode, BrowserLoginCodes.endpointMismatch);
+      expect(h.transport.emitted, isEmpty);
+    });
+
+    test('a replay after the late success is refused as unsolicited', () async {
+      final _Harness h = await timedOut(withAck: true);
+      final Uri cb = h.callbackFor();
+      h.links.push(cb);
+      await pumpEventQueue();
+      expect(h.login.isLoggedIn, isTrue);
+
+      h.links.push(cb);
+      await pumpEventQueue();
+      expect(h.controller.errorCode, BrowserLoginCodes.noRequest);
+      expect(h.transport.emitted, hasLength(1), reason: 'the replay emitted nothing');
+    });
+
+    test('a retry supersedes the old attempt: the first tab’s link is a mismatch', () async {
+      final _Harness h = await timedOut(withAck: true);
+      final Uri firstTab = h.callbackFor();
+      h.controller.clearError();
+      await h.controller.start();
+      expect(h.lastState, isNot(firstTab.queryParameters['state']),
+          reason: 'positive control: the retry minted a new state');
+
+      h.links.push(firstTab);
+      await pumpEventQueue();
+      expect(h.controller.errorCode, BrowserLoginCodes.stateMismatch);
+      expect(h.transport.emitted, isEmpty);
+    });
+  });
+
+  test('🔴 a link that was never requested is refused, and nothing is emitted', () async {
+    final _Harness h = _Harness(waitTimeout: const Duration(seconds: 30));
+    addTearDown(h.dispose);
+    // No start(): this phone asked for nothing.
+    h.links.push(Uri.parse('flowmic://login').replace(
+      queryParameters: <String, String>{
+        't': 'attacker-nonce',
+        'state': 'attackers-own-state',
+        'endpoint': kEndpoint,
+      },
+    ));
     await pumpEventQueue();
     expect(h.controller.errorCode, BrowserLoginCodes.noRequest);
-    expect(h.transport.emitted, isEmpty, reason: 'the nonce never left the device');
+    expect(h.transport.emitted, isEmpty);
+    expect(h.login.isLoggedIn, isFalse);
   });
 
   test('🔴 STATE MISMATCH: a forged callback is refused and nothing is emitted', () async {

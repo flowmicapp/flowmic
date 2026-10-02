@@ -51,10 +51,8 @@ import 'recovery_settle.dart';
 /// the terminal final only. See the block at the foot of this file for why a
 /// soft-segment final may not reach here.
 ///
-/// [rowId] is the row that final produced. A `null` row is not settled at all
-/// (not even as `settled_unverified`): a recording that produced no words is
-/// one the recovery queue may still legitimately re-feed, and stamping it
-/// `settled_unverified` would take that option away while deleting nothing.
+/// [rowIds] names every result row recorded by `_settleSpan` for
+/// [recordingId], including soft segments and the terminal row.
 ///
 /// Returns the decision so a test can assert on it; production ignores it.
 Future<RecoverySettleDecision?> settleLiveRecording({
@@ -62,7 +60,8 @@ Future<RecoverySettleDecision?> settleLiveRecording({
   required TimelineStore timeline,
   required CoverageReceipt? receipt,
   required String? finalText,
-  required String? rowId,
+  required String? recordingId,
+  required List<String> rowIds,
   bool Function()? metered,
   LegacyServerVerifier legacyVerifier = const DenyAllLegacyServerVerifier(),
 }) =>
@@ -71,7 +70,8 @@ Future<RecoverySettleDecision?> settleLiveRecording({
       timeline: timeline,
       receipt: receipt,
       resultText: finalText,
-      rowIds: rowId == null ? const <String>[] : <String>[rowId],
+      recordingId: recordingId,
+      rowIds: List<String>.of(rowIds),
       metered: metered,
       legacyVerifier: legacyVerifier,
     );
@@ -93,11 +93,11 @@ Future<RecoverySettleDecision?> settleLiveRecording({
 ///
 /// 🔴 THE RESULT IS THE ROWS IT PRODUCED, not the last stretch the terminal
 /// final covers. MAIN ruling 2026-09-24 (root-cause rerun §10-2) licenses the
-/// delete only when all four hold: the terminal final is empty (checked here),
+/// delete only when all four hold (all-row correction, 2026-09-30): the terminal final is empty (checked here),
 /// the receipt's `fed_frames` equals the frames sent and it says
 /// `ended_normally` (both checked by the ONE predicate, with the rest of its
-/// conditions), and at least one row of THIS recording is persisted and read
-/// back. [evaluateRecoverySettle] is not touched: its `emptyResult` refusal
+/// conditions), and every row of THIS recording is persisted with exact content
+/// readback. [evaluateRecoverySettle] is not touched: its `emptyResult` refusal
 /// still stands for every caller, because what changes is only the result this
 /// entry hands it — the recording's own rows, never an empty one.
 ///
@@ -107,7 +107,7 @@ Future<RecoverySettleDecision?> settleLiveRecording({
 /// recovery, so such a press was transcribed again, filed twice and billed
 /// again. An ordinary press now settles the same way on [pressRowIds]: the rows
 /// `_settleSpan` recorded for the live attempt [pressRecordingId] names. A long
-/// recording still answers with its article's rows.
+/// recording uses the same recording-id ledger.
 ///
 /// Returns null (nothing written) when this is not a live final, and when the
 /// recording has no row at all.
@@ -130,49 +130,34 @@ Future<RecoverySettleDecision?> settleSilentTail({
       session.openSessionRange != null) {
     return null;
   }
-  final String? article = session.articles.liveArticleId;
-  final List<TimelineEntry> rows;
-  if (article != null &&
-      RetainedAudioSpill.sessionKeyOf(attempt.recordingId) == article) {
-    // A long recording is filed under its article id (`beginContinuous`).
-    rows = <TimelineEntry>[...articleMembersOf(timeline, article)];
-  } else {
-    // An ordinary press: the rows recorded for THIS live attempt, and only if
-    // the ledger names this attempt (a stale list belongs to another press).
-    if (pressRecordingId != attempt.recordingId) return null;
-    rows = <TimelineEntry>[
-      for (final String id in pressRowIds)
-        if (timeline.findById(id) case final TimelineEntry e) e,
-    ];
+  if (pressRecordingId != attempt.recordingId || pressRowIds.isEmpty) {
+    return null;
   }
-  if (rows.isEmpty) return null;
-  final List<TimelineEntry> newestFirst = rows.reversed.toList();
-  if (article != null) {
-    newestFirst.sort((TimelineEntry a, TimelineEntry b) =>
-        (b.articleOffsetMs ?? 0).compareTo(a.articleOffsetMs ?? 0));
-  }
+  final List<String> requiredIds = List<String>.of(pressRowIds);
   return _settleLive(
     session: session,
     timeline: timeline,
     receipt: receipt,
     // What it produced. Only its non-emptiness is read (the predicate bans any
     // other judgement of the words).
-    resultText: newestFirst.reversed.map((TimelineEntry e) => e.displayText).join('\n'),
-    // Newest first: the first one read back becomes `resultRef` (condition 4).
-    rowIds: <String>[for (final TimelineEntry e in newestFirst) e.id],
+    resultText: requiredIds
+        .map((String id) => timeline.findById(id)?.displayText ?? '')
+        .join('\n'),
+    recordingId: pressRecordingId,
+    rowIds: requiredIds,
     metered: metered,
     legacyVerifier: legacyVerifier,
   );
 }
 
-/// The one body both entries share. [rowIds] are the candidate result rows, in
-/// the order they are tried; the first persisted and read back is the result
-/// (condition (iii)). Empty ⇒ nothing is settled.
+/// Both entries require every named result row. Missing identities remain in
+/// the barrier; an absent in-memory row cannot shrink the required result set.
 Future<RecoverySettleDecision?> _settleLive({
   required PttSession session,
   required TimelineStore timeline,
   required CoverageReceipt? receipt,
   required String? resultText,
+  required String? recordingId,
   required List<String> rowIds,
   bool Function()? metered,
   required LegacyServerVerifier legacyVerifier,
@@ -180,7 +165,11 @@ Future<RecoverySettleDecision?> _settleLive({
   final RetainedAudioSpill? spill = session.audio.retainedAudio;
   if (spill == null || !spill.retainFromFirstFrame) return null;
   final LiveAudioAttempt? attempt = spill.liveAttempt;
-  if (attempt == null || rowIds.isEmpty) return null;
+  if (attempt == null ||
+      attempt.recordingId != recordingId ||
+      rowIds.isEmpty) {
+    return null;
+  }
   // 🔴 A STAMP WITH NO FRAME COUNT IS A RECORDING THAT IS STILL RUNNING, and
   // comparing a receipt against a moving number is how a settle comes out right
   // by luck. `endRecording` is what closes it; if it has not run, this final
@@ -250,17 +239,23 @@ Future<RecoverySettleDecision?> _settleLive({
 
   // (iii) — two facts, in this order. The handle completes on failure too (its
   // own doc says so), so only the read proves anything survived.
-  // Card RC-B — for a long recording's silent tail, the first of its rows that
-  // is read back; the newest one when none is (it names the refusal's row).
-  String rowId = rowIds.first;
-  bool persisted = false;
-  for (final String id in rowIds) {
-    await timeline.awaitPersisted(id);
-    if (await timeline.isPersisted(id)) {
-      rowId = id;
-      persisted = true;
-      break;
-    }
+  // Missing rows stay unconfirmed: the shared reaper records no per-row user
+  // deletion signal (live_settle_test.dart covers deletion and failed reload).
+  final String rowId = rowIds.last;
+  final Map<String, TimelineEntry?> requiredRows = <String, TimelineEntry?>{
+    for (final String id in rowIds) id: timeline.findById(id),
+  };
+  bool persisted = true;
+  for (final MapEntry<String, TimelineEntry?> row in requiredRows.entries) {
+    await timeline.awaitPersisted(row.key);
+    final TimelineEntry? expected = row.value;
+    final bool confirmed = expected != null &&
+        await timeline.isPersistedAs(row.key, (TimelineEntry stored) =>
+            !stored.deleted &&
+            stored.sourceText == expected.sourceText &&
+            stored.outputText == expected.outputText &&
+            stored.processedText == expected.processedText);
+    if (!confirmed) persisted = false;
   }
 
   // A7-3 — the same server gate the recovery leg asks, and for the same reason:

@@ -30,8 +30,8 @@ extension RecoveryJournalLegWire on RecoveryJournalLeg {
     return '$dir$sep$recordingId${RetainedAudioJournal.manifestSuffix}';
   }
 
-  Future<RetainedAudioJournal> _openJournal(String recordingId) =>
-      RetainedAudioJournal.open(
+  Future<RetainedAudioJournal> _openJournal(String recordingId) async {
+    final RetainedAudioJournal journal = await RetainedAudioJournal.open(
         dirPath: _spill.store.dirPath,
         recordingId: recordingId,
         fs: _fs,
@@ -43,6 +43,9 @@ extension RecoveryJournalLegWire on RecoveryJournalLeg {
         // leg makes goes through `commit()`, and `commit()` asks this.
         deleted: _spill.deletedRecordings,
       );
+    journal.notices.listen(_spill.handleJournalNotice);
+    return journal;
+  }
 
   /// Open the session, stream the range, close it, and watch four clocks.
   Future<_AttemptResult> _runOnWire(
@@ -116,6 +119,12 @@ extension RecoveryJournalLegWire on RecoveryJournalLeg {
         refusedNoLink: start == BackfillStart.noLink,
       );
     }
+    // NR-137 round 3 (independent review B3) — THIS session's row ledger,
+    // fresh per `beginBackfill` (`SegmentBuffer.clear`). The rows of this
+    // attempt are the ones it settled — not every row that appeared in the
+    // timeline while it ran (another writer's row, a delivered one, would
+    // otherwise be counted as this attempt's and replaced or folded).
+    final SegmentSettlement owned = _session.segments.settlement;
     // Card RC-N — this attempt owns the wire now, with the cursor `_attempt`
     // opened for it; every earlier attempt of the same range is superseded.
     _session.articles.attempts.openedRecovery(
@@ -212,15 +221,21 @@ extension RecoveryJournalLegWire on RecoveryJournalLeg {
       // (`endBackfill`): when our own clocks end the wait, WE put the session
       // back to rest, or the next press finds it stuck in PROCESSING.
       if (w.timedOut) _session.abortBackfill();
-      final Set<String> after =
-          _timeline.entries.map((TimelineEntry e) => e.id).toSet();
       return _AttemptResult(
         framesEmitted: framesEmitted,
         endedOnTerminalFinal: w.reachedTerminal,
         receipt: _receiptOf(finals),
         resultText: _terminalTextOf(finals),
         resultEmptyReason: _terminalEmptyReasonOf(finals), // RC6 (F3)
-        newRowIds: after.difference(before).toList(),
+        // Both locks: settled by this attempt AND not there when it began.
+        // ⚠️ 更正（NR-137 round 4, review D1）: 原为 the loaded window's new
+        // ids ∩ the ledger. A row this attempt wrote that a reload paged out
+        // mid-attempt fell out of that set — and a kept-words replacement
+        // then took it for 「earlier」 text and deleted it. The ledger is the
+        // inventory; the loaded window decides nothing.
+        newRowIds: owned.rowIds
+            .where((String id) => !before.contains(id))
+            .toList(),
         timeoutKind: w.timeoutKind,
         refusalCode: w.stallCode ?? refusalCode,
         linkLost: linkLost,

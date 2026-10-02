@@ -65,6 +65,7 @@ Future<bool> showAddPairingSheet(
   final bool? ok = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: Colors.transparent,
     builder: (_) => _AddPairingSheet(
       controller: controller,
@@ -351,7 +352,7 @@ class _AddPairingSheetState extends State<_AddPairingSheet>
     final double insets = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.only(bottom: insets),
-      child: Container(
+      child: SafeArea(top: false, child: SingleChildScrollView(child: Container(
         decoration: BoxDecoration(
           color: FlowMicColors.surface,
           border: Border(top: BorderSide(color: FlowMicColors.line)),
@@ -550,7 +551,7 @@ class _AddPairingSheetState extends State<_AddPairingSheet>
             );
           },
         ),
-      ),
+      ))),
     );
   }
 

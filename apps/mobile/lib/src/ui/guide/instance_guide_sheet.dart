@@ -158,6 +158,7 @@ Future<void> showInstanceGuide(
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
+  useSafeArea: true,
   backgroundColor: FlowMicColors.surface,
   shape: const RoundedRectangleBorder(
     borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -182,6 +183,7 @@ class InstanceGuideBody extends StatelessWidget {
         maxHeight: MediaQuery.of(context).size.height * 0.82,
       ),
       child: SafeArea(
+        top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
           child: Column(

@@ -252,13 +252,46 @@ pub fn inject_text(
     app_id: Option<&str>,
     focus_switcher: FocusSwitcher,
 ) -> InjectOutcome {
-    inject_text_with_probe(
+    inject_text_checking(text, locked_hwnd, app_id, focus_switcher, synthetic_input_preflight)
+}
+
+/// Wire text has already read the platform verdict before deciding its payload.
+/// Reuse that reading: macOS/Linux refusal logging must not be evaluated twice.
+/// Raw text and control-key callers continue to use `inject_text` above.
+pub(crate) fn inject_text_with_preflight(
+    text: &str,
+    locked_hwnd: Option<u64>,
+    app_id: Option<&str>,
+    focus_switcher: FocusSwitcher,
+    preflight: Option<InjectOutcome>,
+) -> InjectOutcome {
+    inject_text_checking(text, locked_hwnd, app_id, focus_switcher, || preflight)
+}
+
+fn inject_text_checking(
+    text: &str,
+    locked_hwnd: Option<u64>,
+    app_id: Option<&str>,
+    focus_switcher: FocusSwitcher,
+    preflight: impl FnOnce() -> Option<InjectOutcome>,
+) -> InjectOutcome {
+    #[cfg(test)]
+    if super::delivery_test_sink::active() {
+        return inject_text_with_checks(
+            text, Some(1), app_id, |_| true,
+            || crate::inject::target_probe::FocusInputState::Input,
+            crate::inject::self_focus::never_ours,
+            preflight,
+        );
+    }
+    inject_text_with_checks(
         text,
         locked_hwnd,
         app_id,
         focus_switcher,
         focused_input_state,
         current_verdict,
+        preflight,
     )
 }
 
@@ -276,6 +309,18 @@ pub fn inject_text_with_probe(
     focus_switcher: FocusSwitcher,
     probe: TargetProbe,
     self_probe: SelfFocusProbe,
+) -> InjectOutcome {
+    inject_text_with_checks(text, locked_hwnd, app_id, focus_switcher, probe, self_probe, synthetic_input_preflight)
+}
+
+fn inject_text_with_checks(
+    text: &str,
+    locked_hwnd: Option<u64>,
+    app_id: Option<&str>,
+    focus_switcher: FocusSwitcher,
+    probe: TargetProbe,
+    self_probe: SelfFocusProbe,
+    preflight: impl FnOnce() -> Option<InjectOutcome>,
 ) -> InjectOutcome {
     if text.is_empty() {
         return InjectOutcome::ok(InjectMode::SendInput);
@@ -302,9 +347,9 @@ pub fn inject_text_with_probe(
 
     // ── Stage 0a (MAC-05): will the OS deliver a synthetic keystroke at all? ──
     //
-    // 🔴 `None` ON EVERY PLATFORM BUT macOS — see `preflight::synthetic_input_preflight`.
-    // This is not a new stage in the Windows pipeline; it is a gate that has
-    // nothing to say there and says so by construction.
+    // Windows has no verdict here. macOS checks Accessibility / Secure Input;
+    // Linux checks the selected display backend. Wire text supplies the verdict
+    // it read before spacing; raw/control-key callers read it at this stage.
     //
     // It runs FIRST among the gates because the two things it reads (Accessibility
     // permission, secure event input) make ⌘V vanish with NO api returning an
@@ -312,7 +357,7 @@ pub fn inject_text_with_probe(
     // post, and not one character arrives. A verdict built on those return values
     // would be the false-reporting direction of no-silent-failures with a completely clean conscience.
     // Refusing here means nothing has been typed, written or activated yet.
-    if let Some(refused) = synthetic_input_preflight() {
+    if let Some(refused) = preflight() {
         return refused;
     }
 
@@ -481,6 +526,10 @@ pub fn inject_text_with_probe(
             state
         }
     };
+    #[cfg(test)]
+    if let Some(outcome) = super::delivery_test_sink::capture(text) {
+        return outcome.with_evidence(evidence);
+    }
     crate::inject::text_dispatch::type_or_paste(text, app_id, expected_target).with_evidence(evidence)
 }
 

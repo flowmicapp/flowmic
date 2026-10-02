@@ -83,6 +83,12 @@ const Duration kBrowserLoginStateTtl = Duration(minutes: 10);
 /// button spins for the rest of the session and the only way out is to kill the
 /// app. Nothing delivers a "the user gave up" event, on either OS, so a timeout
 /// is not a fallback here; it is the only mechanism there is.
+///
+/// ⚠️ IT ENDS THE WAITING FACE ONLY, NOT THE BINDING. A link that comes back
+/// after this deadline but inside [kBrowserLoginStateTtl] still signs in; only
+/// the TTL decides acceptance. See `_armWaitTimer` in
+/// browser_login_controller.dart and the LATE CALLBACK group in
+/// test/browser_login_flow_test.dart.
 const Duration kBrowserLoginWaitTimeout = Duration(minutes: 3);
 
 /// Stable, fail-loud codes for everything that can go wrong on THIS side of the
@@ -100,8 +106,10 @@ class BrowserLoginCodes {
   /// refused). The one failure the user can definitely act on.
   static const String openFailed = 'BROWSER_LOGIN_OPEN_FAILED';
 
-  /// We opened the browser and no callback ever arrived — the user cancelled,
-  /// closed the tab, or the OS never delivered the link.
+  /// We opened the browser and no callback arrived within
+  /// [kBrowserLoginWaitTimeout] — the user cancelled, closed the tab, the OS
+  /// never delivered the link, or they are simply still in the browser (in
+  /// which case the link, when it comes, is still accepted inside the TTL).
   static const String timedOut = 'BROWSER_LOGIN_TIMED_OUT';
 
   /// A `flowmic://login` URL arrived while this app had asked for nothing.
@@ -113,7 +121,8 @@ class BrowserLoginCodes {
 
   /// Our own binding aged out ([kBrowserLoginStateTtl]) before the callback
   /// arrived. Distinct from [timedOut]: this one is delivered by a link that
-  /// DID come back, just far too late — typically a cold start hours later.
+  /// DID come back, just far too late — a cold start hours later, or a warm
+  /// app whose wait already timed out and whose user took over ten minutes.
   static const String expired = 'BROWSER_LOGIN_EXPIRED';
 
   /// The callback carried no `t=` — a malformed redirect, not a refusal.

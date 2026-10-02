@@ -28,6 +28,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 // MAC-03 — the staged runtime's per-platform filename comes from the pin
 // declaration, so this script and verify-bundle.mjs cannot disagree about it.
 import { BUNDLED_NODE, stagedNodeFileName, hostPlatformKey } from '../../../scripts/vendor/bundled-node.mjs';
@@ -203,6 +204,12 @@ function stageNotice() {
   }
   fs.mkdirSync(path.dirname(NOTICE_DEST), { recursive: true });
   fs.copyFileSync(NOTICE_SRC, NOTICE_DEST);
+  // Copy first so a stale ignored public asset is repaired; then refuse a
+  // source NOTICE that no longer matches the generated dependency notices.
+  execFileSync(process.execPath, [path.join(REPO_ROOT, 'scripts/generate-notice.mjs'), '--check'], {
+    cwd: REPO_ROOT,
+    stdio: 'inherit',
+  });
   console.log(`[build-sidecar] staged NOTICE → ${path.relative(REPO_ROOT, NOTICE_DEST)}`);
 }
 

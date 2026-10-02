@@ -49,6 +49,14 @@
 
 set -u
 
+# Desktop-only cards can explicitly prohibit Flutter. Keep the usual default.
+NO_FLUTTER=0
+case "${1:-}" in
+  --no-flutter) NO_FLUTTER=1 ;;
+  "") ;;
+  *) printf 'unknown option: %s\n' "$1"; exit 2 ;;
+esac
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO" || exit 2
 
@@ -160,7 +168,7 @@ note ""
 # webview catalogue) are NOT touched by this step and stay fully checked here:
 # for those, stale IS a defect, because a stale one ships.
 note "--- 1b. mobile codegen (gitignored *.g.dart — stale after every pull) ---"
-if [ -x "$NODE" ] && [ -x "$FLUTTER" ] && command -v make >/dev/null 2>&1; then
+if [ "$NO_FLUTTER" = "0" ] && [ -x "$NODE" ] && [ -x "$FLUTTER" ] && command -v make >/dev/null 2>&1; then
   (
     cd apps/mobile || exit 2
     PATH="$(dirname "$NODE"):$(dirname "$FLUTTER"):$PATH" make gen
@@ -174,6 +182,8 @@ if [ -x "$NODE" ] && [ -x "$FLUTTER" ] && command -v make >/dev/null 2>&1; then
     # go red for.
     fail "mobile codegen (exit $GEN_EXIT) — see $LOGS/gen.log; the generator itself failed, this is not staleness"
   fi
+elif [ "$NO_FLUTTER" = "1" ]; then
+  skip "mobile codegen — explicitly disabled by --no-flutter"
 else
   skip "mobile codegen — need the staged node, flutter and make"
 fi
@@ -304,6 +314,20 @@ else
 fi
 note ""
 
+# Native lifetime regression gate: includes pipe-only macOS EOF and red control.
+if [ -x "$NODE" ]; then
+  PATH="$(dirname "$CARGO"):$(dirname "$NODE"):$PATH" "$NODE" scripts/sidecar-parent-death.test.mjs >"$LOGS/sidecar-parent-death.log" 2>&1
+  NATIVE_EXIT=$?
+  tail -12 "$LOGS/sidecar-parent-death.log"
+  if [ "$NATIVE_EXIT" -eq 0 ]; then
+    pass "sidecar-parent-death-test.py (guarded, pipe-only, reclaim, refuse, live-owner, red control)"
+  else
+    fail "sidecar-parent-death-test.py (exit $NATIVE_EXIT) — see $LOGS/sidecar-parent-death.log"
+  fi
+else
+  skip "sidecar-parent-death-test.py — staged node not found"
+fi
+
 # ── 4. mobile tests — via make, NEVER via bare `flutter test` ───────────────
 # 🔴 `make test` depends on `gen`, and that dependency is load-bearing on any
 # fresh checkout. `lib/generated/*.g.dart` is generated from @flowmic/protocol
@@ -330,7 +354,7 @@ note ""
 # a hung widget test over SSH prints nothing for twenty minutes and looks
 # exactly like a slow machine.
 note "--- 4. mobile tests (make gate-test = gen + flutter test) ---"
-if [ -x "$FLUTTER" ] && command -v make >/dev/null 2>&1 && [ -x "$NODE" ]; then
+if [ "$NO_FLUTTER" = "0" ] && [ -x "$FLUTTER" ] && command -v make >/dev/null 2>&1 && [ -x "$NODE" ]; then
   (
     cd apps/mobile || exit 2
     PATH="$(dirname "$NODE"):$(dirname "$FLUTTER"):$PATH" make gate-test
@@ -348,6 +372,8 @@ if [ -x "$FLUTTER" ] && command -v make >/dev/null 2>&1 && [ -x "$NODE" ]; then
       fail "mobile tests (exit $MOBILE_EXIT) — see $LOGS/mobile.log"
     fi
   fi
+elif [ "$NO_FLUTTER" = "1" ]; then
+  skip "mobile tests — explicitly disabled by --no-flutter"
 else
   skip "mobile tests — need flutter ($FLUTTER), make, and the staged node"
 fi

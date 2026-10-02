@@ -543,6 +543,7 @@ thread_local! {
 /// proof runs in the full Windows suite too, not only on a Mac.
 #[cfg(test)]
 pub fn synthetic_input_preflight() -> Option<InjectOutcome> {
+    super::delivery_test_sink::record_preflight();
     synthetic_input_verdict(TEST_FACTS.with(|c| c.get()))
 }
 

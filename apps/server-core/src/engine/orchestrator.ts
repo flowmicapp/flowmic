@@ -27,6 +27,11 @@ export interface SttOrchestrator {
   finish(): Promise<void>;
   /** Tear down without emitting further events. */
   dispose(): void;
+  /** NR-138 item 5 (book 22 §4.10) — the relay gave up on `finish()` (its watchdog fired, or it rejected), noted
+   *  BEFORE the dispose that settles, so that settle can tell an engine failure from an ordinary teardown.
+   *  OPTIONAL on the seam: a test fake that does not answer is simply settled as before. Implemented by
+   *  SttSessionBridge (engine/stt-session.ts). */
+  noteFinishFailure?(kind: 'finish_watchdog' | 'finish_failed'): void;
   /** SEG-1 (R5) — the session's SeqTracker.lastContiguousSeq (-1 before any
    *  chunk), surfaced READ-ONLY so AudioSessionRegistry.peekLastContiguousSeq
    *  can put it on the mobile:reconnect ack (`audio_last_contiguous_seq`).

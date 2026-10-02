@@ -29,7 +29,7 @@ import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import {
   ROOT, startSaasServer, connect, ack, recordAll, saasJwt, verifyRegisteredEmail,
-  mailFileDir, mailFileEnv, PASS, FAIL,
+  mailFileDir, mailFileEnv, PASS, FAIL, settleAfter,
 } from './harness.mjs';
 
 /** The integrator's ceiling, pushed through the production override so a relay
@@ -75,11 +75,13 @@ const SIGNED_UID = 'wb-5555666677778888';
  *  `usage_events.speaker_ref` on the refusal row. */
 const HUNGRY_UID = 'wb-9999888877776666';
 
-/** An engine that cannot be reached. Every recording here is about MONEY and
- *  never about transcript text, so a real engine would only add flakiness. */
+/** Every recording here is about MONEY and never about transcript text — but since NR-138 item 5 (book 22 §4.10)
+ *  a recording whose engine fails with no transcript is not charged, so the engine must answer. A local one, no
+ *  vendor: still no flakiness. (It was a closed port until 2026-10-01.) */
+// NR-139: g31-transcription-fetch.mjs answers vendor requests in-process.
 const POOL = JSON.stringify([{
-  id: 'g31-unreachable', provider: 'custom-openai-compatible', model: 'g31',
-  api: 'http://127.0.0.1:9/v1', api_key: 'g31', enabled: true, priority: 1,
+  id: 'g31-answering', provider: 'custom-openai-compatible', model: 'g31-answering',
+  api: 'http://g31-transcription.invalid/v1', api_key: 'g31-answering', enabled: true, priority: 1,
 }]);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -117,6 +119,7 @@ export const G31 = {
     try {
       try {
         saas = await startSaasServer({
+          NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${pathToFileURL(path.join(ROOT, 'verify/golden/g31-transcription-fetch.mjs')).href}`,
           FLOWMIC_DB_PATH: dbPath,
           FLOWMIC_STT_POOL: POOL,
           FLOWMIC_BUDGET_HEARTBEAT_MS: String(HEARTBEAT_MS),
@@ -299,7 +302,7 @@ export const G31 = {
 
       guestRec.frames.length = 0;
       await speak(guest, 1_200);
-      await sleep(900);
+      await settleAfter(() => events(tId).length > 0, 'guest metering row', 0);
       const tEventsAfterGuest = events(tId);
       if (tEventsAfterGuest.length === 0) {
         return FAIL("the unsigned visitor's recording produced no usage_events row on T — nobody was billed for it");
@@ -366,7 +369,7 @@ export const G31 = {
       await sleep(200);
       signedRec.frames.length = 0;
       await speak(signedIn, 1_200);
-      await sleep(900);
+      await settleAfter(() => events(tId).length > tEventsAfterGuest.length, 'signed-in metering row', 0);
 
       if (spentMinutes(bId) !== bSpentBefore) {
         return FAIL("account B's own ledger moved — on a third-party page the HOST pays, whoever is speaking (owner §11 追认 item 1)");
@@ -447,7 +450,7 @@ export const G31 = {
       hungryRec.frames.length = 0;
       // Long enough to spend what is left, twice over.
       await speak(hungry, KEY_HEADROOM_MS + 2_500);
-      await sleep(900);
+      await settleAfter(() => keyRow(key.id)?.used_ms >= KEY_QUOTA_MS, 'key quota exhausted', 0);
       // Now the sub-quota is gone. The NEXT press must be refused, by name.
       hungryRec.frames.length = 0;
       // Cleared TOO, and at the same instant: everything the host page has heard
@@ -456,7 +459,7 @@ export const G31 = {
       // heartbeat, which is the opposite of what G-17 is about.
       hostRec.frames.length = 0;
       await speak(hungry, 400);
-      await sleep(900);
+      await settleAfter(() => sttErrors(hungryRec).length > 0 && budgets(hostRec).some((f) => f.exhausted), 'speaker and host quota refusal', 900);
       const refusals = sttErrors(hungryRec).filter((e) => e.code === 'INTEGRATOR_QUOTA_EXCEEDED');
       if (refusals.length === 0) {
         return FAIL(`the utterance after the sub-quota ran out was ADMITTED (frames: ${JSON.stringify(sttErrors(hungryRec))}) — T's plan still has ${tPlanLeftMinutes} minutes, so the per-key ceiling did nothing`);

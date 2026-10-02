@@ -56,6 +56,7 @@
 // second mechanism that will drift.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 // Uint8List and @immutable both come from foundation; importing dart:typed_data
@@ -87,6 +88,11 @@ part 'retained_audio_policy.dart';
 // and in the same shape as the policy family above; the marker's file-name
 // design and the four parsers it must slip past are argued in that header.
 part 'retained_audio_tombstone.dart';
+part 'retained_audio_unverified.dart';
+// NR-138 ① — the legacy face's automatic-attempt record (body and the four
+// parsers it slips past are in that header).
+part 'retained_audio_legacy_retry.dart';
+part 'retained_audio_withdrawn.dart'; // NR-137 round 10b
 
 /// A retention event the user (or at minimum the diagnostics log) MUST hear
 /// about. "No silent failure" (没有静默失败) runs in both directions: dropping
@@ -98,6 +104,9 @@ class RetainedAudioNotice {
   /// Stable identifier — callers branch on this, never on [detail].
   final String code;
 
+  /// A second fact for the same recording, displayed after the primary loss.
+  final String? secondaryCode;
+
   /// Which segment the notice is about; null when it is about the store itself.
   final int? segmentIdx;
 
@@ -106,6 +115,7 @@ class RetainedAudioNotice {
 
   const RetainedAudioNotice({
     required this.code,
+    this.secondaryCode,
     required this.bytes,
     this.segmentIdx,
   });
@@ -154,6 +164,7 @@ class RetainedAudioNotice {
   /// never "nothing has been saved since". The interval after a hole may well
   /// still be being written, and the hole itself may still be recoverable.
   static const String codeWriteFailed = 'retained-audio-write-failed';
+  static const String codeCommitFailed = 'retained-audio-commit-failed';
 
   @override
   String toString() =>
@@ -453,8 +464,8 @@ class RetainedAudioStore {
   /// to be able to name the marker rather than infer it from an absence.
   Future<Set<String>> tombstonedSessions() => _readTombstones(this);
 
-  /// Every session key with retained bytes on disk, including this run's and
-  /// every previous run's orphans, MINUS the ones the user cancelled.
+  /// Every session key with eligible bytes, excluding cancelled and unverified
+  /// audio. The pending page includes unverified audio for manual deletion.
   /// Recovery's entry point.
   ///
   /// 🔴 THE SUBTRACTION IS CARD LS-4. `BackfillRunner.sweep` walks exactly
@@ -465,22 +476,31 @@ class RetainedAudioStore {
   ///
   /// ⚠️ [bytesForSession] deliberately does NOT filter: the cap counts these
   /// bytes and the ruling keeps them, so 「how much is on disk」 stays true.
-  Future<List<String>> pendingSessions() async {
+  Future<List<String>> pendingSessions({bool includeUnverified = false}) async {
     final Set<String> tombstoned = await _readTombstones(this);
     final Set<String> out = <String>{};
     for (final File f in await _segmentFiles()) {
       final String? s = _sessionOf(f);
-      if (s != null && !tombstoned.contains(s)) out.add(s);
+      if (s != null && !tombstoned.contains(s) &&
+          (includeUnverified ||
+              !await _isUnverified(this, _indexOf(f)!, s))) {
+        out.add(s);
+      }
     }
     final List<String> keys = out.toList()..sort();
     return keys;
   }
 
   /// Retained bytes for one whole session, or 0.
-  Future<int> bytesForSession(String session) async {
+  Future<int> bytesForSession(String session, {bool pendingOnly = false}) async {
     int total = 0;
     for (final File f in await _segmentFiles()) {
-      if (_sessionOf(f) == _sanitise(session)) total += await f.length();
+      if (_sessionOf(f) != _sanitise(session)) continue;
+      if (pendingOnly &&
+          await _isUnverified(this, _indexOf(f)!, session)) {
+        continue;
+      }
+      total += await f.length();
     }
     return total;
   }
@@ -517,7 +537,7 @@ class RetainedAudioStore {
       return false;
     }
     final File f = _fileFor(segmentIdx);
-    await f.writeAsBytes(bytes, mode: FileMode.append, flush: false);
+    await f.writeAsBytes(bytes, mode: FileMode.append, flush: true);
     _retainedBytes += bytes.length;
     _sessionBytes += bytes.length;
     return true;
@@ -530,12 +550,14 @@ class RetainedAudioStore {
     final File f = _fileFor(segmentIdx, session: session);
     if (!await f.exists()) {
       _capAnnounced.remove(segmentIdx);
+      await _clearUnverified(this, segmentIdx, session);
       return;
     }
     final int len = await f.length();
     await f.delete();
     _retainedBytes = (_retainedBytes - len).clamp(0, 1 << 62);
     _capAnnounced.remove(segmentIdx);
+    await _clearUnverified(this, segmentIdx, session);
   }
 
   /// Segment indices with retained audio, ascending — i.e. the segments whose
@@ -548,18 +570,41 @@ class RetainedAudioStore {
   /// many files it has. BOTH readers are filtered — this one is reachable with
   /// an explicit key by anyone holding a session name from before the cancel,
   /// and filtering only the outer one is a door locked from one side.
-  Future<List<int>> pendingSegments({String? session}) async {
-    final String want = _sanitise(session ?? _session);
-    if ((await _readTombstones(this)).contains(want)) return const <int>[];
-    final List<int> out = <int>[];
-    for (final File f in await _segmentFiles()) {
-      if (_sessionOf(f) != want) continue;
-      final int? idx = _indexOf(f);
-      if (idx != null) out.add(idx);
-    }
-    out.sort();
-    return out;
-  }
+  Future<List<int>> pendingSegments(
+          {String? session, bool includeUnverified = false}) =>
+      _legacySegments(this, session, includeUnverified: includeUnverified);
+
+  /// Skip unconfirmed results in memory even if the disk marker fails.
+  /// Returns whether the marker reached disk (NR-138 counts a start whose
+  /// marker did not against the session's budget).
+  Future<bool> markUnverified(int idx, {required String session}) =>
+      _markUnverified(this, idx, session);
+
+  Future<Set<int>> unverifiedSegments(String session) =>
+      _unverifiedSegments(this, session);
+
+  /// NR-138 ① — a legacy session's automatic-attempt record. Absent reads as
+  /// [LegacyRetryRecord.fresh]; present-but-unreadable is its own answer.
+  /// The policy is `session/legacy_retry_budget.dart`; bodies in
+  /// retained_audio_legacy_retry.dart.
+  Future<LegacyRetryRead> readLegacyRetry(String session) =>
+      _readLegacyRetry(this, session);
+
+  /// Returns false (after a diag line) when the record did not reach disk.
+  Future<bool> writeLegacyRetry(String session, LegacyRetryRecord record) =>
+      _writeLegacyRetry(this, session, record);
+
+  Future<void> clearLegacyRetry(String session) =>
+      _clearLegacyRetry(this, session);
+
+  /// NR-137 round 10b — rows the session's presses withdrew (empty: none;
+  /// null: unreadable). Bodies in retained_audio_withdrawn.dart.
+  Future<List<String>?> withdrawnRows(String session) =>
+      _withdrawnRows(this, session);
+  Future<bool> recordWithdrawnRows(String session, Iterable<String> ids) =>
+      _recordWithdrawnRows(this, session, ids);
+  Future<void> clearWithdrawnRows(String session) =>
+      _clearWithdrawnRows(this, session);
 
   /// Retained bytes for one segment, or null when nothing is retained.
   Future<Uint8List?> read(int segmentIdx, {String? session}) async {

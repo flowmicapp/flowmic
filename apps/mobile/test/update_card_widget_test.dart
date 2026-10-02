@@ -343,6 +343,13 @@ void main() {
 
         final AppStrings s = AppStrings.of(AppLocale.zh);
         expect(find.text(s.updateAvailableTitle('9.9.9')), findsOneWidget);
+        // This branch is store-delivered iOS. TestFlight is the available
+        // channel; no App Store listing exists in any shipped locale.
+        for (final AppLocale locale in AppLocale.values) {
+          final String note = AppStrings.of(locale).updateStoreChannelNote;
+          expect(note, contains('TestFlight'), reason: '${locale.name} must name TestFlight');
+          expect(note, isNot(contains('App Store')), reason: '${locale.name} must not promise an App Store listing');
+        }
         // The store sentence, NOT the 「download it from the address below」 one —
         // that copy would point at a download address this channel never has.
         expect(find.text(s.updateStoreChannelNote), findsOneWidget);

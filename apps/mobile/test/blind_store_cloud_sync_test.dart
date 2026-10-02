@@ -13,6 +13,11 @@
 //   any error → {error:'CODE'}
 
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flowmic/src/settings/app_strings.dart';
+import 'package:flowmic/src/settings/app_settings.dart';
+import 'package:flowmic/src/ui/banner_queue.dart';
+import 'package:flowmic/src/signaling/state_machine.dart';
 
 import 'package:flowmic/generated/flowmic_events.g.dart';
 import 'package:flowmic/src/crypto/blind_store_keyring.dart';
@@ -28,9 +33,11 @@ import 'package:flowmic/src/timeline/cloud/blind_store_timeline_bridge.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_persistence.dart';
 import 'package:flowmic/src/timeline/timeline_reaper.dart';
+import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
+import 'support/di.dart';
 
 final Argon2Cost kFast = Argon2Cost.reducedForTestsOnly(
   memoryKiB: 64,
@@ -58,8 +65,9 @@ TimelineEntry lightRecord({
 
 /// The whole leg, assembled over in-memory parts.
 class Harness {
-  Harness({this.cloudRelay = true, bool keymetaConfirmed = true})
-    : keymetaOk = keymetaConfirmed;
+  Harness({this.cloudRelay = true, bool keymetaConfirmed = true, InMemoryTimelinePersistence? persistence, BlindStoreCursorStore? cursorStore, int Function()? nowMs})
+    : keymetaOk = keymetaConfirmed, persistence = persistence ?? InMemoryTimelinePersistence(),
+      cursor = cursorStore ?? InMemoryBlindStoreCursorStore(nowMs: nowMs);
 
   final bool cloudRelay;
 
@@ -74,10 +82,11 @@ class Harness {
   int keymetaAsks = 0;
 
   final FakeSocketTransport transport = FakeSocketTransport();
-  final InMemoryTimelinePersistence persistence = InMemoryTimelinePersistence();
+  final InMemoryTimelinePersistence persistence;
+  late final TimelineStore store;
   final InMemoryBlindStoreCloudStateStore state =
       InMemoryBlindStoreCloudStateStore();
-  final InMemoryBlindStoreCursorStore cursor = InMemoryBlindStoreCursorStore();
+  final BlindStoreCursorStore cursor;
   late final BlindStoreKeyring keyring;
   late final BlindStoreCloudSync sync;
   int reloads = 0;
@@ -88,11 +97,13 @@ class Harness {
       cost: kFast,
     );
     if (enrol) await keyring.enroll('pass-1');
+    store = newTestStore(persistence: persistence);
     sync = BlindStoreCloudSync(
       keyring: keyring,
       client: BlindStoreCloudClient(transport: transport),
       state: state,
       bridge: BlindStoreTimelineBridge(
+        store: store,
         persistence: persistence,
         reaper: TimelineReaper(
           persistence: persistence,
@@ -157,7 +168,123 @@ class Harness {
   };
 }
 
+class _BatchCounts extends InMemoryTimelinePersistence implements TimelineBatchPersistence {
+  int snapshots = 0;
+  @override
+  Future<void> writeRecordBatch(TimelineBatchAction action) async {
+    snapshots++;
+    await action({for (final entry in await loadAll()) entry.id: entry}, upsert);
+  }
+}
+
+class _RowFails extends InMemoryTimelinePersistence {
+  bool fail = true;
+  int attempts = 0;
+  @override
+  Future<void> upsert(TimelineEntry entry) async {
+    if (entry.id == 'failed-row') attempts++;
+    if (fail && entry.id == 'failed-row') throw StateError('row refused');
+    await super.upsert(entry);
+  }
+}
+
 void main() {
+  test('cloud live rows share a batch snapshot and tombstones preserve ordering', () async {
+    final p = _BatchCounts();
+    final h = Harness(persistence: p);
+    await h.boot();
+    addTearDown(h.store.dispose);
+    final entries = [for (final id in ['a', 'b', 'c', 'd']) lightRecord(id: id)];
+    Map<String, Object?> blob(int i, int seq) => Harness.remoteBlob(id: entries[i].id,
+      seq: seq, ciphertext: h.keyring.seal(entryId: entries[i].id,
+        plaintext: encodeBlindStorePayload(entries[i]))!);
+    h.transport.ackQueue.add({'blobs': [blob(0, 1), blob(1, 2),
+      Harness.remoteBlob(id: 'a', seq: 3, ciphertext: 'e2e:v1:', deleted: true),
+      blob(2, 4), blob(3, 5)], 'next_seq': 5});
+    final report = await h.sync.syncNow();
+    expect(report.failure, isNull);
+    expect(report.merged, 4);
+    expect(report.tombstonesApplied, 1);
+    expect(p.snapshots, 2, reason: 'one transaction snapshot per live segment');
+    expect((await p.loadAll()).map((entry) => entry.id).toSet(), {'b', 'c', 'd'});
+    expect(await h.cursor.loadRetries(kAccount), isEmpty);
+    expect(h.cursor.read(kAccount), 5);
+  });
+
+  test('cloud retry ciphertext survives restart and stays within its account', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final prefs = await SharedPreferences.getInstance();
+    final original = SharedPrefsBlindStoreCursorStore(prefs);
+    const blob = BlindStoreRemoteBlob(id: 'retry-row', seq: 4,
+      ciphertext: 'encrypted-envelope', createdAtMs: 1, schemaVer: 1, deleted: false);
+    await original.saveRetry('account-a', blob); await original.write('account-a', 5);
+    await prefs.reload();
+    final restarted = SharedPrefsBlindStoreCursorStore(prefs);
+    expect((await restarted.loadRetries('account-a')).single.id, 'retry-row');
+    expect(await restarted.loadRetries('account-b'), isEmpty);
+    expect(restarted.read('account-a'), 5);
+    await restarted.removeRetry('account-a', 'retry-row');
+    expect(await restarted.loadRetries('account-a'), isEmpty);
+  });
+
+  test('a later cloud tombstone cancels a failed-row retry', () async {
+    final p = _RowFails(); final h = Harness(persistence: p); await h.boot();
+    addTearDown(h.store.dispose);
+    final row = lightRecord(id: 'failed-row');
+    h.transport.ackQueue.add(<String, Object?>{'blobs': [Harness.remoteBlob(id: row.id,
+      ciphertext: h.keyring.seal(entryId: row.id, plaintext: encodeBlindStorePayload(row))!)], 'next_seq': 1});
+    await h.sync.syncNow();
+    expect(await h.cursor.loadRetries(kAccount), hasLength(1));
+    h.transport.ackQueue.add(<String, Object?>{'blobs': [Harness.remoteBlob(id: row.id,
+      seq: 2, ciphertext: '', deleted: true)], 'next_seq': 2});
+    await h.sync.syncNow();
+    expect(await h.cursor.loadRetries(kAccount), isEmpty);
+    p.fail = false;
+    h.transport.ackQueue.add(Harness.emptyPull(nextSeq: 2));
+    await h.sync.syncNow();
+    expect(await p.loadById(row.id), isNull);
+  });
+
+  test('failed cloud row is retried while newer rows continue', () async {
+    int nowMs = 0;
+    final p = _RowFails(); final h = Harness(persistence: p, nowMs: () => nowMs); await h.boot();
+    addTearDown(h.store.dispose);
+    final rows = <TimelineEntry>[lightRecord(id: 'failed-row'), lightRecord(id: 'newer-row')];
+    h.transport.ackQueue.add( <String, Object?>{
+      'blobs': [for (int i = 0; i < rows.length; i++) Harness.remoteBlob(
+        id: rows[i].id, seq: i + 1, ciphertext: h.keyring.seal(entryId: rows[i].id,
+          plaintext: encodeBlindStorePayload(rows[i]))!)], 'next_seq': 2,
+    });
+    final first = await h.sync.syncNow();
+    expect(first.merged, 1);
+    expect(await p.loadById('newer-row'), isNotNull);
+    expect(first.failure, isNotNull);
+    expect(h.cursor.read(kAccount), 2, reason: 'newer pulls keep advancing');
+    final strings = AppStrings.of(AppLocale.en);
+    expect(h.store.recoveryFailures.entryIds, {'failed-row'});
+    expect(h.store.writeFailures.noticeTicket, isNull);
+    final banner = buildChatBanners(connection: ConnectionState.connected,
+      autoStopped: false, strings: strings, timelineRecoveryFailure: true);
+    expect(banner.all.single.message, 'Some notes could not be saved or read on this phone, but they have not been deleted.');
+    final newest = lightRecord(id: 'newest-row');
+    h.transport.ackQueue.add(<String, Object?>{'blobs': [Harness.remoteBlob(
+      id: newest.id, seq: 3, ciphertext: h.keyring.seal(entryId: newest.id,
+        plaintext: encodeBlindStorePayload(newest))!)], 'next_seq': 3});
+    final continuing = await h.sync.syncNow();
+    expect(continuing.merged, 1);
+    expect(continuing.failure, isNull);
+    expect(continuing.deferred, 1);
+    expect(await p.loadById('newest-row'), isNotNull);
+    expect(h.cursor.read(kAccount), 3);
+    p.fail = false;
+    nowMs += 60000;
+    h.transport.ackQueue.add(Harness.emptyPull(nextSeq: 3));
+    final next = await h.sync.syncNow();
+    expect(next.failure, isNull);
+    expect(await p.loadById('failed-row'), isNotNull);
+    expect(h.store.recoveryFailures.noticeTicket, isNull);
+  });
+
   group('WRITE — a light record goes up sealed', () {
     test('one push frame, e2e:v1: ciphertext, no plaintext on the wire', () async {
       final Harness h = Harness();

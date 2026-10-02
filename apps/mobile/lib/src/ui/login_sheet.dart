@@ -34,7 +34,6 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import '../auth/account_mask.dart';
 import '../auth/browser_login.dart' show BrowserLoginCodes;
 import '../auth/browser_login_controller.dart';
-import '../auth/deep_link_source.dart';
 import '../auth/login_controller.dart';
 import '../settings/app_strings.dart';
 import 'scan_payload.dart';
@@ -53,16 +52,29 @@ Future<bool> showLoginSheet(
   required LoginController controller,
   required AppStrings strings,
   BrowserLoginController? browserLogin,
+  AppStrings Function()? currentStrings,
 }) async {
   controller.clearError();
+  final BrowserLoginController browser = controller.browserLogin(controller: browserLogin);
+  final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(context);
+  browser.onBackgroundResult = () {
+    if (messenger == null || !messenger.mounted) return;
+    final String? code = browser.errorCode ?? controller.errorCode;
+    if (code == null) return;
+    final AppStrings activeStrings = currentStrings?.call() ?? strings;
+    messenger.showSnackBar(SnackBar(content: Text(
+      browser.errorCode != null ? activeStrings.browserLoginError(code) : activeStrings.loginError(code),
+    )));
+  };
   final bool? result = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: Colors.transparent,
     builder: (_) => _LoginSheet(
       controller: controller,
       strings: strings,
-      browserLogin: browserLogin,
+      browserLogin: browser,
     ),
   );
   return result ?? (controller.phase == LoginPhase.success);
@@ -85,23 +97,11 @@ class _LoginSheet extends StatefulWidget {
 class _LoginSheetState extends State<_LoginSheet> {
   late final BrowserLoginController _browser;
 
-  /// True only when this state built the controller, i.e. only then may it
-  /// dispose it. A controller handed in by a test (or, later, by a caller that
-  /// owns one for longer) belongs to whoever made it.
-  late final bool _ownsBrowser;
-
   @override
   void initState() {
     super.initState();
-    _ownsBrowser = widget.browserLogin == null;
-    _browser =
-        widget.browserLogin ??
-        BrowserLoginController(
-          login: widget.controller,
-          links: AppLinksBrowserLoginLinks(),
-          store: PrefsBrowserLoginStateStore(),
-          opener: launchSignInInBrowser,
-        );
+    _browser = widget.browserLogin!;
+    _browser.panelVisible = true;
     // COLD START. The OS is allowed to kill this app while the user is in the
     // browser, in which case the callback URL arrives as this process's LAUNCH
     // argument and no stream listener existed to receive it. Draining it here —
@@ -112,7 +112,7 @@ class _LoginSheetState extends State<_LoginSheet> {
 
   @override
   void dispose() {
-    if (_ownsBrowser) _browser.dispose();
+    _browser.panelVisible = false;
     super.dispose();
   }
 
@@ -134,17 +134,26 @@ class _LoginSheetState extends State<_LoginSheet> {
         if (scan == null) {
           if (!mounted) return false;
           final ScanResult r = classifyScan(value);
-          _toast(r.verdict == ScanVerdict.pairLink ? s.loginScanIsPair : s.pairScanForeign);
+          _toast(
+            r.verdict == ScanVerdict.pairLink
+                ? s.loginScanIsPair
+                : s.pairScanForeign,
+          );
           return false; // keep the camera running
         }
-        await widget.controller.loginWithQr(nonce: scan.nonce, endpoint: scan.endpoint);
+        await widget.controller.loginWithQr(
+          nonce: scan.nonce,
+          endpoint: scan.endpoint,
+        );
         return true;
       },
     );
     if (!mounted) return;
     // The controller's phase drives the sheet exactly as the browser flow does —
     // success closes it, a failure shows the same loud, mapped code.
-    if (widget.controller.phase == LoginPhase.success) Navigator.of(context).pop(true);
+    if (widget.controller.phase == LoginPhase.success) {
+      Navigator.of(context).pop(true);
+    }
   }
 
   Future<void> _startBrowserLogin() async {
@@ -178,7 +187,9 @@ class _LoginSheetState extends State<_LoginSheet> {
 
   void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -187,25 +198,35 @@ class _LoginSheetState extends State<_LoginSheet> {
     final double insets = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
       padding: EdgeInsets.only(bottom: insets),
-      child: Container(
-        decoration: BoxDecoration(
-          color: FlowMicColors.surface,
-          border: Border(top: BorderSide(color: FlowMicColors.line)),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
-        // BOTH controllers drive this tree: the browser round trip changes the
-        // phase without the account server saying anything, and the account
-        // server answers without the browser controller moving.
-        child: ListenableBuilder(
-          listenable: Listenable.merge(<Listenable>[widget.controller, _browser]),
-          builder: (BuildContext context, _) {
-            if (widget.controller.phase == LoginPhase.success) {
-              _closeOnSuccess();
-              return _successBody(s);
-            }
-            return _formBody(s);
-          },
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          child: Container(
+            decoration: BoxDecoration(
+              color: FlowMicColors.surface,
+              border: Border(top: BorderSide(color: FlowMicColors.line)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
+            ),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
+            // BOTH controllers drive this tree: the browser round trip changes the
+            // phase without the account server saying anything, and the account
+            // server answers without the browser controller moving.
+            child: ListenableBuilder(
+              listenable: Listenable.merge(<Listenable>[
+                widget.controller,
+                _browser,
+              ]),
+              builder: (BuildContext context, _) {
+                if (widget.controller.phase == LoginPhase.success) {
+                  _closeOnSuccess();
+                  return _successBody(s);
+                }
+                return _formBody(s);
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -345,7 +366,11 @@ class _LoginSheetState extends State<_LoginSheet> {
                 const SizedBox(width: 8),
                 Text(
                   s.loginScanTitle,
-                  style: TextStyle(color: FlowMicColors.t2, fontSize: 13.5, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: FlowMicColors.t2,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -419,15 +444,17 @@ class _LoginSheetState extends State<_LoginSheet> {
             InkWell(
               key: const ValueKey<String>('login.register.copyUrl'),
               onTap: () {
-                Clipboard.setData(
-                  ClipboardData(text: _browser.signInPageUrl),
-                );
+                Clipboard.setData(ClipboardData(text: _browser.signInPageUrl));
                 _toast(s.registerLinkCopied);
               },
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  Icon(Icons.copy_outlined, size: 13, color: FlowMicColors.brand),
+                  Icon(
+                    Icons.copy_outlined,
+                    size: 13,
+                    color: FlowMicColors.brand,
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     s.registerCopyLink,
@@ -478,13 +505,19 @@ class _LoginSheetState extends State<_LoginSheet> {
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: <Color>[Color(0xFF5B54E8), Color(0xFF7C74F2)]),
+          gradient: const LinearGradient(
+            colors: <Color>[Color(0xFF5B54E8), Color(0xFF7C74F2)],
+          ),
           borderRadius: BorderRadius.circular(14),
         ),
         child: Text(
           label,
           textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     ),

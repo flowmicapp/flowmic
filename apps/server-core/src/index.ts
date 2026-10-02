@@ -17,6 +17,7 @@ import { startServer, SERVER_VERSION } from './bootstrap';
 import { installProcessGuards } from './error-handling';
 import { initLogFile, log } from './log';
 import { SERVER_CORE_BUILD_STAMP } from './build-stamp';
+import { installParentWatchdog } from './parent-watchdog';
 
 /** Parse `--mode <m>`, `--port <n>`, `--db <path>` (and `--key=value`) into
  *  loadConfig overrides. CLI beats env; anything unrecognized is ignored. */
@@ -64,6 +65,13 @@ async function main(): Promise<void> {
   // health contract is out of scope for this card.
   log.info('server-core build', { stamp: SERVER_CORE_BUILD_STAMP });
   const config = loadConfig(parseArgv(process.argv.slice(2)));
+  // Install BEFORE async boot, so EOF during startup cannot leave an orphan.
+  // Exit directly: even a stuck shutdown or live client must release the port.
+  installParentWatchdog(config.mode === 'standalone' && process.env.FLOWMIC_PARENT_PIPE === '1',
+    process.stdin, () => {
+      log.info('desktop lifetime pipe closed; exiting sidecar');
+      process.exit(0);
+    });
   const handle = await startServer(config);
   // Line 1 — the legacy bare port (smoke harnesses key on /^(\d+)/).
   process.stdout.write(`${handle.port}\n`);

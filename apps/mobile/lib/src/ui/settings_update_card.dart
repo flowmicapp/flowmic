@@ -268,7 +268,7 @@ class SettingsUpdateCard extends StatelessWidget {
             ],
           ),
           // The store-delivered channel (iOS): the update arrives through
-          // TestFlight / the App Store. The BRANCH is keyed on `storeChannel`,
+          // TestFlight. The BRANCH is keyed on `storeChannel`,
           // NOT on `storeUrl != null` — a link-less store entry must never
           // fall through to the 「download it from the address below」 copy
           // with no address below.

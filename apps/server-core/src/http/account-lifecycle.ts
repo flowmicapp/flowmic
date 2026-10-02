@@ -49,6 +49,8 @@ import type { MobileRepo } from '../db/repos/mobile.repo';
 import type { PcRepo } from '../db/repos/pc.repo';
 import type { SettingsRepo } from '../db/repos/settings.repo';
 import type { UsageRepo } from '../db/repos/usage.repo';
+import type { RecoveryOperationsRepo } from '../db/repos/recovery-operations.repo';
+import type { UsageEffectLedger } from '../db/repos/usage-effects.repo';
 import { isPlatformAccount, type UserRecord, type UserRepo } from '../db/repos/user.repo';
 
 /** The export envelope's format tag. Versioned because the FIRST consumer of a
@@ -313,6 +315,11 @@ export interface AccountExportStores {
   mobiles: Pick<MobileRepo, 'listByPc'>;
   settings: Pick<SettingsRepo, 'readAll'>;
   usage: Pick<UsageRepo, 'listByUser'>;
+  /** NR-138 round 5 (book 22 §4.11) — the recovery-operation registry and its metering claims. They are kept 90
+   *  days and hold no content, but they are records ABOUT this account, so 「see what we hold about you」 includes
+   *  them (this function's contract below). */
+  recoveryOps: Pick<RecoveryOperationsRepo, 'listByUser'>;
+  usageEffects: Pick<UsageEffectLedger, 'listByUser'>;
 }
 
 export interface AccountExport {
@@ -330,6 +337,17 @@ export interface AccountExport {
   mobile_pairings: unknown[];
   settings: { key: string; value: unknown; updated_at: string }[];
   usage_records: { month: string; stt_minutes: number; llm_tokens_in: number; llm_tokens_out: number; updated_at: string }[];
+  /** NR-138 round 5 — re-sent recordings the relay registered (which recording, which audio range, which mode). */
+  recovery_operations: {
+    operation_id: string; recording_id: string | null; job_id: string | null; range_start_sample: number | null;
+    range_end_sample: number | null; attempt_kind: string | null; mode: string; first_seen_at: string; last_seen_at: string;
+    resend_count: number;
+  }[];
+  /** NR-138 round 5 — what each of those operations was billed, and how often it was re-sent after that. */
+  metering_claims: {
+    operation_id: string; kind: string; billed_at: string; billed_ms: number | null; replays: number;
+    recording_id: string | null; job_id: string | null; range_start_sample: number | null; range_end_sample: number | null;
+  }[];
   /** 🔴 What is deliberately NOT in this file, and why. An export that silently
    *  drops fields is indistinguishable from an account that never had them. */
   omitted: Record<string, unknown>;
@@ -412,6 +430,29 @@ export function buildAccountExport(user: UserRecord, stores: AccountExportStores
       llm_tokens_in: u.llm_tokens_in,
       llm_tokens_out: u.llm_tokens_out,
       updated_at: u.updated_at,
+    })),
+    recovery_operations: stores.recoveryOps.listByUser(user.id).map((o) => ({
+      operation_id: o.operation_id,
+      recording_id: o.recording_id ?? null,
+      job_id: o.job_id ?? null,
+      range_start_sample: o.range_start_sample ?? null,
+      range_end_sample: o.range_end_sample ?? null,
+      attempt_kind: o.attempt_kind ?? null,
+      mode: o.mode,
+      first_seen_at: new Date(o.first_seen_at).toISOString(),
+      last_seen_at: new Date(o.last_seen_at).toISOString(),
+      resend_count: o.resend_count,
+    })),
+    metering_claims: stores.usageEffects.listByUser(user.id).map((c) => ({
+      operation_id: c.operation_id,
+      kind: c.kind,
+      billed_at: new Date(c.applied_at).toISOString(),
+      billed_ms: c.billed_ms,
+      replays: c.replays,
+      recording_id: c.recording_id,
+      job_id: c.job_id,
+      range_start_sample: c.range_start_sample,
+      range_end_sample: c.range_end_sample,
     })),
     omitted: {
       password_hash: 'never exported — it is a credential, not data about you',

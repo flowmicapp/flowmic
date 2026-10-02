@@ -29,7 +29,9 @@
 // shape this repo keeps paying for.
 
 import type { UsageTracker, EngineUsageMeta, MeteredPrincipalRef } from '../billing/usage-tracker';
-import type { SttCharCounts } from '../engine/stt-session-deps';
+import type { SttCharCounts, SttEngineFailure } from '../engine/stt-session-deps';
+import { logNotCharged } from '../engine/stt-engine-failure';
+import type { ClaimBinding } from '../db/repos/usage-effects.repo';
 import type { UsageEventKind } from '../db/repos/usage-events.repo';
 import type { ReplicaOutbox } from '../db/replica-outbox';
 import type { ForwardedWrite } from './forwarded-write';
@@ -110,8 +112,11 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
     // records that will be dropped are cheap; a divergence is not.
     recordSttUsage(
       user_id: string, engine: EngineUsageMeta, duration_ms: number, chars: SttCharCounts,
-      principal: MeteredPrincipalRef, operation_id?: string,
+      principal: MeteredPrincipalRef, operation_id?: string, failure?: SttEngineFailure, binding?: ClaimBinding,
     ): void {
+      // NR-138 item 5 (book 22 §4.10) — not charged ⇒ nothing is owed to the writer: no debit, no claim, no row.
+      // This obeys the bridge's verdict; it does not re-derive any billing predicate (the rule above still holds).
+      if (failure !== undefined) { logNotCharged(user_id, duration_ms, failure, 'replica'); return; }
       // PR-2 — a deterministic id ONLY when there is an operation to derive it
       // from. No operation ⇒ `newId()`, i.e. today's behaviour byte for byte:
       // an ordinary press has nothing that repeats, and inventing a stable key
@@ -133,6 +138,9 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
           // the same operation's LOCAL metering takes, which is the only thing
           // that makes 「metered here, re-sent there」 one charge.
           ...(operation_id === undefined ? {} : { operation_id }),
+          // NR-138 round 6 (book 22 §4.11) — the frame's binding travels with the operation, so the writer's claim
+          // stores it and a later replay is compared against it. Without it the writer's claim would be unbound.
+          ...(operation_id === undefined || binding === undefined ? {} : { operation_binding: binding }),
         },
         operation_id === undefined ? undefined
           : operationRecordId(user_id, operation_id, 'stt', engine.is_byok),
@@ -140,7 +148,7 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
     },
     recordLlmUsage(
       user_id: string, engine: EngineUsageMeta, tokens_in: number, tokens_out: number,
-      principal: MeteredPrincipalRef, operation_id?: string,
+      principal: MeteredPrincipalRef, operation_id?: string, binding?: ClaimBinding,
     ): void {
       owe(
         {
@@ -151,6 +159,7 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
           ...(principal.payer_reason === undefined && principal.speaker_ref === undefined
             && principal.cap_user_id === undefined && principal.integrator_key_id === undefined ? {} : { principal }),
           ...(operation_id === undefined ? {} : { operation_id }),
+          ...(operation_id === undefined || binding === undefined ? {} : { operation_binding: binding }),
         },
         operation_id === undefined ? undefined
           : operationRecordId(user_id, operation_id, 'llm', engine.is_byok),

@@ -20,32 +20,37 @@
 // was already reaped closes as a no-op.
 //
 // Non-Windows builds keep the same call sites compiling as no-ops; the
-// graceful kill_child path is the only teardown there.
+// Unix parent-death protection lives in parent_death.rs and the Node stdin watchdog.
 
+#[cfg(windows)]
 use std::sync::Mutex;
 
+#[cfg(windows)]
 use crate::forensic;
 
 /// The live job holding the current child. `None` before the first spawn and
 /// after `clear`.
+#[cfg(windows)]
 static CURRENT: Mutex<Option<ChildJob>> = Mutex::new(None);
 
 /// Owns the job handle. Closing it (Drop) terminates any assigned process
 /// that is still alive — see the module header.
+#[cfg(windows)]
 struct ChildJob(JobHandle);
 
 #[cfg(windows)]
 type JobHandle = windows::Win32::Foundation::HANDLE;
 
-#[cfg(not(target_os = "windows"))]
-type JobHandle = ();
 
 // The raw handle is only ever touched under CURRENT's mutex (and by Drop,
 // which runs after the mutex hands ownership out), so the usual
 // raw-handle-is-!Send rule is satisfied by construction.
+#[cfg(windows)]
 unsafe impl Send for ChildJob {}
+#[cfg(windows)]
 unsafe impl Sync for ChildJob {}
 
+#[cfg(windows)]
 impl Drop for ChildJob {
     fn drop(&mut self) {
         #[cfg(windows)]
@@ -116,10 +121,6 @@ fn bind(child_pid: u32) -> Result<ChildJob, String> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-fn bind(_child_pid: u32) -> Result<ChildJob, String> {
-    Ok(ChildJob(()))
-}
 
 /// Bind the just-spawned sidecar child to a kill-on-close job, replacing any
 /// previous slot (a retry spawns a new child; the old job — its child already
@@ -127,6 +128,7 @@ fn bind(_child_pid: u32) -> Result<ChildJob, String> {
 /// graceful `kill_child` path still covers exit and retry, so a weakened
 /// backstop must not take the bring-up down with it (no silent failure, and no
 /// observation-layer failure may backfire onto the main flow).
+#[cfg(windows)]
 pub fn guard_child(child_pid: u32) {
     match bind(child_pid) {
         Ok(job) => {
@@ -145,10 +147,14 @@ pub fn guard_child(child_pid: u32) {
     }
 }
 
+#[cfg(not(windows))]
+pub fn guard_child(_child_pid: u32) {}
+
 /// Drop the slot (exit / retry kill). The child is already reaped by the
 /// caller, so the close is a no-op — the job exists for the case where nobody
 /// gets to run this.
 pub fn clear() {
+    #[cfg(windows)]
     let _ = CURRENT.lock().unwrap_or_else(|p| p.into_inner()).take();
 }
 

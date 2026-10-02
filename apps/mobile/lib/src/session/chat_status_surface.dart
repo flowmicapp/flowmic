@@ -40,6 +40,11 @@
 part of 'chat_controller.dart';
 
 extension ChatStatusSurface on ChatController {
+  /// A local disk failure concerns this phone, regardless of the active PC.
+  int? get timelineWriteFailure => store.writeFailures.noticeTicket;
+
+  void dismissTimelineWriteFailure() => dismissTimelineWriteFailureRouted(this);
+
   /// The last ComposeBand failure, held until the user dismisses it. A delivery
   /// that did not happen must stay visible (没有静默失败 — "no silent failure"). Owned by
   /// [ManualDelivery]; re-exposed here so the page keeps reading one object.

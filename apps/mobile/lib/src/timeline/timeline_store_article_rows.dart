@@ -175,6 +175,37 @@ Future<List<TimelineEntry>> articleMembersOnDisk(
   String articleId,
 ) async => articleMembersIn(await store._persistence.loadAll(), articleId);
 
+/// NR-137 round 6 (review D2) — [articleMembersOnDisk] for a DECISION that
+/// removes rows or releases audio: null when anything storage could not decode
+/// may be one of the members. ⚠️ Round 9: decided by `TimelineProof` (the one
+/// place), which also answers null when any registered store was not read. A
+/// read that fails is not raised; it is "not proven". Copy and display keep
+/// the lenient reader.
+Future<List<TimelineEntry>?> articleMembersVerified(
+  TimelineStore store,
+  String articleId,
+) async {
+  final List<TimelineEntry>? members =
+      (await TimelineProof.take(store._persistence)).members(articleId);
+  if (members == null) {
+    diag('timeline.article_members_incomplete', <String, Object?>{});
+  }
+  return members;
+}
+
+/// NR-137 round 6 (review D2) — [articleRowsOnDisk] with its holes: [unknown]
+/// names every one of [articleIds] whose rows cannot be proven complete, so
+/// "no stored rows" is never concluded for it (round 9: by `TimelineProof`).
+Future<({List<TimelineEntry> rows, Set<String> unknown})> articleRowsVerified(
+  TimelineStore store,
+  Set<String> articleIds,
+) async {
+  if (articleIds.isEmpty) {
+    return (rows: const <TimelineEntry>[], unknown: const <String>{});
+  }
+  return (await TimelineProof.take(store._persistence)).articleRows(articleIds);
+}
+
 /// Card CR-12-G — every live row (head and members) of [articleIds], from
 /// STORAGE, in one scan.
 ///

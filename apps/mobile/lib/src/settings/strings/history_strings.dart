@@ -26,27 +26,10 @@ mixin HistoryStrings on AppStringsLeaves {
       _lfUnknownInstance;
   String get historyEmpty =>
       _lfHistoryEmpty;
-  // Hard requirement ④: a page called 「全部历史」 ("all history") must tell the
-  // truth about how many rows it actually has stored.
-  //
-  // Before V2-06a-2 this said 「仅保留最近 100 条」 ("only the most recent 100
-  // are kept") — back then `SharedPrefsTimelinePersistence.maxPersistedEntries`
-  // really was 100, so that sentence was honest. Once SQLite landed and the cap
-  // was lifted, the same sentence became a stale lie, so it was changed in the
-  // same commit that lifted the cap.
-  //
-  // Now this sentence is **conditional**: the footnote states 「此刻真正在用哪
-  // 个库」 ("which store is genuinely in use right now"), not a compile-time
-  // baked-in assumption. If SQLite fails to open or a one-time import fails, it
-  // falls back to the old 100-row-cap version — and in that case, still saying
-  // 「全部历史都在本机」 ("all history is on this device") would be a literal
-  // violation of that red line.
   String get historyAllPersisted => _lfHistoryAllPersisted;
 
-  /// The footnote shown when it has fallen back to the old store. **States the
-  /// fallback itself out loud** — saying only 「仅保留最近 100 条」 ("only the
-  /// most recent 100 are kept") would let the user believe this is the normal
-  /// design, rather than an upgrade that did not succeed.
+  // NR-146: fallback is uncapped. Pending copy context:
+  // _dispatch/2026-10-01-nr146-copy-context.md (historyFallbackNote).
   String get historyFallbackNote => _lfHistoryFallbackNote;
   // The narrowed view's honest empty state when not connected to any instance
   // — never populate it with another instance's history.

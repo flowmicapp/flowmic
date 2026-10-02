@@ -166,43 +166,45 @@ class ImagePreviewPage extends StatelessWidget {
             behavior: HitTestBehavior.opaque,
           ),
         ),
-        Center(
-          // 🔴 The FutureBuilder now wraps the WHOLE column, not just the
-          // picture. It has to: the caption block below has to say 「what you
-          // are looking at is the preview」 exactly when the picture above it is
-          // the preview, and the only
-          // place both facts are in scope at once is inside this builder.
-          child: full == null
-              // No big picture was offered for this row at all (a
-              // lightweight-record row —
-              // structurally one size). Known before the first frame, so this
-              // branch never has to wait to be honest.
-              ? _content(context, png, previewOnly: true)
-              : FutureBuilder<Uint8List?>(
-                  future: full,
-                  builder: (_, AsyncSnapshot<Uint8List?> snap) {
-                    final Uint8List? big = snap.data;
-                    // No spinner, and that is deliberate: the thumbnail is a
-                    // real picture of the same thing, so the wait has nothing to
-                    // announce. A spinner over an image that is already visible
-                    // reads as 「broken」.
-                    final bool resolved =
-                        snap.connectionState == ConnectionState.done;
-                    final bool thumbnailOnly = big == null || big.isEmpty;
-                    return _content(
-                      context,
-                      thumbnailOnly ? png : big,
-                      // 🔴 Three states, not two. While the read is still in
-                      // flight we are ALSO painting the thumbnail — but we do
-                      // not yet know whether a big one is coming, so the note
-                      // stays off. Printing it here would be a claim we would
-                      // have to withdraw one frame later, and a sentence that
-                      // appears and vanishes reads as a glitch rather than as
-                      // information (F-5 is the same family).
-                      previewOnly: resolved && thumbnailOnly,
-                    );
-                  },
-                ),
+        SafeArea(
+          child: Center(
+            // 🔴 The FutureBuilder now wraps the WHOLE column, not just the
+            // picture. It has to: the caption block below has to say 「what you
+            // are looking at is the preview」 exactly when the picture above it is
+            // the preview, and the only
+            // place both facts are in scope at once is inside this builder.
+            child: full == null
+                // No big picture was offered for this row at all (a
+                // lightweight-record row —
+                // structurally one size). Known before the first frame, so this
+                // branch never has to wait to be honest.
+                ? _content(context, png, previewOnly: true)
+                : FutureBuilder<Uint8List?>(
+                    future: full,
+                    builder: (_, AsyncSnapshot<Uint8List?> snap) {
+                      final Uint8List? big = snap.data;
+                      // No spinner, and that is deliberate: the thumbnail is a
+                      // real picture of the same thing, so the wait has nothing to
+                      // announce. A spinner over an image that is already visible
+                      // reads as 「broken」.
+                      final bool resolved =
+                          snap.connectionState == ConnectionState.done;
+                      final bool thumbnailOnly = big == null || big.isEmpty;
+                      return _content(
+                        context,
+                        thumbnailOnly ? png : big,
+                        // 🔴 Three states, not two. While the read is still in
+                        // flight we are ALSO painting the thumbnail — but we do
+                        // not yet know whether a big one is coming, so the note
+                        // stays off. Printing it here would be a claim we would
+                        // have to withdraw one frame later, and a sentence that
+                        // appears and vanishes reads as a glitch rather than as
+                        // information (F-5 is the same family).
+                        previewOnly: resolved && thumbnailOnly,
+                      );
+                    },
+                  ),
+          ),
         ),
       ],
     );
@@ -214,62 +216,78 @@ class ImagePreviewPage extends StatelessWidget {
     BuildContext context,
     Uint8List bytes, {
     required bool previewOnly,
-  }) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: <Widget>[
-      Flexible(
-        child: GestureDetector(
-          onDoubleTap: () => Navigator.of(context).maybePop(),
-          child: _image(bytes, thumbnail: previewOnly),
+  }) => LayoutBuilder(
+    builder: (BuildContext context, BoxConstraints constraints) => SingleChildScrollView(
+      hitTestBehavior: HitTestBehavior.translucent,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: constraints.maxHeight * 0.72,
+              ),
+              child: GestureDetector(
+                onDoubleTap: () => Navigator.of(context).maybePop(),
+                child: _image(bytes, thumbnail: previewOnly),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                caption,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: FlowMicColors.t1, fontSize: 13),
+              ),
+            ),
+            if (previewOnly) ...<Widget>[
+              const SizedBox(height: 4),
+              Padding(
+                // Same 24 px gutter and free wrapping as the caption: this sentence
+                // has no maxLines and no ellipsis, so it cannot be cut down to three
+                // letters the way the 0.2.53 meta-row defect was.
+                //
+                // 🔴 CORRECTION IN PLACE (2026-08-07, W5a adversarial review P1-1,
+                // measured). The claim above is TRUE. What was false is what the test
+                // did with it: `image_preview_note_wire_test.dart` proved it with
+                // `didExceedMaxLines`, and that getter is ALWAYS false when there is
+                // no `maxLines` — so the assertion could not fail, and this sentence
+                // was in fact unguarded. The property is now pinned by
+                // `test/support/legibility.dart` (`expectLegible`), which reads the
+                // instrument before it reads the product: no `maxLines` ⇒ assert the
+                // four things that make clipping impossible (softWrap, no ellipsis,
+                // a finite width, and the longest UNBREAKABLE run still fitting the
+                // box) rather than a reading that is structurally incapable of
+                // reporting a defect.
+                //
+                // ⇒ anti-façade ④: a comment that asserts behaviour elsewhere needs a
+                // greppable anchor or a test that can actually go red. This one had a
+                // test, and the test was green for a reason unrelated to the claim.
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  previewOnlyNote,
+                  key: const ValueKey<String>('imagePreview.previewOnlyNote'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: FlowMicColors.t2, fontSize: 12),
+                ),
+              ),
+            ],
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                closeHint,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: FlowMicColors.t3, fontSize: 11.5),
+              ),
+            ),
+          ],
         ),
       ),
-      const SizedBox(height: 12),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Text(
-          caption,
-          textAlign: TextAlign.center,
-          style: TextStyle(color: FlowMicColors.t1, fontSize: 13),
-        ),
-      ),
-      if (previewOnly) ...<Widget>[
-        const SizedBox(height: 4),
-        Padding(
-          // Same 24 px gutter and free wrapping as the caption: this sentence
-          // has no maxLines and no ellipsis, so it cannot be cut down to three
-          // letters the way the 0.2.53 meta-row defect was.
-          //
-          // 🔴 CORRECTION IN PLACE (2026-08-07, W5a adversarial review P1-1,
-          // measured). The claim above is TRUE. What was false is what the test
-          // did with it: `image_preview_note_wire_test.dart` proved it with
-          // `didExceedMaxLines`, and that getter is ALWAYS false when there is
-          // no `maxLines` — so the assertion could not fail, and this sentence
-          // was in fact unguarded. The property is now pinned by
-          // `test/support/legibility.dart` (`expectLegible`), which reads the
-          // instrument before it reads the product: no `maxLines` ⇒ assert the
-          // four things that make clipping impossible (softWrap, no ellipsis,
-          // a finite width, and the longest UNBREAKABLE run still fitting the
-          // box) rather than a reading that is structurally incapable of
-          // reporting a defect.
-          //
-          // ⇒ anti-façade ④: a comment that asserts behaviour elsewhere needs a
-          // greppable anchor or a test that can actually go red. This one had a
-          // test, and the test was green for a reason unrelated to the claim.
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Text(
-            previewOnlyNote,
-            key: const ValueKey<String>('imagePreview.previewOnlyNote'),
-            textAlign: TextAlign.center,
-            style: TextStyle(color: FlowMicColors.t2, fontSize: 12),
-          ),
-        ),
-      ],
-      const SizedBox(height: 4),
-      Text(
-        closeHint,
-        style: TextStyle(color: FlowMicColors.t3, fontSize: 11.5),
-      ),
-    ],
+    ),
   );
 
   /// One renderer for both sizes, so the two can never drift into two different

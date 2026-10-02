@@ -511,4 +511,3 @@ Future<void> _deliverDirect(
   // are ONE banner, not two competing truths.
   c.delivery.failSettled(<String>[entry.id], ComposeSendFailure.wireFailed);
 }
-

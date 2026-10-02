@@ -52,7 +52,9 @@ import type { UsageRepo } from '../db/repos/usage.repo';
 import type { UsageEffectClaim, UsageEffectKind } from '../db/repos/usage-effects.repo';
 import type { UsageChannel, UsageEventKind, UsageEventsRepo } from '../db/repos/usage-events.repo';
 import type { PayerReason } from '../auth/metering-principal';
-import type { SttCharCounts } from '../engine/stt-session-deps';
+import type { SttCharCounts, SttEngineFailure } from '../engine/stt-session-deps';
+import { logNotCharged } from '../engine/stt-engine-failure';
+import type { ClaimBinding } from '../db/repos/usage-effects.repo';
 import { log } from '../log';
 
 export interface EngineUsageMeta {
@@ -164,6 +166,12 @@ export interface UsageTracker {
   recordSttUsage(
     user_id: string, engine: EngineUsageMeta, duration_ms: number, chars: SttCharCounts,
     principal: MeteredPrincipalRef, operation_id?: string,
+    /** NR-138 item 5 (book 22 §4.10) — present ⇒ the session ended on an engine failure with no usable transcript:
+     *  NOTHING is metered, claimed or logged as an event. Decided by the bridge, obeyed here. */
+    failure?: SttEngineFailure,
+    /** NR-138 round 6 (book 22 §4.11) — the recording / job / range of the frame [operation_id] came with. The claim
+     *  stores it; a replay is free only under the same binding. Absent ⇒ unbound: every replay billed normally. */
+    binding?: ClaimBinding,
   ): void;
   /**
    * The LLM metering calls — three sites (billing-call-sites.test.ts): the
@@ -195,6 +203,8 @@ export interface UsageTracker {
   recordLlmUsage(
     user_id: string, engine: EngineUsageMeta, tokens_in: number, tokens_out: number,
     principal: MeteredPrincipalRef, operation_id?: string,
+    /** NR-138 round 6 — see recordSttUsage. */
+    binding?: ClaimBinding,
   ): void;
   /**
    * A2-5 — "this attempt was blocked by the quota".
@@ -504,24 +514,32 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
    * code path unchanged.
    */
   function meterOnce(
-    user_id: string, operation_id: string | undefined, kind: UsageEffectKind, effect: () => void,
+    user_id: string, operation_id: string | undefined, kind: UsageEffectKind, amount: number,
+    effect: (charge: number) => void, binding?: ClaimBinding,
   ): void {
     const ledger = config.operations;
-    if (ledger === undefined || operation_id === undefined) return effect();
-    const verdict = ledger.once({ user_id, operation_id, kind, at: clock() }, effect);
-    if (verdict === 'duplicate') {
-      // Said out loud, once per skipped effect. A re-send that is correctly NOT
-      // charged and a re-send that silently failed to be charged look identical
-      // from the outside, and only this line separates them.
-      log.info('usage: operation already metered — this re-send moved no counter', {
-        user_id, operation_id, kind,
+    if (ledger === undefined || operation_id === undefined) return effect(amount);
+    // *** billing *** NR-138 round 4 (book 22 §4.11): a replay of a claimed operation is charged inside a bound — 0,
+    // the excess over what the claim paid, or in full — and [effect] receives that charge (usage-effects.repo.ts).
+    const verdict = ledger.meter({ user_id, operation_id, kind, at: clock(), binding }, amount, effect);
+    if (verdict !== 'applied') {
+      // Said out loud, once per replay. A re-send that is correctly NOT charged and a re-send that silently failed
+      // to be charged look identical from the outside, and only this line separates them.
+      log.info('usage: operation already metered — replay charged inside the bound', {
+        user_id, operation_id, kind, verdict, amount: Math.round(amount),
       });
     }
   }
 
   return {
-    recordSttUsage(user_id, engine, duration_ms, chars, principal, operation_id): void {
+    recordSttUsage(user_id, engine, duration_ms, chars, principal, operation_id, failure, binding): void {
       if (config.mode !== 'saas') return; // standalone never bills
+      // 🔴 NR-138 item 5 (owner ruling 2026-10-01, book 22 §4.10) — an engine failure with no usable transcript is
+      // NOT CHARGED, and the return is BEFORE `meterOnce` on purpose: no `usage_records` increment, and no
+      // `usage_effects` claim either, so a later successful attempt of the same operation is still metered once.
+      // The hold was already released whole upstream (`settleUncharged`). Not a refund: nothing was ever debited.
+      // *** billing ***
+      if (failure !== undefined) { logNotCharged(user_id, duration_ms, failure, 'writer'); return; }
       // 🔴 MOVED ABOVE the BYOK check, and this reorder changes NO billing
       // behaviour: both branches returned before `increment` before, and both
       // still do. What it buys is that a zero-length utterance produces no
@@ -551,9 +569,11 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
       // That is a detail log with two rows for one recording; the alternative was
       // a claim that suppresses a charge, and only one of those two costs a user
       // money.
-      meterOnce(user_id, engine.is_byok ? undefined : operation_id, 'stt', () => {
+      // NR-138 round 4: everything below moves by [charged] — the full duration the first time, and on a replay of
+      // a claimed operation only what the bound leaves to charge (book 22 §4.11).
+      meterOnce(user_id, engine.is_byok ? undefined : operation_id, 'stt', duration_ms, (charged) => {
         if (!engine.is_byok) {
-          repo.increment(user_id, bucket(user_id), { stt_minutes: duration_ms / 60_000 });
+          repo.increment(user_id, bucket(user_id), { stt_minutes: charged / 60_000 });
           // card MP-6 — and the per-browser COUNTER, inside the same effect so a
           // re-sent operation cannot spend the cap twice while the bill is
           // correctly charged once. See {@link MeteredPrincipalRef.cap_user_id}
@@ -563,7 +583,7 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
             repo.increment(
               principal.cap_user_id,
               bucket(principal.cap_user_id),
-              { stt_minutes: duration_ms / 60_000 },
+              { stt_minutes: charged / 60_000 },
             );
           }
           // card MP-1 — and the integrator KEY's per-cycle counter, inside the
@@ -580,7 +600,7 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
             config.integratorKeys?.addUsage(
               principal.integrator_key_id,
               bucket(user_id),
-              Math.round(duration_ms),
+              Math.round(charged),
             );
           }
         }
@@ -590,7 +610,7 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
           kind: 'stt',
           // Rounded here rather than in the repo's clamp so the stored ms is the
           // same quantity the meter divided by 60_000 — one number, one origin.
-          stt_ms: Math.round(duration_ms),
+          stt_ms: Math.round(charged),
           is_byok: engine.is_byok,
           outcome: 'ok',
           // A2-5 — the two counts, forwarded verbatim from the session that
@@ -602,9 +622,9 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
           // the admission's answers, not this layer's.
           principal,
         });
-      });
+      }, binding);
     },
-    recordLlmUsage(user_id, engine, tokens_in, tokens_out, principal, operation_id): void {
+    recordLlmUsage(user_id, engine, tokens_in, tokens_out, principal, operation_id, binding): void {
       if (config.mode !== 'saas') return;
       const inN = Number.isFinite(tokens_in) ? Math.max(0, tokens_in) : 0;
       const outN = Number.isFinite(tokens_out) ? Math.max(0, tokens_out) : 0;
@@ -617,7 +637,8 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
       // and neither may swallow the other (audit A7-2).
       // Same as the STT leg above, same reason (audit F2): no counter moves for an
       // own-key call, so no claim is spent on it.
-      meterOnce(user_id, engine.is_byok ? undefined : operation_id, 'llm', () => {
+      // NR-138 round 4: LLM replays take the counter only (tokens vary between runs); [effect] runs in full or not.
+      meterOnce(user_id, engine.is_byok ? undefined : operation_id, 'llm', inN + outN, () => {
         if (!engine.is_byok) {
           repo.increment(user_id, bucket(user_id), { llm_tokens_in: inN, llm_tokens_out: outN });
         }
@@ -633,7 +654,7 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
           // interface for why a seconds ceiling has no meaning on a token count.
           principal,
         });
-      });
+      }, binding);
     },
     recordQuotaRefusal(user_id, kind, refused_user_id, principal): void {
       if (config.mode !== 'saas') return; // standalone has no quota to refuse

@@ -596,6 +596,7 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
             opsAudit: db.opsAudit,
             pcs: db.pcs,
             mobiles: db.mobiles,
+            recoveryOps: db.recoveryOps, usageEffects: db.usageEffects, // NR-138 round 5: the account export
             // Card MP-1 — the key store the delegated key routes read. The SAME
             // repo the socket path reaches through its guard.
             integratorKeys: db.integratorKeys,

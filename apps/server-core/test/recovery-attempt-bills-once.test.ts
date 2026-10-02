@@ -22,6 +22,8 @@
 // ⚠️ THE KNOWN CONSEQUENCE, WRITTEN INTO THE RULING (§11-3): a first attempt that was fed only half its range
 // and then failed has already claimed the operation; the full re-transcription that follows is not billed.
 // That is the under-billing direction, accepted. The third row pins it, so it is a decision and not a surprise.
+// ⚠️ Round 4 (2026-10-01, book 22 §4.11): no longer — the re-run is billed for the excess over what the first attempt
+// paid; the row below now pins that.
 //
 // REVERSE CONTROL (see the card report): the id minted fresh per attempt (the phone before RC-R) ⇒ the first
 // row red at two charges.
@@ -156,11 +158,14 @@ describe('RC-R — a recovery job is billed once, however many attempts it takes
     expect(minutes()).toBeCloseTo(40_000 / 60_000, 6);
   });
 
-  it('⚠️ the accepted consequence: a first attempt that was fed half its range claims the job; the full re-run is not billed', async () => {
+  // ⚠️ Correction (NR-138 round 4, MAIN decision, book 22 §4.11 「The bound on a free replay」): this row used to pin
+  // the accepted consequence — the full re-run NOT billed (30 s for a 60 s range). A replay longer than what its
+  // claim paid is now billed for the excess, so the job ends up billed for the whole range, once.
+  it('a first attempt that was fed half its range claims the job; the full re-run is billed for the half it never paid', async () => {
     const r = relay();
     const op = derivedOperationId('job-A', 'auto_retry');
     r.attempt({ job: 'job-A', kind: 'auto_retry', opId: op, billedMs: 30_000 }); // half of a 60 s range reached the engine
     r.attempt({ job: 'job-A', kind: 'auto_retry', opId: op, billedMs: 60_000 }); // the whole range, recognised again
-    expect(minutes()).toBeCloseTo(30_000 / 60_000, 6);
+    expect(minutes()).toBeCloseTo(60_000 / 60_000, 6);
   });
 });

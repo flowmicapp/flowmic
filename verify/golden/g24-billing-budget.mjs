@@ -36,12 +36,16 @@
 // all) would throw `SttConfigMissingError` and no session — and therefore no
 // deadline — would exist. "No engine reachable" and "no engine configured" are
 // two different worlds; this case needs the first one.
+// ⚠️ 更正（NR-138 item 5, 2026-10-01）: the pool no longer points at a closed port — a flush failure with no
+// transcript is no longer charged (book 22 §4.10), and this case is about a debit. It points at a LOCAL engine that
+// answers (stt-answering-engine.mjs); still no vendor and no LAN, so it still never SKIPs.
 
 import path from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { answeringPool } from './stt-answering-engine.mjs';
 import {
   ROOT, startSaasServer, connect, ack, recordAll, saasJwt,
   mailFileDir, mailFileEnv, verifyRegisteredEmail, PASS, FAIL,
@@ -72,11 +76,8 @@ const AUDIO_START = {
 /** The same press, record-only: the PC was never told it began (GA-02). */
 const AUDIO_START_RECORD_ONLY = { ...AUDIO_START, delivery: 'none' };
 
-/** A batch HTTP route pointed at a closed port — see the header. */
-const POOL = JSON.stringify([{
-  id: 'g24-unreachable', provider: 'custom-openai-compatible', model: 'g24',
-  api: 'http://127.0.0.1:9/v1', api_key: 'g24', enabled: true, priority: 1,
-}]);
+// NR-138 item 5 — an engine that ANSWERS (stt-answering-engine.mjs says why the closed port had to go).
+const POOL = answeringPool('g24-answering');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const budgets = (rec) => rec.frames.filter((f) => f.event === 'billing:budget').map((f) => f.args[0]);

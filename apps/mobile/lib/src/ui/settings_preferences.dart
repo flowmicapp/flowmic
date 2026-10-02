@@ -351,6 +351,30 @@ extension SettingsPagePreferences on SettingsPage {
             },
           ),
         ),
+        settingsRow(
+          child: InkWell(
+            key: const ValueKey<String>('settings.openLicenses'),
+            onTap: () async {
+              final String? appVersion = await version.appVersion();
+              if (!context.mounted) return;
+              showLicensePage(
+                context: context,
+                applicationName:
+                    context.findAncestorWidgetOfExactType<Title>()?.title,
+                applicationVersion: appVersion,
+              );
+            },
+            child: Row(
+              children: <Widget>[
+                Icon(Icons.description_outlined,
+                    size: 20, color: FlowMicColors.brand),
+                const SizedBox(width: 12),
+                Expanded(child: Text(s.openSourceLicenses, style: kRowTitle)),
+                Icon(Icons.chevron_right, size: 18, color: FlowMicColors.t3),
+              ],
+            ),
+          ),
+        ),
         // ── P-7's 「review again」 entry point for the first-run guide
         // (owner ruling 7-2: put it in the 「about」 section) ────────
         //

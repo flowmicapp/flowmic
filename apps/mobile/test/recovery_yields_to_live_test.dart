@@ -39,6 +39,7 @@ import 'package:flowmic/src/session/recovery_backoff.dart';
 import 'package:flowmic/src/session/recovery_identity.dart';
 import 'package:flowmic/src/settings/app_settings.dart' show AppLocale;
 import 'package:flowmic/src/settings/app_strings.dart';
+import 'package:flowmic/src/signaling/wire_payloads.dart' show FlowMode;
 import 'package:flowmic/src/signaling/state_machine.dart' show SessionState;
 import 'package:flowmic/src/timeline/entry_metrics.dart' show formatEntryDuration;
 import 'package:flowmic/src/timeline/timeline_entry.dart';
@@ -62,6 +63,57 @@ const String _b1 = '第二篇开头，今天只讲发布。';
 const String _b2 = '第二篇结尾，下午四点开始灰度。';
 
 void main() {
+  for (final bool hasSegment in <bool>[false, true]) {
+    testWidgets('H1: late live final on recovery wire, earlier segment=$hasSegment, stays manual',
+        (WidgetTester tester) async {
+      late final Rc3Rig r;
+      addTearDown(() => tester.runAsync(r.dispose));
+      await tester.runAsync(() async {
+        r = await Rc3Rig.open(longStopCeiling: const Duration(milliseconds: 100));
+        r.controller.backfill.dispose();
+        late Rc3Stop liveStop;
+        r.relay.onStop = (Rc3Stop stop) { if (!stop.recovery) liveStop = stop; };
+        await r.begin();
+        await r.feedMs(1000);
+        if (hasSegment) await r.segment(_b1, 0, 1000);
+        await r.feedMs(1000);
+        await r.controller.pttUp();
+        await r.until(() => r.session.fsm.session == SessionState.idle);
+        expect(r.session.fsm.session, SessionState.idle);
+        // Open the recovery seam directly: this pins settlement if a live
+        // final outlives the wire hold, independently of the runner's guard.
+        const RecoveryIdentity recovery = RecoveryIdentity(
+          recordingId: 'other-recording', jobId: 'other-job',
+          attemptId: 'other-attempt', operationId: 'other-operation',
+          attemptKind: RecoveryAttemptKind.autoRetry,
+          range: RecoverySampleRange(0, 16000), audioFormatVersion: 1,
+        );
+        expect(r.session.beginBackfill(mode: FlowMode.realtime, sourceLang: 'zh',
+            identity: recovery).ok, isTrue);
+        r.session.articles.attempts.openedRecovery(
+          attemptId: recovery.attemptId, recordingId: recovery.recordingId,
+          rangeStartSample: 0, rangeEndSample: 16000, rangeMs: 1000,
+        );
+        expect(r.session.openSessionRange, isNotNull);
+        expect(r.session.articles.attempts.isForeignEcho(
+            r.spill.liveAttempt!.attemptId,
+            liveAttemptId: r.spill.liveAttempt!.attemptId), isTrue);
+        await r.push(FlowMicEvents.sttFinal, r.relay.terminal(liveStop,
+            text: _b2, durationMs: 1000, segmentIdx: hasSegment ? 1 : 0));
+        await r.untilAsync(() async => (await r.manifest())!.attempts.isNotEmpty,
+            max: const Duration(seconds: 1));
+        final RecordingManifest m = (await r.manifest())!;
+        expect(r.rows.map((TimelineEntry e) => e.displayText), contains(_b2));
+        expect(m.recoveryState, RecoveryQueueState.settledUnverified);
+        expect(m.settled, isFalse);
+        expect(m.liveSettlePendingAtMs, isNull);
+        expect(m.attempts.last.failureCode, 'notEndedNormally');
+        expect(r.pcmOf(m.recordingId), isTrue);
+        r.session.abortBackfill();
+      });
+    });
+  }
+
   testWidgets(
       '🔴 (A) a new long recording starts while a recovery attempt holds the '
       'wire ⇒ the attempt yields; its late segment final is not filed under '

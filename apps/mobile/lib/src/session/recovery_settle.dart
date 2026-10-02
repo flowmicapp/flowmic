@@ -330,7 +330,7 @@ RecoverySettleDecision evaluateRecoverySettle(RecoverySettleInputs i) {
   //
   // ⚠️ NOT ASKED OF AN EMPTY RESULT, and that is not a softening: there is
   // no row to look for. A recording nobody said anything into leaves nothing
-  // behind (`settleLiveRecording` says the same at its `rowId == null` exit),
+  // behind (`_settleLive` also declines an empty required row set),
   // so stacking `rowNotPersisted` on top would report a missing row as a second
   // fault and make the refusal set say two things where one is true. Neither
   // arm may delete a byte either way - `emptyResult` is already in the set.

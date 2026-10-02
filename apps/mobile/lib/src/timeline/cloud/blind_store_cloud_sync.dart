@@ -45,10 +45,12 @@
 // Registered as an open item rather than papered over with a timer, because a
 // timer would be a second answer to 「什么时候排空」("when to drain").
 
+import 'package:flutter/foundation.dart';
 import '../../crypto/blind_store_keyring.dart';
 import '../../crypto/blind_store_params.dart';
 import '../../diag/diag_log.dart';
 import '../timeline_entry.dart';
+import '../timeline_persistence.dart';
 import 'blind_store_cloud_client.dart';
 import 'blind_store_cloud_state.dart';
 import 'blind_store_payload.dart';
@@ -87,6 +89,7 @@ class BlindStoreSyncReport {
     this.merged = 0,
     this.tombstonesApplied = 0,
     this.undecryptable = 0,
+    this.deferred = 0,
     this.failure,
   });
 
@@ -120,6 +123,7 @@ class BlindStoreSyncReport {
   /// silence (design §3.2) — a wrong key must not read as 「云端是空的」("the
   /// cloud is empty").
   final int undecryptable;
+  final int deferred;
 
   /// The transport or server refusal that stopped a stage, if any.
   final String? failure;
@@ -132,6 +136,7 @@ class BlindStoreSyncReport {
     'merged': merged,
     'tombstones_applied': tombstonesApplied,
     'undecryptable': undecryptable,
+    'deferred': deferred,
     if (failure != null) 'failure': failure,
   };
 }
@@ -179,6 +184,12 @@ class BlindStoreCloudSync {
   static const int kMaxPullPages = 20;
 
   bool _running = false;
+  int _lastLocalWrite = 0;
+  ValueListenable<int> get successfulLocalWrites => _bridge.successfulLocalWrites;
+  void storageRecovered() {
+    _lastLocalWrite = successfulLocalWrites.value;
+    _cursor.resetBackoff(localStorageOnly: true);
+  }
 
   /// Run one full cycle. Safe to call on every edge — re-entrant calls return a
   /// blocked-free empty report rather than stacking two drains on one link.
@@ -220,7 +231,7 @@ class BlindStoreCloudSync {
       try {
         keymetaOk = await _keymetaConfirmed();
       } on Object catch (e) {
-        diag('blindstore.keymeta_gate_threw', <String, Object?>{'error': '$e'});
+        diag('blindstore.keymeta_gate_threw', <String, Object?>{'error': e.runtimeType});
       }
       if (!keymetaOk) {
         return const BlindStoreSyncReport.blockedBy(
@@ -239,9 +250,11 @@ class BlindStoreCloudSync {
   Future<BlindStoreSyncReport> _run(String account) async {
     int confirmed = 0;
     int pushed = 0;
+    if (_lastLocalWrite != successfulLocalWrites.value) storageRecovered();
     int merged = 0;
     int tombstoned = 0;
     int undecryptable = 0;
+    int deferred = 0;
     String? failure;
 
     // 🔴 A REFUSAL DOES NOT STOP THE OTHER STAGES; AN UNREACHABLE LINK DOES.
@@ -293,6 +306,8 @@ class BlindStoreCloudSync {
       merged = tally.merged;
       tombstoned = tally.tombstoned;
       undecryptable = tally.undecryptable;
+      deferred = tally.deferred;
+      failure ??= tally.failure;
     });
 
     if (merged > 0 || tombstoned > 0) await _bridge.reload();
@@ -304,6 +319,7 @@ class BlindStoreCloudSync {
       merged: merged,
       tombstonesApplied: tombstoned,
       undecryptable: undecryptable,
+      deferred: deferred,
       failure: failure,
     );
   }
@@ -371,9 +387,11 @@ class BlindStoreCloudSync {
   }
 
   Future<_MergeTally> _pullAndMerge(String account) async {
+    if (_lastLocalWrite != successfulLocalWrites.value) storageRecovered();
     int merged = 0;
     int tombstoned = 0;
     int undecryptable = 0;
+    int deferred = 0;
     int since = _cursor.read(account);
 
     // Index the local light records once; a tombstone needs the whole entry
@@ -390,40 +408,53 @@ class BlindStoreCloudSync {
     // does, the row comes back as a tombstone with a fresh seq and converges.
     final Set<String> owedDeletes = (await _state.pendingDeletes()).toSet();
 
-    for (int page = 0; page < kMaxPullPages; page++) {
-      final BlindStorePullPage p = await _client.pull(sinceSeq: since);
-      if (p.blobs.isEmpty) {
-        since = p.nextSeq;
-        break;
-      }
-      for (final BlindStoreRemoteBlob b in p.blobs) {
+    String? rowFailure;
+    Future<void> mergeBlob(BlindStoreRemoteBlob b, {bool persisted = false}) async {
+      bool unreadable = false;
+      bool localStorage = false;
+      // NR-137 round 10 — set only once the envelope AUTHENTICATED and the
+      // supported decoder returned a complete row with this blob's id.
+      TimelineEntry? decodedEntry;
+      try {
         if (b.deleted) {
           // 🔴 A tombstone carries no payload — the server replaced the bytes
           // with the bare `e2e:v1:` prefix (E-B0). Attempting to decrypt it
           // would fail and be counted as an undecryptable entry, i.e. a false
           // alarm raised by a correct delete. Branch before decrypting.
-          final TimelineEntry? victim = local.remove(b.id);
+          final TimelineEntry? victim = local[b.id];
           if (victim != null) {
             await _bridge.applyRemoteTombstone(victim);
+            local.remove(b.id);
             tombstoned++;
           }
           await _state.forget(<String>[b.id]);
-          continue;
+          await _cursor.removeRetry(account, b.id);
+        _bridge.resolveMergeFailure(b.id, account: account);
+          return;
         }
-        if (owedDeletes.contains(b.id)) continue; // see owedDeletes above
+        if (owedDeletes.contains(b.id)) {
+          await _cursor.removeRetry(account, b.id);
+        _bridge.resolveMergeFailure(b.id, account: account);
+          return;
+        }
+        if (!_cursor.shouldRetry(account, b)) {
+          deferred++;
+          return;
+        }
         final String plaintext;
         try {
           plaintext = _keyring.open(entryId: b.id, envelope: b.ciphertext);
         } on BlindStoreCryptoException catch (e) {
           // Wrong key, tampered bytes, or a blob moved onto another row's id —
           // GCM cannot tell them apart and neither will we. Counted and named.
+          unreadable = true;
           undecryptable++;
           diag('blindstore.undecryptable', <String, Object?>{
             'id': b.id,
             'seq': b.seq,
             'failure': e.failure.name,
           });
-          continue;
+          rethrow;
         }
         final TimelineEntry? entry = decodeBlindStorePayload(plaintext);
         if (entry == null || entry.id != b.id) {
@@ -431,15 +462,22 @@ class BlindStoreCloudSync {
           // payload this build cannot read (a newer schema), or one whose inner
           // id disagrees with the row it arrived on. Both are counted rather
           // than guessed at.
+          unreadable = true;
           undecryptable++;
           diag('blindstore.unreadable_payload', <String, Object?>{
             'id': b.id,
             'seq': b.seq,
             'id_matches': entry?.id == b.id,
           });
-          continue;
+          throw const FormatException('unreadable cloud row');
         }
-        await _bridge.upsertFromCloud(entry);
+        decodedEntry = entry;
+        try {
+          if (!persisted) await _bridge.upsertFromCloud(entry, notifyFailure: !_cursor.retryWasNoticed(account, b));
+        } on TimelineLocalStorageError {
+          localStorage = true;
+          rethrow;
+        }
         local[entry.id] = entry;
         // Now that the local copy IS the cloud copy, record the fingerprint so
         // stage 2 does not immediately push it back up as an edit and burn a
@@ -449,7 +487,80 @@ class BlindStoreCloudSync {
           payloadHash: blindStorePayloadHash(encodeBlindStorePayload(entry)),
         );
         merged++;
+        await _cursor.removeRetry(account, b.id);
+        _bridge.resolveMergeFailure(b.id, account: account);
+      } on Object catch (e) {
+        rowFailure ??= 'error:${e is TimelineLocalStorageError ? e.cause.runtimeType : e.runtimeType}';
+        if (unreadable) {
+          _bridge.resolveMergeFailure(b.id, account: account);
+          _bridge.recordUnreadableCloud(account, b.id);
+        } else if (!_cursor.retryWasNoticed(account, b)) {
+          _bridge.recordMergeFailure(b.id);
+        }
+        diag('blindstore.row_merge_failed', <String, Object?>{'id': b.id});
+        // Persist ciphertext before advancing the forward cursor. A refusal
+        // here aborts the page, leaving the server cursor available for retry.
+        await _cursor.saveRetry(account, b, failure: unreadable
+            ? BlindStoreRetryFailure.unreadable
+            : localStorage ? BlindStoreRetryFailure.localStorage : BlindStoreRetryFailure.other,
+            decoded: unreadable ? null : decodedEntry);
       }
+    }
+    // Commit consecutive live records together. Tombstones are barriers so a
+    // delete cannot be reordered across a write. A failed transaction falls
+    // back to row isolation and the existing ciphertext retry/cursor protocol.
+    Future<void> mergeBlobs(List<BlindStoreRemoteBlob> blobs) async {
+      final List<BlindStoreRemoteBlob> pending = [];
+      Future<void> flush() async {
+        final List<TimelineEntry> entries = [];
+        final Set<String> saved = {};
+        for (final b in pending) {
+          if (owedDeletes.contains(b.id) || !_cursor.shouldRetry(account, b)) continue;
+          try {
+            final entry = decodeBlindStorePayload(_keyring.open(entryId: b.id, envelope: b.ciphertext));
+            if (entry != null && entry.id == b.id) entries.add(entry);
+          } on Object { /* mergeBlob records unreadable bytes without dropping them. */ }
+        }
+        if (entries.isNotEmpty) {
+          try {
+            await _bridge.upsertBatchFromCloud(entries);
+            saved.addAll(entries.map((entry) => entry.id));
+          } on Object { /* Isolate failures below; nothing committed on SQLite. */ }
+        }
+        for (final b in pending) { await mergeBlob(b, persisted: saved.contains(b.id)); }
+        pending.clear();
+      }
+      for (final b in blobs) {
+        if (b.deleted) {
+          await flush();
+          await mergeBlob(b);
+        } else {
+          pending.add(b);
+        }
+      }
+      await flush();
+    }
+
+    final retries = await _cursor.loadRetries(account);
+    final cursor = _cursor;
+    if (cursor is TimelineReadIssues && (cursor as TimelineReadIssues).unreadableRows > 0) {
+      _bridge.recordRetryCorruption(account, (cursor as TimelineReadIssues).unreadableRowIds);
+      rowFailure ??= 'unreadable_retry_rows';
+    }
+    for (final BlindStoreRemoteBlob b in retries) {
+      if (_cursor.retryIsUnreadable(account, b)) {
+        _bridge.recordUnreadableCloud(account, b.id);
+      } else { _bridge.recordMergeFailure(b.id); }
+    }
+    await mergeBlobs(retries);
+
+    for (int page = 0; page < kMaxPullPages; page++) {
+      final BlindStorePullPage p = await _client.pull(sinceSeq: since);
+      if (p.blobs.isEmpty) {
+        since = p.nextSeq;
+        break;
+      }
+      await mergeBlobs(p.blobs);
       since = p.nextSeq;
       await _cursor.write(account, since);
       if (p.blobs.length < BlindStoreCloudClient.kPullBatch) break;
@@ -460,6 +571,8 @@ class BlindStoreCloudSync {
       merged: merged,
       tombstoned: tombstoned,
       undecryptable: undecryptable,
+      deferred: deferred,
+      failure: rowFailure,
     );
   }
 
@@ -475,9 +588,13 @@ class _MergeTally {
     required this.merged,
     required this.tombstoned,
     required this.undecryptable,
+    required this.deferred,
+    this.failure,
   });
 
   final int merged;
   final int tombstoned;
   final int undecryptable;
+  final int deferred;
+  final String? failure;
 }

@@ -63,6 +63,9 @@
 // No vendor STT engine (the pool points at a closed port, enough to arm the
 // quota deadline — G24's header carries that measurement), no LAN, no browser.
 // It therefore never SKIPs.
+// ⚠️ 更正（NR-138 item 5, 2026-10-01）: the pool no longer points at a closed port — a flush failure with no
+// transcript is no longer charged (book 22 §4.10), and this case is about a debit. It points at a LOCAL engine that
+// answers (stt-answering-engine.mjs); still no vendor and no LAN, so it still never SKIPs.
 
 import path from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -94,6 +97,7 @@ import {
   startLlmStub,
   makeBaseEnv,
 } from './g30-payer-matrix-fixtures.mjs';
+import { settleAfter } from './harness.mjs';
 
 export const G30 = {
   id: 'G30',
@@ -292,7 +296,7 @@ export const G30 = {
       await sleep(150);
       phoneRec.frames.length = 0;
       phone.emit('audio:start', START);
-      await sleep(700);
+      await settleAfter(() => phoneRec.frames.some((f) => f.event === 'stt:error'), 'payer quota refusal', 0);
       const refusal = phoneRec.frames.find((f) => f.event === 'stt:error');
       if (refusal?.args[0]?.code !== 'QUOTA_EXCEEDED') {
         return FAIL(
@@ -756,7 +760,7 @@ export const G30 = {
       // …and the next press is refused before it starts, by the cap's own gate.
       visitorRec.frames.length = 0;
       visitor.emit('audio:start', START);
-      await sleep(700);
+      await settleAfter(() => visitorRec.frames.some((f) => f.event === 'stt:error'), 'demo cap refusal', 0);
       const capRefusal = visitorRec.frames.find((f) => f.event === 'stt:error');
       if (capRefusal?.args[0]?.code !== 'QUOTA_EXCEEDED') {
         return FAIL(

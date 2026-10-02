@@ -35,6 +35,8 @@ import type { PcRepo } from '../db/repos/pc.repo';
 import type { MobileRepo } from '../db/repos/mobile.repo';
 import type { SettingsRepo } from '../db/repos/settings.repo';
 import type { UsageRepo } from '../db/repos/usage.repo';
+import type { RecoveryOperationsRepo } from '../db/repos/recovery-operations.repo';
+import type { UsageEffectLedger } from '../db/repos/usage-effects.repo';
 import type { UserRepo } from '../db/repos/user.repo';
 import type { IntegratorKeyRepo } from '../db/repos/integrator-key.repo';
 import type { RoomLookup } from './console-device-routes';
@@ -114,6 +116,9 @@ export interface ConsoleRoutesDeps {
    *  which is a different question and a shorter answer. Required for the same
    *  reason as `users` above. */
   usage: UsageRepo;
+  /** NR-138 round 5 — the account export lists these (http/account-lifecycle.ts `AccountExportStores`). */
+  recoveryOps: Pick<RecoveryOperationsRepo, 'listByUser'>;
+  usageEffects: Pick<UsageEffectLedger, 'listByUser'>;
   /** Per-IP throttle for the password reset surface — same discipline as the
    *  register/login limiter (5 / 10-min), a SEPARATE bucket so a legitimate
    *  reset never starves the login budget (and vice-versa). */
