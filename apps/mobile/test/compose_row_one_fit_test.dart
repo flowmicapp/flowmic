@@ -18,9 +18,9 @@
 // `flutter_test` paints with a square test face (every glyph one em wide). For
 // 「is a Latin word clipped」 that face answers nothing: it inflates Latin to
 // ~2× its real width, so EN could never fit and a correct product would read
-// red. So `setUpAll` loads Roboto (the Flutter SDK's own copy,
-// `bin/cache/artifacts/material_fonts`) under a family of its own, and the
-// latn / cyrl locales (the product's `AppLocale.script`) paint in it.
+// red. So `setUpAll` loads Roboto (the Dart SDK's bundled DevTools assets,
+// with Flutter's optional material_fonts cache as a fallback) under its own
+// family. The latn / cyrl locales (the product's `AppLocale.script`) paint in it.
 // ⚠️ The CJK locales deliberately do NOT: Roboto has no Han / kana / Hangul, and
 // with it as the family those glyphs measured 4.4dp at 10sp (Roboto's notdef
 // box, not a fallback — probed while writing this file), so a CJK word would
@@ -116,52 +116,63 @@ const String _kLatinFamily = 'FlowMicTestRoboto';
 bool _realFace(AppLocale l) =>
     l.script == LocaleScript.latn || l.script == LocaleScript.cyrl;
 
-/// The Flutter SDK's material_fonts directory, found from the running tester
-/// binary (`<flutter>/bin/cache/artifacts/engine/<host>/flutter_tester`) or
-/// from FLUTTER_ROOT. Null ⇒ the caller fails loudly: a Latin-width assertion
-/// under Ahem would be a false red, and a skipped one a silent green.
-Directory? _materialFonts() {
-  final List<String> candidates = <String>[
-    '${File(Platform.resolvedExecutable).parent.parent.parent.path}'
-        '${Platform.pathSeparator}material_fonts',
+/// DevTools ships real Roboto faces with the Dart SDK on every host platform;
+/// material_fonts is an optional Flutter artifact, absent on some CI runners.
+/// Find the SDK cache from the tester or FLUTTER_ROOT and require all three
+/// faces. Missing fonts fail loudly rather than measuring Latin under Ahem.
+List<File> _robotoFonts() {
+  final List<String> caches = <String>[
+    File(Platform.resolvedExecutable).parent.parent.parent.parent.path,
     if (Platform.environment['FLUTTER_ROOT'] case final String root)
-      <String>[
-        root,
-        'bin',
-        'cache',
-        'artifacts',
-        'material_fonts',
-      ].join(Platform.pathSeparator),
+      <String>[root, 'bin', 'cache'].join(Platform.pathSeparator),
   ];
-  for (final String c in candidates) {
-    final Directory d = Directory(c);
-    if (File(
-      '${d.path}${Platform.pathSeparator}roboto-regular.ttf',
-    ).existsSync()) {
-      return d;
+  final List<List<File>> candidates = <List<File>>[
+    for (final String cache in caches) ...<List<File>>[
+      <File>[
+        for (final String weight in <String>['Regular', 'Medium', 'Bold'])
+          File(
+            <String>[
+              cache,
+              'dart-sdk',
+              'bin',
+              'resources',
+              'devtools',
+              'assets',
+              'fonts',
+              'Roboto',
+              'Roboto-$weight.ttf',
+            ].join(Platform.pathSeparator),
+          ),
+      ],
+      <File>[
+        for (final String weight in <String>['regular', 'medium', 'bold'])
+          File(
+            <String>[
+              cache,
+              'artifacts',
+              'material_fonts',
+              'roboto-$weight.ttf',
+            ].join(Platform.pathSeparator),
+          ),
+      ],
+    ],
+  ];
+  for (final List<File> fonts in candidates) {
+    if (fonts.every((File font) => font.existsSync())) {
+      return fonts;
     }
   }
-  return null;
+  throw StateError(
+    'Roboto regular, medium and bold are required to measure real Latin '
+    'glyphs; no complete font set found in the SDK. Checked:\n'
+    '${candidates.expand((List<File> fonts) => fonts).map((File f) => f.path).join('\n')}',
+  );
 }
 
 Future<void> _loadRoboto() async {
-  final Directory? dir = _materialFonts();
-  expect(
-    dir,
-    isNotNull,
-    reason:
-        'Roboto not found next to the flutter_tester binary nor under '
-        'FLUTTER_ROOT — without a real Latin face this file measures Ahem',
-  );
   final FontLoader loader = FontLoader(_kLatinFamily);
-  for (final String name in <String>[
-    'roboto-regular.ttf',
-    'roboto-medium.ttf',
-    'roboto-bold.ttf',
-  ]) {
-    final Uint8List bytes = File(
-      '${dir!.path}${Platform.pathSeparator}$name',
-    ).readAsBytesSync();
+  for (final File font in _robotoFonts()) {
+    final Uint8List bytes = font.readAsBytesSync();
     loader.addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
   }
   await loader.load();
@@ -395,7 +406,8 @@ void main() {
           expect(
             clippedKeys,
             isEmpty,
-            reason: 'keysClipped ${locale.name} ${rung.name}: '
+            reason:
+                'keysClipped ${locale.name} ${rung.name}: '
                 '${clippedKeys.join(' | ')}',
           );
 

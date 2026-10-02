@@ -206,6 +206,13 @@ function stageNotice() {
   fs.copyFileSync(NOTICE_SRC, NOTICE_DEST);
   // Copy first so a stale ignored public asset is repaired; then refuse a
   // source NOTICE that no longer matches the generated dependency notices.
+  // The NOTICE collector stays offline and reads the release crate union for
+  // Windows, macOS and Linux. Populate every locked target's cache here so a
+  // fresh build needs no separate, platform-specific bootstrap step.
+  execFileSync('cargo', [
+    'fetch', '--locked', '--manifest-path',
+    path.join(REPO_ROOT, 'apps', 'desktop', 'src-tauri', 'Cargo.toml'),
+  ], { cwd: REPO_ROOT, stdio: 'inherit' });
   execFileSync(process.execPath, [path.join(REPO_ROOT, 'scripts/generate-notice.mjs'), '--check'], {
     cwd: REPO_ROOT,
     stdio: 'inherit',
