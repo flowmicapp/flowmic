@@ -19,7 +19,7 @@ make -C apps/mobile gen                      # ← required if you have Flutter
 pnpm verify:delivery
 ```
 
-Node ≥ 22, pnpm ≥ 9. Rust ≥ 1.89 for the desktop app; Flutter ≥ 3.41 for the
+Node ≥ 22, pnpm ≥ 9. Rust ≥ 1.89 for the desktop app; Flutter 3.44.0 for the
 phone app. You do not need all three to contribute to one of them.
 
 On Ubuntu or Debian, building the desktop app requires a few system

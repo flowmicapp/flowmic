@@ -39,6 +39,13 @@
 //   · Anything else — a proof past its budget, a seal past its budget, a proof
 //     or seal that threw, writers busy through every try — is a verdict the
 //     caller turns into "audio kept, press failed". The hold always ends.
+//   · NR-159 (round-10 final review F-3) — A PROOF WAITS FOR QUIET BEFORE IT
+//     PROVES AGAIN. A proof a writer ran through used to be retried at once,
+//     while that writer was still running, so all [kProofTries] were spent
+//     in milliseconds (measured: one 400 ms writer ⇒ `reason=busy ms=2
+//     tries=3`, press failed, an automatic attempt left manual-only). Each try
+//     now first waits — inside [kProofBudget], holding nothing — until no
+//     writer runs; writers still never wait on a release.
 // Every abort writes one diagnostic line (`timeline.release_aborted`):
 // phase, reason, milliseconds, tries — no ids, no text.
 //
@@ -96,6 +103,9 @@ class TimelineWriteGate {
   bool _held = false;
   final List<Completer<void>> _waiting = <Completer<void>>[];
 
+  /// NR-159 — releases waiting for [_running] to reach 0.
+  final List<Completer<void>> _quietWaiters = <Completer<void>>[];
+
   /// A turn to wait out a seal in progress. ⚠️ Each waiter waits on a
   /// completer made in ITS OWN zone: a stored future shared by every caller
   /// resumed them in the zone that made it, and under `flutter_test`'s fake
@@ -122,7 +132,25 @@ class TimelineWriteGate {
     } finally {
       _running--;
       _epoch++;
+      if (_running == 0 && _quietWaiters.isNotEmpty) {
+        final List<Completer<void>> go = List<Completer<void>>.of(_quietWaiters);
+        _quietWaiters.clear();
+        for (final Completer<void> q in go) {
+          q.complete();
+        }
+      }
     }
+  }
+
+  /// NR-159 — until no writer runs, or [left] has passed. Its own completer,
+  /// in its own zone, for the reason [_turn] gives.
+  Future<void> _quiet(Duration left) async {
+    if (_running == 0 || left <= Duration.zero) return;
+    final Completer<void> q = Completer<void>();
+    _quietWaiters.add(q);
+    await q.future.timeout(left, onTimeout: () {
+      _quietWaiters.remove(q);
+    });
   }
 
   /// [prove] what a release stands on, then [seal] it inside the hold. Only
@@ -133,6 +161,15 @@ class TimelineWriteGate {
   }) async {
     final Stopwatch spent = Stopwatch()..start();
     for (int tries = 1;; tries++) {
+      // NR-159 — prove only once no writer runs (bounded by the budget).
+      while (_running > 0) {
+        final Duration left = kProofBudget - spent.elapsed;
+        if (left <= Duration.zero) {
+          return _aborted(
+              'proof', 'busy', spent, tries, TimelineReleaseVerdict.yielded);
+        }
+        await _quiet(left);
+      }
       final int epoch = _epoch;
       final bool quiet = _running == 0;
       final bool proven;

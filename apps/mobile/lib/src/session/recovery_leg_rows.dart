@@ -192,24 +192,43 @@ extension RecoveryJournalLegRows on RecoveryJournalLeg {
   /// any put-back made meanwhile (measured: state put back, cleanup mark
   /// silently restored). So the put-back waits for that commit first. The
   /// gate's hold is already over by then: only this press waits on it.
+  ///
+  /// 🔴 NR-158 (round-10 final review F-2) — THE GATED SEAL DOES NOT CARRY THE
+  /// CLEANUP MARK. The mark is what licenses the boot sweep to delete the PCM
+  /// (`retained_audio_policy.dart` `_sweep`). It used to ride in the seal, so
+  /// a seal commit that landed after the hold — a writer may have landed
+  /// first, the proof may be stale — put `settled` + marked on disk, and a
+  /// process death before the put-back left the sweep a license nobody had
+  /// proven (measured: `nr157_160_followups_test.dart`, F-2). Now the gated
+  /// seal commits the settled state only, and the mark is committed once the
+  /// gate says the seal landed inside the hold. A death between the two
+  /// leaves the audio on disk, unswept: the safe direction.
   Future<bool> _sealRelease(RetainedAudioJournal j, String attemptId,
       {required String? resultRef,
       required TimelineReleaseClaim? claim,
       required String keepCode}) async {
     final bool wasMarked = j.manifest.settled;
     Future<bool>? sealing;
-    Future<bool> seal() {
+    Future<bool> seal({required bool mark}) {
       if (resultRef != null) j.setResultRef(resultRef);
       j.closeAttempt(attemptId, outcome: JournalAttempt.outcomeSettled);
-      j.markSettledForCleanup();
+      if (mark) j.markSettledForCleanup();
       j.setRecoveryState(RecoveryQueueState.settled, clearNextEligibleAt: true);
       return sealing = j.commit();
     }
 
-    if (claim == null) return seal();
+    // Presence only: no gate, no hold, nothing can land late.
+    if (claim == null) return seal(mark: true);
     final TimelineReleaseVerdict verdict = await TimelineWriteGate.timeline
-        .release(prove: () => _timeline.releaseAuthorized(claim), seal: seal);
-    if (verdict == TimelineReleaseVerdict.released) return true;
+        .release(
+            prove: () => _timeline.releaseAuthorized(claim),
+            seal: () => seal(mark: false));
+    String why = verdict.name;
+    if (verdict == TimelineReleaseVerdict.released) {
+      j.markSettledForCleanup();
+      if (await j.commit()) return true;
+      why = 'markNotCommitted';
+    }
     await sealing?.catchError((Object _) => false);
     if (resultRef != null) j.setResultRef(resultRef);
     j.closeAttempt(attemptId,
@@ -220,7 +239,7 @@ extension RecoveryJournalLegRows on RecoveryJournalLeg {
     await j.commit();
     _keptWordsPressFailed = true;
     diag('audio.recovery.release_kept', <String, Object?>{
-      'verdict': verdict.name,
+      'verdict': why,
     });
     return false;
   }

@@ -152,6 +152,9 @@ Three other setups work, and they differ in one way you will feel immediately:
 
 ## Repository layout
 
+Mobile verification and release builds use Flutter **3.44.0**, matching the CI
+pin. See [the mobile README](apps/mobile/README.md) for SDK selection.
+
 | Path | What |
 |---|---|
 | `apps/desktop` | Desktop app for Windows, macOS, and Linux: Tauri v2, Vue 3, and a Rust layer that types into the focused window |

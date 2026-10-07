@@ -30,6 +30,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../ptt/ptt_session.dart'
     show ContinuousOffline, PttSessionContinuous, PttSessionLinkLoss;
@@ -269,7 +270,9 @@ class ArticlePage extends StatelessWidget {
             // A lazy list never builds a paragraph below the fold, and an unbuilt
             // paragraph cannot be scrolled to; with a focus every paragraph is
             // built (a recording is a few dozen of them).
-            cacheExtent: focus == null ? null : _kFocusCacheExtent,
+            scrollCacheExtent: focus == null
+                ? null
+                : const ScrollCacheExtent.pixels(_kFocusCacheExtent),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: <Widget>[
               _header(context),

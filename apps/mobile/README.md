@@ -1,5 +1,14 @@
 # flowmic
 
+Use Flutter **3.44.0** for local verification, CI, and release builds. Put the
+selected SDK's `bin` directory first on the current shell's `PATH`, then run
+`flutter pub get` in this directory. Shared SDK upgrades are scheduled by MAIN.
+
+iOS keeps its existing CocoaPods integration through the project-local
+`flutter.config.enable-swift-package-manager: false` setting in `pubspec.yaml`.
+`record_darwin` and `flutter_secure_storage` do not yet support Swift Package
+Manager; switching their integration is a separate migration.
+
 FlowMic mobile — speak on your phone, type on your PC.
 
 ## Getting Started

@@ -190,8 +190,24 @@ class RecoveryJobStatus {
         failed += 1;
       }
     }
+    // 🔴 NR-158 (review of d4d68b43, PROBE-C) — `settled` WITHOUT THE CLEANUP
+    // MARK READS AS `settled_unverified`. The gated release seal commits
+    // `settled` first and the mark only once the gate confirms the seal
+    // landed inside its hold (`recovery_leg_rows.dart` `_sealRelease`); a
+    // death between the two left this combination on disk, and it fell
+    // through to `waitingAuto` here — 「waiting to be transcribed」, never
+    // attempted, never swept, and a Retry that transcribed the words a second
+    // time beside the first (measured). `settled_unverified` is exactly what
+    // the put-back writes for an unconfirmed release: kept, offered for
+    // Re-transcribe (which replaces) or Delete. Every other writer of
+    // `settled` sets the mark in the same commit (`live_settle.dart` +
+    // `retained_audio_live_settle.dart` `markSettledForCleanup`, and the
+    // ungated `_sealRelease` path).
+    final String raw = RecoveryQueueState.normalise(m.recoveryState);
     return RecoveryJobStatus(
-      state: RecoveryQueueState.normalise(m.recoveryState),
+      state: raw == RecoveryQueueState.settled && !m.settled
+          ? RecoveryQueueState.settledUnverified
+          : raw,
       failedAutoAttempts: failed,
       nextEligibleAtMs: m.nextEligibleAtMs,
     );

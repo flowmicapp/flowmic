@@ -131,7 +131,17 @@ note ""
 note "--- 1. toolchain (none of these are on PATH on this machine) ---"
 NODE="$REPO/apps/desktop/src-tauri/resources/node"
 CARGO="$HOME/.cargo/bin/cargo"
-FLUTTER="$HOME/development/flutter/bin/flutter"
+FLUTTER="${FLUTTER:-$HOME/development/flutter/bin/flutter}"
+FLUTTER_VERSION=3.44.0
+
+# MAIN installs/selects the SDK; this script never upgrades a shared install.
+if [ -x "$FLUTTER" ]; then
+  ACTUAL_FLUTTER_VERSION=$("$FLUTTER" --version --machine | "$NODE" -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>console.log(JSON.parse(s).frameworkVersion))')
+  if [ "$ACTUAL_FLUTTER_VERSION" != "$FLUTTER_VERSION" ]; then
+    fail "Flutter $FLUTTER_VERSION required; found $ACTUAL_FLUTTER_VERSION at $FLUTTER — select the SDK with FLUTTER=/path/to/bin/flutter"
+    exit 1
+  fi
+fi
 
 for pair in "node:$NODE" "cargo:$CARGO" "flutter:$FLUTTER"; do
   tool="${pair%%:*}"

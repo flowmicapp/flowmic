@@ -598,7 +598,8 @@ class RetainedAudioStore {
       _clearLegacyRetry(this, session);
 
   /// NR-137 round 10b — rows the session's presses withdrew (empty: none;
-  /// null: unreadable). Bodies in retained_audio_withdrawn.dart.
+  /// null: unreadable, or NR-160: ids an earlier record could not write still
+  /// cannot be). Bodies in retained_audio_withdrawn.dart.
   Future<List<String>?> withdrawnRows(String session) =>
       _withdrawnRows(this, session);
   Future<bool> recordWithdrawnRows(String session, Iterable<String> ids) =>

@@ -86,6 +86,11 @@ extension _BackfillLegacyKept on BackfillRunner {
           // Round 4 (review D1/D2) — resolved from storage, proven gone.
           // Round 10b — the ids are recorded FIRST, so every later release of
           // this session re-proves them gone.
+          // NR-160 — a record that did not reach disk is not ignored: the
+          // store keeps the ids in memory and every later `withdrawnRows` read
+          // writes them first, answering null (⇒ no release) until that write
+          // lands (retained_audio_withdrawn.dart). The withdrawal still runs:
+          // nothing of this answer may stay beside the earlier words.
           await store.recordWithdrawnRows(key, owned);
           final List<TimelineEntry>? rows =
               await withdrawalRows(_timeline, owned);
@@ -118,6 +123,7 @@ extension _BackfillLegacyKept on BackfillRunner {
           ? null
           : fold.claim?.and(TimelineReleaseClaim(gone: earlier));
       if (fold.noteId != null) {
+        Future<void>? sealing;
         final TimelineReleaseVerdict verdict = claim == null
             ? TimelineReleaseVerdict.notProven
             : await TimelineWriteGate.timeline.release(
@@ -125,12 +131,55 @@ extension _BackfillLegacyKept on BackfillRunner {
                 // The note is on disk and its rows are gone from disk ⇒ the
                 // segments' words exist again, proven: their bytes may go
                 // (the automatic route's own delete).
-                seal: () async {
-                  for (final int idx in fed) {
-                    await store.settle(idx, session: key);
-                  }
-                  return true;
+                seal: () {
+                  final Future<void> deletes = () async {
+                    for (final int idx in fed) {
+                      await store.settle(idx, session: key);
+                    }
+                  }();
+                  sealing = deletes;
+                  return deletes.then((_) => true);
                 });
+        // 🔴 NR-157 (round-10 final review F-1) — A LEGACY SEAL CANNOT BE PUT
+        // BACK. The journal's seal is one commit, and a late one is undone by
+        // the put-back after it (`recovery_leg_rows.dart` `_sealRelease`).
+        // This seal is file deletes: once a delete is issued the gate cannot
+        // call it back, and a verdict of timedOut or threw only means the
+        // gate stopped waiting. Measured (`nr157_160_followups_test.dart`,
+        // F-1): a delete held past the 500 ms hold landed after the press had
+        // already said `failed` — audio gone, status failed. So the status is
+        // read from the bytes, after every issued delete has finished:
+        // anything freed ⇒ the release took effect ⇒ `done` (the note holds
+        // the words); nothing freed ⇒ `failed`, audio kept.
+        if (verdict != TimelineReleaseVerdict.released && sealing != null) {
+          await sealing!.catchError((Object _) {});
+          final Set<int> left = (await store.pendingSegments(
+                  session: key, includeUnverified: true))
+              .toSet();
+          final List<int> kept = <int>[
+            for (final int idx in fed)
+              if (left.contains(idx)) idx,
+          ];
+          if (kept.length < fed.length) {
+            // A delete that failed outright is tried once more: the release
+            // already took effect, and a segment left behind would be offered
+            // for another press of words the note already holds.
+            for (final int idx in kept) {
+              try {
+                await store.settle(idx, session: key);
+              } on Object {
+                // Stays on disk, listed for the user's own delete.
+              }
+            }
+            diag('audio.recovery.kept_words_release_late', <String, Object?>{
+              'session': key,
+              'verdict': verdict.name,
+              'segments': fed.length,
+              'kept_before_retry': kept.length,
+            });
+            return PendingRetryOutcome.done;
+          }
+        }
         if (verdict != TimelineReleaseVerdict.released) {
           diag('audio.recovery.kept_words_release_unproven', <String, Object?>{
             'session': key,

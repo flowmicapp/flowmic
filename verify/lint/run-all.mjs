@@ -52,6 +52,7 @@ import changelogReleaseSections from './changelog-release-sections.mjs';
 import worktreeLocation from './worktree-location.mjs';
 import planLimitCopy from './plan-limit-copy.mjs';
 import externalLinkDoor from './external-link-door.mjs';
+import noDeviceUninstall from './no-device-uninstall.mjs';
 import disclosureCopyMirror from './disclosure-copy-mirror.mjs';
 import serverCoreBundleStamp from './server-core-bundle-stamp.mjs';
 import outwardVoice from './outward-voice.mjs';
@@ -95,6 +96,7 @@ const LINTS = [
   { name: 'worktree-location', run: worktreeLocation },
   { name: 'plan-limit-copy', run: planLimitCopy },
   { name: 'external-link-door', run: externalLinkDoor },
+  { name: 'no-device-uninstall', run: noDeviceUninstall },
   { name: 'disclosure-copy-mirror', run: disclosureCopyMirror },
   { name: 'server-core-bundle-stamp', run: serverCoreBundleStamp },
   { name: 'outward-voice', run: outwardVoice },

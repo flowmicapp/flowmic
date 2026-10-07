@@ -230,6 +230,25 @@ class RetainedAudioJournalScan {
     return out;
   }
 
+  /// The PCM's length, 0 when absent. 🔴 A FILE THAT GOES BETWEEN THE TWO
+  /// QUESTIONS IS ABSENT, NOT AN ERROR: `exists` then `lengthOf` is a
+  /// check-then-read, and the PCM can be deleted in between — a live settle's
+  /// delete runs outside the recovery latch, and so does a test teardown.
+  /// Measured (Mac full suite, 2026-10-05, `_dispatch/2026-10-05-flutter-344-
+  /// switch.report.md`): `PathNotFoundException` from `lengthOf`, thrown out
+  /// of `BackfillRunner._armRetry`'s scan into an unawaited sweep. A file
+  /// that is still there and cannot be read still throws.
+  static Future<int> _lengthIfPresent(
+      JournalFileSystem fs, String pcmPath) async {
+    if (!await fs.exists(pcmPath)) return 0;
+    try {
+      return await fs.lengthOf(pcmPath);
+    } on Object {
+      if (!await fs.exists(pcmPath)) return 0;
+      rethrow;
+    }
+  }
+
   static Future<RecordingScan> _scanOne({
     required JournalFileSystem fs,
     required String base,
@@ -241,8 +260,7 @@ class RetainedAudioJournalScan {
   }) async {
     final String pcmPath = '$base${RetainedAudioJournal.pcmSuffix}';
     final String manifestPath = '$base${RetainedAudioJournal.manifestSuffix}';
-    final int observed =
-        await fs.exists(pcmPath) ? await fs.lengthOf(pcmPath) : 0;
+    final int observed = await _lengthIfPresent(fs, pcmPath);
     final bool odd = observed.isOdd;
 
     void notice(JournalNotice n) => onNotice?.call(n);

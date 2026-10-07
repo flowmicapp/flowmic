@@ -99,7 +99,7 @@ export const TOOLS = [
     id: 'flutter',
     argv: ['flutter', '--version'],
     stages: 'verify:mobile-tests',
-    fix: 'Install Flutter 3.41 or newer: https://docs.flutter.dev/get-started/install',
+    fix: 'Use Flutter 3.44.0 for mobile verification and release: https://docs.flutter.dev/get-started/install',
   },
 ];
 

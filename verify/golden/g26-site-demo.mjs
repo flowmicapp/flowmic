@@ -158,6 +158,8 @@ export const G26 = {
       }
       let url = `http://127.0.0.1:${saas.port}`;
       db = new DatabaseSync(dbPath);
+      // NR-161: match production's connection-local wait for the live server's writer.
+      db.exec('PRAGMA busy_timeout=5000');
 
       const post = (p, body, headers = {}) => fetch(`${url}${p}`, {
         method: 'POST',

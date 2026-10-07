@@ -6,11 +6,11 @@ publish_to: 'none'
 # root package.json version. The Android versionCode governance formula
 # (08-MOBILE-SPEC §8: major*1e6+minor*1e4+patch) is applied at release packaging
 # (a later R3 card), not here — this card does not build a signed APK.
-version: 0.3.106
+version: 0.3.107
 
 environment:
   sdk: ^3.11.5
-  flutter: ">=3.41.0"
+  flutter: ">=3.44.0"
 
 dependencies:
   flutter:
@@ -273,4 +273,8 @@ dependency_overrides:
   record_linux: ^1.0.0
 
 flutter:
+  # Flutter 3.44 enables Swift Package Manager by default. Keep the existing
+  # CocoaPods integration until record_darwin and flutter_secure_storage support it.
+  config:
+    enable-swift-package-manager: false
   uses-material-design: true

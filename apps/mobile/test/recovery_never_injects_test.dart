@@ -189,6 +189,15 @@ class _Rig {
   Future<void> dispose() async {
     await settleQueue();
     await controller.dispose();
+    // The runner is disposed now, so no new pass starts; one already running
+    // is allowed to finish (`BackfillRunner.dispose`) and still reads this
+    // directory. Wait for it BEFORE the directory goes: a pass started by a
+    // late edge after `settleQueue` used to scan a deleted directory (Mac
+    // full suite, 2026-10-05: `PathNotFoundException` from `_armRetry`).
+    final DateTime deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (controller.backfill.isBusy && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
     timeline.dispose();
     await session.dispose();
     await spill.dispose();

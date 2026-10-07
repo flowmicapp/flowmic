@@ -714,6 +714,9 @@ export function reconcileSchema(db: DatabaseSync): void {
 export function openDatabase(dbPath: string): DatabaseSync {
   const db = new DatabaseSyncCtor(dbPath, { enableForeignKeyConstraints: true });
   try {
+    // NR-161: WAL still has one writer. Set the connection-local wait before
+    // migrations too; a concurrent writer must not make startup fail at once.
+    db.exec('PRAGMA busy_timeout=5000');
     db.exec(INIT_SQL);
     reconcileSchema(db);
   } catch (err) {
