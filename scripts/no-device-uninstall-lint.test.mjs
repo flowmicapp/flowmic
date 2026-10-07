@@ -99,13 +99,33 @@ console.log('=== §4 out of scope: history under docs/ may quote the command ===
   rmSync(T, { recursive: true, force: true });
 }
 
-console.log('=== §5 blind-scan control: no runbook in the tree FAILs as blind ===');
+console.log('=== §5 blind-scan control: a PRIVATE tree (export manifest present) without the runbook FAILs as blind ===');
 {
   const T = mkdtempSync(join(tmpdir(), 'fmndu-blind-'));
   put(T, 'scripts/deploy.sh', 'adb install -r app.apk\n');
+  // Built from parts: a literal path to the export manifest here would make
+  // the IT-12 pair check treat this kept test as depending on an EXCLUDEd file.
+  put(T, ['scripts/opensource-manifest', 'mjs'].join('.'), 'export const EXCLUDE = [];\n');
   const res = await noDeviceUninstall(T);
-  check(res.status === 'FAIL' && res.detail.includes('blind'), 'a tree without the runbook fails as blind', res.detail);
+  check(res.status === 'FAIL' && res.detail.includes('blind'), 'a private tree without the runbook fails as blind', res.detail);
   rmSync(T, { recursive: true, force: true });
+}
+
+console.log('=== §5b the exported tree (no export manifest, no docs/) is judged on scripts/, by name ===');
+{
+  const T = mkdtempSync(join(tmpdir(), 'fmndu-export-'));
+  put(T, 'scripts/deploy.sh', 'adb install -r app.apk\n');
+  const res = await noDeviceUninstall(T);
+  check(res.status === 'PASS' && res.detail.includes('exported tree'), 'an exported tree with clean scripts passes and says why', JSON.stringify(res));
+  put(T, 'scripts/ipad.sh', `#!/bin/sh\n${FORBIDDEN.flutterInstall}\n`);
+  const res2 = await noDeviceUninstall(T);
+  check(res2.status === 'FAIL' && res2.detail.includes('scripts/ipad.sh:2'), 'the exported tree still fails a forbidden command', res2.detail.split('\n')[0]);
+  rmSync(T, { recursive: true, force: true });
+  const E = mkdtempSync(join(tmpdir(), 'fmndu-empty-'));
+  put(E, 'apps/mobile/Makefile', 'release:\n\techo ok\n');
+  const res3 = await noDeviceUninstall(E);
+  check(res3.status === 'FAIL' && res3.detail.includes('blind'), 'an exported tree with no scripts/ read is still blind', res3.detail);
+  rmSync(E, { recursive: true, force: true });
 }
 
 console.log('=== §6 the lint runs on the real tree and answers PASS ===');

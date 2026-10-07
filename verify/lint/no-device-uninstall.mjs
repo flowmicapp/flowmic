@@ -41,6 +41,15 @@ export const MARKER = 'lint-allow: device-uninstall';
 
 const RUNBOOK = 'docs/RELEASE-IRONRULES.md';
 
+// The public export tree has no docs/ at all (scripts/opensource-manifest.mjs
+// EXCLUDEs 'docs/', owner P-1 2026-08-14), so the runbook cannot be there. The
+// same manifest EXCLUDEs itself, which makes its absence the one signal that
+// says "this is the exported tree" rather than "a private tree lost its
+// runbook". [measured 2026-10-07] public CI on the 0.3.107 sync (runs
+// 37648948873/37648948891/37648948925) failed here with "was not scanned (268
+// file(s) seen)" on all three OS jobs.
+const EXPORT_MANIFEST = 'scripts/opensource-manifest.mjs';
+
 const PATTERNS = [
   { re: /\bflutter(?:\.bat)?\s+install\b/, what: 'flutter install (uninstalls first)' },
   { re: /\badb(?:\.exe)?\b[^\n]*\buninstall\b/, what: 'adb ... uninstall' },
@@ -67,13 +76,17 @@ export default async function noDeviceUninstall(root = ROOT) {
   const hits = [];
   let scanned = 0;
   let runbookSeen = false;
+  let manifestSeen = false;
+  let scriptsScanned = 0;
   for (const abs of files) {
     const rel = path.relative(root, abs).split(path.sep).join('/');
+    if (rel === EXPORT_MANIFEST) manifestSeen = true;
     if (!inScope(rel)) continue;
     const text = await readText(abs);
     if (text === null) continue;
     scanned += 1;
     if (rel === RUNBOOK) runbookSeen = true;
+    if (rel.startsWith('scripts/')) scriptsScanned += 1;
     const lines = text.split('\n');
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
@@ -84,7 +97,13 @@ export default async function noDeviceUninstall(root = ROOT) {
     }
   }
   // A control: if the runbook was not even read, the scan is blind, not clean.
-  if (!runbookSeen) {
+  // Exception, by name: the exported tree (no export manifest) never carries
+  // docs/; there the control is that scripts/ was read at all.
+  const exportedTree = !runbookSeen && !manifestSeen;
+  if (exportedTree && scriptsScanned === 0) {
+    return { status: 'FAIL', detail: `exported tree (no ${EXPORT_MANIFEST}) but no scripts/ file was scanned (${scanned} file(s) seen) — the scan is blind, not clean` };
+  }
+  if (!runbookSeen && !exportedTree) {
     return { status: 'FAIL', detail: `${RUNBOOK} was not scanned (${scanned} file(s) seen) — the scan is blind, not clean` };
   }
   if (hits.length > 0) {
@@ -96,6 +115,9 @@ export default async function noDeviceUninstall(root = ROOT) {
         `a line that only mentions the ban may carry "${MARKER}":\n  ` +
         hits.join('\n  '),
     };
+  }
+  if (exportedTree) {
+    return { status: 'PASS', detail: `${scanned} script/Makefile/package.json file(s) (${scriptsScanned} under scripts/), 0 device-uninstall commands; runbook arm not applicable: exported tree (no ${EXPORT_MANIFEST}, docs/ is excluded)` };
   }
   return { status: 'PASS', detail: `${scanned} script/Makefile/package.json/runbook file(s), 0 device-uninstall commands` };
 }
