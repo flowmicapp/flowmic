@@ -25,10 +25,15 @@ a SHA-256 checksum beside every file.
 | Platform | State | What you get |
 |---|---|---|
 | **Windows 10/11 (64-bit)** | Shipped | MSI installer (en-US / zh-CN) and a portable zip |
-| **Android** | Shipped | [Download latest APK](https://github.com/flowmicapp/flowmic/releases/latest/download/flowmic-release-latest.apk) for Android 7.0 or later, installed directly |
+| **Android** | Shipped | [Google Play](https://play.google.com/store/apps/details?id=app.flowmic.android) (recommended, updates automatically) or [download latest APK](https://github.com/flowmicapp/flowmic/releases/latest/download/flowmic-release-latest.apk) (built-in update check), for Android 7.0 or later |
 | **macOS (Apple Silicon)** | Shipped | Notarized, stapled zip for macOS 11 or later (Intel Macs are not supported), which Gatekeeper opens without warnings |
 | **iOS / iPadOS** | Public beta | [Join on TestFlight](https://testflight.apple.com/join/fvTxBgE3) |
 | **Linux (64-bit Intel/AMD)** | Shipped | `.deb` for Ubuntu and Debian, and a portable zip; tested on Ubuntu 22.04 LTS. Typing into other apps requires an X11 session. |
+
+The Google Play build and the GitHub APK are signed with different keys, so
+Android will not install one over the other. To switch channels, you must
+uninstall first, and uninstalling deletes the notes stored on that phone.
+Export your timeline as a zip inside the app before uninstalling to keep them.
 
 The iOS build ships through TestFlight, which is Apple's beta channel and comes
 with Apple's limits: a new build appears only after Apple's review, the public
