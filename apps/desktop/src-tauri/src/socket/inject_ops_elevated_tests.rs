@@ -143,6 +143,31 @@ fn a_refused_picture_resent_is_replayed_too() {
     req.text = String::new();
     req.image_b64 = Some(PNG_1X1.to_string());
     req.image_mime = Some("image/png".to_string());
+    if cfg!(target_os = "linux") {
+        // Linux has no picture paste: inject/image.rs `decode_pixels` (the
+        // not-Windows, not-macOS arm) refuses every picture, and
+        // inject/pipeline.rs `inject_image_with_probe` returns that refusal on the
+        // PAYLOAD, before any window is looked at. So no elevated refusal exists
+        // to replay here. What must hold instead: in front of the elevated window
+        // and then the ordinary one, the picture is refused as unsupported and
+        // neither window is judged. (The FSM is NOT a usable observable on this
+        // path: measured on Linux, it leaves SpeakingLocked even though the
+        // refusal comes before any focus or clipboard step.) Public CI for
+        // 0.3.118, verify-linux: the Windows-only precondition below failed with
+        // INJECT_IMAGE_UNSUPPORTED.
+        for hwnd in [HWND_ELEVATED, HWND_ORDINARY] {
+            let fsm = locked_on(hwnd);
+            let _ = take_seen();
+            let out = {
+                let _g = with_test_facts(elevated_facts());
+                run_inject(&req, &allow(), &fsm, &Mutex::new(None), &dedup, TargetIntent::LiveForeground)
+                    .expect("answered")
+            };
+            assert_eq!(out["error"], serde_json::json!(error_codes::INJECT_IMAGE_UNSUPPORTED), "hwnd {hwnd:x}");
+            assert_eq!(take_seen(), Vec::<u64>::new(), "no window judged (hwnd {hwnd:x})");
+        }
+        return;
+    }
     let first = refuse_once(&req, &dedup);
 
     let fsm = locked_on(HWND_ORDINARY);
