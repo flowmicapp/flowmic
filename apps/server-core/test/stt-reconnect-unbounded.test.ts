@@ -84,6 +84,25 @@ describe('② the production factory turns it into the unbounded ladder', () => 
   });
 });
 
+// card SEAM-2 review F2 — the production factory switches the seam repair off for a recovery leg and a long
+// recording (book 06 §2.2 SEAM-2 block). REVERSE CONTROL (SAW RED): the `seamRepair: false` spread removed from
+// `engine-factory.ts` ⇒ the recoveryLeg row red.
+describe('card SEAM-2 F2 — the production factory turns the seam repair off for recovery legs and long recordings', () => {
+  it.each([[{}, true], [{ recoveryLeg: true }, false], [{ continuous: true }, false]] as const)('args %j ⇒ seamRepair %s', (extra, on) => {
+    const db = createDbConnection({ dbPath: ':memory:', encryptionKey: deriveKey('seam2-f2-secret') });
+    db.users.insert({ id: 'u1', display_name: 'U', plan: 'free' });
+    seedDefaultSettings(db.settings, 'u1');
+    const store = new RoomStore<FakeSocket>() as unknown as RoomStore<Socket>;
+    const factory = makeSttSessionFactory({ settings: db.settings, mode: 'standalone', store, quota: noopGuard });
+    const args: SttStartArgs = { userId: 'u1', mode: 'realtime', delivery: 'none', sourceLang: 'zh', onComplete: () => {}, ...extra };
+    const bridge = factory(new FakeSocket() as unknown as Socket, args);
+    const orch = (bridge as unknown as { orchestrator: SttEngineOrchestrator }).orchestrator;
+    expect((orch as unknown as { seamRepair: boolean }).seamRepair).toBe(on);
+    bridge.dispose();
+    db.close();
+  });
+});
+
 describe('the long-recording schedule', () => {
   it('declared rungs, then doubling, capped at 30 s — the phone link ladder\'s own ceiling', () => {
     const waits = Array.from({ length: 8 }, (_, i) => unboundedReconnectDelayMs(DEFAULT_BACKOFF_MS, i));

@@ -546,6 +546,16 @@ export const INJECT_VERDICT_AUTHORSHIP = {
   INJECT_WAYLAND_UNSUPPORTED: 'pc-injection',
   INJECT_DISPLAY_UNAVAILABLE: 'pc-injection',
   INJECT_SUBMISSION_UNCERTAIN: 'pc-injection',
+  /**
+   * Windows: the target window's process runs at a higher integrity level than
+   * FlowMic, and UIPI would drop the input silently. `inject/uipi.rs`
+   * `refusal_for`, consulted after admission and before Stage 1 (`mode: Cached`,
+   * the PC minted the row) ⇒ `pc-injection`: delivery is done.
+   * 🔴 NOT in `TRANSIENT_INJECT_VERDICT_CODES` below (MAIN, 2026-10-16): an
+   * elevated window does not lower itself, and an automatic re-send after the user
+   * moved to another window would type the sentence there.
+   */
+  INJECT_TARGET_ELEVATED: 'pc-injection',
 
   // ── PC-authored admission refusal ⇒ still owed ────────────────────────────
   /**
@@ -563,7 +573,7 @@ export const INJECT_VERDICT_AUTHORSHIP = {
    */
   INJECT_NOT_PRIMARY: 'pc-admission',
   /**
-   * Producer in flowmic-web: `packages/core/src/target/session.ts`:563
+   * Producer in flowmic-web: `packages/core/src/target/session.ts`:564
    * (lands with flowmic-web feat/web-mic-choice-embed: exact on that branch,
    * and on that repository's default branch only once the branch has merged
    * there; the delivery stage verify:web-target-cached-mode checks this line

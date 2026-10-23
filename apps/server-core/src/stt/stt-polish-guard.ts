@@ -22,9 +22,25 @@
 
 import { DEFAULT_POLISH_STRENGTH, type PolishStrength } from '@flowmic/protocol';
 import {
+  CLOSED_CLASS_CATEGORIES,
   CLOSED_CLASS_TERMS,
   WORD_BOUNDARY_TERMS,
 } from './stt-polish-guard-terms';
+import { lexicalDrift, numberDrift } from './stt-polish-guard-numbers';
+import { closedClassSurface } from './stt-polish-guard-words';
+import { closedWordDrift, negationScopeDrift } from './stt-polish-guard-closed-words';
+import { numberSubjectSwap } from './stt-polish-guard-numctx';
+import { contentDrift, introducedTermSpans, pluralDrift } from './stt-polish-guard-content';
+import { numberWordChars, numberWordCount } from './stt-polish-guard-numwords';
+import { lemmaDrift, replacedByLemma } from './stt-polish-guard-lemmas';
+import { droppedClause, negationClauseDrift, registerDrift } from './stt-polish-guard-structure';
+import { categoryDefaultTerms } from './coding-terms';
+import type { AppCategory } from '../compose/app-category';
+import { repairReadings, repairSurvives } from './stt-polish-guard-repair';
+import { baseLanguage, languageDrift } from './stt-polish-guard-lang';
+import { dictationEdits, maskCommands, type SpanHunk } from './stt-polish-guard-dictation';
+import { scriptContentDrift } from './stt-polish-guard-cjk';
+import { nameSwap } from './stt-polish-guard-names';
 
 export {
   CLOSED_CLASS_ADDED,
@@ -49,20 +65,32 @@ function escapeRegExp(s: string): string {
 /** Count occurrences of every closed-class term in `text`. zh/ja terms +
  *  digits are counted as plain substrings (no word boundaries);
  *  space-separated terms use a case-insensitive Unicode letter-boundary;
- *  `n't` is a boundary-less suffix substring. */
-export function closedClassMultiset(text: string): Map<string, number> {
+ *  `n't` is a boundary-less suffix substring.
+ *  QP-1: counted on [[closedClassSurface]] — lexicalized compounds (会议,
+ *  觉得, 特别, 非常 …) masked and apostrophe-less negative contractions
+ *  (dont, cant …) normalized — see stt-polish-guard-words.ts. */
+// ML-1: compiled once per term, not once per call (the repair readings run
+// the whole check once per reading). Same pattern, same flags.
+const BOUNDARY_RE = new Map<string, RegExp>();
+function boundaryRe(term: string): RegExp {
+  let re = BOUNDARY_RE.get(term);
+  if (re === undefined) {
+    re = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`, 'giu');
+    BOUNDARY_RE.set(term, re);
+  }
+  return re;
+}
+
+export function closedClassMultiset(input: string): Map<string, number> {
   const out = new Map<string, number>();
+  const text = closedClassSurface(input);
   const lower = text.toLowerCase();
   for (const term of CLOSED_CLASS_TERMS) {
     let count: number;
     if (term === "n't") {
       count = lower.split("n't").length - 1;
     } else if (WORD_BOUNDARY_TERMS.has(term)) {
-      const re = new RegExp(
-        `(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`,
-        'giu',
-      );
-      count = (text.match(re) ?? []).length;
+      count = (text.match(boundaryRe(term)) ?? []).length;
     } else {
       count = text.split(term).length - 1;
     }
@@ -149,6 +177,20 @@ const SMOOTH_EDIT_DISTANCE_FLOOR = 16;
 const SMOOTH_EDIT_DISTANCE_RATIO = 0.5;
 const SMOOTH_LENGTH_RATIO_MIN = 0.4;
 const SMOOTH_OPEN_CLASS_K = 12;
+// QP-1 (2026-10-13): the smooth open-class limit scales with the input. A FIXED
+// K=12 was sized on short corpus cases; a long ramble legitimately loses more
+// filler tokens. Tokyo relay 2026-09-29..10-13: accepted smooth polishes ran up
+// to 0.17-0.22 open-class tokens per input character (n=74, all under the floor
+// because they were short), and the long smooth rejects that had a clean
+// distance bound sat at 0.05-0.19 (14-35 tokens on 93-340 chars, distance far
+// under its own bound, e.g. 20 vs 136). 0.15 still refused two of those
+// (0.162, 0.194); 0.2 matches what correct filler removal is observed to cost
+// and stays well inside the 0.5 distance ratio this strength already allows.
+// A live re-run (DeepSeek, 2026-10-13) still saw one correct smoothing at 0.25
+// (21 tokens / 83 chars). Deliberately NOT chased: a smooth reject now falls
+// back to one strict polish (stt-polish.ts), so a tight K costs the smoothing,
+// not the correction, while a loose K would admit content rewrites for good.
+const SMOOTH_OPEN_CLASS_PER_CHAR = 0.2;
 
 /** The tunable half of the guard, per strength. The strict column is the
  *  verbatim legacy calibration and must not move: this table exists so that a
@@ -159,6 +201,8 @@ interface GuardBounds {
   lengthRatioMin: number;
   lengthRatioMax: number;
   openClassK: number;
+  /** QP-1: K grows to ceil(perChar * input length) when that is larger. 0 = fixed K. */
+  openClassPerChar: number;
 }
 
 const STRICT_BOUNDS: GuardBounds = {
@@ -167,6 +211,7 @@ const STRICT_BOUNDS: GuardBounds = {
   lengthRatioMin: 0.5,
   lengthRatioMax: 1.5,
   openClassK: OPEN_CLASS_K,
+  openClassPerChar: 0,
 };
 
 const SMOOTH_BOUNDS: GuardBounds = {
@@ -175,11 +220,21 @@ const SMOOTH_BOUNDS: GuardBounds = {
   lengthRatioMin: SMOOTH_LENGTH_RATIO_MIN,
   lengthRatioMax: 1.5,
   openClassK: SMOOTH_OPEN_CLASS_K,
+  openClassPerChar: SMOOTH_OPEN_CLASS_PER_CHAR,
 };
 
 export function boundsFor(strength: PolishStrength): GuardBounds {
   return strength === 'smooth' ? SMOOTH_BOUNDS : STRICT_BOUNDS;
 }
+
+/** The open-class limit for an input of `rawLen` codepoints (QP-1). */
+export function openClassLimit(bounds: GuardBounds, rawLen: number): number {
+  return Math.max(bounds.openClassK, Math.ceil(bounds.openClassPerChar * rawLen));
+}
+
+/** Numeral characters and digits are compared as numbers by the numbers gate
+ *  (stt-polish-guard-numbers.ts), not as characters (QP-1). */
+const NUMBER_TERMS: ReadonlySet<string> = new Set([...CLOSED_CLASS_CATEGORIES.numeral, ...CLOSED_CLASS_CATEGORIES.digit]);
 const PUNCT_RE = /[，。,.\s！？!?、；;：:""''「」『』()（）~～…·\-—_]/gu;
 
 interface DiffHunk { rawText: string; polText: string }
@@ -270,8 +325,7 @@ export function stripClosedClassAndPunct(s: string): string {
   let out = s;
   for (const term of CLOSED_CLASS_TERMS) {
     if (WORD_BOUNDARY_TERMS.has(term)) {
-      const re = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`, 'giu');
-      out = out.replace(re, '');
+      out = out.replace(boundaryRe(term), '');
     } else {
       out = out.split(term).join('');
     }
@@ -368,7 +422,14 @@ export interface GuardMetrics {
   openClassK: number;
 }
 
-export interface GuardResult { ok: boolean; reason?: string; metrics?: GuardMetrics }
+export interface GuardResult {
+  ok: boolean;
+  reason?: string;
+  metrics?: GuardMetrics;
+  /** NR-245: accepted against a reading of the input with an explicit
+   *  self-correction applied (smooth only, stt-polish-guard-repair.ts). */
+  selfCorrection?: true;
+}
 
 export interface GuardOpts {
   /** Card C8. Absent ⇒ `strict` ⇒ the verbatim legacy calibration, so every
@@ -406,6 +467,27 @@ export interface GuardOpts {
    * declared term cannot license a negation flip.
    */
   declaredTerms?: readonly string[];
+  /**
+   * NR-245: the target PC's focused-app category, snapshotted at audio:start
+   * (engine/stt-factory.ts appCategoryFor). 'coding' adds the coding default
+   * list (coding-terms.ts) to the KNOWN terms the content check and the
+   * open-class count accept as replacements. Absent ⇒ declared terms only.
+   */
+  appCategory?: AppCategory;
+  /**
+   * ML-1: the session's spoken language (PolishDeps.language). Turns on the
+   * per-language rules (stt-polish-guard-ml.ts) and the language-drift
+   * refusal (stt-polish-guard-lang.ts). Absent or unknown ⇒ both are silent
+   * and the verdict is exactly what it was without this field.
+   */
+  language?: string;
+  /**
+   * ML-2: may the output carry line breaks the input did not? `false` when the
+   * utterance is typed into a PC (delivery 'inject', PolishDeps.lineBreaks): the desktop types a line
+   * break as Enter (desktop inject/sendinput.rs NL-1), and Enter sends in a
+   * chat box. Absent ⇒ no opinion (callers with no delivery, e.g. fixtures).
+   */
+  lineBreaks?: boolean;
 }
 
 /**
@@ -430,6 +512,45 @@ export function declaredTermAllowance(raw: string, polished: string, terms: read
   return allowance;
 }
 
+/** NR-245: inputs longer than this are not searched for self-corrections. */
+export const REPAIR_MAX_CHARS = 400;
+
+/**
+ * NR-245: Smooth may resolve an explicit self-correction ("at 2, no wait, 3"
+ * -> "at 3"). The input is read as written first; when that is refused under
+ * smooth, each reading of the input with one explicit repair applied (the
+ * reparandum and marker removed, the repair kept) is checked by the SAME
+ * guard — so the repair's own numbers, negations, terms and content words
+ * must all survive. Strict never takes this path: it keeps both values.
+ */
+export function checkMeaningPreserved(
+  rawText: string,
+  polishedText: string,
+  opts: GuardOpts = {},
+): GuardResult {
+  const verdict = checkReading(rawText, polishedText, opts);
+  if (verdict.ok || (opts.strength ?? DEFAULT_POLISH_STRENGTH) !== 'smooth') return verdict;
+  // Each reading costs one more full check (a character diff of both texts).
+  // The refine pass (stt-refine-llm.ts) runs this guard on long recordings,
+  // so the search is bounded by length rather than left to the marker count.
+  if ([...rawText].length > REPAIR_MAX_CHARS) return verdict;
+  // A dropped marker and reparandum can only cause a meaning refusal (a
+  // negation, number, closed-class or content word gone). A refusal on the
+  // §3.1 bounds is not one, and must not pay for the search.
+  if (!(verdict.reason ?? '').startsWith('closed-class-drift:')) return verdict;
+  for (const reading of repairReadings(rawText, baseLanguage(opts.language))) {
+    if (!repairSurvives(reading, polishedText)) continue;
+    // Cheap and verdict-preserving: checkReading refuses a lemma-class
+    // difference anyway (ML-1, bounds the per-reading cost).
+    if (lemmaDrift(reading.text, polishedText, baseLanguage(opts.language)) !== null) continue;
+    // The input-vs-output language check already passed (a drift refusal is
+    // not a closed-class one, so it never reaches this loop): not re-run.
+    const r = checkReading(reading.text, polishedText, opts, true);
+    if (r.ok) return { ...r, selfCorrection: true };
+  }
+  return verdict;
+}
+
 /**
  * §3 meaning-preservation guard. Accepts only when BOTH the §3.1 cardinality
  * bound AND the §3.2 closed-class invariant hold; §3.2 is checked FIRST and is
@@ -440,29 +561,98 @@ export function declaredTermAllowance(raw: string, polished: string, terms: read
  * identical at every strength. See the calibration block above for which axes
  * move, which do not, and the measurement that set the numbers.
  */
-export function checkMeaningPreserved(
+function checkReading(
   rawText: string,
   polishedText: string,
   opts: GuardOpts = {},
+  languageChecked = false,
 ): GuardResult {
   if (rawText === polishedText) return { ok: true };
 
   const bounds = boundsFor(opts.strength ?? DEFAULT_POLISH_STRENGTH);
 
+  // ML-1: a polish never translates, at either strength. First, so that a
+  // translated output is reported as what it is, not as whichever closed-class
+  // word happened to disappear with it.
+  const into = languageChecked ? null : languageDrift(rawText, polishedText, opts.language);
+  if (into !== null) return { ok: false, reason: `language-drift:${into}` };
+
   // §3.2 — hard gate, K-independent, and STRENGTH-independent. A smoothing pass
   // may delete a filler; it may not change a negation, a number, or a modal.
+  // QP-1: numbers are compared by VALUE (numberDrift), the rest word-level.
+  const lang = baseLanguage(opts.language);
   const rawClosed = closedClassMultiset(rawText);
   const polClosed = closedClassMultiset(polishedText);
   for (const term of CLOSED_CLASS_TERMS) {
+    if (NUMBER_TERMS.has(term)) continue;
+    // ML-1: in a known fr/es/de/ru/ko session these terms are compared by
+    // lemma class just below (every inflected form, one count per class).
+    if (replacedByLemma(term, lang)) continue;
     if ((rawClosed.get(term) ?? 0) !== (polClosed.get(term) ?? 0)) {
       return { ok: false, reason: `closed-class-drift:${term}` };
     }
   }
+  const lemma = lemmaDrift(rawText, polishedText, lang);
+  if (lemma !== null) return { ok: false, reason: `closed-class-drift:${lemma}` };
+  // The meaning-bearing 一-words (一直, 一起, 唯一, 十分 …) are not numbers,
+  // but they are closed-class words: compared by count (QP-1 review).
+  const lexical = lexicalDrift(rawText, polishedText);
+  if (lexical !== null) return { ok: false, reason: `closed-class-drift:${lexical}` };
+  // ML-2: numbers (and, below, clauses) are read with dictated commands
+  // blanked: "deux points" is a colon, not the number 2.
+  const rawNum = maskCommands(rawText, lang);
+  const polNum = maskCommands(polishedText, lang);
+  if (numberDrift(rawNum, polNum, lang)) return { ok: false, reason: 'closed-class-drift:number' };
+  // NR-245: same values in the same order, but counting each other's nouns.
+  if (numberSubjectSwap(rawNum, polNum, lang)) return { ok: false, reason: 'closed-class-drift:number-subject' };
+  // NR-245: modality / frequency / multiplier / ordinal / half / conjunct words
+  // that need a context rule (stt-polish-guard-closed-words.ts).
+  const word = closedWordDrift(rawText, polishedText);
+  if (word !== null) return { ok: false, reason: `closed-class-drift:${word}` };
+  // NR-245: 不是很好 -> 很不好 keeps every count; the negation changed scope.
+  const scope = negationScopeDrift(rawText, polishedText);
+  if (scope !== null) return { ok: false, reason: `closed-class-drift:scope:${scope}` };
+  // NR-245: files -> file. The reason names no word: reasons reach telemetry,
+  // and an open-class word is the user's content (the family stays closed_class).
+  if (pluralDrift(rawText, polishedText) !== null) return { ok: false, reason: 'closed-class-drift:plural' };
+  // NR-245: a dropped Latin content word (a whole English clause cost one
+  // open-class token). Excused when corrected in place, joined/split, or
+  // replaced by a known term: the user's declared terms plus the coding
+  // default list (card CTX-1). No word in the reason, same as above.
+  // The coding default list counts only in a code editor or terminal — the
+  // same gate as the recognizer (coding-terms.ts categoryDefaultTerms).
+  const known = [...(opts.declaredTerms ?? []), ...categoryDefaultTerms(opts.appCategory)];
+  // ML-2: a dictated command ("comma", "virgule", "줄바꿈") may become its
+  // symbol at its own place, never vanish without it; no line break may be
+  // added to a PC-bound utterance (stt-polish-guard-dictation.ts). The diff
+  // is the one §3.1 reads below. Judged here, refused at its old place below:
+  // NR-262 R1 — the content check excuses exactly the command words this
+  // found converted to their symbol at their own place, nothing else.
+  const polStarts: number[] = [];
+  const diffSpans: SpanHunk[] = [];
+  const { distance, hunks } = diffChars(rawText, polishedText, (h, rawStart, polStart) => {
+    polStarts.push(polStart);
+    diffSpans.push({ rawStart, rawEnd: rawStart + h.rawText.length, polStart, polEnd: polStart + h.polText.length });
+  });
+  const dictation = dictationEdits(rawText, polishedText, lang, diffSpans, opts.lineBreaks);
+  const excused = dictation.refused === null ? dictation.excused : dictation.commands;
+  if (contentDrift(rawText, polishedText, known, lang, excused) !== null) return { ok: false, reason: 'closed-class-drift:content' };
+  // GUARD-CJK: Han / kana / Hangul / Cyrillic content words (read with
+  // dictated commands blanked) and a name swapped for another name.
+  // The command words the content check excuses are excused here too.
+  const script = scriptContentDrift(rawNum, polNum, lang, excused);
+  if (script !== null) return { ok: false, reason: `closed-class-drift:${script}` };
+  if (nameSwap(rawText, polishedText, known, lang, excused)) return { ok: false, reason: 'closed-class-drift:name' };
+  // ML-1: per-clause structure in fr/es/de/ja/ko/ru (stt-polish-guard-structure.ts).
+  if (negationClauseDrift(rawText, polishedText, lang)) return { ok: false, reason: 'closed-class-drift:negation-clause' };
+  if (registerDrift(rawText, polishedText, lang)) return { ok: false, reason: 'closed-class-drift:register' };
+  // ML-2: a clause that was only dictated commands (はてな、改行、) is not a lost clause.
+  if (droppedClause(rawNum, polNum, lang)) return { ok: false, reason: 'closed-class-drift:clause' };
+  if (dictation.refused !== null) return { ok: false, reason: `closed-class-drift:${dictation.refused}` };
 
   // §3.1 — cardinality bound (necessary, not sufficient).
   const rawLen = [...rawText].length;
   const polLen = [...polishedText].length;
-  const { distance, hunks } = diffChars(rawText, polishedText);
   // The user's own vocabulary, discounted from the budget rather than added to
   // the bound — see GuardOpts.declaredTerms. `allowance` is 0 for every caller
   // that passes no terms, so the legacy calibration is bit-for-bit unchanged
@@ -470,25 +660,47 @@ export function checkMeaningPreserved(
   const allowance = opts.declaredTerms && opts.declaredTerms.length > 0
     ? declaredTermAllowance(rawText, polishedText, opts.declaredTerms)
     : 0;
-  const editBound = Math.max(bounds.editFloor, bounds.editRatio * rawLen) + allowance;
+  // ML-1: number words rewritten as digits (quinientos -> 500, vingt-cinq ->
+  // 25) are a large character edit whose VALUES the numbers gate has already
+  // compared, in order, above. Discounted like the declared terms: by the
+  // spelled length the output dropped, never by a wider bound. 0 without a
+  // language, so en/zh are unchanged.
+  const numberAllowance = lang === undefined ? 0 : Math.max(0, numberWordChars(rawNum, lang) - numberWordChars(polNum, lang));
+  // ML-2: command words turned into their symbols, discounted the same way.
+  const editBound = Math.max(bounds.editFloor, bounds.editRatio * rawLen) + allowance + numberAllowance + dictation.chars;
 
   // Computed BEFORE the first early return so that every verdict carries the
   // full picture. A rejection that only reports the axis it tripped on cannot
   // answer "was it close on the others too", which is the question calibration
   // actually needs.
+  // NR-245: a known term the output introduced counts as ONE open-class token
+  // however many character hunks its spelling produced ("cube control" ->
+  // kubectl is three hunks). This is what GuardOpts.declaredTerms always said
+  // ("does not count against the §3.1 cardinality budget"); the distance and
+  // length bounds already honoured it, the open-class count did not.
+  const spans = introducedTermSpans(rawText, polishedText, known);
+  const termsUsed = new Set<number>();
   let openClassDelta = 0;
-  for (const h of hunks) {
+  hunks.forEach((h, k) => {
+    const start = polStarts[k] ?? -1;
+    const span = spans.findIndex(([s, e]) => start >= s && start + h.polText.length <= e);
+    if (span >= 0) { termsUsed.add(span); return; }
     openClassDelta += openClassTokenDelta(
       stripClosedClassAndPunct(h.rawText),
       stripClosedClassAndPunct(h.polText),
     );
-  }
+  });
+  openClassDelta += termsUsed.size;
+  // ML-1 review F4: the same discount on the open-class count — number words
+  // rewritten as digits, whose values were compared above, are not new words.
+  if (numberAllowance > 0) openClassDelta = Math.max(0, openClassDelta - Math.max(0, numberWordCount(rawNum, lang) - numberWordCount(polNum, lang)));
+  if (dictation.words > 0) openClassDelta = Math.max(0, openClassDelta - dictation.words);
   const metrics: GuardMetrics = {
     distance,
     editBound,
     lengthRatio: polLen / Math.max(1, rawLen),
     openClassDelta,
-    openClassK: bounds.openClassK,
+    openClassK: openClassLimit(bounds, rawLen),
   };
 
   if (distance > editBound) return { ok: false, reason: 'edit-distance-exceeded', metrics };
@@ -502,7 +714,7 @@ export function checkMeaningPreserved(
     // the user asked for; `lengthRatio` in `metrics` stays the RAW measurement,
     // because a metric that quietly reports an adjusted number would make every
     // future calibration read from a value that is not the thing it names.
-    const adjustedPolLen = Math.max(1, polLen - allowance);
+    const adjustedPolLen = Math.max(1, polLen - allowance + numberAllowance + dictation.chars);
     const adjustedRatio = adjustedPolLen / Math.max(1, rawLen);
     if (adjustedRatio > bounds.lengthRatioMax || adjustedRatio < bounds.lengthRatioMin) {
       return { ok: false, reason: 'length-ratio-exceeded', metrics };
@@ -513,7 +725,7 @@ export function checkMeaningPreserved(
   const hanPol = countHan(polishedText);
   if (Math.abs(hanRaw - hanPol) > editBound) return { ok: false, reason: 'han-count-exceeded', metrics };
 
-  if (openClassDelta > bounds.openClassK) return { ok: false, reason: 'open-class-delta-exceeded', metrics };
+  if (openClassDelta > metrics.openClassK) return { ok: false, reason: 'open-class-delta-exceeded', metrics };
 
   return { ok: true, metrics };
 }

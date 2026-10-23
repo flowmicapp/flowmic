@@ -106,6 +106,6 @@ describe('stt:engine-status — the NR-96 retry budget fields', () => {
 
   it('adds no event and no error code — both count guards stay where they were', () => {
     expect(EVENT_NAMES).toHaveLength(57);
-    expect(ERROR_CODE_LIST).toHaveLength(85);
+    expect(ERROR_CODE_LIST).toHaveLength(86); // 85 → 86 later, by INJECT_TARGET_ELEVATED (2026-10-16); NR-96 itself added none
   });
 });

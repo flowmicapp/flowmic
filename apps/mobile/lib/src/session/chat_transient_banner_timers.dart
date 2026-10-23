@@ -84,6 +84,8 @@ const List<String> _autoHideBannerKeys = <String>[
   // ⚠️ It self-clears too, through `ContinuousCapTimer.disarm()`, so a
   // recording that ends inside the window takes its reminder with it.
   BannerIds.continuousCapWarning,
+  // NR-213 — 「you were away, it paused」 is news once read, like the reminder.
+  BannerIds.continuousAwayReturn,
   BannerIds.sttStall,
   BannerIds.utteranceCompose,
   BannerIds.composeSend,
@@ -138,6 +140,12 @@ const List<String> _autoHideBannerKeys = <String>[
         ? null
         : c.session.capTimer.warningTicket,
     dismiss: c.session.capTimer.dismissWarning,
+  ),
+  BannerIds.continuousAwayReturn => (
+    value: c.session.continuous.away.noticeTicket == 0
+        ? null
+        : c.session.continuous.away.noticeTicket,
+    dismiss: c.dismissContinuousAwayNotice,
   ),
   BannerIds.sttStall => (value: c._sttStalled, dismiss: c.dismissSttStalled),
   BannerIds.utteranceCompose => (
@@ -269,6 +277,11 @@ Future<void> disposeRouted(ChatController c) async {
   c.session.reconnectAckLost.removeListener(c.notifyUi);
   c.session.reconnect.scheduledAttempt.removeListener(c.notifyUi);
   c.session.captureStopped.removeListener(c._onCaptureStopped); // D-1c
+  c.session.continuous.away.lastReturn
+      .removeListener(c._onContinuousAwayReturn); // NR-213
+  c.awayGaps
+    ..removeListener(c.notifyUi)
+    ..dispose();
   c.backfill.progress.removeListener(c.notifyUi);
   c.store.articleHolds.set(c, null);
   // Card RC-3 — mirrors the two addListener lines in chat_controller_wiring.

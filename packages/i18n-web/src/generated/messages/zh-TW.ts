@@ -28,6 +28,7 @@ export const ZH_TW: WebMessages = {
   "injectVerdictNote_INJECT_WAYLAND_UNSUPPORTED": "Wayland 桌面無法輸入，文字仍保留在電腦上。",
   "injectVerdictNote_INJECT_DISPLAY_UNAVAILABLE": "找不到支援的顯示環境，文字仍保留在電腦上。",
   "injectVerdictNote_INJECT_SUBMISSION_UNCERTAIN": "可能只輸入了部分文字。",
+  "injectVerdictNote_INJECT_TARGET_ELEVATED": "電腦目前的視窗正以系統管理員身分執行，Windows 不允許 FlowMic 輸入。未鍵入任何文字，文字仍保留在電腦時間軸上。",
   "deliveryRefusalNote_INJECT_FRAME_INVALID": "資料傳輸格式異常，電腦未能成功接收，請重試。",
   "deliveryRefusalNote_INJECT_FRAME_TOO_LARGE": "這張圖片的資料超過了傳輸上限，電腦一直沒收到。",
   "deliveryRefusalNote_INJECT_PC_MISMATCH": "這條本來是發給另一臺電腦的，沒有在這臺電腦上注入。",

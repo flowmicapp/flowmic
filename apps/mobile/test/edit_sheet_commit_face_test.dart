@@ -173,6 +173,7 @@ void main() {
     // idiom), so no timer outlives the test body.
     await tester.pump(const Duration(seconds: 46));
     p.controller.session.debugStopIdlePresencePoll();
+    p.controller.outbox.debugCancelNoAnswerRetries(); // NR-286 guard timer
   });
 
   testWidgets('P4: PC target + draft + link DOWN — the disabled-looking '

@@ -55,6 +55,7 @@ import type { PayerReason } from '../auth/metering-principal';
 import type { SttCharCounts, SttEngineFailure } from '../engine/stt-session-deps';
 import { logNotCharged } from '../engine/stt-engine-failure';
 import type { ClaimBinding } from '../db/repos/usage-effects.repo';
+import type { RecordingCoverageRef } from '../db/repos/recording-coverage.repo';
 import { log } from '../log';
 
 export interface EngineUsageMeta {
@@ -126,6 +127,11 @@ export interface MeteredPrincipalRef {
    * exactly the question the bill cannot answer — the demo account's month says
    * how much the site spent, never how much THIS visitor did.
    *
+   * 🔴 IT MOVES BY THE SESSION'S WHOLE §4.9 BASIS, NOT BY THE CHARGE (audit
+   * 2026-10-11, book 22 §4.3): a re-send the claim makes free, or a catch-up
+   * coverage credits, costs the bill nothing but still held a vendor stream, so
+   * it still spends this visitor's 120 s and the site-wide anonymous ceiling.
+   *
    * 🔴 AND IT WRITES NO `usage_events` ROW. The detail log is one row per metered
    * EVENT; a second row would double-count the same seconds in the only table an
    * operator aggregates, and 「who paid」 already has its answer there
@@ -172,6 +178,14 @@ export interface UsageTracker {
     /** NR-138 round 6 (book 22 §4.11) — the recording / job / range of the frame [operation_id] came with. The claim
      *  stores it; a replay is free only under the same binding. Absent ⇒ unbound: every replay billed normally. */
     binding?: ClaimBinding,
+    /** NR-151 — the frame's `attempt_id`. TRANSPORT IDENTITY ONLY: this tracker never reads it (the claim is keyed by
+     *  operation, and the bound is the claim's). Its one reader is the replica's forwarding tracker
+     *  (node/forwarding-usage-tracker.ts `operationRecordId`), where it keeps each replay a distinct outbox record. */
+    attempt_id?: string,
+    /** NR-224 (book 22 §4.12) — the recording audio this session covered (`coverageRefOf`, the server's own measure
+     *  of what it received). Absent ⇒ metered exactly as before NR-224. An own-key session never passes it on: nothing
+     *  was paid, so nothing may be credited against it later. */
+    coverage?: RecordingCoverageRef,
   ): void;
   /**
    * The LLM metering calls — three sites (billing-call-sites.test.ts): the
@@ -205,6 +219,8 @@ export interface UsageTracker {
     principal: MeteredPrincipalRef, operation_id?: string,
     /** NR-138 round 6 — see recordSttUsage. */
     binding?: ClaimBinding,
+    /** NR-151 — see recordSttUsage. */
+    attempt_id?: string,
   ): void;
   /**
    * A2-5 — "this attempt was blocked by the quota".
@@ -515,13 +531,17 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
    */
   function meterOnce(
     user_id: string, operation_id: string | undefined, kind: UsageEffectKind, amount: number,
-    effect: (charge: number) => void, binding?: ClaimBinding,
+    effect: (charge: number) => void, binding?: ClaimBinding, coverage?: RecordingCoverageRef,
   ): void {
     const ledger = config.operations;
-    if (ledger === undefined || operation_id === undefined) return effect(amount);
+    // *** billing *** NR-224: a session with coverage but no operation (a live press) now reaches the ledger too, so its
+    // payment is recorded against the recording in the same transaction as the increment.
+    if (ledger === undefined || (operation_id === undefined && coverage === undefined)) return effect(amount);
     // *** billing *** NR-138 round 4 (book 22 §4.11): a replay of a claimed operation is charged inside a bound — 0,
     // the excess over what the claim paid, or in full — and [effect] receives that charge (usage-effects.repo.ts).
-    const verdict = ledger.meter({ user_id, operation_id, kind, at: clock(), binding }, amount, effect);
+    // NR-224 (§4.12): on a first metering or a longer replay, audio of the same recording already paid for is not
+    // charged again (db/repos/recording-coverage.repo.ts); [effect] receives what is left.
+    const verdict = ledger.meter({ user_id, operation_id, kind, at: clock(), binding, coverage }, amount, effect);
     if (verdict !== 'applied') {
       // Said out loud, once per replay. A re-send that is correctly NOT charged and a re-send that silently failed
       // to be charged look identical from the outside, and only this line separates them.
@@ -532,7 +552,7 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
   }
 
   return {
-    recordSttUsage(user_id, engine, duration_ms, chars, principal, operation_id, failure, binding): void {
+    recordSttUsage(user_id, engine, duration_ms, chars, principal, operation_id, failure, binding, _attempt_id, coverage): void {
       if (config.mode !== 'saas') return; // standalone never bills
       // 🔴 NR-138 item 5 (owner ruling 2026-10-01, book 22 §4.10) — an engine failure with no usable transcript is
       // NOT CHARGED, and the return is BEFORE `meterOnce` on purpose: no `usage_records` increment, and no
@@ -571,21 +591,31 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
       // money.
       // NR-138 round 4: everything below moves by [charged] — the full duration the first time, and on a replay of
       // a claimed operation only what the bound leaves to charge (book 22 §4.11).
+      // *** billing *** NR-224 — a recovery session the relay cannot place in its recording is billed by its claim
+      // alone, as before (design §6); said once so the case can be counted.
+      if (binding !== undefined && coverage === undefined && !engine.is_byok) {
+        log.info('usage: recovery session has no measurable coverage — metered by its claim alone', { user_id, operation_id });
+      }
+      // *** billing *** Audit 2026-10-11 (book 22 §4.3): the site-demo cap counts every session's whole basis, not
+      // what the claim or coverage left to charge. A session that is free for the bill still held a vendor stream
+      // open, and counting only the charge let a visitor with any allowance left re-send one paid operation five
+      // times (or catch up a paid live press) outside both the per-browser 120 s and the site-wide daily ceiling
+      // (`msUsedToday` sums these same rows). Pinned by test/trial-cap-counts-free-resends.test.ts.
+      let capCounted = false;
+      const countCap = (): void => {
+        if (capCounted || engine.is_byok || principal.cap_user_id === undefined) return;
+        capCounted = true;
+        repo.increment(principal.cap_user_id, bucket(principal.cap_user_id), { stt_minutes: duration_ms / 60_000 });
+      };
       meterOnce(user_id, engine.is_byok ? undefined : operation_id, 'stt', duration_ms, (charged) => {
         if (!engine.is_byok) {
           repo.increment(user_id, bucket(user_id), { stt_minutes: charged / 60_000 });
-          // card MP-6 — and the per-browser COUNTER, inside the same effect so a
-          // re-sent operation cannot spend the cap twice while the bill is
-          // correctly charged once. See {@link MeteredPrincipalRef.cap_user_id}
-          // for why this is not a second bill. BYOK is excluded for the reason
-          // the line above is: nothing was consumed on our side.
-          if (principal.cap_user_id !== undefined) {
-            repo.increment(
-              principal.cap_user_id,
-              bucket(principal.cap_user_id),
-              { stt_minutes: charged / 60_000 },
-            );
-          }
+          // card MP-6 — and the per-browser COUNTER, inside the same effect when
+          // there is one, so it commits or rolls back with the bill. See
+          // {@link MeteredPrincipalRef.cap_user_id} for why this is not a second
+          // bill. BYOK is excluded for the reason the line above is: nothing was
+          // consumed on our side.
+          countCap();
           // card MP-1 — and the integrator KEY's per-cycle counter, inside the
           // same effect for the same reason: a re-sent operation must not spend
           // the sub-quota twice while the bill is correctly charged once.
@@ -622,7 +652,21 @@ export function makeUsageTracker(repo: UsageRepo, config: UsageTrackerConfig): U
           // the admission's answers, not this layer's.
           principal,
         });
-      }, binding);
+      }, binding, engine.is_byok ? undefined : coverage);
+      // The ledger skips the effect when nothing is charged (a free re-send, usage-effects.repo.ts `step`); the cap
+      // still counts that session. A throw from the metering above never reaches here, so the cap cannot move for
+      // a metering that failed. WHERE this line runs depends on the node:
+      //  - local node: outside the local ledger's transaction, after its commit. A crash between the two writes
+      //    can only under-count one session.
+      //  - writer, forwarded replay: this tracker takes its claim through `claimInCallerTransaction`
+      //    (node/node-runtime.ts, `replayUsage`), so this line runs INSIDE `forward-ledger.once`'s
+      //    BEGIN IMMEDIATE (node/forward-ledger.ts), reached from node/forward-receiver.ts `applyForwardedWrite`.
+      //    A duplicate forward id is rejected by that ledger before `applyForwardedWrite` runs, so a re-delivery
+      //    inside the window does not count the cap again.
+      // Known residual: forward ids are forgotten after FORWARD_LEDGER_RETENTION_MS (7 days, forward-ledger.ts), so
+      // an ack-lost re-delivery after 7 days would count the cap again (same exposure as the bill for live presses
+      // without an operation id).
+      countCap();
     },
     recordLlmUsage(user_id, engine, tokens_in, tokens_out, principal, operation_id, binding): void {
       if (config.mode !== 'saas') return;

@@ -208,6 +208,17 @@ void _ucDone(ChatController c, String entryId, String processedText) {
     c.ucNotify();
     return;
   }
+  // 🔴 POL-M1 / R12 — the user handed this row off while the transform was
+  // still running (long-press deferred delivery, or a 「+」 tick of the light
+  // record): it is frozen on the words that went out. The product is NOT
+  // written onto it — it becomes its own row, exactly as a re-run's product
+  // does ([_deliverRerun]), and then takes this terminal's own fork below.
+  final TimelineEntry? pending = c.store.findById(entryId);
+  if (pending != null && pending.isHandedOff) {
+    _ucDoneBesideFrozen(c, pending, processedText);
+    c.ucNotify();
+    return;
+  }
   final TimelineEntry? entry = c.store.applyProcessed(
     entryId,
     processedText,
@@ -232,6 +243,54 @@ void _ucDone(ChatController c, String entryId, String processedText) {
     unawaited(_deliverDirect(c, entry, source: InjectSource.llm));
   }
   c.ucNotify();
+}
+
+/// POL-M1 / R12 — [_ucDone] for a row that was handed off before its product
+/// came back. [frozen] keeps the words the PC (or web target) received, so
+/// local history still equals what was delivered; the product is built as a
+/// NEW row from the same original words — the two steps [_deliverRerun] takes
+/// (`buildFromUtterance` then `applyProcessed`), so it renders as an ordinary
+/// translate/organize row with its 「原文」 line and needs no new copy. Then it
+/// follows [_ucDone]'s own policy fork, unchanged: direct ⇒ delivered as
+/// `source:'llm'`; manual ⇒ folded into the buffer for the user's ➤; a
+/// light record / cloud row ⇒ stays on the phone (`_deliverDirect` refuses both).
+void _ucDoneBesideFrozen(
+  ChatController c,
+  TimelineEntry frozen,
+  String processedText,
+) {
+  c._liveText = '';
+  final TimelineEntry row = c.store.buildFromUtterance(
+    clientId: c._mintClientId(),
+    // The row's own mode, fixed at its birth — the same snapshot RV-74 uses.
+    mode: frozen.mode,
+    delivery: frozen.delivery,
+    text: frozen.sourceText ?? frozen.outputText,
+    mcpContentReady: false,
+    sourceLang: frozen.sourceLang,
+    durationMs: frozen.durationMs,
+    segmentsCount: frozen.segmentsCount,
+    origin: frozen.origin,
+  );
+  final TimelineEntry? ready =
+      c.store.applyProcessed(row.id, processedText, frozen.mode);
+  if (ready == null) return;
+  diag('compose.product_beside_frozen', <String, Object?>{
+    'frozen_entry_id': frozen.id,
+    'entry_id': ready.id,
+    'request_id': ready.clientId,
+    'mode': frozen.mode.name,
+  });
+  if (c._activeSendPolicy == SendPolicy.manual || ready.delivery == Delivery.none || ready.origin == 'cloud') c.session.timings.forRequest(frozen.clientId)?.finish();
+  if (c._activeSendPolicy == SendPolicy.manual &&
+      ready.delivery != Delivery.none &&
+      ready.origin != 'cloud') {
+    _foldIntoBuffer(c, processedText);
+    c._bufferedEntryIds.add(ready.id);
+  }
+  if (c._activeSendPolicy == SendPolicy.direct) {
+    unawaited(_deliverDirect(c, ready, source: InjectSource.llm));
+  }
 }
 
 /// Card RC-I — whether the utterance [entryId] names is never sent (the row's
@@ -372,6 +431,15 @@ void _applyRefined(ChatController c, SttRefined r) {
   }
   final TimelineEntry row = candidates.single;
   if (row.edited || row.processedText != null) return;
+  // 🔴 POL-M1 / R12 (review P1) — a row staged in the manual send buffer is
+  // treated as frozen. The buffer holds its OWN copy of the words (the composer
+  // text, which the user may edit), and ➤ sends that copy: rewriting the row
+  // here would leave it showing words the ➤ will not send. Discarding the
+  // buffer (✕) takes the row out of this list, and only then may a refine land.
+  if (c._bufferedEntryIds.contains(row.id)) {
+    diag('stt.refined.dropped', <String, Object?>{'reason': 'buffered'});
+    return;
+  }
   final String text = r.text;
   final String current = row.outputText;
   if (current.trim() == text.trim()) return;
@@ -381,6 +449,11 @@ void _applyRefined(ChatController c, SttRefined r) {
   // clear (a second pass is not a person) and nothing is re-injected — 06 §5
   // 「已注入 PC 的文本永不回改」("text already injected into the PC is never
   // edited back").
+  // 🔴 POL-M1 / R12 — the handed-off guard lives in the store write itself
+  // (`TimelineStore.applyRefined` → null, `_refusesMachineRewrite`): a row
+  // already handed to a delivery path (queued counts — the freeze is at
+  // handoff, not at receipt) keeps the words that went out. NR-261: before this, the PC-path tail row was
+  // silently replaced here although its text was already typed on the PC.
   if (c.store.applyRefined(row.id, text) == null) return;
   c.ucNotify();
 }

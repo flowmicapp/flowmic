@@ -714,6 +714,7 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
         owed,
         widget.strings,
         recovering: progress.recoveringArticleId == id,
+        wait: controller?.backfill.waitReason ?? BackfillWait.due, // NR-214
       );
       return ArticlePage(
         head: head,
@@ -730,6 +731,7 @@ class _PlusPanelNotesTabState extends State<PlusPanelNotesTab> {
               ),
         focusRowId: focusRowId,
         highlight: highlight,
+        awayGaps: controller?.awayGaps.gapsOf(id) ?? const [], // NR-213
       );
     }
 

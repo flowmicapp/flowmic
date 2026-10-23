@@ -285,6 +285,7 @@
     "injectFailReason.INJECT_FOCUS_LOST": "'No input focus found'",
     "injectFailReason.INJECT_IMAGE_UNSUPPORTED": "'This window does not accept images'",
     "injectFailReason.INJECT_NO_ACCESSIBILITY": "'FlowMic has no Accessibility permission · System Settings ▸ Privacy & Security ▸ Accessibility'",
+    "injectFailReason.INJECT_TARGET_ELEVATED": "'The window in front runs as administrator; Windows blocked the input'",
     "injectFailReason.INJECT_NO_TEXT_TARGET": "'No editable spot in the focused window'",
     "injectFailReason.INJECT_SECURE_INPUT_ACTIVE": "'The system is in secure input mode (password field / lock screen)'",
     "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT": "\"Focus was on FlowMic's own window\"",

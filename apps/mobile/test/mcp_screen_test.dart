@@ -135,7 +135,7 @@ void main() {
     tester.view.physicalSize = const Size(800, 2400); tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(MaterialApp(builder: (_, Widget? child) => McpScope(service: service, settings: settings, child: child!),
-      home: SettingsPage(scenario: scenario, appSettings: settings, login: login,
+      home: SettingsPage(notesAction: SettingsNotesAction.enter, scenario: scenario, appSettings: settings, login: login,
         destination: rig.controller.destination, session: rig.session, portable: newTestPortableController(),
         prefs: newTestPrefsController(), backup: newTestSettingsBackup(), inventory: newTestInventory(rows: const <TimelineEntry>[], images: InMemoryOutboxBlobStore()),
         timeline: rig.store, version: const FixedAppVersion('test'), update: newTestUpdateController(), cloudSummary: newTestCloudSummary(login: login))));

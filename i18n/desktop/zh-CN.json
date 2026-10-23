@@ -285,6 +285,7 @@
     "injectFailReason.INJECT_FOCUS_LOST": "'未找到输入焦点'",
     "injectFailReason.INJECT_IMAGE_UNSUPPORTED": "'当前目标窗口不支持接收图片'",
     "injectFailReason.INJECT_NO_ACCESSIBILITY": "'未授予 FlowMic「辅助功能」权限（系统设置 ▸ 隐私与安全性 ▸ 辅助功能）'",
+    "injectFailReason.INJECT_TARGET_ELEVATED": "'当前窗口正以管理员身份运行，Windows 阻止了输入'",
     "injectFailReason.INJECT_NO_TEXT_TARGET": "'当前窗口没有可以输入的位置'",
     "injectFailReason.INJECT_SECURE_INPUT_ACTIVE": "'系统处于安全输入状态（密码框或锁屏）'",
     "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT": "'焦点在 FlowMic 自己的窗口'",

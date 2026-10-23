@@ -87,6 +87,7 @@ DeliveryOutbox _box(_Host host, OutboxStore store) => DeliveryOutbox(
   store: store,
   blobs: InMemoryOutboxBlobStore(),
   host: host,
+  retryLinkUp: () => false,
   capacity: kOutboxCapacity,
   inflightTimeout: kOutboxInflightTimeout,
 );

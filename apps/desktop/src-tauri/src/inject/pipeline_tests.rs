@@ -428,7 +428,8 @@ fn cached_now_has_three_causes_and_no_two_of_them_share_a_code() {
 //
 // ⚠️ THEY RUN ON EVERY PLATFORM, INCLUDING WINDOWS, AND THAT IS DELIBERATE — but
 // it must not be misread. In PRODUCTION `synthetic_input_preflight()` is `None` on
-// Windows by construction (no OS mode there swallows SendInput silently), so this
+// Windows by construction (UIPI does swallow SendInput silently — measured
+// 2026-10-16 — but per window, so that check is `uipi.rs`, not this gate), so this
 // refusal cannot occur on Windows. What these prove is the WIRING, and the wiring
 // is worth guarding in the suite that actually runs on every commit.
 

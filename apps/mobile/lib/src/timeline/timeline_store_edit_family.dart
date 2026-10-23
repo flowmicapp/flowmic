@@ -78,6 +78,9 @@ TimelineEntry? _applyArticleSpan(
 /// Moves the display face and stamps [TimelineEntry.refinedAt]. Deliberately
 /// does NOT set `edited` (that bit means 「人改过」("a human edited it")) and does NOT touch
 /// `sourceText` (write-once immutable).
+///
+/// 🔴 POL-M1 / R12: a frozen row refuses this machine rewrite — see
+/// [_refusesMachineRewrite].
 TimelineEntry? _applyRefined(
   TimelineStore store,
   String id,
@@ -85,6 +88,7 @@ TimelineEntry? _applyRefined(
 ) {
   final TimelineEntry? entry = store.findById(id);
   if (entry == null) return null;
+  if (_refusesMachineRewrite(entry, 'refined')) return null;
   final TimelineEntry updated = entry.copyWith(
     outputText: refinedText,
     refinedAt: DateTime.now().toUtc(),
@@ -94,6 +98,10 @@ TimelineEntry? _applyRefined(
   return updated;
 }
 
+/// 🔴 POL-M1 / R12: a frozen row refuses this machine rewrite too — see
+/// [_refusesMachineRewrite]. `_ucDone` routes a frozen row's product to a new
+/// row before it gets here (`_ucDoneBesideFrozen`); this is the store's own
+/// refusal underneath that routing, not a second answer to it.
 TimelineEntry? _applyProcessed(
   TimelineStore store,
   String id,
@@ -102,6 +110,7 @@ TimelineEntry? _applyProcessed(
 ) {
   final TimelineEntry? entry = store.findById(id);
   if (entry == null) return null;
+  if (_refusesMachineRewrite(entry, 'processed')) return null;
   final TimelineEntry updated = entry.copyWith(
     outputText: processedText,
     processedText: processedText,
@@ -249,3 +258,52 @@ TimelineEntry? _markNoted(TimelineStore store, String id) {
 // preserved as design, not as
 // unreachable code: docs/archive/strategy/2026-07-30-c5-conflict-criteria-design.md,
 // which names the light-note-multi-device case that will reuse it.
+
+/// 🔴 POL-M1 / R12 — THE store-level check every machine writer of a row's
+/// text calls first ([_applyRefined], [_applyProcessed]; a person's edit,
+/// [_applyEdit], is not a machine rewrite and does not). A row already handed
+/// to a delivery path ([TimelineEntry.isHandedOff]) keeps its words: the
+/// rewrite is refused, with a diag line naming the writer.
+///
+/// ⚠️ It answers 「was this row handed off」 only. A row staged in the manual
+/// send buffer is refused one layer up (`_applyRefined` in
+/// chat_utterance_processing.dart, `_bufferedEntryIds`), because the buffer is
+/// controller state the store cannot see.
+bool _refusesMachineRewrite(TimelineEntry entry, String writer) {
+  if (!entry.isHandedOff) return false;
+  diag('timeline.machine_rewrite_dropped', <String, Object?>{
+    'entry_id': entry.id,
+    'writer': writer,
+    'reason': 'handed_off',
+  });
+  return true;
+}
+
+/// 🔴 POL-M1 / R12 — stamp [TimelineEntry.firstHandedOffAt] on each row in
+/// [ids], the moment those rows are handed to a delivery path. Synchronous on
+/// purpose: every caller does this BEFORE its first `await`, so a machine
+/// rewrite that lands while the handoff is still awaiting the disk or the link
+/// finds the row already frozen (delivery wins the race, POL design §12.3 R1).
+///
+/// Write-once: a row already stamped keeps its first instant and is not
+/// re-persisted. Missing ids (deleted rows) are skipped. Returns the rows as
+/// they now stand, in [ids] order, so a caller can read the text it hands off
+/// from the very row it just froze.
+List<TimelineEntry> _markHandedOff(TimelineStore store, Iterable<String> ids) {
+  final List<TimelineEntry> out = <TimelineEntry>[];
+  DateTime? now;
+  for (final String id in ids) {
+    final TimelineEntry? entry = store.findById(id);
+    if (entry == null) continue;
+    if (entry.isHandedOff) {
+      out.add(entry);
+      continue;
+    }
+    now ??= DateTime.now().toUtc();
+    final TimelineEntry frozen =
+        entry.copyWith(firstHandedOffAt: now, updatedAt: now);
+    store._replace(entry, frozen);
+    out.add(frozen);
+  }
+  return out;
+}

@@ -64,6 +64,7 @@ import 'package:flutter/material.dart';
 
 import '../settings/app_settings.dart';
 import '../settings/app_strings.dart';
+import 'middle_ellipsis_text.dart';
 import '../timeline/search_hits.dart';
 import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_sqlite.dart' show TimelineStorageKind;
@@ -328,6 +329,8 @@ class _HistoryPageState extends State<HistoryPage> {
                               // Closing it means threading the queue into this
                               // page, which is a different card.
                               queued: false,
+                              // NR-279 — same gap as `queued` (no queue here).
+                              owed: false,
                               canResendImage: false,
                               // 🔴 Card NR-3 — the three gestures, decided in
                               // ONE place gated on `_selection.active` a single
@@ -609,12 +612,12 @@ class _HistoryPageState extends State<HistoryPage> {
         Icon(icon, size: 11, color: fg),
         const SizedBox(width: 4),
         // A long PC name ellipsizes INSIDE the chip; the chip itself never
-        // pushes the row wider than the card.
+        // pushes the row wider than the card. CARD-UI (C6): in the MIDDLE,
+        // keeping more of the end — default Windows names differ only there
+        // (middle_ellipsis_text.dart).
         Flexible(
-          child: Text(
+          child: MiddleEllipsisText(
             label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: fg,
               fontSize: 10,

@@ -32,6 +32,39 @@ import 'outbox_item.dart';
 /// it. The alternative was a legal-but-pointless library cycle.
 const String kOutboxTable = 'outbox_items';
 
+/// 🔴 NR-279 — add `defer_promised_at` ([OutboxItem.deferPromisedAt]) to
+/// [kOutboxTable] if it is not there yet. Called from `onOpen` in
+/// timeline_sqlite.dart `openTimelinePersistence`, i.e. on EVERY open, after
+/// `onCreate` / `onUpgrade` have run.
+///
+/// WHY ON OPEN AND NOT AS A `kTimelineDbVersion` STEP — the same trade-off the
+/// NR-137 auxiliary tables made at that call site: a v9 stamp makes every older
+/// APK REFUSE the whole database (D13 ①, `TimelineDbDowngradeRefused`) and run
+/// on the fallback store with no queue at all. One extra NULLABLE column costs
+/// an older build nothing — it writes by column name (`insert(toJson())`, the
+/// column is left NULL) and reads through `OutboxItem.fromJson`, which ignores
+/// keys it does not know. Since `onCreate` and every upgrade path both end in
+/// `onOpen`, the fresh and the upgraded shapes still converge (the D13 ② parity
+/// test opens both through `openTimelinePersistence`).
+///
+/// ADDITIVE, IDEMPOTENT, NON-DESTRUCTIVE: guarded by `PRAGMA table_info`
+/// (SQLite has no `ADD COLUMN IF NOT EXISTS`), no row is read or rewritten, and
+/// an existing row reads NULL ⇒ the pre-NR-279 behaviour for that item.
+/// ⚠️ A later `kTimelineDbVersion` step must not re-add this column.
+Future<void> installOutboxDeferPromiseColumn(DatabaseExecutor db) async {
+  final List<Map<String, Object?>> cols =
+      await db.rawQuery('PRAGMA table_info($kOutboxTable)');
+  // No table at all is not this function's business (the queue is created by
+  // `onCreate` / the v2 step); adding to nothing would throw.
+  if (cols.isEmpty) return;
+  if (cols.any((Map<String, Object?> c) => c['name'] == 'defer_promised_at')) {
+    return;
+  }
+  await db.execute(
+    'ALTER TABLE $kOutboxTable ADD COLUMN defer_promised_at INTEGER',
+  );
+}
+
 abstract class OutboxStore {
   /// Write [item], replacing any row with the same `request_id`.
   ///

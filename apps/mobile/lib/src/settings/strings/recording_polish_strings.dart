@@ -22,4 +22,14 @@ mixin PolishStrings on AppStringsLeaves {
   /// (ChatStatusSurface.polishModelRejectedHint).
   String get polishModelRejectedHint => _lfPolishModelRejectedHint;
 
+  /// CARD-UI — the same six row badges in a shorter complete wording, shown
+  /// only when the full one does not fit the card's second meta line (the
+  /// badge then keeps the full wording as its tooltip and semantics label).
+  String get polishSkippedShort => _lfPolishSkippedShort;
+  String get polishNotAppliedShort => _lfPolishNotAppliedShort;
+  String get polishTimedOutShort => _lfPolishTimedOutShort;
+  String get polishUnavailableShort => _lfPolishUnavailableShort;
+  String get polishNoModelShort => _lfPolishNoModelShort;
+  String get polishModelRejectedShort => _lfPolishModelRejectedShort;
+
 }

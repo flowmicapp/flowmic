@@ -127,9 +127,17 @@ class ScenarioCardController extends ChangeNotifier {
   /// next phone. The write happens only when the migration actually changed
   /// something, so a card that is already ids does not get a pointless write
   /// on every boot.
+  ///
+  /// FM-001: the same load also brings an over-limit card back inside the
+  /// schema caps ([ScenarioCard.normalizedToLimits]) and writes that back by
+  /// the same rule. A phone that restored such a card before restore validated
+  /// would otherwise have every `audio:start` / `compose:start` refused, since
+  /// this card rides both (phone_prefs_payload.dart). Data already on the
+  /// device is normalized, a backup file is refused — scenario_card.dart says
+  /// why the two differ.
   Future<void> load() async {
     final ScenarioCard stored = await _cache.load();
-    final ScenarioCard migrated = stored.migratedToIds();
+    final ScenarioCard migrated = stored.migratedToIds().normalizedToLimits();
     _card = migrated;
     if (migrated != stored) await _cache.save(migrated);
     notifyListeners();

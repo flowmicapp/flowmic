@@ -207,6 +207,9 @@ Future<OutboxItem?> _admit(DeliveryOutbox box, OutboxItem item) async {
         DateTime.now().toUtc().difference(item.createdAt).inMilliseconds,
   });
   await _enforceCapacity(box);
+  // NR-286 (doc 15 §2.6-a rule 1) — the first frame of most items leaves
+  // BESIDE the queue with no item watchdog; this is its 45 s budget.
+  outboxArmFirstAttemptGuard(box, item.requestId);
   await box._refreshDerived();
   box._host.onOutboxChanged();
   return item;

@@ -334,6 +334,11 @@ Future<void> _deliverDirect(
 }) async {
   if (entry.origin == 'cloud') return;
   if (entry.delivery == Delivery.none) return;
+  // 🔴 POL-M1 / R12 — the row is frozen HERE, before the first `await`: from
+  // this line on, no machine rewrite may change the words this delivery holds.
+  // Every caller hands in a row it built or rewrote in the same synchronous
+  // run, so `entry.displayText` below IS the frozen row's text.
+  c.store.markHandedOff(<String>[entry.id]);
 
   // ── 🔴 PERSIST TO DISK BEFORE SENDING (design draft §3.1), window B3-2c ──────
   //

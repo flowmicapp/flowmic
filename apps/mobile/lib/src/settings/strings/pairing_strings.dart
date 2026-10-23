@@ -6,6 +6,9 @@
 part of '../app_strings.dart';
 
 mixin PairingStrings on AppStringsLeaves {
+  // The cross-shard signature RecordingStrings already declares: the field
+  // lives on the concrete AppStrings this mixin is applied to.
+  AppLocale get locale;
 
   // ── add-pairing sheet ─────────────────────────────────────────────────────
   String get addPairingTitle => _lfAddPairingTitle;
@@ -107,14 +110,26 @@ mixin PairingStrings on AppStringsLeaves {
     // to be exactly the one where 「calling it unreachable would be telling a
     // lie」. A switch expression turns the next added value into a compile
     // error.
+    // NR-286 A3 (device 2026-10-20, report.md A3) — the brackets follow the
+    // language's SCRIPT. Full-width 「（…）」 is the convention only where the
+    // catalogue itself writes it (Han and Japanese: zh-CN / zh-TW / ja);
+    // Latin, Cyrillic and Hangul get a space and ASCII brackets
+    // (`i18n/mobile/ko.json` uses ASCII 「 (」 throughout). Keyed on
+    // [LocaleScript], not on a list of locales (lint `i18n-add-locale-cost`),
+    // and exhaustive: a new script is a compile error here, not a silent
+    // full-width bracket in a Latin line.
+    final (String open, String close) = switch (locale.script) {
+      LocaleScript.hans || LocaleScript.hant || LocaleScript.jpan => ('（', '）'),
+      LocaleScript.latn || LocaleScript.cyrl || LocaleScript.kore => (' (', ')'),
+    };
     final String lines = tried
         .map(
           (MapEntry<String, CandidateFailure> e) =>
-              '· ${e.key}（${switch (e.value) {
+              '· ${e.key}$open${switch (e.value) {
                 CandidateFailure.dialFailed => dialFailed,
                 CandidateFailure.pinMismatch => pinMismatch,
                 CandidateFailure.unreachable => unreachable,
-              }}）',
+              }}$close',
         )
         .join('\n');
     // D2LAN-B3 — the moment one identity mismatch shows up, the whole message
@@ -266,6 +281,16 @@ mixin PairingStrings on AppStringsLeaves {
       // 2026-08-03 explicitly asked for this sentence.
       case 'AUTH_TOKEN_INVALID':
         return _lfPairError__8;
+      // 🔴 NR-279 (A3) — a multi-node relay replica that could not CONFIRM this
+      // phone's token right now (`auth/middleware.ts` `resolveDetailed`;
+      // surfaced by `handshakeRefusal`). It is not a verdict on the pairing, so
+      // the default arm's 「Pairing failed — check the network」 was false on
+      // both halves (rca-anomalies.md §3.3). REUSES the light-record row's
+      // sentence for the same code (`cloudError`, NR-17): it speaks of 「this
+      // connection」, not of a sign-in, so it is true on a computer row too.
+      // No new copy.
+      case 'AUTH_TOKEN_UNVERIFIABLE':
+        return _lfCloudError_AUTH_TOKEN_UNVERIFIABLE;
       // 🔴 L-② (2026-08-02) — 「PC 上刚点了断开」("disconnect was just pressed on
       // the PC"). The pairing is INTACT and the
       // token was deliberately kept (`mobile_reconnect_flow.dart:75`): the only

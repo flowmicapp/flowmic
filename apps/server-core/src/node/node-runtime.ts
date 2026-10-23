@@ -30,15 +30,18 @@ import { makeWriterClient, type ForwardSyncOutcome, type MintedCode } from './wr
 import { startOutboxDrainer, type OutboxDrainer } from './outbox-drainer';
 import { makeReplicaPuller, type ReplicaPuller } from './replica-puller';
 import { makeSnapshotProducer } from './snapshot';
+import { makeOpsSnapshotProducer, type OpsSnapshotOutcome } from './ops-snapshot';
 import { makeAuthoritativeQuotaReader, type QuotaReader } from './authoritative-quota';
 import { makeWriterOnlyGuard, NODE_CAN_WRITE, type WriterOnlyGuard } from './writer-only';
 import { makeTokenReadThrough, type TokenReadThrough } from './token-read-through';
 import { applyTokenResolution } from './token-rows';
+import { installRevocationHint, type RevocationHint } from './revocation-hint';
+import { makeRevocationFollower, type RevocationFollower } from './revocation-follower';
 import {
   makePcIdentityClock, makePcIdentityForwarder, type NotePcIdentity, type PcIdentityClock,
 } from './pc-identity-forward';
 import {
-  isReleaseMobileResult, isSettingsUpdateResult, isUnpairMobileResult,
+  isCredentialsCheckResult, isReleaseMobileResult, isSettingsUpdateResult, isUnpairMobileResult,
   type SettingsUpdateRequest, type SettingsUpdateResult,
 } from './forward-sync-types';
 
@@ -68,9 +71,20 @@ export interface NodeRuntime {
   outboxDrainer: OutboxDrainer | null;
   /** Present only on a replica: the loop that keeps this node's copy current. */
   replicaPuller: ReplicaPuller | null;
+  /** REVOKE-PUSH (design 2026-10-11 §11). WRITER ONLY: the hint replicas
+   *  long-poll. `null` if this build could not arm it — logged, never fatal:
+   *  revocations then reach replicas by the 30-second pull, as before. */
+  revocationHint: RevocationHint | null;
+  /** REVOKE-PUSH. REPLICA ONLY: hears the hint, pulls at once, and closes live
+   *  sessions whose credential the writer confirms gone. Starts when bootstrap
+   *  binds the live sockets (`bindSockets`), not before. */
+  revocationFollower: RevocationFollower | null;
   /** Present only on the WRITER. Absent on a replica is what stops a replica
    *  re-serving the database it holds. */
   snapshot: (() => Promise<Buffer>) | null;
+  /** Present only on the WRITER: the ops console's slim snapshot
+   *  (node/ops-snapshot.ts). Same role guard as [snapshot], for the same reason. */
+  opsSnapshot: ((ifNoneMatch?: string) => Promise<OpsSnapshotOutcome>) | null;
   /**
    * WRITER ONLY — the tracker used to REPLAY a forwarded metering call, and the
    * only difference from the ordinary one is its clock.
@@ -342,21 +356,62 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
     })
     : null;
 
+  // REVOKE-PUSH — the follower is constructed AFTER the puller it drives, and
+  // the puller's post-import hook reaches it through this cell; there is no
+  // order in which both can be built with a plain const.
+  let revocationFollower: RevocationFollower | null = null;
   const replicaPuller = writerClient
     ? makeReplicaPuller({
       db: db.raw,
       fetchSnapshot: () => writerClient.fetchSnapshot(),
       log,
+      onApplied: () => { void revocationFollower?.sweep(); },
       ...(deps.setIntervalFn ? { setIntervalFn: deps.setIntervalFn } : {}),
       ...(deps.clearIntervalFn ? { clearIntervalFn: deps.clearIntervalFn } : {}),
     })
     : null;
+  revocationFollower = writerClient && replicaPuller
+    ? makeRevocationFollower({
+      waitHint: (seen, waitMs, signal) => writerClient.waitRevocationHint(seen, waitMs, signal),
+      pull: () => replicaPuller.pull(),
+      lastAppliedAt: () => replicaPuller.lastAppliedAt(),
+      pcs: db.pcs,
+      mobiles: db.mobiles,
+      // The writer's verdict, narrowed: a refusal (an older writer answers
+      // `unknown_verb`) or an unexpected shape is 「nothing learned」 — the
+      // follower then closes nothing, which is the only safe reading.
+      checkOnWriter: async (req) => {
+        const outcome = await writerClient.forwardSync('credentials_check', { ...req });
+        return outcome.status === 'ok' && isCredentialsCheckResult(outcome.result) ? outcome.result : null;
+      },
+      log,
+    })
+    : null;
+
+  // REVOKE-PUSH, writer half. A failure to arm is LOUD and NOT fatal: the
+  // product works exactly as it did yesterday without it (the 30-second pull),
+  // and refusing to boot the writer over it would take every node down.
+  let revocationHint: RevocationHint | null = null;
+  if (nodeConfig.role === 'writer') {
+    try {
+      revocationHint = installRevocationHint(db.raw, { log });
+    } catch (err) {
+      log.error('node.revocation_hint could NOT be armed — replicas learn revocations by the 30-second pull only', {
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // 🔴 WRITER ONLY, and the guard is the role rather than 「is a secret set」. A
   // replica serving this route would hand out a copy of the user database it
   // holds only because we gave it one — turning one authenticated channel into
   // a second, weaker copy of the same secret.
-  const snapshot = nodeConfig.role === 'writer' ? makeSnapshotProducer(db.raw) : null;
+  const snapshot = nodeConfig.role === 'writer' ? makeSnapshotProducer(db.raw, { log }) : null;
+  // OPS-DIRECT (2026-10-11) — the console's slim snapshot. Built whether or not
+  // a snapshot-only key was issued; the route answers 501 without one, which
+  // is the same split `/api/node/snapshot` draws between 「can produce」 and
+  // 「may be asked」.
+  const opsSnapshot = nodeConfig.role === 'writer' ? makeOpsSnapshotProducer(db.raw, { log }) : null;
 
   // The replay clock. A plain mutable cell is safe here precisely because
   // `applyForwardedWrite` is synchronous: nothing can interleave between the pin
@@ -612,7 +667,7 @@ export function wireNodeRuntime(deps: NodeRuntimeDeps): NodeRuntime {
     : null;
 
   return {
-    nodeConfig, usageTracker, outboxDrainer, replicaPuller, snapshot, replayUsage,
+    nodeConfig, usageTracker, outboxDrainer, replicaPuller, revocationHint, revocationFollower, snapshot, opsSnapshot, replayUsage,
     wrapQuota, stampHomeNode, stampPresence, notePcIdentity, pcIdentityClock, writerOnly, mintCodeOnWriter,
     resolveTokenOnWriter, forwardSyncOnWriter, forwardReleaseMobileOnWriter,
     forwardUnpairMobileOnWriter, forwardSettingsUpdateOnWriter,

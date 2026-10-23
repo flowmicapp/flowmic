@@ -78,6 +78,12 @@ void main() {
         _ => throw StateError('unexpected badge key: $key'),
       };
       expect(tile.polishSkippedLabel, expectedLabel);
+      // UI-1: amber only where the user can fix something in model settings.
+      expect(
+        tile.polishNeedsAction,
+        key == 'polishNoModel' || key == 'polishModelRejected',
+        reason: 'wiring chat_flow_scroll -> ChatMessageTile for $key',
+      );
       if (expectedLabel == null) {
         for (final label in <String>[
           strings.polishNotApplied,
@@ -142,7 +148,10 @@ void main() {
       expect(find.text(strings.polishUnavailable), findsNothing);
       final bool lan = route == ServerChannel.lan;
       // Two not_configured rows, ONE hint (LAN) or none (cloud relay).
-      expect(find.text(strings.polishNoModelHint), lan ? findsOneWidget : findsNothing);
+      expect(
+        find.text(strings.polishNoModelHint),
+        lan ? findsOneWidget : findsNothing,
+      );
       expect(rig.controller.polishNoModelHint, lan);
       if (lan) {
         // Put away, then a third row on the same PC: it does not come back.
@@ -183,7 +192,10 @@ void main() {
       expect(find.text(strings.polishUnavailable), findsNothing);
       expect(find.text(strings.polishNoModel), findsNothing);
       final bool lan = route == ServerChannel.lan;
-      expect(find.text(strings.polishModelRejectedHint), lan ? findsOneWidget : findsNothing);
+      expect(
+        find.text(strings.polishModelRejectedHint),
+        lan ? findsOneWidget : findsNothing,
+      );
       expect(rig.controller.polishModelRejectedHint, lan);
       // The no-model hint is a different fact and stays down.
       expect(rig.controller.polishNoModelHint, isFalse);

@@ -244,6 +244,13 @@ mixin ComposeStrings on AppStringsLeaves {
   /// the only branch that is true of every refusal there is.
   String controlKeyRefusedFailed(String key) => _lfControlKeyRefusedFailed(key);
 
+  /// Windows blocked the key because the window in front runs as
+  /// administrator (`INJECT_TARGET_ELEVATED` on a key receipt). A key leaves no
+  /// row on the computer, so the text-path sentence for that code (「the text is
+  /// on the computer's timeline」) would be false here.
+  String controlKeyRefusedElevated(String key) =>
+      _lfControlKeyRefusedElevated(key);
+
   /// Fail-loud copy for a ComposeBand send that did not happen. Each reason
   /// reads differently — a generic 「发送失败」 ("send failed") would hide which
   /// wall was hit.

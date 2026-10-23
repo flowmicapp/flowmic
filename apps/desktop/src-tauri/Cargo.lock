@@ -877,7 +877,7 @@ dependencies = [
 
 [[package]]
 name = "flowmic-desktop"
-version = "0.3.107"
+version = "0.3.118"
 dependencies = [
  "block2",
  "flate2",

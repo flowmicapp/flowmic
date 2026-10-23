@@ -67,3 +67,18 @@ jobs:
       - name: Test
         working-directory: apps/mobile
         run: flutter test --timeout 90s --reporter compact
+
+      # CARD-UI: every gate runs the card meta fit tests on their dominating
+      # cell only (360 dp at text size 1.15; the reasoning is in
+      # apps/mobile/test/support/meta_fit_rows.dart `kMetaFullMatrix`). This
+      # step runs the whole matrix (text size 1.0 / 1.15 / 1.3 x 360 / 393 /
+      # 412 dp) and so checks every pin in the two residual fixtures.
+      # private-nightly.yml dispatches this workflow.
+      - name: Card meta full matrix
+        working-directory: apps/mobile
+        env:
+          FLOWMIC_META_MATRIX: full
+        run: >-
+          flutter test --timeout 90s --reporter compact
+          test/chat_message_meta_fit_test.dart
+          test/history_card_meta_fit_test.dart

@@ -224,9 +224,18 @@ extension PttSessionLinkLoss on PttSession {
     // RC-3 — the LINK cause only. An engine outage leaves the socket up, so the
     // ordinary release (`audio:stop`, the terminal final) is still true there.
     if (continuousOffline != ContinuousOffline.linkKept) return false;
+    _stopContinuousWithoutRelay(sessionLost: false);
+    return true;
+  }
+
+  /// The body [stopContinuousOffline] always had, shared with the NR-174-D6
+  /// arm of [_onContinuousLinkBack]: both end a long recording that no relay
+  /// session will finalise — the link is down, or the link is back and the
+  /// relay disposed the session while the app was away.
+  void _stopContinuousWithoutRelay({required bool sessionLost}) {
     // RC-3 — the owed tail is measured while the journal is still open; the
     // stop below closes it (see `_accountOutageForArticle`).
-    _accountOutageForArticle(recordingEnding: true);
+    _accountOutageForArticle(recordingEnding: true, sessionLost: sessionLost);
     final bool requested = audio.stopForLinkLoss();
     _stopHeartbeat();
     // CR-9 (C8, exit 1 of 5 — this is the offline half of the user's stop).
@@ -238,10 +247,69 @@ extension PttSessionLinkLoss on PttSession {
     // live final is owed on this socket: the wire is free for recovery (an
     // owed tail keeps its own hold, `ArticleScribe.owedTailPendingFor`).
     articles.attempts.liveSettled();
-    diag('audio.continuous.stopped_offline', <String, Object?>{'retention_requested': requested});
+    // D6-CATCHUP-DUP - the relay said it no longer holds this recording, so no
+    // live final will come to place the owed tail behind: place it now, as the
+    // 45 s wait does when it gives up (chat_utterance_owner.dart
+    // `_armLiveGrace`), instead of showing "transcribing final part" for a
+    // part nobody is transcribing (R11). The link-down stop keeps the wait: a
+    // relay inside its grace may still send the closing final.
+    if (sessionLost && articles.hasPendingOwedTail) {
+      final String? live = audio.retainedAudio?.liveAttempt?.attemptId;
+      if (live != null) articles.attempts.supersedeLive(live);
+      unawaited(resolveOwedTailPlacement(
+          reason: 'session_lost', draftLanded: false));
+    }
+    diag('audio.continuous.stopped_offline', <String, Object?>{
+      'retention_requested': requested,
+      'session_lost': sessionLost,
+    });
     unawaited(_announceConfirmedLinkLoss(audio.tailRetentionConfirmed));
     timings.active?.close(incomplete: true);
-    return true;
+  }
+
+  /// NR-174-D6 — THE LINK CAME BACK UNDER A LONG RECORDING. Called from the
+  /// `mobile:reconnect` accept path (ptt_reconnect_ack.dart) after the ack's
+  /// audio watermark is parsed; [serverSessionAlive] is whether that ack
+  /// carried `audio_last_contiguous_seq` (the relay sends it only while it
+  /// holds this pairing's session, active or inside its drop grace).
+  ///
+  /// 【measured 2026-10-10, TB335ZC / Android 16】 Android cuts a backgrounded
+  /// app's network about 3-4 s after it leaves (`dumpsys netpolicy`:
+  /// `blocked=APP_BACKGROUND`; both of the app's TCP sockets gone at +4 s,
+  /// new local ports after return). So every leave longer than that is a link
+  /// drop under a paused recording, and two things were left behind:
+  ///   · SESSION — the 3 s drop grace reset it and the reconnect made it
+  ///     `idle`, while CR-3 kept the microphone and the panel kept saying
+  ///     Recording. `_onCapturedChunk` gates on `recording`, so every chunk
+  ///     after the return stayed on this phone;
+  ///   · the relay's pause latch — `audio:pause` landed before the drop, the
+  ///     `audio:resume` of `resumeCapture` went into the dead socket, and the
+  ///     latch survives a rebind on purpose (server-core
+  ///     test/audio-grace.test.ts 「the pause state survives a rebind」). Only
+  ///     this phone knows which lifecycle state is true, so it says it again.
+  /// Relay session gone (frozen past the grace) ⇒ there is nothing to resume
+  /// into; the recording ends with the link-loss stop and its owed tail goes
+  /// to recovery, instead of streaming into a session that no longer exists.
+  void _onContinuousLinkBack({required bool serverSessionAlive}) {
+    if (!continuous.isActive) return;
+    final RecorderState rec = audio.currentState;
+    if (rec != RecorderState.recording && rec != RecorderState.paused) return;
+    diag('audio.continuous.link_back', <String, Object?>{
+      'server_session': serverSessionAlive,
+      'session_was': fsm.session.name,
+      'recorder': rec.name,
+    });
+    if (!serverSessionAlive) {
+      _stopContinuousWithoutRelay(sessionLost: true);
+      return;
+    }
+    if (fsm.session == SessionState.idle) fsm.onContinuousSessionRestored();
+    if (fsm.session != SessionState.recording) return;
+    if (rec == RecorderState.recording) {
+      _safeEmit(FlowMicEvents.audioResume, const <String, Object?>{});
+    } else {
+      _safeEmit(FlowMicEvents.audioPause, const AudioPausePayload('background').toJson());
+    }
   }
 
   // NR-146: snapshot the future at the stop; a later press cannot replace it.

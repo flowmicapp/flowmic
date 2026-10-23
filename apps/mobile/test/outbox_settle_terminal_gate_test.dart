@@ -82,6 +82,7 @@ void main() {
       store: store,
       blobs: InMemoryOutboxBlobStore(),
       host: host,
+      retryLinkUp: () => false,
     );
   });
 

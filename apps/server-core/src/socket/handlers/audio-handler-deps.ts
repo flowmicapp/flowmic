@@ -23,7 +23,7 @@ import type { QuotaGuard } from '../../billing/quota-guard';
 import type { UsageTracker } from '../../billing/usage-tracker';
 import type { RoomStore } from '../../room/store';
 import type { SttOrchestrator } from '../../engine/orchestrator';
-import type { SttCharCounts, SttEngineFailure } from '../../engine/stt-session-deps';
+import type { SttCharCounts, SttEngineFailure, SttReceivedAudio } from '../../engine/stt-session-deps';
 import type { RecoveryEcho } from '../../engine/stt-session-receipt';
 import type { AudioSessionRegistry } from '../../engine/audio-registry';
 import type { VerificationGraceGuard } from '../../auth/verification-grace';
@@ -52,6 +52,9 @@ export interface SttStartArgs {
    *  terminal final. Lifted by `recoveryEchoOf`; undefined when the frame
    *  carried none. Never parsed or validated here. */
   recovery?: RecoveryEcho;
+  /** card SEG-1b — the frame is a RECOVERY leg (`isRecoveryLeg`, stt-session-receipt.ts),
+   *  not merely a frame carrying [recovery]: a live press names its recording too. */
+  recoveryLeg?: true;
   /** card HANGUP-3 — the `client_caps` the starting socket declared at admission
    *  (wire.ts `getClientCaps`); absent/empty ⇒ nothing declared, keep the old behaviour. */
   clientCaps?: readonly string[];
@@ -68,7 +71,7 @@ export interface SttStartArgs {
    *  A2-5 — `chars` is the third argument the seam grew so the per-event usage
    *  log can answer "how many characters were spoken this time / how many were sent out". See [[SttCharCounts]] for why
    *  it had to travel here rather than be defaulted at the table. */
-  onComplete(durationMs: number, isByok: boolean, chars: SttCharCounts, failure?: SttEngineFailure): void; // NR-138 item 5: present ⇒ not charged (book 22 §4.10)
+  onComplete(durationMs: number, isByok: boolean, chars: SttCharCounts, failure?: SttEngineFailure, received?: SttReceivedAudio): void; // NR-138 item 5: present ⇒ not charged (book 22 §4.10); NR-224: [received] places the session in its recording (§4.12)
   /** v0.2.3 — the polish LLM's usage, once per polished terminal-final and only
    *  when the model reported it. See the metering note on commitPolishUsage. */
   onPolishUsage?(tokensIn: number, tokensOut: number, isByok: boolean): void;

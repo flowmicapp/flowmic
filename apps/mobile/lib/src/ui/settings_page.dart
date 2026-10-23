@@ -59,9 +59,36 @@ part 'settings_preferences.dart';
 // rows; that file's header says why it is a part and what each row is.
 part 'settings_general_prefs.dart';
 
+/// FM-002 — what the Notes button on the ACCOUNT card can truthfully do,
+/// decided by whoever pushed Settings (it is the pusher that can act on it).
+///
+/// The button used to call `destination.configureFixed(...)` and pop. From the
+/// device list that changed nothing a person could use: signed out it led
+/// nowhere (the home Notes card opens the sign-in sheet), and the flag it
+/// flipped is rewritten from the pairing by the next session entry
+/// (connections_page.dart `_enterChat`) — while the label flipped to
+/// 「Exit Notes」 about a session that did not exist. Settings now only POPS
+/// with one of these values; the pusher runs the real entry or exit.
+enum SettingsNotesAction {
+  /// No Notes action is reachable from where Settings was opened (a PC
+  /// session): the button is not built at all.
+  none,
+
+  /// Opened from the device list, where no session is open. Popping with this
+  /// value makes ConnectionsPage run the home Notes card's own entry
+  /// (connections_row_cards.dart `_enterNotesRouted`).
+  enter,
+
+  /// Opened from inside a Notes session. Popping with this value makes the
+  /// chat host leave that session the way its back gesture does
+  /// (main_page_builders.dart `onOpenSettings`).
+  leave,
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
+    required this.notesAction,
     required this.scenario,
     required this.appSettings,
     required this.login,
@@ -78,6 +105,11 @@ class SettingsPage extends StatelessWidget {
   });
 
   final ScenarioCardController scenario;
+
+  /// FM-002 — see [SettingsNotesAction]. REQUIRED, no default: the value is a
+  /// promise that the pusher acts on the pop result, and only the pusher knows
+  /// whether it does.
+  final SettingsNotesAction notesAction;
 
   /// 2026-09-03 — the phone-owned recognition switches (AI polish, two-pass
   /// refine, scenario-inference consent). REQUIRED, no default, same reason
@@ -322,7 +354,11 @@ class SettingsPage extends StatelessWidget {
   );
 
   Widget _cloudInstanceRow(BuildContext context, AppStrings s) {
-    final bool fixed = destination.isFixed;
+    // FM-002 — 「is this phone in a Notes session」 is answered by the pusher
+    // (see [SettingsNotesAction]), not by `destination.isFixed`: that flag
+    // keeps the LAST session's value after the session is left, so on the
+    // device list it described a session that was already gone.
+    final bool fixed = notesAction == SettingsNotesAction.leave;
     final bool loggedIn = login.isLoggedIn;
     // 🔴 Vertical stack, not [icon | copy | CTA] on one Row.
     // EN 「Enter Notes (Record only)」 + 「Sign in to use · no pairing · …」
@@ -441,20 +477,22 @@ class SettingsPage extends StatelessWidget {
           // nothing.
           if (loggedIn)
             CloudQuotaGaugeSection(controller: cloudSummary, strings: s),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: KeyedSubtree(
-              key: const ValueKey<String>('settings.notes.cta'),
-              child: ghostButton(
-                fixed ? s.exitCloudInstance : s.enterCloudInstance,
-                onTap: () {
-                  destination.configureFixed(fixedRecordOnly: !fixed);
-                  Navigator.of(context).maybePop();
-                },
+          if (notesAction != SettingsNotesAction.none) ...<Widget>[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: KeyedSubtree(
+                key: const ValueKey<String>('settings.notes.cta'),
+                child: ghostButton(
+                  fixed ? s.exitCloudInstance : s.enterCloudInstance,
+                  // FM-002 — pop WITH the action; the pusher performs it
+                  // (enter: the home Notes card's entry, sign-in sheet
+                  // included; leave: the chat page's own back path).
+                  onTap: () => Navigator.of(context).pop(notesAction),
+                ),
               ),
             ),
-          ),
+          ],
           if (!fixed) ...<Widget>[
             const SizedBox(height: 8),
             // 🔴 L3 (owner 2026-08-02): this is a navigator, not a second

@@ -369,6 +369,18 @@ class BackfillRunner {
   bool get linkConnected =>
       _session.fsm.connection == ConnectionState.connected;
 
+  /// NR-214 — what a waiting recovery is waiting for, from the same two fields
+  /// the gate reads ([linkConnected]; the FSM and `continuous` the press
+  /// reads). A courtesy for the status line, like the two getters above.
+  BackfillWait get waitReason {
+    if (!linkConnected) return BackfillWait.offline;
+    if (_session.continuous.isActive ||
+        (recordingNow && !_session.recoveryOwnsSession)) {
+      return BackfillWait.recording;
+    }
+    return BackfillWait.due;
+  }
+
   /// Card RC-1b (audit A6 R-2) - the user asked for one recording to be tried
   /// again, now.
   ///

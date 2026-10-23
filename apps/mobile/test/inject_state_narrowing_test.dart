@@ -32,6 +32,9 @@ import 'package:flowmic/src/timeline/timeline_entry.dart';
 import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flowmic/src/ui/status_badge.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+// NR-279 — faces whose own word is pending (owner 2026-10-19 reopens ruling 10).
+import 'support/pending_wording_faces.dart';
 import 'support/di.dart';
 
 /// One PC-bound row, born ⏳ 投递中 (awaiting a verdict).
@@ -245,12 +248,12 @@ void main() {
       for (final AppLocale locale in AppLocale.values) {
         final AppStrings s = AppStrings(locale);
         final Set<String> labels = <String>{
-          for (final DeliveryFace f in DeliveryFace.values)
+          for (final DeliveryFace f in facesWithOwnWording)
             deliveryFaceMeta(f, s).label,
         };
         expect(
           labels,
-          hasLength(DeliveryFace.values.length),
+          hasLength(facesWithOwnWording.length),
           reason: '$locale: two faces say the same word',
         );
       }

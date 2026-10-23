@@ -186,7 +186,8 @@ export class SegmentPauseAccount {
    * handed when this chunk arrived — the position a refused chunk is filed at.
    *
    * ⚠️ Called for chunks the gate refuses even when NO engine is attached. That
-   * is the case this ruling exists for: `idleHangupMs` (3 s, same wiring as the
+   * is the case this ruling exists for (⚠️ IDLE-1, 2026-10-14: 3 s is now the long-recording
+   * value; a held press hangs up after 10 s of silence): `idleHangupMs` (3 s, same wiring as the
    * gate) hangs the leg up partway through a quiet-room pause, and a counter
    * that stopped there would go blind on the pauses longer than three seconds in
    * a quiet room — precisely the pauses a paragraph break is for.

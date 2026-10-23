@@ -59,8 +59,25 @@ extension ChatExplicitDelivery on ChatController {
   /// fail-loud behaviour. It deliberately does NOT route through the buffer
   /// (overwriting a composition the user never asked to discard); it settles
   /// no buffered rows, so it always builds its own row (D10).
-  Future<ComposeSendFailure?> sendFavorite(String text) =>
-      delivery.deliverText(text.trim(), covered: const <String>[]);
+  ///
+  /// 🔴 POL-M1b — a tap while a ➤ (or another phrase) is still inside the ack
+  /// gate used to hit `deliverText`'s double-tap guard and return having sent
+  /// nothing. It now queues behind the delivery in flight, like the 「+」 send.
+  /// Double-tap protection moves to the phrase itself: a second tap of the
+  /// SAME phrase while the first is still waiting or in flight is ignored
+  /// ([ManualDelivery.pendingFavorites]); a different phrase queues.
+  Future<ComposeSendFailure?> sendFavorite(String text) async {
+    final String phrase = text.trim();
+    if (!delivery.pendingFavorites.add(phrase)) return null; // the same tap twice
+    try {
+      while (delivery.sendPending) {
+        await delivery.whenIdle();
+      }
+      return await delivery.deliverText(phrase, covered: const <String>[]);
+    } finally {
+      delivery.pendingFavorites.remove(phrase);
+    }
+  }
 
   /// REQ-12-09 09-F/09-J — the 「+」 panel's multi-select send. The SEVENTH explicit delivery entry
   /// point, and it adds no eighth emission path: it ends in the same
@@ -116,16 +133,53 @@ extension ChatExplicitDelivery on ChatController {
   /// on their own (they share the transport); over-length is the one refusal the
   /// text can hit while every picture beside it is perfectly deliverable — which
   /// is exactly why it is the one that produces a split send.
+  ///
+  /// 🔴 POL-M1 / R12 — [sourceRows] are the ticked TEXT rows (a light record, or
+  /// a recording's head) whose words went into [text]. They are frozen HERE,
+  /// before the first `await`: `deliverText` below builds a NEW row and only
+  /// that row is covered by the delivery, so without this the ticked rows'
+  /// words would be on the PC while a later machine rewrite could still change
+  /// them on the phone (POL design §12.3 R1). A recording's head stands for its
+  /// members: the member rows in memory are frozen (a row not in memory is out
+  /// of reach of every machine rewrite, which all select from `store.entries`).
+  /// Not frozen when nothing can leave the phone (review P2): nothing ticked,
+  /// over the cap, a fixed light-record destination (`deliverText` commits a
+  /// local note, `commitNotedLocal`), or the link known down (it refuses with
+  /// `notConnected`) — the same two gates `deliverText` opens with. ⚠️ A link
+  /// that drops DURING the recording-hold wait below still leaves the rows
+  /// frozen (the safe direction: one rewrite chance lost, history still true).
   Future<void> sendPlusSelection({
     required String? text,
     required List<TimelineEntry> images,
+    required List<TimelineEntry> sourceRows,
   }) async {
+    if (text != null && text.isNotEmpty && !exceedsInjectTextCap(text) &&
+        !noPcTarget && canCompose) {
+      store.markHandedOff(<String>[
+        for (final TimelineEntry row in sourceRows)
+          if (row.isArticle && row.articleId != null)
+            for (final TimelineEntry m
+                in articleMembersIn(store.entries, row.articleId!))
+              m.id
+          else
+            row.id,
+      ]);
+    }
     if (store.articleHolds.isNotEmpty) await store.articleHolds.waitForAll();
     if (text != null && exceedsInjectTextCap(text)) {
       delivery.raise(ComposeSendFailure.tooLong);
       return;
     }
     if (text != null && text.isNotEmpty) {
+      // 🔴 POL-M1b — a ➤ still inside the ack gate would make `deliverText`
+      // take this send for a double tap and return having sent nothing (no
+      // frame, no banner, source rows frozen). It is a different act, so it
+      // queues behind the one in flight instead. Re-checked after every wake
+      // (another send may have started meanwhile), and `deliverText` is entered
+      // in the same synchronous breath as the last check — no gap to lose it in.
+      while (delivery.sendPending) {
+        await delivery.whenIdle();
+      }
       await delivery.deliverText(text, covered: const <String>[]);
     }
     for (final TimelineEntry picture in images) {
@@ -157,6 +211,12 @@ extension ChatExplicitDelivery on ChatController {
   /// banner, never in a return.
   void reInject(TimelineEntry entry) {
     if (store.articleHolds.contains(entry.articleId)) {
+      // POL-M1 / R12 (review P2): deliberately NOT frozen before this wait.
+      // `runReInject` freezes the row once the hold releases, and it reads the
+      // row's CURRENT words then — so a rewrite that lands during the wait is
+      // simply what goes out, and history still equals what was delivered.
+      // Freezing here would stamp a row that may never leave (link down,
+      // cloud, picture: `runReInject`'s refusals come after the wait).
       unawaited(store.articleHolds.waitFor(entry.articleId)
           .then((_) => delivery.reInject(entry)));
     } else {

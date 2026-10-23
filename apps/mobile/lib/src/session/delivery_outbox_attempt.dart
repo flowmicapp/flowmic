@@ -26,9 +26,12 @@ extension _DeliveryOutboxAttempt on DeliveryOutbox {
   /// Address ONE item and send it, hold it with a reason, or settle it
   /// terminally. See [_Attempt] for why those are three answers and not two.
   Future<_Attempt> _attempt(
-    OutboxItem item, {
+    OutboxItem loaded, {
     required bool userRequested,
   }) async {
+    // NR-286 N2 — `loaded` is the drain pass's copy, read before the pass
+    // awaited the link; rebound below to a fresh read.
+    OutboxItem item = loaded;
     // 🔴 THE PAYLOAD IS CHECKED BEFORE THE ADDRESS, AND THE ORDER IS DELIBERATE.
     //
     // 「字节还在不在」("are the bytes still there") is a property of the ITEM;
@@ -74,6 +77,23 @@ extension _DeliveryOutboxAttempt on DeliveryOutbox {
         return const _Attempt.refused(kOutboxImageBytesGone);
       }
     }
+
+    // 🔴 NR-286 N2 (doc 15 §2.6-a rule 6) — RE-READ before anything below
+    // writes the item. The pass loaded its list before awaiting `ensureLink`
+    // (and before each earlier item's send); a verdict that landed meanwhile
+    // either stamped a defer promise (`deferPromisedAt`, which the origin below
+    // must honour) or settled the item outright (which this attempt must not
+    // drag back to `inflight`). No `await` between this read and the
+    // `_persistItem` calls below, so nothing can land in between.
+    final OutboxItem? current = await _findItemByRequestId(loaded.requestId);
+    if (current == null || current.state != OutboxDeliveryState.queued) {
+      diag('outbox.attempt_skipped_stale', <String, Object?>{
+        'request_id': loaded.requestId,
+        'state': current?.state.name,
+      });
+      return const _Attempt.skipped();
+    }
+    item = current;
 
     final LiveConnection live = _host.liveConnection;
     // 🔴 Gate 2 — the destination is the item's own frozen MACHINE. This call can
@@ -157,14 +177,26 @@ extension _DeliveryOutboxAttempt on DeliveryOutbox {
       createdAt: item.createdAt,
       attemptAt: attemptAt,
       userRequested: userRequested,
+      // NR-279 — the row already promised 「will not type it in on its own」.
+      deferPromised: item.deferPromisedAt != null,
     ));
     final OutboxItem attempting = item.copyWith(
       state: OutboxDeliveryState.inflight,
       attempts: item.attempts + 1,
       lastAttemptAt: attemptAt,
       clearRefusalNote: true,
+      // 🔴 NR-279 S4b — the user's own press took the 「will not type it in」
+      // note off the row (Resend / ➤ put it back to waiting), so the fact goes
+      // with it: `deferPromisedAt` means 「the row promises this NOW」. Cleared
+      // here, on the record of the live attempt, BEFORE the frame leaves; a
+      // repeat INJECT_PC_OFFLINE stamps it again in `outboxSettle`. Contract:
+      // doc 15-INJECTION-PERMISSION §2.5e-3, the S4 append.
+      clearDeferPromise: userRequested,
     );
     await _persistItem(attempting, op: 'attempt');
+    // NR-286 rule 6 — whichever drain this is, the item is on its way now; a
+    // pending no-answer retry for it has nothing left to do.
+    outboxCancelNoAnswerRetryTimer(this, item.requestId);
     // The bytes read at the top of this method — never re-read. Non-null for
     // every image item that gets this far, null for every text one, which is
     // precisely the pairing [OutboxDrainHost.send] promises its implementor.
@@ -181,6 +213,10 @@ extension _DeliveryOutboxAttempt on DeliveryOutbox {
         attempting.copyWith(
           state: OutboxDeliveryState.queued,
           lastRefusalNote: 'WIRE_EMIT_FAILED',
+          // NR-279 S4b — nothing went out, so the press was not a live send:
+          // the earlier promise stands (conservative: the next automatic
+          // attempt stays `deferred`). Null when there was none.
+          deferPromisedAt: item.deferPromisedAt,
         ),
         op: 'requeue_wire_failed',
       );
@@ -212,6 +248,7 @@ extension _DeliveryOutboxAttempt on DeliveryOutbox {
       // hold line above (what was decided vs what it was decided from).
       'inject_origin': origin.name,
       'origin_user_requested': userRequested,
+      'origin_defer_promised': item.deferPromisedAt != null,
       'origin_age_ms': attemptAt.difference(item.createdAt).inMilliseconds,
     });
     return const _Attempt.sent();

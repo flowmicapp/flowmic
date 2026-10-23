@@ -101,6 +101,10 @@ void main() {
     expect(_text(tester, ContinuousSheetKeys.cap), contains('30'));
     expect(_text(tester, ContinuousSheetKeys.left), contains('812'));
     expect(find.byKey(ContinuousSheetKeys.noCancel), findsOneWidget);
+    // NR-213 (D1, owner 2026-10-10 ruling 2) — said BEFORE the first byte:
+    // leaving the app pauses the recording; there is no background capture.
+    expect(_text(tester, ContinuousSheetKeys.leavePauses),
+        AppStrings.of(AppLocale.zh).continuousSheetLeavePauses);
     expect(find.byKey(ContinuousSheetKeys.earlyStop), findsNothing,
         reason: 'this account has 812 minutes against a 30-minute ceiling — '
             'nothing is going to cut it short');
@@ -233,6 +237,7 @@ void main() {
         ContinuousSheetKeys.left,
         ContinuousSheetKeys.earlyStop,
         ContinuousSheetKeys.noCancel,
+        ContinuousSheetKeys.leavePauses, // NR-213
         ContinuousSheetKeys.start,
         ContinuousSheetKeys.cancel,
       ]) {

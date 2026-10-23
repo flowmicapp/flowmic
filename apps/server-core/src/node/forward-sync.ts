@@ -63,13 +63,18 @@ import type { SettingsRepo } from '../db/repos/settings.repo';
 import { stampSettingProvenance } from '../settings/defaults';
 import { RETIRED_SETTING_KEY_STT_DICTIONARY, isPhoneOwnedKey } from '../settings/session-overlay';
 import { PC_NAME_KEY, SETTINGS_STAMP_MAX_SKEW_MS, parsePcName, stampMs } from '../socket/handlers/settings.handler';
-import type {
-  ReleaseMobileOutcome,
-  ReleaseMobileRequest,
-  SettingsUpdateRequest,
-  SettingsUpdateResult,
-  UnpairMobileRequest,
-  UnpairMobileResult,
+import {
+  CREDENTIALS_CHECK_MAX_ENTRIES,
+  type CredentialsCheckPairing,
+  type CredentialsCheckPc,
+  type CredentialsCheckRequest,
+  type CredentialsCheckResult,
+  type ReleaseMobileOutcome,
+  type ReleaseMobileRequest,
+  type SettingsUpdateRequest,
+  type SettingsUpdateResult,
+  type UnpairMobileRequest,
+  type UnpairMobileResult,
 } from './forward-sync-types';
 
 /** THE SAME mutation pc.handler.ts's `pc:release-mobile` performs for a
@@ -117,6 +122,46 @@ export function unpairMobileOnWriter(
   if (!mobile) return { unpaired: false, mobile_id: null, pc_room_uuid: null };
   const pc = env.registry.findPc(mobile.pc_device_id);
   return { unpaired: true, mobile_id: mobile.id, pc_room_uuid: pc?.room_uuid ?? null };
+}
+
+/** REVOKE-PUSH (docs/strategy/2026-10-11-replication-tiering-design.md §11-3) —
+ *  READ-ONLY, the one verb in this table that mutates nothing. Answers, from the
+ *  writer's own rows, which of a replica's live admissions it no longer holds.
+ *
+ *  「Absent」 is deliberately wider than 「no row」: a pairing now hanging off a
+ *  different PC, or a PC now owned by a different account, is a credential
+ *  the socket was NOT admitted under (D-25), and the replica closes it the same
+ *  way. Ownership is read through the same registry the handlers use, so the
+ *  two sides cannot disagree about what 「this PC's pairings」 means. */
+export function credentialsCheckOnWriter(
+  env: { registry: Registry },
+  req: CredentialsCheckRequest,
+): CredentialsCheckResult {
+  const pairingsByPc = new Map<string, Set<string>>();
+  const ownedBy = (pcId: string): Set<string> => {
+    let ids = pairingsByPc.get(pcId);
+    if (!ids) {
+      ids = new Set(env.registry.listMobilesForPc(pcId).map((m) => m.id));
+      pairingsByPc.set(pcId, ids);
+    }
+    return ids;
+  };
+  return {
+    absent_pairings: req.pairings.filter((p) => !ownedBy(p.pc_id).has(p.id)),
+    absent_pcs: req.pcs.filter((p) => env.registry.findPc(p.id)?.user_id !== p.user_id),
+  };
+}
+
+function parseCredentialEntries<T>(raw: unknown, keys: readonly (keyof T & string)[]): T[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: T[] = [];
+  for (const e of raw) {
+    if (e === null || typeof e !== 'object' || Array.isArray(e)) return null;
+    const r = e as Record<string, unknown>;
+    if (!keys.every((k) => typeof r[k] === 'string' && (r[k] as string).length > 0)) return null;
+    out.push(Object.fromEntries(keys.map((k) => [k, r[k]])) as T);
+  }
+  return out;
 }
 
 /** THE SAME mutation settings.handler.ts's `settings:update` performs for a
@@ -271,6 +316,15 @@ export function makeForwardSyncDispatcher(env: {
       // it into the specific ack error (AUTH_TOKEN_INVALID / etc).
       const result = applySettingsUpdateOnWriter({ registry: env.registry, repo: env.repo, now }, req);
       return { ok: true, result };
+    }
+
+    if (verb === 'credentials_check') {
+      const pairings = parseCredentialEntries<CredentialsCheckPairing>(payload.pairings, ['id', 'pc_id']);
+      const pcs = parseCredentialEntries<CredentialsCheckPc>(payload.pcs, ['id', 'user_id']);
+      if (!pairings || !pcs || pairings.length + pcs.length > CREDENTIALS_CHECK_MAX_ENTRIES) {
+        return { ok: false, error: 'malformed' };
+      }
+      return { ok: true, result: credentialsCheckOnWriter({ registry: env.registry }, { pairings, pcs }) };
     }
 
     return { ok: false, error: 'unknown_verb' };

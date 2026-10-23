@@ -21,7 +21,7 @@ import type { SoftSegmentCadence } from './segment-boundary';
 import type { SegmentPauseAccount } from './segment-pause';
 import type { EngineSubscriber } from './orchestrator-types';
 import type { FlushOutcome } from './flush-final';
-import { seamText } from './segment-boundary';
+import type { OpenSeamCarry } from './seam-artifact';
 import { engineBacklogMs } from './engine-backlog';
 
 /** Everything the flush-and-emit step needs off the orchestrator — the same
@@ -38,6 +38,11 @@ export interface FlushEmitHost {
   legFedBytes: number;
   readonly cadence: SoftSegmentCadence;
   readonly pauseAccount: SegmentPauseAccount;
+  /** card SEAM-2 — the open-phrase fact and whether this leg's engine closes its final at end-of-stream. */
+  readonly seamCarry: OpenSeamCarry;
+  readonly legFinalsOnlyAtFlush: boolean;
+  /** card SEAM-2 (re-review R1, review F2) — false on a long recording or a recovery leg: rows left as today, cuts still logged. */
+  readonly seamRepair: boolean;
   flushFinal(askEngine?: boolean, withholdOnTimeout?: boolean): Promise<FlushOutcome>;
   legVoicedBytes(): number;
   noteLegClosed(r: FinalResult): void;
@@ -81,11 +86,17 @@ export async function flushAndEmitFinal(host: FlushEmitHost, isSegment: boolean,
   // 🔴 card SEG-3 — the one place a segment's text leaves this class, so the one
   // place a full stop the SPAN produced (not the speaker) can be taken back off
   // on a 'leg' seam. F-2: a 'pause' cut keeps an engine-produced terminator.
+  // card SEAM-2 — and, on an engine that closes its final at end-of-stream, the 「not finished」 mark our
+  // own cut made it write; the head lower-casing is for a row continuing the previous one (seam-artifact.ts).
   const pauseBeforeMs = host.pauseAccount.pauseBeforeMs();
+  const continues = host.seamCarry.continuation(r.text); // before cutRow: it answers for the row BEFORE this one
+  const text = !host.seamRepair ? host.seamCarry.untouchedRow(r.text, host.cadence.lastCutReason, host.legFinalsOnlyAtFlush, r.language)
+    : host.seamCarry.cutRow(r.text, host.cadence.lastCutReason, host.legFinalsOnlyAtFlush, r.language, host.currentSegmentIdx);
   host.emit('final', {
-    text: seamText(r.text, host.cadence.lastCutReason), confidence: r.confidence, language: r.language,
+    text, confidence: r.confidence, language: r.language,
     segment_idx: host.currentSegmentIdx, is_segment: isSegment, duration_ms: durationMs,
     ...(pauseBeforeMs !== null ? { pause_before_ms: pauseBeforeMs } : {}),
+    ...continues, ...host.seamCarry.finalField(), // card SEAM-2 — internal: the bridge reads both, the wire never carries them
   });
   return true;
 }

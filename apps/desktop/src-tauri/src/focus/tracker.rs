@@ -149,6 +149,20 @@ pub(crate) fn fanout_focus_event(
     outcome
 }
 
+/// Executable basename without its `.exe`, matched case-insensitively —
+/// Windows file names are, so `NOTEPAD.EXE` and `Code.EXE` must answer
+/// `NOTEPAD` / `Code` exactly like `notepad.exe` does (NR-253 review: the app
+/// name decides the line-break keystroke, `inject/text_route.rs::line_break_key_for`).
+/// Only one suffix is removed; the stem keeps its own casing.
+#[cfg(any(test, target_os = "windows"))]
+pub(crate) fn strip_exe_suffix(basename: &str) -> &str {
+    let cut = basename.len().saturating_sub(4);
+    match basename.get(cut..) {
+        Some(ext) if ext.eq_ignore_ascii_case(".exe") => &basename[..cut],
+        _ => basename,
+    }
+}
+
 // ─── Win32 production source (windows-only) ────────────────────────────
 
 #[cfg(target_os = "windows")]
@@ -405,7 +419,7 @@ mod win32 {
         // Strip directory + extension → executable basename ("explorer", not
         // "explorer.exe"): the process_name the focus:state mirror carries.
         let basename = full.rsplit(['\\', '/']).next().unwrap_or(&full);
-        basename.trim_end_matches(".exe").to_string()
+        super::strip_exe_suffix(basename).to_string()
     }
 
     pub fn current_window_title(hwnd: u64) -> String {
@@ -730,6 +744,24 @@ mod tests {
                 assert_eq!(app_name, "notepad", "basename, extension already stripped");
             }
             other => panic!("expected a ForegroundChanged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_exe_suffix_is_stripped_whatever_its_case() {
+        for (raw, want) in [
+            ("notepad.exe", "notepad"),
+            ("NOTEPAD.EXE", "NOTEPAD"),
+            ("Code.Exe", "Code"),
+            ("msedge", "msedge"),
+            ("a.exe.exe", "a.exe"),
+            ("exe", "exe"),
+            (".exe", ""),
+            // A non-ASCII stem, and a name whose last 4 bytes split a char.
+            ("Caf\u{e9}.EXE", "Caf\u{e9}"),
+            ("\u{4e00}\u{4e00}", "\u{4e00}\u{4e00}"),
+        ] {
+            assert_eq!(super::strip_exe_suffix(raw), want, "{raw}");
         }
     }
 

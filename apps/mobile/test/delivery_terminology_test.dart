@@ -30,6 +30,9 @@ import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/ui/status_badge.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+// NR-279 — faces whose own word is pending (owner 2026-10-19 reopens ruling 10).
+import 'support/pending_wording_faces.dart';
+
 const List<AppLocale> _locales = <AppLocale>[
   AppLocale.zh,
   AppLocale.en,
@@ -189,10 +192,10 @@ void main() {
       // …and the eight faces are pairwise distinct (merging any two would go
       // red here).
       final Set<String> all = <String>{
-        for (final DeliveryFace f in DeliveryFace.values)
+        for (final DeliveryFace f in facesWithOwnWording)
           deliveryFaceMeta(f, zh).label,
       };
-      expect(all.length, DeliveryFace.values.length);
+      expect(all.length, facesWithOwnWording.length);
     });
   });
 

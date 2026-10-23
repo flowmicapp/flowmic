@@ -39,6 +39,37 @@ TimelineEntry _textEntry({String text = 'a light record'}) =>
     })!;
 
 void main() {
+  // 🔴 POL-M1b — an old row (never handed off) must encode BYTE FOR BYTE as it
+  // did before POL-M1 added `first_handed_off_at`, or every light record's hash
+  // changes and the first sync after the upgrade re-uploads all of them. The
+  // golden below was produced by the pre-POL-M1 codec (main @ baf90626) on the
+  // same row — not derived from today's code. Reverse control (measured red
+  // 2026-10-14): drop the omit-when-null rule in `encodeBlindStorePayload`.
+  group('POL-M1b — the freeze stamp does not churn the cloud copy', () {
+    const String golden =
+        '{"v":1,"entry":{"id":"loc_dev_e1","client_id":"e1","mode":"realtime","delivery":"none","source_text":"a light record","output_text":"a light record","source_lang":null,"output_lang":null,"process_mode":null,"processed_text":null,"refined_at":null,"inject_target":null,"pc_name":null,"spoken_to_instance_id":null,"spoken_to_instance_name":null,"edited":false,"status":"noted","duration_ms":null,"segments_count":0,"origin":"cloud","deleted":false,"entry_type":"transcript","control_kind":null,"failure_reason":null,"cached_by_verdict":false,"last_resent_at":null,"created_at":"2026-08-08T01:02:03.000Z","updated_at":"2026-08-08T01:02:03.000Z"}}';
+    const String goldenHash = '5cde5c6cc0d0a519a138e4055f0746a22f4061836ed840db523fc940462cd284';
+
+    test('a row never handed off encodes exactly as before POL-M1', () {
+      final TimelineEntry e = _textEntry();
+      expect(e.toJson().containsKey('first_handed_off_at'), isTrue,
+          reason: 'control: the LOCAL payload still always carries the key');
+      expect(encodeBlindStorePayload(e), golden);
+      expect(blindStorePayloadHash(encodeBlindStorePayload(e)), goldenHash);
+    });
+
+    test('a frozen row carries the stamp to the cloud and back', () {
+      final Map<String, Object?> j = _textEntry().toJson()
+        ..['first_handed_off_at'] = '2026-10-14T09:00:00.000Z';
+      final TimelineEntry frozen = TimelineEntry.fromJson(j)!;
+      final String payload = encodeBlindStorePayload(frozen);
+      expect(payload, contains('"first_handed_off_at":"2026-10-14T09:00:00.000Z"'));
+      expect(decodeBlindStorePayload(payload)!.isHandedOff, isTrue);
+      expect(decodeBlindStorePayload(golden)!.isHandedOff, isFalse,
+          reason: 'an absent key decodes as 「not recorded」');
+    });
+  });
+
   test('a text record round-trips through the payload', () {
     final TimelineEntry e = _textEntry();
     final TimelineEntry back = decodeBlindStorePayload(

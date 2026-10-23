@@ -39,7 +39,18 @@ part of 'manual_delivery.dart';
 /// answer — every claim is keyed by ids the PC echoes back verbatim, so there is
 /// no ambiguity to resolve between them.
 class _InFlightSend {
-  _InFlightSend(this.requestId, this.covered, this.instanceId);
+  _InFlightSend(
+    this.requestId,
+    this.covered,
+    this.instanceId, {
+    this.raiseOnTimeout = true,
+  });
+
+  /// NR-286 (MAIN 2026-10-20, doc 15 §2.6-a rule 8) — false only for an
+  /// automatic queue re-send of rows that already show the no-answer state
+  /// ([runArmOutboxSend]): its deadline re-writes the same ✗ and raises no
+  /// banner, because the first timeout already did.
+  final bool raiseOnTimeout;
 
   /// 🔴 Card B4-18 — WHICH INSTANCE'S SCREEN this delivery's verdict is news for,
   /// read ONCE at arm time off `ManualDeliveryHost.deliveryInstanceId`.
@@ -86,6 +97,47 @@ void runArmInFlight(ManualDelivery d, String requestId, List<String> settle) {
   d._host.deliveryNotify();
 }
 
+/// 🔴 NR-286 (MAIN 2026-10-20; doc 15 §2.6-a rule 8) — the claim for a frame
+/// the QUEUE put out (`chat_outbox_host.dart` `outboxSend`).
+///
+/// If EVERY row it covers already shows 「Pending · no answer yet」 — `failed`
+/// with the [_kNoResultCode] that [_onResultTimeout] below writes — this is an
+/// automatic re-send of a delivery whose first timeout already raised 「No
+/// answer from the computer」. Re-raising it on every backoff step made it
+/// flash once per retry while the computer stayed silent. So: same 20 s
+/// deadline, same ✗ re-written, no banner retired and none raised.
+///
+/// Every USER-initiated send keeps today's behaviour without being named here:
+/// inline / long-press / banner resend all `markReinjecting` the row before the
+/// frame leaves (`chat_outbox_host.dart` `outboxResendText` /
+/// `outboxResendImage`, `manual_delivery_reinject.dart`), and ➤ sends new rows
+/// ⇒ the row is not in that state ⇒ [runArmInFlight].
+void runArmOutboxSend(ManualDelivery d, String requestId, List<String> settle) {
+  final bool alreadyNoAnswer = settle.isNotEmpty &&
+      settle.every((String id) {
+        final TimelineEntry? e = d._host.store.findById(id);
+        return e != null &&
+            e.status == EntryStatus.failed &&
+            e.failureReason == _kNoResultCode;
+      });
+  if (!alreadyNoAnswer) {
+    runArmInFlight(d, requestId, settle);
+    return;
+  }
+  _armResultWatch(d, requestId, settle, raiseOnTimeout: false);
+  diag('watchdog.quiet_retry_armed', <String, Object?>{
+    'request_id': requestId,
+    'covered_rows': settle.length,
+  });
+  // The banner's resend batch may have lost these rows (see _armResultWatch).
+  d._host.deliveryNotify();
+}
+
+/// The code the 20 s row deadline writes. [runArmOutboxSend] reads it back off
+/// the row, so writer and reader share this one spelling (the UI's copy is
+/// `kRowNoResultCode`, status_badge.dart).
+const String _kNoResultCode = 'INJECT_NO_RESULT';
+
 /// Register one in-flight delivery and start ITS deadline.
 ///
 /// RV-02: per-delivery, not per-app. A newer delivery of the SAME rows takes
@@ -93,7 +145,12 @@ void runArmInFlight(ManualDelivery d, String requestId, List<String> settle) {
 /// released WITHOUT being settled — settling it ✗ would mark a row failed
 /// while its re-delivery is still in flight. Claims over OTHER rows are left
 /// strictly alone; that is what makes N-row deferred re-delivery (补投) safe.
-void _armResultWatch(ManualDelivery d, String requestId, List<String> settle) {
+void _armResultWatch(
+  ManualDelivery d,
+  String requestId,
+  List<String> settle, {
+  bool raiseOnTimeout = true,
+}) {
   d._inFlight.removeWhere((_InFlightSend s) {
     final bool superseded =
         s.requestId == requestId || s.covered.any(settle.contains);
@@ -112,8 +169,12 @@ void _armResultWatch(ManualDelivery d, String requestId, List<String> settle) {
   }
   // Card B4-18: the screen this delivery was made on, frozen with the claim —
   // read now, never re-derived when the deadline expires.
-  final _InFlightSend send =
-      _InFlightSend(requestId, settle, d._host.deliveryInstanceId);
+  final _InFlightSend send = _InFlightSend(
+    requestId,
+    settle,
+    d._host.deliveryInstanceId,
+    raiseOnTimeout: raiseOnTimeout,
+  );
   d._inFlight.add(send);
   // The PC's pipeline is slow by design (foreground switch, an 80 ms clipboard
   // settle, up to 700 ms of read-back verification), so the budget is generous
@@ -130,6 +191,7 @@ void _onResultTimeout(ManualDelivery d, _InFlightSend send) {
     'request_id': send.requestId,
     'covered_rows': send.covered.length,
     'budget_ms': d._resultTimeout.inMilliseconds,
+    'banner': send.raiseOnTimeout,
   });
   // Settle every row this send covered as ✗ with a NAMED reason. Leaving them
   // at ⏳ is the failure mode being fixed; inventing ✓ would be worse still.
@@ -137,9 +199,12 @@ void _onResultTimeout(ManualDelivery d, _InFlightSend send) {
     d._host.store.applyInjectResult(
       correlationId: id,
       ok: false,
-      failureReason: 'INJECT_NO_RESULT',
+      failureReason: _kNoResultCode,
     );
   }
+  // NR-286 — a quiet queue re-send: the rows are re-written above, the banner
+  // the first timeout raised is not raised again (see [runArmOutboxSend]).
+  if (!send.raiseOnTimeout) return;
   // RV-15: same as the wire-failure path — the banner gets the whole batch,
   // not the newest row of it. With one record per delivery this batch is the
   // rows THAT delivery covered, never a merge of several.

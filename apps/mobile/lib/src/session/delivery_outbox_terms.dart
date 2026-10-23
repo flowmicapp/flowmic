@@ -35,13 +35,45 @@ const int kOutboxCapacity = 2000;
 /// process that died between the emit and the result.
 const Duration kOutboxInflightTimeout = Duration(seconds: 45);
 
+/// NR-286 (added after the move above, not part of it) — how long to wait,
+/// after the k-th CONSECUTIVE unanswered attempt, before the queue re-drains an
+/// item [kOutboxInflightTimeout] put back to `queued` while the link stayed up.
+/// The last value is the cap and repeats. Contract and the reasons for each
+/// number: doc 15 `15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md` §2.6-a rule 2
+/// (first retry ≈ 50 s after speaking, still inside `kLiveDeliveryWindow`;
+/// then slower, capped at 5 min ⇒ about ten frames an hour while a computer
+/// never answers). Machinery: delivery_outbox_retry.dart.
+const List<Duration> kOutboxNoAnswerRetryBackoff = <Duration>[
+  Duration(seconds: 5),
+  Duration(seconds: 15),
+  Duration(seconds: 30),
+  Duration(seconds: 60),
+  Duration(seconds: 120),
+  Duration(seconds: 300),
+];
+
+/// NR-286 — a retry that comes due while another drain is still running asks
+/// again after this long instead of being dropped (§2.6-a rule 6). Not a
+/// backoff step: the streak does not move.
+const Duration kOutboxNoAnswerRetryBusyRecheck = Duration(seconds: 2);
+
 /// What one attempt did with one item. Private because it is the drain loop's
 /// internal vocabulary; [OutboxDrainReport] is the public shape.
 class _Attempt {
-  const _Attempt.sent() : held = null, refusedCode = null;
-  const _Attempt.held(OutboxAddressRefusal this.held) : refusedCode = null;
-  const _Attempt.refused(String this.refusedCode) : held = null;
+  const _Attempt.sent() : held = null, refusedCode = null, skipped = false;
+  const _Attempt.held(OutboxAddressRefusal this.held)
+      : refusedCode = null,
+        skipped = false;
+  const _Attempt.refused(String this.refusedCode)
+      : held = null,
+        skipped = false;
+
+  /// NR-286 N2 — the re-read in `_attempt` found the item no longer `queued`
+  /// (answered or moved while this pass waited on the link): nothing was sent
+  /// and nothing was written. Not held, not refused, not sent.
+  const _Attempt.skipped() : held = null, refusedCode = null, skipped = true;
 
   final OutboxAddressRefusal? held;
   final String? refusedCode;
+  final bool skipped;
 }

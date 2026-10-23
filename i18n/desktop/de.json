@@ -285,6 +285,7 @@
     "injectFailReason.INJECT_FOCUS_LOST": "'Kein Eingabefokus gefunden'",
     "injectFailReason.INJECT_IMAGE_UNSUPPORTED": "'Dieses Fenster nimmt keine Bilder an'",
     "injectFailReason.INJECT_NO_ACCESSIBILITY": "'FlowMic hat keine Bedienungshilfen-Berechtigung · Systemeinstellungen ▸ Datenschutz & Sicherheit ▸ Bedienungshilfen'",
+    "injectFailReason.INJECT_TARGET_ELEVATED": "'Das Fenster im Vordergrund wird als Administrator ausgeführt; Windows hat die Eingabe blockiert'",
     "injectFailReason.INJECT_NO_TEXT_TARGET": "'Keine bearbeitbare Stelle im fokussierten Fenster'",
     "injectFailReason.INJECT_SECURE_INPUT_ACTIVE": "'Das System ist im sicheren Eingabemodus (Passwortfeld / Sperrbildschirm)'",
     "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT": "'Der Fokus lag auf dem eigenen Fenster von FlowMic'",

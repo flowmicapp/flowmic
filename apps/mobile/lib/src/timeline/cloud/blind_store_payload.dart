@@ -53,6 +53,17 @@ const int kBlindStoreBlobSchemaVer = kBlindStorePayloadVersion;
 /// string the code uses, instead of a copy that could drift.
 const String kBlindStoreStrippedImageKey = 'thumb_b64';
 
+/// POL-M1b — row keys left OUT of the cloud copy when their value is null.
+///
+/// `first_handed_off_at` is always written locally (null on a row never handed
+/// off) so the sqlite payload and the FPR export keep one key set (16 册 §4.2,
+/// `portable_fpr_format_test.dart`). In THIS payload a null would change the
+/// plaintext — and so [blindStorePayloadHash] — of every row written before
+/// the field existed, and the first sync after the upgrade would re-upload all
+/// of them for nothing. Omitted, an old row encodes byte for byte as it did;
+/// decoding reads an absent key as null either way. A non-null value rides.
+const Set<String> kBlindStoreOmittedWhenNullKeys = <String>{'first_handed_off_at'};
+
 /// Entry → the plaintext that goes inside the AEAD envelope.
 ///
 /// Deterministic: `TimelineEntry.toJson` builds a map literal, Dart maps keep
@@ -61,7 +72,9 @@ const String kBlindStoreStrippedImageKey = 'thumb_b64';
 /// as 「云端那份是不是当前内容」("whether the cloud copy is the current content").
 String encodeBlindStorePayload(TimelineEntry entry) {
   final Map<String, Object?> body = entry.toJson()
-    ..remove(kBlindStoreStrippedImageKey);
+    ..remove(kBlindStoreStrippedImageKey)
+    ..removeWhere((String k, Object? v) =>
+        v == null && kBlindStoreOmittedWhenNullKeys.contains(k));
   return jsonEncode(<String, Object?>{
     'v': kBlindStorePayloadVersion,
     'entry': body,

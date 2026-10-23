@@ -27,6 +27,7 @@ import 'package:flowmic/src/timeline/timeline_sync.dart';
 import 'package:flowmic/src/ui/chat_flow_page.dart';
 import 'package:flowmic/src/ui/chat_message_tile.dart';
 import 'package:flowmic/src/ui/status_badge.dart';
+import 'package:flowmic/src/session/polish_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -140,13 +141,20 @@ void main() {
         // Positive controls: every probe below must have found its subject,
         // otherwise a zero-overlap result would just mean the probe is blind.
         expect(find.byType(ChatMessageTile), findsOneWidget);
-        final Finder badge = find.byType(PolishSkippedMark);
+        // CARD-UI: the card builds both wordings and paints the one that
+        // fits; only the painted one is hit-testable (chat_message_meta.dart
+        // `MetaShortenable`).
+        final Finder badge = find.byType(PolishSkippedMark).hitTestable();
         expect(badge, findsOneWidget);
         final Finder badgeText = find.descendant(
           of: badge,
-          matching: find.text(label),
+          matching: find.byType(Text),
         );
         expect(badgeText, findsOneWidget);
+        expect(<String>[
+          label,
+          PolishBadge.unavailable.shortLabel(strings),
+        ], contains(tester.widget<Text>(badgeText).data));
         final Finder status = find.textContaining('未注入');
         expect(status, findsOneWidget);
         final Finder resend = find.byKey(

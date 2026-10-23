@@ -243,6 +243,7 @@ void main() {
         store: InMemoryOutboxStore(),
         blobs: newTestOutboxBlobs(),
         host: host,
+        retryLinkUp: () => false,
         capacity: 1,
         inflightTimeout: const Duration(seconds: 45),
       );

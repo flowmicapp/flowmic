@@ -3,11 +3,11 @@
    四つとも「何のために必要か」だけを述べる。命令形は使わず、
    「より良い体験のため」のような曖昧な表現も使わない。 */
 
-"NSMicrophoneUsageDescription" = "FlowMic はマイクを使って、話した内容を文字にして PC に送ります。";
+"NSMicrophoneUsageDescription" = "FlowMic はマイクを使って話した内容を文字にします。文字はパソコンに入力されるか、メモとしてスマートフォンに保存されます。";
 
-"NSCameraUsageDescription" = "FlowMic はカメラを使って、PC に表示されたペアリング用 QR コードを読み取ります。";
+"NSCameraUsageDescription" = "FlowMic はカメラを使って、パソコンに表示されたペアリング用 QR コードや、FlowMic ウェブサイトのログイン用 QR コードを読み取ります。";
 
-"NSPhotoLibraryUsageDescription" = "FlowMic は選んだ写真を読み取り、その画像を PC に送信します。";
+"NSPhotoLibraryUsageDescription" = "FlowMic は選んだ写真のみを読み取り、パソコンに送信するかスマートフォンに保存します。";
 
 /* ローカルネットワーク：LAN 経由で同じネットワーク上の PC に直接接続する。 */
-"NSLocalNetworkUsageDescription" = "FlowMic はローカルネットワーク経由で PC に直接接続し、話した内容をインターネットを経由せずに PC へ送ります。";
+"NSLocalNetworkUsageDescription" = "FlowMic はローカルネットワーク経由でパソコンに直接接続し、話した内容をインターネットを経由せずにパソコンへ送ります。";

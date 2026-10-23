@@ -255,7 +255,15 @@ const EXPECTED = {
   // `socket::credentials::tests::second_save_replaces_the_file_via_a_new_inode
   // _not_in_place_truncate`, before this fix is anything stronger than
   // "written" — flagged in the card's report.
-  'cfg(unix)': 18,
+  // 18 → 17 (2026-10-10, card E-D, machine dev-pc-a, Windows): MOVED BY
+  // PROSE, NOT CODE. `socket/credentials.rs` `atomic_write_tmp_path`'s doc
+  // comment named 「`write_user_only`'s `#[cfg(unix)]` branch」 as its only
+  // caller; the Windows branch now calls it too (temp file + rename instead of
+  // `std::fs::write`), so that sentence and its `cfg_attr(windows,
+  // allow(dead_code))` went. No unix branch was added or removed; the unix
+  // body of `write_user_only` is byte-for-byte unchanged. Mac run for this
+  // count: the card E-D row at the end of the sensitive-surface audit queue.
+  'cfg(unix)': 17,
   // 32 → 37 (2026-08-24, 0.3.28 card B — the macOS default machine name).
   // Five new sites in `pc_name.rs` / `pc_name_tests.rs`: the two arms of
   // `read_name_half_uncached`, `read_scutil`, `read_hw_model`, and one
@@ -316,7 +324,11 @@ const EXPECTED = {
   // 76 → 77 (2026-09-27): the CREATE_NO_WINDOW flag on the child process that
   // single_instance_tests.rs now runs the lock test in. Windows-SIDE row; the
   // test itself is unconditional and was run on the Mac.
-  'cfg(windows)': 86,
+  // 86 → 88 (2026-10-16, UIPI card): `inject/uipi.rs`'s Win32 token reader
+  // module and its own-integrity smoke test. Windows-SIDE row; the same change
+  // adds an uncounted compound `all(not(windows), not(test))` no-op arm of
+  // `uipi_preflight`, which is what owes the Mac run.
+  'cfg(windows)': 88,
   // 26 → 31 (2026-08-22): five new Windows-only sites in `inject/readback.rs` —
   // the UIA `watch`, its bounded read, the read itself, `POLL_INTERVAL` and the
   // `Duration` import. Windows-SIDE row, so it owes no Mac run; it is here as the
@@ -339,6 +351,15 @@ const EXPECTED = {
   // deleted alongside it — that deletion would move the non-Windows count and
   // this repo's law is that such a change is not this session's to make from
   // a Windows-only box; see the `#[allow(dead_code)]` note on that function.
+  // 34 → 33 (2026-10-14, NR-253): `sendinput.rs`'s Windows-only
+  // `real_send_vk_pairs` + `real_send_enter` became one `real_send_line_break`
+  // (the line-break keystroke is now Shift+Enter by default). Windows-SIDE row,
+  // owes no Mac run by itself — but the same commit renamed the non-Windows
+  // stub's signature (count unchanged), and that half was run on the Mac
+  // (docs/strategy/2026-10-14-nr253-safe-line-breaks.md).
+  // 33 → 34 (2026-10-14, NR-253 review): `sendinput.rs`'s Windows-only
+  // `release_keys_left_down` (key-ups after a cut Shift+Enter / Ctrl+V batch).
+  // Windows-SIDE row, owes no Mac run.
   'cfg(target_os = "windows")': 34,
   'cfg!(windows)': 4,
 };

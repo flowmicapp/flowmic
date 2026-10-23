@@ -107,7 +107,18 @@ class RigJournalFs implements JournalFileSystem {
   Future<int> lengthOf(String path) => _inner.lengthOf(path);
 
   @override
-  Future<Uint8List> readBytes(String path) => _inner.readBytes(path);
+  // 🔴 THE PRODUCT'S RECOVERY SCAN READS THROUGH THIS TOO, AND IT NEEDS THE
+  // SAME TURN-TAKING AS [Rig.manifestOf]. `PendingRecoveryStore.list()` →
+  // `RetainedAudioJournalScan._scanOne` reads the manifest with `readBytes`;
+  // when that read lands inside a commit's rename on a Windows test host it
+  // throws `PathAccessException … errno = 32`, `_scanOne` treats the manifest
+  // as corrupt and QUARANTINES a healthy file, and the "awaiting transcription"
+  // row appears for one sample (card FLAKE-LS). Phones (Android / iOS) do not
+  // have that sharing-violation behaviour; this is a test-host artefact, and
+  // serialising the read against the publish removes the artefact without
+  // hiding any other read failure (the guard rethrows what the read throws).
+  @override
+  Future<Uint8List> readBytes(String path) => guard(() => _inner.readBytes(path));
 
   @override
   Future<Uint8List> readRange(String path, int start, int end) =>
@@ -340,6 +351,7 @@ class Rig {
     TimelinePersistence? persistence,
     bool keepBackfill = false,
     int Function()? clock,
+    JournalFileSystem? journalInner,
   }) async {
     final Directory tmp =
         await Directory.systemTemp.createTemp('flowmic-ls1b-');
@@ -348,7 +360,9 @@ class Rig {
     await store.open();
     // See [RigJournalFs]: the rig's manifest poll and the product's manifest
     // publish are the same file, and on Windows they are mutually exclusive.
-    final RigJournalFs journalFs = RigJournalFs();
+    final RigJournalFs journalFs = journalInner == null
+        ? RigJournalFs()
+        : RigJournalFs(journalInner);
     final Rig r = Rig._(
       tmp,
       store,

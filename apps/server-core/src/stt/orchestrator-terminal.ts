@@ -25,6 +25,7 @@ import type { SoftSegmentCadence } from './segment-boundary';
 import type { SegmentPauseAccount } from './segment-pause';
 import type { EngineSubscriber, StartInput } from './orchestrator-types';
 import { foldConfirmedWithDraft } from './text-merge';
+import type { LegFacts } from './leg-facts';
 import { feedVadClosureSilence } from './flush-final';
 import { noEngineTerminalText } from './terminal-final-text';
 import { noEngineReachedError } from './empty-final-verdicts';
@@ -32,6 +33,7 @@ import { emptyFinalCause } from './empty-final-cause';
 import { raceSpawnTimeout } from './spawn-timeout';
 import { owedVoiceLostError, recordClosingDialFailure, unheardFromMs } from './owed-voice-verdict';
 import { logCutIfFlushed, type LastFlushFacts } from './cut-log';
+import { dropTerminalDash, type OpenSeamCarry } from './seam-artifact';
 import { PCM_BYTES_PER_MS } from './tuning-env';
 
 /**
@@ -41,6 +43,7 @@ import { PCM_BYTES_PER_MS } from './tuning-env';
  */
 export interface TerminalHost {
   engine: EngineSubscriber | null;
+  readonly legFacts: Pick<LegFacts, 'draftJoin'>; // card SEAM-1
   terminated: boolean;
   terminalizing: boolean;
   terminalFinalEmitted: boolean;
@@ -65,6 +68,12 @@ export interface TerminalHost {
   readonly ladder: EngineSessionReconnectLadder;
   readonly session: AudioSession;
   readonly pauseAccount: SegmentPauseAccount;
+  /** card SEAM-2 — the last row ended open ⇒ this final's first word continues it (seam-artifact.ts). */
+  readonly seamCarry: OpenSeamCarry;
+  /** card SEAM-2 (review C2) — the last-born leg's engine writes its final at end-of-stream: a trailing dash is its closing token. */
+  readonly legFinalsOnlyAtFlush: boolean;
+  /** card SEAM-2 (review F2) — see `FlushEmitHost.seamRepair`: off ⇒ the terminal final keeps its dash. */
+  readonly seamRepair: boolean;
   now(): number;
   emit(event: string, payload: unknown): boolean;
   /** [atMs] — card RC4-S5: the row ends where the recording ended, not where its final left. */
@@ -266,7 +275,7 @@ export async function handleAutoStop(host: TerminalHost, reason: 'hard_limit'): 
  * in {@link noEngineTerminalText}; this method is only the wiring.
  */
 export function emitNoEngineTerminalFinal(host: TerminalHost, endedAtMs?: number): void {
-  const text = noEngineTerminalText(host.accumEmittedByFinal, host.offlineAccum, host.onlineDraft, foldConfirmedWithDraft);
+  const text = noEngineTerminalText(host.accumEmittedByFinal, host.offlineAccum, host.onlineDraft, (c, d) => foldConfirmedWithDraft(c, d, host.legFacts.draftJoin)); // card SEAM-1
   emitTerminalFinal(host, { text, confidence: 0, language: host.startInput?.language ?? '' }, endedAtMs === undefined ? host.segmentDurationMs() : terminalRowMs(host, endedAtMs));
 }
 
@@ -301,7 +310,7 @@ export function emitTerminalFinal(host: TerminalHost, r: Pick<FinalResult, 'text
   // recording whose only segment is idx 0 has no previous segment and so gets
   // no field, which the account already answers with null.
   const pauseBeforeMs = host.pauseAccount.pauseBeforeMs();
-  host.emit('final', { text: r.text, confidence: r.confidence, language: r.language, segment_idx: host.currentSegmentIdx,
+  host.emit('final', { text: dropTerminalDash(r.text, host.seamRepair && host.legFinalsOnlyAtFlush, r.language), confidence: r.confidence, language: r.language, segment_idx: host.currentSegmentIdx, // card SEAM-2
     is_segment: false, duration_ms: durationMs, ...(emptyReason ? { empty_reason: emptyReason } : {}),
-    ...(pauseBeforeMs !== null ? { pause_before_ms: pauseBeforeMs } : {}) }); return true;
+    ...(pauseBeforeMs !== null ? { pause_before_ms: pauseBeforeMs } : {}), ...host.seamCarry.continuation(r.text) }); return true; // card SEAM-2: internal seam_from
 }

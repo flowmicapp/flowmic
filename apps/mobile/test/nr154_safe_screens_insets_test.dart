@@ -192,6 +192,7 @@ void main() {
       await tester.pumpWidget(
         c.app(
           SettingsPage(
+            notesAction: SettingsNotesAction.enter,
             scenario: scenario,
             appSettings: settings,
             login: login,

@@ -65,13 +65,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>FlowMic uses the camera to scan the pairing QR code shown on your PC.</string>
+	<string>FlowMic uses the camera to scan the pairing QR code on your computer and the sign-in QR code on the FlowMic website.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>FlowMic connects directly to your PC over the local network, so what you say reaches it without going through the internet.</string>
+	<string>FlowMic connects directly to your computer over the local network, so what you say reaches it without going through the internet.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>FlowMic uses the microphone to turn what you say into text on your PC.</string>
+	<string>FlowMic uses the microphone to turn what you say into text. The text is typed into your computer or saved as a note on your phone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>FlowMic reads the photo you pick so it can send that picture to your PC.</string>
+	<string>FlowMic reads only the photo you pick to send it to your computer or save it on your phone.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

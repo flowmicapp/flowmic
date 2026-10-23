@@ -368,4 +368,16 @@ export const INJECT_ERROR_CODES = {
   // that caused the 0.2.53 release — on the one failure a user can actually fix.
   // `INJECT_NO_ACCESSIBILITY` is 23.
   INJECT_NO_ACCESSIBILITY: { zh_CN: '电脑尚未授予 FlowMic「辅助功能」权限，无法模拟按键输入。文字已保存至电脑时间线，请在电脑系统设置中打开「系统设置 ▸ 隐私与安全性 ▸ 辅助功能」开启权限后重新注入。', en: 'FlowMic has not been granted Accessibility on the PC, so the system discards every keystroke it sends and nothing was typed. It did reach the PC and is on its timeline. On the PC open System Settings ▸ Privacy & Security ▸ Accessibility, turn FlowMic on, then re-inject.' },
+  // 85 → 86 (2026-10-16, MAIN-ruled, reversible by the owner). Windows: the
+  // target window's process runs at a higher integrity level than FlowMic, and
+  // UIPI drops SendInput and Ctrl+V into it with no API error (measured,
+  // docs/strategy/2026-10-16-msix-sendinput-spike.md §3.2). Producer:
+  // `apps/desktop/src-tauri/src/inject/uipi.rs` `refusal_for`, before Stage 1.
+  // Why no neighbour could be borrowed: design doc
+  // docs/strategy/2026-10-16-uipi-silent-inject-design.md §3. Zero wire-shape
+  // change (`error` is a known free-string key of InjectResultSchema). Sentences
+  // authored by Gemini (CLAUDE.md D-47); no instruction on purpose — the queue
+  // settles it terminal, and running FlowMic as administrator is a security
+  // trade-off this copy must not nudge. 22 characters (D-33).
+  INJECT_TARGET_ELEVATED: { zh_CN: '电脑当前窗口的权限高于 FlowMic（例如以管理员身份打开），Windows 阻止了 FlowMic 输入，未键入任何内容。文字已保存至电脑时间线，内容未丢失。', en: "The window in front on the PC runs with higher privileges than FlowMic (for example, it was opened as administrator), so Windows blocks FlowMic's input and nothing was typed. It did reach the PC and is on its timeline." },
 } as const satisfies Record<string, ErrorMessage>;

@@ -1,0 +1,97 @@
+{"id":"cjk-zh-h01","lang":"zh-CN","want":"refuse","kind":"time","input":"我们明天去北京开会","output":"我们后天去上海开会"}
+{"id":"cjk-zh-h02","lang":"zh-CN","want":"refuse","kind":"time","input":"明天我们去北京开会","output":"后天我们去北京开会"}
+{"id":"cjk-zh-h03","lang":"zh-CN","want":"refuse","kind":"place","input":"我们去北京下周开会","output":"我们去上海下周开会"}
+{"id":"cjk-zh-h04","lang":"zh-CN","want":"refuse","kind":"place","input":"我们去北京出差","output":"我们去北海出差"}
+{"id":"cjk-zh-h05","lang":"zh-CN","want":"refuse","kind":"time","input":"这个需求本周上线","output":"这个需求下周上线"}
+{"id":"cjk-zh-h06","lang":"zh-CN","want":"refuse","kind":"time","input":"我们上午开会","output":"我们下午开会"}
+{"id":"cjk-zh-h07","lang":"zh-CN","want":"refuse","kind":"insert","input":"我们去开会","output":"我们去总部开会","open_hole":true}
+{"id":"cjk-zh-h08","lang":"zh-CN","want":"refuse","kind":"delete","input":"请把这份报告发给客户经理","output":"请把这份报告发给经理","open_hole":true}
+{"id":"cjk-zh-h09","lang":"zh-CN","want":"refuse","kind":"swap","input":"我要买这台电脑","output":"我要卖这台电脑"}
+{"id":"cjk-zh-h10","lang":"zh-CN","want":"refuse","kind":"swap","input":"你明天过来拿东西","output":"我明天过来拿东西"}
+{"id":"cjk-zh-h11","lang":"zh-CN","want":"refuse","kind":"script","input":"这个问题我们再讨论","output":"這個問題我們再討論"}
+{"id":"cjk-zh-h12","lang":"zh-CN","want":"refuse","kind":"connective","input":"价格很高但是质量很好","output":"价格很高所以质量很好"}
+{"id":"cjk-zh-h13","lang":"zh-CN","want":"refuse","kind":"substitute","input":"把文件放到桌面上","output":"把文件放到抽屉上","open_hole":true}
+{"id":"cjk-ja-h01","lang":"ja","want":"refuse","kind":"time","input":"明日、東京で会議です","output":"明後日、東京で会議です"}
+{"id":"cjk-ja-h02","lang":"ja","want":"refuse","kind":"place","input":"明日、東京で会議です","output":"明日、大阪で会議です"}
+{"id":"cjk-ja-h03","lang":"ja","want":"refuse","kind":"substitute","input":"明日は無理です、ごめんなさい","output":"明日は大丈夫です、ごめんなさい","open_hole":true,"only":"smooth"}
+{"id":"cjk-ja-h04","lang":"ja","want":"refuse","kind":"delete","input":"皆さん、本番へのデプロイが完了しました。","output":"皆さん、デプロイが完了しました。","open_hole":true,"only":"smooth"}
+{"id":"cjk-ja-h05","lang":"ja","want":"refuse","kind":"time","input":"来週の月曜に送ります","output":"先週の月曜に送ります"}
+{"id":"cjk-ko-h01","lang":"ko","want":"refuse","kind":"place","input":"서울에서 만나요 내일 봐요","output":"부산에서 만나요 내일 봐요"}
+{"id":"cjk-ko-h02","lang":"ko","want":"refuse","kind":"time","input":"내일 회의가 있어요","output":"모레 회의가 있어요"}
+{"id":"cjk-ko-h03","lang":"ko","want":"refuse","kind":"time","input":"다음 주에 보고서를 보낼게요","output":"지난주에 보고서를 보낼게요"}
+{"id":"cjk-ko-h04","lang":"ko","want":"refuse","kind":"delete","input":"고객에게 견적서를 보내 주세요","output":"견적서를 보내 주세요"}
+{"id":"cjk-ru-h01","lang":"ru","want":"refuse","kind":"time","input":"Я приду завтра в офис","output":"Я приду послезавтра в офис"}
+{"id":"cjk-ru-h02","lang":"ru","want":"refuse","kind":"delete","input":"С моей точки зрения это правильно","output":"С моей зрения это правильно"}
+{"id":"cjk-ru-h03","lang":"ru","want":"refuse","kind":"substitute","input":"Встреча будет в Москве","output":"Встреча будет в Казани"}
+{"id":"cjk-ru-h04","lang":"ru","want":"refuse","kind":"time","input":"Созвонимся в понедельник","output":"Созвонимся во вторник"}
+{"id":"cjk-ru-h05","lang":"ru","want":"refuse","kind":"delete","input":"Отправь отчёт клиенту сегодня","output":"Отправь отчёт сегодня"}
+{"id":"cjk-uk-h01","lang":"uk","want":"refuse","kind":"time","input":"Зустріч завтра о десятій ранку","output":"Зустріч післязавтра о десятій ранку"}
+{"id":"name-en-h01","lang":"en","want":"refuse","kind":"name","input":"Tell Anna we ship Monday","output":"Tell Hanna we ship Monday"}
+{"id":"name-en-h02","lang":"en","want":"refuse","kind":"name","input":"We ship on Monday","output":"We ship on Sunday"}
+{"id":"name-de-h01","lang":"de","want":"refuse","kind":"name","input":"Ruf Anna an, dann Bob","output":"Ruf Hanna an, dann Bob"}
+{"id":"name-fr-h01","lang":"fr","want":"refuse","kind":"name","input":"Appelle Marie, puis Paul","output":"Appelle Mario, puis Paul"}
+{"id":"name-fr-h02","lang":"fr","want":"refuse","kind":"name","input":"Appelle Jean demain.","output":"Appelle Jeanne demain."}
+{"id":"name-es-h01","lang":"es","want":"refuse","kind":"name","input":"Habla con Carlos mañana","output":"Habla con Carla mañana"}
+{"id":"cjk-zh-l01","lang":"zh-CN","want":"accept","kind":"filler","input":"嗯我们明天去北京开会","output":"我们明天去北京开会。"}
+{"id":"cjk-zh-l02","lang":"zh-CN","want":"accept","kind":"number","input":"明天下午三点开会","output":"明天下午3点开会。"}
+{"id":"cjk-zh-l03","lang":"zh-CN","want":"accept","kind":"repeat","input":"这个文件我我已经发给你了","output":"这个文件我已经发给你了。"}
+{"id":"cjk-zh-l04","lang":"zh-CN","want":"accept","kind":"punct","input":"今天天气很好我们出去走走","output":"今天天气很好，我们出去走走。"}
+{"id":"cjk-zh-l05","lang":"zh-CN","want":"accept","kind":"connective","input":"还要看以及测试报告","output":"还要看和测试报告"}
+{"id":"cjk-zh-l06","lang":"zh-CN","want":"accept","kind":"particle","input":"他走的很慢","output":"他走得很慢"}
+{"id":"cjk-zh-l07","lang":"zh-CN","want":"accept","kind":"width","input":"会议在３楼开","output":"会议在3楼开"}
+{"id":"cjk-zh-l08","lang":"zh-CN","want":"accept","kind":"spacing","input":"我用React写前端","output":"我用 React 写前端。"}
+{"id":"cjk-zh-l09","lang":"zh-CN","want":"accept","kind":"homophone","input":"去年的项目进度漫了很多","output":"去年的项目进度慢了很多"}
+{"id":"cjk-zh-l10","lang":"zh-CN","want":"accept","kind":"latin-term","input":"用飞格玛画一下原型","output":"用Figma画一下原型"}
+{"id":"cjk-zh-l11","lang":"zh-CN","want":"accept","kind":"time-respelled","input":"名天我们去开会","output":"明天我们去开会"}
+{"id":"cjk-ja-l01","lang":"ja","want":"accept","kind":"filler","input":"えーと、明日の会議は十時からです","output":"明日の会議は10時からです。"}
+{"id":"cjk-ja-l02","lang":"ja","want":"accept","kind":"filler","input":"あの、東京の会議室を予約しました","output":"東京の会議室を予約しました。"}
+{"id":"cjk-ja-l03","lang":"ja","want":"accept","kind":"kana-kanji","input":"いま確認します","output":"今確認します。"}
+{"id":"cjk-ja-l04","lang":"ja","want":"accept","kind":"kanji-kana","input":"宜しくお願いします","output":"よろしくお願いします。"}
+{"id":"cjk-ja-l05","lang":"ja","want":"accept","kind":"homophone","input":"明日の資料、僕ってくれる？","output":"明日の資料、作ってくれる？"}
+{"id":"cjk-ja-l06","lang":"ja","want":"accept","kind":"latin-term","input":"フィグマでデザインを作りました","output":"Figmaでデザインを作りました。"}
+{"id":"cjk-ja-l07","lang":"ja","want":"accept","kind":"time-reading","input":"あしたの会議は十時です","output":"明日の会議は十時です"}
+{"id":"cjk-ko-l01","lang":"ko","want":"accept","kind":"filler","input":"음 내일 서울에서 만나요","output":"내일 서울에서 만나요."}
+{"id":"cjk-ko-l02","lang":"ko","want":"accept","kind":"spacing","input":"지난 주에 회의를 했어요","output":"지난주에 회의를 했어요."}
+{"id":"cjk-ko-l03","lang":"ko","want":"accept","kind":"particle","input":"계획이 없던 일정입니다","output":"계획에 없던 일정입니다."}
+{"id":"cjk-ko-l04","lang":"ko","want":"accept","kind":"homophone","input":"백인들을 타입스크립트로 옮겼습니다","output":"백엔드를 타입스크립트로 옮겼습니다."}
+{"id":"cjk-ru-l01","lang":"ru","want":"accept","kind":"filler","input":"Ну, сервер опять упал ночью","output":"Сервер опять упал ночью."}
+{"id":"cjk-ru-l02","lang":"ru","want":"accept","kind":"filler","input":"Э-э, я думаю, что нам стоит перенести демо","output":"Я думаю, что нам стоит перенести демо."}
+{"id":"cjk-ru-l03","lang":"ru","want":"accept","kind":"homophone","input":"Мы перевели бэкинг на TypeScript","output":"Мы перевели бэкенд на TypeScript."}
+{"id":"cjk-ru-l04","lang":"ru","want":"accept","kind":"punct","input":"С моей точки зрения это правильно","output":"С моей точки зрения, это правильно."}
+{"id":"cjk-ru-l05","lang":"ru","want":"accept","kind":"case","input":"встреча в москве завтра","output":"Встреча в Москве завтра."}
+{"id":"name-en-l01","lang":"en","want":"accept","kind":"case","input":"Tell anna we ship","output":"Tell Anna we ship"}
+{"id":"name-en-l02","lang":"en","want":"accept","kind":"term","input":"We deploy it on Cubernetes next week","output":"We deploy it on Kubernetes next week."}
+{"id":"name-de-l01","lang":"de","want":"accept","kind":"noun","input":"Die Nutzung von Blocks hilft den Schülern","output":"Die Nutzung von Blogs hilft den Schülern."}
+{"id":"name-fr-l01","lang":"fr","want":"accept","kind":"accent","input":"Appelle Jose demain","output":"Appelle José demain."}
+{"id":"name-es-l01","lang":"es","want":"accept","kind":"case","input":"llama a ana mañana","output":"Llama a Ana mañana."}
+{"id":"cjk-zh-l12","lang":"zh-CN","want":"accept","kind":"term-same-class","input":"我们下礼拜三开会","output":"我们下周三开会。"}
+{"id":"cjk-zh-l13","lang":"zh-CN","want":"accept","kind":"term-same-class","input":"星期三再说吧","output":"周三再说吧。"}
+{"id":"cjk-zh-l14","lang":"zh-CN","want":"accept","kind":"term-same-class","input":"下个礼拜我们出发","output":"下周我们出发。","only":"smooth"}
+{"id":"cjk-zh-l15","lang":"zh-CN","want":"accept","kind":"filler","input":"那什么，我跟你说，这个方案可以","output":"这个方案可以。","only":"smooth"}
+{"id":"cjk-zh-l16","lang":"zh-CN","want":"accept","kind":"connective-drop","input":"而且这个方案成本也低","output":"这个方案成本也低。"}
+{"id":"cjk-zh-l17","lang":"zh-CN","want":"accept","kind":"term-stutter","input":"明天，明天我们去开会","output":"明天我们去开会。"}
+{"id":"cjk-zh-l18","lang":"zh-CN","want":"accept","kind":"han-homophone","input":"这段带吗有问题","output":"这段代码有问题。"}
+{"id":"cjk-ja-l08","lang":"ja","want":"accept","kind":"term-stutter","input":"来週の、来週の会議に出ます","output":"来週の会議に出ます。","only":"smooth"}
+{"id":"cjk-ja-l09","lang":"ja","want":"accept","kind":"term-punct","input":"その日本当に忙しかった","output":"その日、本当に忙しかった。"}
+{"id":"cjk-ja-l10","lang":"ja","want":"accept","kind":"han-homophone","input":"新しい機能を後悔しました","output":"新しい機能を公開しました。"}
+{"id":"cjk-ko-l05","lang":"ko","want":"accept","kind":"filler","input":"아무튼 내일 서울에서 만나요","output":"내일 서울에서 만나요."}
+{"id":"cjk-ru-l06","lang":"ru","want":"accept","kind":"filler","input":"В общем, сервер опять упал ночью","output":"Сервер опять упал ночью.","only":"smooth"}
+{"id":"cjk-ru-l07","lang":"ru","want":"accept","kind":"stutter","input":"Мы перенесли перенесли демо на пятницу","output":"Мы перенесли демо на пятницу.","only":"smooth"}
+{"id":"cjk-ru-l08","lang":"ru","want":"accept","kind":"filler","input":"Сервер, блин, опять упал","output":"Сервер опять упал."}
+{"id":"name-en-l03","lang":"en","want":"accept","kind":"product","input":"Post the deck on Slak after lunch","output":"Post the deck on Slack after lunch"}
+{"id":"cjk-zh-h14","lang":"zh-CN","want":"refuse","kind":"swap","input":"这台电脑我要买","output":"这台电脑我要卖"}
+{"id":"cjk-zh-l19","lang":"zh-CN","want":"accept","kind":"pronoun-gender","input":"我妹妹说他明天过来","output":"我妹妹说她明天过来"}
+{"id":"cjk-zh-l20","lang":"zh-CN","want":"accept","kind":"term-same-class","input":"下周我们出发","output":"下个礼拜我们出发","only":"smooth"}
+{"id":"cjk-ja-l11","lang":"ja","want":"accept","kind":"term-same-class","input":"今日は休みです","output":"本日は休みです"}
+{"id":"cjk-ru-l09","lang":"ru","want":"accept","kind":"colloquial","input":"Я щас приду","output":"Я сейчас приду."}
+{"id":"cjk-ru-l10","lang":"ru","want":"accept","kind":"colloquial","input":"Чё там с сервером?","output":"Что там с сервером?"}
+{"id":"cjk-ru-l11","lang":"ru","want":"accept","kind":"colloquial","input":"Это ваще не работает","output":"Это вообще не работает."}
+{"id":"cjk-ru-l12","lang":"ru","want":"accept","kind":"colloquial","input":"Ща посмотрю логи","output":"Сейчас посмотрю логи."}
+{"id":"cjk-ru-l13","lang":"ru","want":"accept","kind":"colloquial","input":"Там пять тыщ рублей","output":"Там пять тысяч рублей."}
+{"id":"cjk-zh-l21","lang":"zh-CN","want":"accept","kind":"term-same-class","input":"今早我们开会","output":"今天早上我们开会"}
+{"id":"cjk-zh-l22","lang":"zh-CN","want":"accept","kind":"term-same-class","input":"今天晚上见","output":"今晚见"}
+{"id":"cjk-zh-l23","lang":"zh-CN","want":"accept","kind":"term-same-class","input":"明早出发","output":"明天早上出发"}
+{"id":"cjk-zh-l24","lang":"zh-CN","want":"accept","kind":"term-same-class","input":"昨晚下雨了","output":"昨天晚上下雨了"}
+{"id":"cjk-zh-h15","lang":"zh-CN","want":"refuse","kind":"time","input":"今天晚上见","output":"明天晚上见"}
+{"id":"cjk-ja-h06","lang":"ja","want":"refuse","kind":"swap","input":"売上が増えました","output":"売上が減りました"}
+{"id":"cjk-ja-h07","lang":"ja","want":"refuse","kind":"swap","input":"明日の会議に出席します","output":"明日の会議に欠席します"}

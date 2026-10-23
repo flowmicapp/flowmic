@@ -209,6 +209,11 @@ async function seedAccount(email: string): Promise<Seeded> {
     attempt_kind: 'live', mode: 'realtime',
   }, NOW);
   db.usageEffects.meter({ user_id: user.id, operation_id: `op-${user.id}`, kind: 'stt', at: NOW }, 1_000, () => {});
+  // NR-224 — a live press with coverage: no operation, only the per-recording coverage row.
+  db.usageEffects.meter({
+    user_id: user.id, kind: 'stt', at: NOW,
+    coverage: { recording_id: `rec-${user.id}`, start_sample: 0, end_sample: 16_000, attempt_kind: 'live' },
+  }, 1_000, () => {});
   db.timeline.push(user.id, [{ id: `blob-${user.id}`, ciphertext: 'e2e:v1:opaque', created_at: NOW, schema_ver: 1 }]);
   // SALT-1: the blind-store key metadata row — through the repo, like everything
   // else here, so the 16-byte-salt validation is exercised on the way in.
@@ -373,6 +378,7 @@ function countsFor(userId: string, pcId: string): Record<string, number> {
     usage_events: rowsFor('usage_events', 'user_id', userId),
     recovery_operations: rowsFor('recovery_operations', 'user_id', userId),
     usage_effects: rowsFor('usage_effects', 'user_id', userId),
+    recording_coverage: rowsFor('recording_coverage', 'user_id', userId),
     timeline_blobs: rowsFor('timeline_blobs', 'user_id', userId),
     timeline_keymeta: rowsFor('timeline_keymeta', 'user_id', userId),
     timeline_grants: rowsFor('timeline_grants', 'user_id', userId),
@@ -469,7 +475,9 @@ describe('cascade inventory — the constant and the DDL are forced to agree', (
     // user FK either, and for the same reason: a foreign key would erase the
     // row in the DELETE that writes it).
     // EMB-14 adds two indirect-cascade visitor bucket tables, never raw IPs.
-    expect(tables.length).toBe(26);
+    // TWENTY-SEVEN since NR-224 (2026-10-10: recording_coverage, CASCADING — the per-recording 「which audio is
+    // already paid for」 store, db/schema-recovery.ts table 17; it goes with the account like the claims beside it).
+    expect(tables.length).toBe(27);
 
     const cascading: string[] = [];
     const noUserFk: string[] = [];

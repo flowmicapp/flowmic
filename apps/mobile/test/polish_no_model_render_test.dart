@@ -23,6 +23,7 @@ import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/ui/chat_flow_page.dart';
 import 'package:flowmic/src/ui/chat_message_tile.dart';
 import 'package:flowmic/src/ui/status_badge.dart';
+import 'package:flowmic/src/session/polish_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -109,13 +110,23 @@ void main() {
 
           // Positive controls: every probe found its subject, in THIS language.
           expect(find.byType(ChatMessageTile), findsOneWidget);
-          final Finder badge = find.byType(PolishSkippedMark);
+          // CARD-UI: the card builds both wordings of the badge and paints
+          // the one that fits (chat_message_meta.dart `MetaShortenable`);
+          // only the painted one is hit-testable. It is the full label, or
+          // that badge's short wording (whose tooltip and semantics label
+          // carry the full one, chat_message_meta_forms_test.dart).
+          final Finder badge = find.byType(PolishSkippedMark).hitTestable();
           expect(badge, findsOneWidget);
           final Finder badgeText = find.descendant(
             of: badge,
-            matching: find.text(badgeOf(s)),
+            matching: find.byType(Text),
           );
           expect(badgeText, findsOneWidget);
+          expect(<String>[
+            badgeOf(s),
+            for (final PolishBadge b in PolishBadge.values)
+              if (b.label(s) == badgeOf(s)) b.shortLabel(s),
+          ], contains(tester.widget<Text>(badgeText).data));
           final Finder hintText = find.text(hintOf(s));
           expect(hintText, findsOneWidget);
 

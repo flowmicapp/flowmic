@@ -758,6 +758,8 @@ export const G30 = {
         return FAIL(`the demo account had only ${demoLeftMin} min left, so this section proves nothing about the cap`);
       }
       // …and the next press is refused before it starts, by the cap's own gate.
+      // Wait for the DEBIT, not the frame: audio:auto-stopped leaves before settle() writes the ledger (stt-session-auto-stopped.ts), so under load a press fired now was admitted (GATE-DIAG 2026-10-14).
+      await settleAfter(() => spentMinutes(anonOwnerId) * 60_000 >= TRIAL_GRANT_MS - 1, 'cap debit landed', 0);
       visitorRec.frames.length = 0;
       visitor.emit('audio:start', START);
       await settleAfter(() => visitorRec.frames.some((f) => f.event === 'stt:error'), 'demo cap refusal', 0);

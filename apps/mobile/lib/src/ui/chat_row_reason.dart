@@ -92,12 +92,42 @@ String? _humanNoteFor(String code, AppStrings strings) =>
     strings.pcAdmissionRefusalNote(code) ??
     strings.deliveryRefusalNote(code);
 
+/// 🔴 NR-279 (A2) — the row's sentence for a code: the four WIRE tables above
+/// first, then the phone's OWN codes. This is what both [_reasonLineFor] and
+/// [_reasonNoteFor] ask, so 「speak or not」 still has exactly one answer.
+///
+/// WHY A SEPARATE LAYER and not a fifth `??` inside [_humanNoteFor]: that
+/// function is pinned by test/error_code_copy_binding_test.dart ④ to compose
+/// exactly the four tables that answer REGISTRY codes, by segment. A
+/// phone-minted code is in no registry and belongs to no segment, so it must
+/// not be counted as a fifth wire table (and could not be checked as one).
+/// test/row_no_result_note_test.dart pins that the code below stays OUT of the
+/// protocol registry — the day it enters, it must move into a gated table.
+///
+/// The one phone code answered today is `INJECT_NO_RESULT` (the 20 s row
+/// watchdog, `manual_delivery_result.dart` `_onResultTimeout`; the HTTP image
+/// leg's no-answer arm in `image_send_http.dart`). None of the four tables knew
+/// it, so the row printed the bare identifier 「· INJECT_NO_RESULT」, while doc
+/// 15 (`15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md`, row-level watchdog line)
+/// specifies 「✗ +「电脑没有回应」」. The sentence is REUSED from the blocking
+/// banner for the same event (`composeSendError(ComposeSendFailure.noResult)`),
+/// so row and banner say the same thing in all nine languages; no new copy.
+/// ⚠️ The pill word (「✗ Not delivered」, ruling ⑩) is untouched — changing it
+/// is an open owner question (rca-anomalies.md §2.6 ②).
+String? _rowNoteFor(String code, AppStrings strings) =>
+    _humanNoteFor(code, strings) ??
+    (code == kRowNoResultCode
+        ? strings.composeSendError(ComposeSendFailure.noResult)
+        : null);
+
 /// Whether this face says 「why」("为什么") at all — [_reasonLineFor] and
 /// [_reasonNoteFor] share the SAME
 /// judgement, so 「show it or not」 always has exactly one answer (the whole
 /// reason this function exists).
 bool _faceSpeaksReason(DeliveryFace face, String? human) =>
     face == DeliveryFace.failed ||
+    // NR-279 — speaks exactly like ✗ (status_badge.dart `noAnswerYet`).
+    face == DeliveryFace.noAnswerYet ||
     face == DeliveryFace.refused ||
     face == DeliveryFace.deliveredNotInjected ||
     face == DeliveryFace.injectionUncertain ||
@@ -130,7 +160,7 @@ bool _faceSpeaksReason(DeliveryFace face, String? human) =>
 /// unrecognized codes, behaviour unchanged to the letter.
 String? _reasonLineFor(DeliveryFace face, String? code, AppStrings strings) {
   if (code == null || code.isEmpty) return null;
-  final String? human = _humanNoteFor(code, strings);
+  final String? human = _rowNoteFor(code, strings);
   if (human != null) return null;
   // RV-14 / RV-67: the long-standing surface — ✗/⛔ name the code, every other
   // face stays silent. 🔴 Card F2 added `deliveredNotInjected`, for the same
@@ -206,8 +236,9 @@ String? _reasonLineFor(DeliveryFace face, String? code, AppStrings strings) {
 /// **nobody is going to touch a comment just to update a list**. To know
 /// which ones, go read that `switch`.
 ///
-/// It is deliberately the SAME boolean that draws the button
-/// (`canRetry` in [build]) and not a second re-derivation from the code, because
+/// It is deliberately the SAME boolean the row's Resend comes from
+/// (`canResend` in [build]; CARD-UI split it from `resendShown`, which only
+/// adds "not in selection mode") and not a second re-derivation from the code, because
 /// the defect being fixed is precisely a sentence disagreeing with the row it is
 /// printed on: the generic copy for those two codes ends 「…再重发」("…resend
 /// again") while a picture
@@ -231,7 +262,7 @@ String? _reasonNoteFor(
 }) {
   final String? code = entry.failureReason;
   if (code == null || code.isEmpty) return null;
-  final String? human = _humanNoteFor(code, strings);
+  final String? human = _rowNoteFor(code, strings);
   if (human == null) return null;
   if (!_faceSpeaksReason(face, human)) return null;
   if (entry.isImage && !hasResendAffordance) {

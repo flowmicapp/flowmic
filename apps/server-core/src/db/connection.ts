@@ -50,6 +50,7 @@ import { makeEmailVerificationRepo, type EmailVerificationRepo } from './repos/e
 import { makeSiteCountsRepo, type SiteCountsRepo } from './repos/site-counts.repo';
 import { makeRecoveryOperationsRepo, type RecoveryOperationsRepo } from './repos/recovery-operations.repo';
 import { makeUsageEffectLedger, type UsageEffectLedger } from './repos/usage-effects.repo';
+import { makeRecordingCoverageStore } from './repos/recording-coverage.repo';
 import { makeTrialArchiveRepo, type TrialArchiveRepo } from './repos/trial-archive.repo';
 import { makeUsageArchiveRepo, type UsageArchiveRepo } from './repos/usage-archive.repo';
 import { makeTransactionRunner, type TransactionRunner } from './tx';
@@ -751,7 +752,7 @@ export function createDbConnection(
     transact: makeTransactionRunner(db),
     integratorKeys: makeIntegratorKeyRepo(db),
     recoveryOps: makeRecoveryOperationsRepo(db),
-    usageEffects: makeUsageEffectLedger(db),
+    usageEffects: makeUsageEffectLedger(db, makeRecordingCoverageStore(db)), // NR-224: the per-recording coverage store
     siteCounts: makeSiteCountsRepo(db),
     timeline: makeTimelineRepo(db),
     timelineKeymeta: makeTimelineKeymetaRepo(db),

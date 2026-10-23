@@ -208,6 +208,23 @@ mixin CloudStrings on AppStringsLeaves {
         return _lfCloudError_AUTH_TOKEN_EXPIRED;
       case 'AUTH_TOKEN_INVALID':
         return _lfCloudError_AUTH_TOKEN_INVALID;
+      // 🔴 NR-17 (2026-10-10) — `AUTH_TOKEN_UNVERIFIABLE` IS NOT A PAIRING
+      // FAILURE AND IS NOT A SIGN-IN FAILURE. A relay node that could not look
+      // this phone's key up right now says so by name (`auth/middleware.ts`,
+      // `resolveDetailed`; the code's own registry sentence is
+      // `packages/protocol/src/error-codes-auth-and-pairing.ts`) instead of
+      // guessing INVALID. The phone keeps the key and the account
+      // (`mobile_reconnect_flow.dart`, `tokenUnverifiable`), so the two arms
+      // above ("sign in again") would be false, and without THIS arm the code
+      // fell through to `pairError`'s default: "Pairing failed — check the
+      // network…" plus a diagnostic code, on a row that has no pairing and a
+      // network that just answered. Nothing retries by itself after the tap
+      // (the browser client's sentence says "retrying automatically"; this
+      // one must not), so the arm says: not confirmed right now, try again.
+      // Pinned by the rendered-text test in
+      // `test/light_record_signin_reachable_test.dart` (group NR-17).
+      case 'AUTH_TOKEN_UNVERIFIABLE':
+        return _lfCloudError_AUTH_TOKEN_UNVERIFIABLE;
       case 'AUTH_LOGIN_FAILED':
         return _lfCloudError_AUTH_LOGIN_FAILED;
       case 'REGISTER_RATE_LIMITED':

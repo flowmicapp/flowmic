@@ -83,6 +83,9 @@ export interface TermRule {
 export interface DictionaryReplacer {
   apply(text: string): string;
   readonly ruleCount: number;
+  /** ML-2 review: the canonical spellings this replacer writes, so later
+   *  grooming (final-text-en-fillers.ts) never removes a user's own term. */
+  readonly canonicals?: readonly string[];
 }
 
 // Defensive ceiling on distinct surface forms folded into the alternation. The
@@ -178,6 +181,7 @@ export function buildDictionaryReplacer(rules: readonly TermRule[]): DictionaryR
 
   return {
     ruleCount,
+    canonicals: rules.map((r) => r.canonical).filter((c) => c.trim().length > 0),
     apply(text: string): string {
       if (ruleCount === 0 || text.length === 0) return text;
       let out = text;

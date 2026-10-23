@@ -337,6 +337,7 @@ void main() {
       expect(delivered, contains(_kMarks[i]),
           reason: 'span $i is missing from what was minted/delivered');
     }
+    r.controller.outbox.debugCancelNoAnswerRetries(); // NR-286 guard timer
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -492,6 +493,7 @@ void main() {
     );
     debugCancelAsrHealthTicker(r.controller);
     debugCancelBannerAutoHideTimers(r.controller);
+    r.controller.outbox.debugCancelNoAnswerRetries(); // NR-286 guard timer
     });
   }
 

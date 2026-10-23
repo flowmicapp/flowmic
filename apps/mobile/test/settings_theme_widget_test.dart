@@ -77,6 +77,7 @@ class _Rig {
     builder: (BuildContext context, Brightness brightness, _) => MaterialApp(
       theme: ThemeData(brightness: brightness),
       home: SettingsPage(
+        notesAction: SettingsNotesAction.enter,
         scenario: scenario,
         appSettings: appSettings,
         login: login,

@@ -17,6 +17,7 @@
 import type { FinalResult, InterimResult } from './engines/base';
 import type { LiveLegWords } from './segment-pause';
 import { mergeOverlap, mergeOverlapWithin } from './text-merge';
+import { joinAtLegSeam } from './leg-seam-join';
 
 /** How one replay into this leg is described by `replayBufferTail`. */
 export interface LegReplay {
@@ -209,10 +210,20 @@ export class LegFacts {
     const seam = !this.finalSeen;
     this.finalSeen = true;
     if (!seam) return mergeOverlap(bank, text);
-    if (!this.replayedHeard) return bank + text;
-    if (this.overlapMs === null || !e?.token_spans) return mergeOverlap(bank, text); // RC-5c fact absent: RC-5b as before
-    return mergeOverlapWithin(bank, text, charsStartedBefore(e.token_spans, this.overlapMs));
+    if (!this.replayedHeard) return joinAtLegSeam(bank, text); // card SEAM-1 (was `bank + text`: "Kubernetes.And")
+    const merged = this.overlapMs === null || !e?.token_spans
+      ? mergeOverlap(bank, text) // RC-5c fact absent: RC-5b as before
+      : mergeOverlapWithin(bank, text, charsStartedBefore(e.token_spans, this.overlapMs));
+    return merged === bank + text ? joinAtLegSeam(bank, text) : merged; // card SEAM-1: only a merge that trimmed nothing is a bare join
   }
+
+  /**
+   * card SEAM-1 — how the bank meets this leg's DRAFT (the interim preview, a flush that falls back
+   * to the accumulators, a dead leg's draft banked across legs). Until this leg folds its first
+   * final the bank ends where an EARLIER leg ended, so the two meet across a leg seam; after it, the
+   * bank ends with this leg's own text and the engine's spacing is already right.
+   */
+  readonly draftJoin = (bank: string, draft: string): string => (this.finalSeen ? bank + draft : joinAtLegSeam(bank, draft));
 
   /**
    * card RC-L (rerun-3 root cause §1.2 / §4.1) — the highest seq this leg has ANSWERED: every chunk it

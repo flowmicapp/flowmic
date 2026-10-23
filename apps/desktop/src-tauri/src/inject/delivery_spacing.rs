@@ -151,6 +151,23 @@ mod tests {
         }
     }
 
+    /// Book 08 §3 correction (2026-10-14): this function is the REFERENCE for the
+    /// row-seam rule. Three display copies (phone SegmentBuffer.joinerBetween, PC
+    /// capsule utterance-view.ts, relay stt-session-units.ts) read the same
+    /// fixture; this test pins the `pc_space` column on the reference itself.
+    #[test]
+    fn delivery_spacing_matches_shared_seam_fixture() {
+        let doc: serde_json::Value = serde_json::from_str(include_str!("../../../../../verify/fixtures/seam-join-cases.json"))
+            .expect("seam fixture parses");
+        let cases = doc["cases"].as_array().expect("cases array");
+        assert!(cases.len() >= 40, "a vacuous fixture is not a pin");
+        for case in cases {
+            let left = case["left"].as_str().expect("left");
+            let want = case["pc_space"].as_bool().expect("pc_space");
+            assert_eq!(should_append_delivery_space(left), want, "left={left:?}");
+        }
+    }
+
     #[test]
     fn delivery_spacing_preserves_cap_without_truncation() {
         let at_cap = "é".repeat(super::super::INJECT_TEXT_MAX_CHARS);

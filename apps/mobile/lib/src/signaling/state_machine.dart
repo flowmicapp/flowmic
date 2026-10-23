@@ -394,6 +394,20 @@ class FlowmicStateMachine {
   /// `onSttFinal`. The refusal simply had no reader — the row is built on a
   /// layer that never asked. Putting the fact on a second object would have been
   /// a second answer to a question this one already answers.
+  /// NR-174-D6 — a long recording outlived a link drop (CR-3 keeps its
+  /// microphone) and the relay's `mobile:reconnect` ack says it still holds
+  /// the session. The 3 s drop grace had reset SESSION, and `idle` gates every
+  /// captured chunk off the wire (`PttSession._onCapturedChunk`): the zombie
+  /// the device showed. Only `PttSession._onContinuousLinkBack` calls this.
+  void onContinuousSessionRestored() {
+    if (_conn != ConnectionState.connected || _sess != SessionState.idle) {
+      _refuse('continuousRestored', 'requires connection=connected, session=idle');
+      return;
+    }
+    _sess = SessionState.recording;
+    _emit();
+  }
+
   bool _utteranceCancelled = false;
   bool get utteranceCancelled => _utteranceCancelled;
 

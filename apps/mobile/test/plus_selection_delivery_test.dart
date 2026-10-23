@@ -227,6 +227,7 @@ void main() {
         // Already composed by the panel: chronological order, one '\n', no decoration.
         text: '第一句\n常用一句\n第三句',
         images: <TimelineEntry>[p1, p2],
+        sourceRows: const <TimelineEntry>[],
       );
 
       final List<Map<String, Object?>> manual = h.framesOfSource('manual');
@@ -254,6 +255,7 @@ void main() {
       await h.controller.sendPlusSelection(
         text: '甲\n乙',
         images: const <TimelineEntry>[],
+        sourceRows: const <TimelineEntry>[],
       );
       expect(h.framesOfSource('manual'), hasLength(1));
       expect(h.framesOfSource('image'), isEmpty);
@@ -275,6 +277,7 @@ void main() {
       await h.controller.sendPlusSelection(
         text: null,
         images: <TimelineEntry>[p1],
+        sourceRows: const <TimelineEntry>[],
       );
 
       // An empty text message would be a delivery the user never asked for —
@@ -302,6 +305,7 @@ void main() {
       await h.controller.sendPlusSelection(
         text: '第一句',
         images: <TimelineEntry>[pic],
+        sourceRows: const <TimelineEntry>[],
       );
 
       for (final TimelineEntry original in <TimelineEntry>[note, pic]) {
@@ -375,7 +379,8 @@ void main() {
       final int before = h.store.entries.length;
 
       await h.controller
-          .sendPlusSelection(text: null, images: pics);
+          .sendPlusSelection(
+              text: null, images: pics, sourceRows: const <TimelineEntry>[]);
 
       expect(h.framesOfSource('image'), hasLength(4));
       expect(h.store.entries.length - before, 4);

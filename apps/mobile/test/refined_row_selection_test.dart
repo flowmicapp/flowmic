@@ -38,6 +38,23 @@
 // The three speech-with-id cases stayed green through both runs — the half of
 // the control that separates 「the fix selects the right row」 from 「the fix
 // turned GA-14 off」.
+//
+// ⚠️ POL-M1 / R12 (2026-10-14): a spoken row on the PC path is handed to the
+// delivery the moment it lands, and a handed-off row is FROZEN — no machine
+// rewrite may touch it (15 册主文 §4 R12; NR-261 was exactly this file's old
+// 「replaced」 cases succeeding on a row whose words the PC had already typed).
+// So every case below that expects the spoken row to BE refined now speaks it
+// as a light record ([_Rig.speakNote]: destination switched to record-only for
+// that one press), the one kind of row R12 still lets a machine rewrite. The
+// rows put on top of it (picture / typed note / phrase) still go to the PC.
+// The frozen half is pinned in pol_m1_handoff_freeze_test.dart.
+// POL-M1 review (2026-10-14): the negative cases (edited / id-less frame / no
+// such id / stripped id / multi-segment) also speak light records now, so the
+// freeze cannot be what drops them. Each named guard removed once, red:
+// `row.edited` ⇒ the edited case; the wire drop in ptt_inbound.dart (forward
+// with a stand-in id) ⇒ the id-less case; the `utteranceId ==` filter ⇒ the
+// no-such-id and stripped-id cases (plus typed-note / saved-phrase); the
+// `candidates.length > 1` guard ⇒ the multi-segment case.
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -156,6 +173,18 @@ class _Rig {
     return store.entries.first;
   }
 
+  /// POL-M1 — the same press as [speak], said as a LIGHT RECORD (record-only
+  /// for that one press, then back to the PC): a row never handed off, which
+  /// is the only row R12 lets a refine rewrite.
+  Future<TimelineEntry> speakNote(String text, {String? utteranceId = kUtt}) async {
+    destination.setRecordOnly();
+    final TimelineEntry row = await speak(text, utteranceId: utteranceId);
+    destination.setInject();
+    expect(row.delivery, Delivery.none, reason: 'setup: a light record');
+    expect(row.isHandedOff, isFalse, reason: 'setup: never handed off');
+    return row;
+  }
+
   /// The late second-pass transcript, through the production inbound arm
   /// (`ptt_inbound.dart` → `PttSession.refinedTexts` → `_onRefined`). No seam is
   /// poked: a test that called `_applyRefined` directly could not prove the
@@ -199,7 +228,7 @@ void main() {
   // ── ① speech row named by id ⇒ replaced ───────────────────────────────────
   test('speech row named by the refine\'s utterance_id ⇒ replaced (GA-14 still does its job)', () async {
     final _Rig rig = await _Rig.paired();
-    final TimelineEntry spoken = await rig.speak(kSpoken);
+    final TimelineEntry spoken = await rig.speakNote(kSpoken);
 
     await rig.refine(kRefined);
 
@@ -214,7 +243,7 @@ void main() {
   test('🔴 a refine for an utterance that is no longer on top still lands on ITS row '
       '(the improvement over card D-2), and the picture on top is untouched', () async {
     final _Rig rig = await _Rig.paired();
-    final TimelineEntry spoken = await rig.speak(kSpoken);
+    final TimelineEntry spoken = await rig.speakNote(kSpoken);
     expect(await rig.controller.sendImage(), isNull, reason: 'setup: the picture really was sent');
     final TimelineEntry picture = rig.store.entries.first;
     expect(picture.isImage, isTrue, reason: 'setup: the picture is on top');
@@ -231,7 +260,7 @@ void main() {
 
   test('speech row the user has edited ⇒ must not overwrite (the pre-existing guard is not lost)', () async {
     final _Rig rig = await _Rig.paired();
-    final TimelineEntry spoken = await rig.speak(kSpoken);
+    final TimelineEntry spoken = await rig.speakNote(kSpoken);
     rig.controller.editEntry(spoken, '我自己改过的话');
 
     await rig.refine(kRefined);
@@ -259,7 +288,7 @@ void main() {
 
   test('typed-note row on top ⇒ never touched (the user typed these words)', () async {
     final _Rig rig = await _Rig.paired();
-    final TimelineEntry spoken = await rig.speak(kSpoken);
+    final TimelineEntry spoken = await rig.speakNote(kSpoken);
     rig.controller.setBuffer('我自己打的字');
     expect(await rig.controller.sendBuffer(), isNull, reason: 'setup: the typed send really went out');
     final TimelineEntry typed = rig.store.entries.first;
@@ -276,7 +305,7 @@ void main() {
 
   test('saved-phrase row on top ⇒ never touched', () async {
     final _Rig rig = await _Rig.paired();
-    final TimelineEntry spoken = await rig.speak(kSpoken);
+    final TimelineEntry spoken = await rig.speakNote(kSpoken);
     expect(await rig.controller.sendFavorite('稍等一下'), isNull);
     final TimelineEntry phrase = rig.store.entries.first;
     expect(phrase.utteranceId, isNull);
@@ -293,7 +322,7 @@ void main() {
   test('🔴 a frame without an utterance_id is DROPPED at the wire — even with a spoken '
       'row on top, nothing is guessed by recency', () async {
     final _Rig rig = await _Rig.paired();
-    final TimelineEntry spoken = await rig.speak(kSpoken);
+    final TimelineEntry spoken = await rig.speakNote(kSpoken);
     expect(rig.store.entries.first.id, spoken.id, reason: 'setup: the spoken row IS the newest');
 
     await rig.refine(kRefined, utteranceId: null);
@@ -305,7 +334,7 @@ void main() {
 
   test('an id that names no row ⇒ nothing is touched', () async {
     final _Rig rig = await _Rig.paired();
-    final TimelineEntry spoken = await rig.speak(kSpoken);
+    final TimelineEntry spoken = await rig.speakNote(kSpoken);
 
     await rig.refine(kRefined, utteranceId: 'utt-somebody-else');
 
@@ -316,7 +345,7 @@ void main() {
   test('an old relay that strips utterance_id from stt:final leaves a row with no id, '
       'and a later refine cannot reach it (the safe direction in design §2)', () async {
     final _Rig rig = await _Rig.paired();
-    final TimelineEntry spoken = await rig.speak(kSpoken, utteranceId: null);
+    final TimelineEntry spoken = await rig.speakNote(kSpoken, utteranceId: null);
     expect(spoken.utteranceId, isNull);
 
     await rig.refine(kRefined);
@@ -328,6 +357,7 @@ void main() {
   test('two segment rows sharing one utterance_id (a long realtime utterance) ⇒ '
       'the whole-utterance refine is dropped rather than written onto one segment', () async {
     final _Rig rig = await _Rig.paired();
+    rig.destination.setRecordOnly(); // POL-M1: a light record, so only the multi-segment guard can drop it
     expect(await rig.controller.pttDown(), isTrue);
     await rig.controller.pttUp();
     rig.transport.pushIncoming(FlowMicEvents.sttFinal, <String, Object?>{
@@ -343,6 +373,8 @@ void main() {
     final List<TimelineEntry> rows =
         rig.store.entries.where((TimelineEntry e) => e.utteranceId == kUtt).toList();
     expect(rows, hasLength(2), reason: 'setup: realtime settles per segment');
+    expect(rows.every((TimelineEntry r) => !r.isHandedOff), isTrue,
+        reason: 'setup: light records, so the freeze cannot be what drops it');
 
     await rig.refine('第一段 第二段 更准');
 

@@ -80,7 +80,7 @@ import { resolvePaddleClient } from './billing/paddle/resolve-client';
 import { log } from './log';
 import { startLatencyReader } from './obs/latency';
 
-export const SERVER_VERSION = '0.3.107';
+export const SERVER_VERSION = '0.3.118';
 
 /** Standalone single-user identity (03 §5.5): ONE local owner, no account layer
  *  mounted, every row in the DB hers. This is the true answer in that mode, not a
@@ -367,6 +367,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     ...(overrides.clearIntervalFn ? { clearIntervalFn: overrides.clearIntervalFn } : {}),
   });
   const { usageTracker, outboxDrainer, replicaPuller } = nodeRuntime;
+  const revocationLoop = nodeRuntime.revocationHint ?? nodeRuntime.revocationFollower; // REVOKE-PUSH: one per role
   // First-party site analytics — announced in BOTH directions, same standing as
   // the usage-events switch log (an absence that could mean "off" or "this build
   // has no switch" is worse than a line that says DISABLED).
@@ -628,6 +629,7 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     cors: { origin: config.mode === 'saas' ? integratorOrigin.corsOrigin : socketCorsOrigin(config.mode, config.corsOrigins) },
   });
   ioRef = io; // WP-W1b: arm the console REST settings fan-out hook
+  nodeRuntime.revocationFollower?.bindSockets(() => io.of('/').sockets.values()); // REVOKE-PUSH: replica only; starts its loop
   const unwireLlmCapabilityPush = wireLlmCapabilityPush(io, db.settings); // NR-130: the desktop's model-refused line follows the latch
 
   // Truthful acting-user resolution (04 §3.1 / F-2094): standalone collapses to
@@ -760,7 +762,8 @@ export async function startServer(config: ServerConfig, overrides: BootstrapOver
     ...(sweeps.serviceRefunds ? { serviceRefunds: sweeps.serviceRefunds } : {}),
     ...(sweeps.forwardLedgerPrune ? { forwardLedgerPrune: sweeps.forwardLedgerPrune } : {}),
     ...(outboxDrainer ? { outboxDrainer } : {}),
-    ...(replicaPuller ? { replicaPuller } : {}) });
+    ...(replicaPuller ? { replicaPuller } : {}),
+    ...(revocationLoop ? { revocation: revocationLoop } : {}) });
   return {
     httpServer,
     io,

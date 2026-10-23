@@ -273,7 +273,8 @@ class _FlowMicAppState extends State<FlowMicApp> {
       // SEG-2 — the retained-audio layer for the default (real-recorder)
       // capture; opened in main(), see the field's doc.
       spill: widget.retainedAudio,
-      onAuthExpired: () => _login.handleAuthExpired(),
+      onAuthExpired: (String? refused) =>
+          _login.handleAuthExpired(refusedJwt: refused),
     );
     // 🔴 B1 (2026-08-18) — THE PRODUCTION CALLER of network_watch.dart. Grep it:
     // this line is the whole wiring, and without it that port is a capability
@@ -712,7 +713,8 @@ class _FlowMicAppState extends State<FlowMicApp> {
             login: _login,
             destination: _destination,
             chatPageBuilder: _buildChat,
-            settingsPageBuilder: _buildSettings,
+            // FM-002 — the device list acts on Settings' `enter` pop result.
+            settingsPageBuilder: () => _buildSettings(SettingsNotesAction.enter),
             historyPageBuilder: _buildHistory,
             // UP-2 second render site (iPad finding, 2026-08-20): a fresh
             // unpaired install lives on the instance list and never reaches

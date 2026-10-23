@@ -43,6 +43,7 @@
 import 'dart:async';
 
 import 'audio_capture.dart' show RecorderState;
+import 'continuous_away.dart';
 
 /// The 「this capture is continuous」 fact, for exactly one capture.
 ///
@@ -125,9 +126,18 @@ class ContinuousRecording {
   /// Idempotent. The single writer is the continuous-recording entry; ordinary
   /// push-to-talk never calls this, which is what keeps its behaviour byte-for
   /// -byte what it was.
-  void begin() {
+  ///
+  /// NR-213 — [articleId] also opens [away]'s log for this recording.
+  void begin({String? articleId, Duration? cap}) {
     _active = true;
+    if (articleId != null) away.begin(articleId, cap: cap);
   }
+
+  /// NR-213 — the away-and-back log of the long recording (see
+  /// continuous_away.dart). Owned here because it opens and closes with this
+  /// flag, and outlives [end] on purpose (the ceiling can end a recording while
+  /// the user is away, and only the return can say so).
+  final ContinuousAway away = ContinuousAway();
 
   /// Clear the flag by hand.
   ///
@@ -138,6 +148,7 @@ class ContinuousRecording {
   /// press to inherit it.
   void end() {
     _active = false;
+    away.noteEnded();
   }
 
   /// Releases the subscription. After this the auto-clear is gone, so the flag
@@ -146,5 +157,6 @@ class ContinuousRecording {
     await _sub?.cancel();
     _sub = null;
     _active = false;
+    away.dispose();
   }
 }

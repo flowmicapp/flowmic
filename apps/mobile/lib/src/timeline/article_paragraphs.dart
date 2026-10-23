@@ -89,6 +89,7 @@
 // in half by a comma. Skipping non-content tokens is CR-12-D's job, upstream of
 // this file; there is nothing here for it to corrupt.
 
+import '../stt/segment_buffer.dart' show SegmentBuffer;
 import 'timeline_entry.dart';
 
 /// 「1 分钟左右」 — the length a paragraph is aiming for. It is not itself a
@@ -356,23 +357,29 @@ class ArticleParagraph {
 ///
 /// The seam between two rows of one paragraph is a server-judged natural
 /// break inside one spoken passage, not a record boundary, so no newline is
-/// drawn. A single ASCII space is inserted only where both neighbours of the
-/// seam are non-whitespace ASCII (an English word boundary); CJK rows join
-/// directly, the way the approved cell E-2′ draws them. Rows whose displayed
-/// text is blank are dropped.
+/// drawn. Whether a space goes there is the ONE row-seam rule the live view
+/// uses, `SegmentBuffer.joinerBetween` (stt/segment_buffer.dart), which follows
+/// what the PC types (book 08 §3: the last letter or number of the left row picks
+/// the script; Han, kana, Thai and the other no-space scripts join directly, the
+/// way the approved cell E-2′ draws them; accented Latin, Cyrillic, Greek and
+/// Hangul take a space). The one place this differs from the live view is deliberate:
+/// where that rule draws '\n' (after 。！？) a paragraph draws nothing, because
+/// the paragraph is one run (E-2′). Card POL-3 (2026-10-14): until then this
+/// had its own ASCII-on-both-sides test, so "café" + "noir" read "cafénoir"
+/// and "hello" + "école" "helloécole". Rows whose displayed text is blank are
+/// dropped.
 String paragraphText(ArticleParagraph paragraph) {
   final List<String> parts = <String>[
     for (final TimelineEntry r in paragraph.rows)
       if (r.displayText.trim().isNotEmpty) r.displayText.trim(),
   ];
   final StringBuffer b = StringBuffer();
+  String previous = '';
   for (final String part in parts) {
-    if (b.isNotEmpty &&
-        b.toString().codeUnitAt(b.length - 1) < 128 &&
-        part.codeUnitAt(0) < 128) {
-      b.write(' ');
-    }
+    // Only the joiner's space is drawn; its '\n' is not (one run, see above).
+    if (SegmentBuffer.joinerBetween(previous, part) == ' ') b.write(' ');
     b.write(part);
+    previous = part;
   }
   return b.toString();
 }
@@ -465,6 +472,18 @@ class ArticleParagrapher {
     final int d = _durationOf(row);
     _openMs += d;
     if (d == 0) _openUnknown++;
+  }
+
+  /// NR-213 (D3) — close the open paragraph NOW, whatever its length: the
+  /// user left the app here, and the marker that says so is drawn between two
+  /// paragraphs (`paragraphsWithAwayGaps`, article_away_gaps.dart). No-op when
+  /// nothing is open.
+  void breakHere() {
+    if (_open.isEmpty) return;
+    _closed.add(ArticleParagraph(_open, closed: true));
+    _open = <TimelineEntry>[];
+    _openMs = 0;
+    _openUnknown = 0;
   }
 
   /// What the screen shows right now: the closed paragraphs plus the one still

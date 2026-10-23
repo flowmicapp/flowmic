@@ -24,6 +24,7 @@ import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter/widgets.dart';
 
+import '../session/compose_gate.dart' show ComposeSendFailure;
 import '../session/image_thumbnail.dart' show decodedThumbnail;
 import '../session/pending_recovery.dart' show recordedAtMsFromId;
 import '../settings/app_strings.dart' show AppStrings;
@@ -33,6 +34,7 @@ import '../timeline/entry_metrics.dart'
 import '../timeline/timeline_entry.dart';
 import '../session/usage_counters.dart';
 import 'chat_control_tile.dart';
+import 'chat_message_meta.dart';
 import 'status_badge.dart';
 import 'time_label.dart';
 import 'tokens.dart';
@@ -40,6 +42,7 @@ import 'tokens.dart';
 // 800-line cap (this file stood at 799/800): the live-draft row moved out
 // VERBATIM. See that file's header for why it is a `part` and not a library.
 part 'live_draft_tile.dart';
+part 'chat_message_tile_meta_tail.dart';
 // 800-line cap again (card fix-015 took this file to 841/800): the reason-copy
 // family — 「这一行说不说『为什么』，说哪一句，说在哪一格」("whether this row says
 // 'why', which sentence it says, and in which slot it says it") — moved out
@@ -57,6 +60,8 @@ class ChatMessageTile extends StatelessWidget {
     required this.strings,
     this.onLongPress,
     this.polishSkippedLabel,
+    this.polishSkippedShortLabel,
+    this.polishNeedsAction = false,
     this.isFavorite = false,
     this.onZoom,
     this.instanceChip,
@@ -64,6 +69,7 @@ class ChatMessageTile extends StatelessWidget {
     this.onSelectToggle,
     this.selected = false,
     required this.queued,
+    this.owed = false,
     required this.canResendImage,
   });
 
@@ -101,6 +107,12 @@ class ChatMessageTile extends StatelessWidget {
   /// exists to end. Passed straight to [deliveryFaceOf]; the tile does not
   /// interpret it.
   final bool queued;
+
+  /// NR-279 — 「does the queue still owe this row」, queued OR inflight
+  /// (`DeliveryOutbox.owedEntryIds`). Passed to [deliveryFaceOf], where it only
+  /// selects `DeliveryFace.noAnswerYet`; see that parameter's doc for why the
+  /// false default is bounded (it renders like today's ✗).
+  final bool owed;
 
   /// 🔴 「这张图还能不能重发」("can this picture still be resent")
   /// (`DeliveryOutbox.resendableImageEntryIds`).
@@ -174,6 +186,16 @@ class ChatMessageTile extends StatelessWidget {
   /// Label is resolved by the caller from AppStrings (explicit locale).
   final String? polishSkippedLabel;
 
+  /// CARD-UI: the same fact in fewer words (`PolishBadge.shortLabel`), shown
+  /// only when [polishSkippedLabel] does not fit the second meta line; the
+  /// mark then keeps the full label as its tooltip and semantics label.
+  /// Null ⇒ the full label is always used.
+  final String? polishSkippedShortLabel;
+
+  /// UI-1: true ⇒ the polish mark is amber (user can fix it in model settings,
+  /// `PolishBadge.needsUserFix`); false ⇒ calm neutral chip.
+  final bool polishNeedsAction;
+
   @override
   Widget build(BuildContext context) {
     // 🔴 REQ-12-13 — A REMOTE KEY PRESS IS NOT A DELIVERY, so it leaves before any
@@ -198,7 +220,8 @@ class ChatMessageTile extends StatelessWidget {
     // N2: resolved once. The pill, the resend colour and the retry gate all have to
     // agree about which face this row is showing, and three independent
     // re-derivations is how they would stop agreeing.
-    final DeliveryFace face = deliveryFaceOf(entry, queued: queued);
+    final DeliveryFace face =
+        deliveryFaceOf(entry, queued: queued, owed: owed);
     final StatusMeta faceMeta = deliveryFaceMeta(face, strings);
     // Resend is offered on all three un-landed faces, for the same reason: the
     // words did not arrive and re-sending them is the remedy. Undelivered means
@@ -299,15 +322,50 @@ class ChatMessageTile extends StatelessWidget {
     // not close it.
     final bool retryableFace =
         face == DeliveryFace.failed ||
+        // NR-279 — resend stays safe here (same queue item and request id).
+        face == DeliveryFace.noAnswerYet ||
         face == DeliveryFace.undelivered ||
         face == DeliveryFace.noFocus ||
         face == DeliveryFace.deliveredNotInjected ||
         face == DeliveryFace.injectionUncertain;
-    final bool canRetry =
+    // CARD-UI (MAIN 2026-10-14): two questions, two values. [canResend] —
+    // can this row be resent at all; [resendShown] — is the inline Resend
+    // drawn now. They differ in selection mode only: a tap there must toggle
+    // the selection (FB-7 / NR-3 take the row's gestures in that mode), so the
+    // inline Resend is not drawn, while the row stays resendable the moment
+    // the mode ends (the reason sentence below keys on [canResend]).
+    final bool canResend =
         onRetry != null &&
         retryableFace &&
         (entry.isImage ? canResendImage : true) &&
         entry.origin != 'cloud';
+    final bool resendShown = canResend && onSelectToggle == null;
+    // The 「PC → window」 text of the meta's PC region (moved here unchanged
+    // by CARD-UI, with its notes):
+    // owner 2026-07-27:「手机这一端也应该有这样的一个信息，这样的话
+    // 用户可以知道我这条信息到哪里去了」("this side, the phone, should
+    // also have a piece of information like this, so the user can
+    // know where this message of mine went"). The PC timeline has always
+    // shown 「→ 窗口名」("→ window name"); the phone received
+    // inject_target on the wire
+    // and stored it, then dropped it on the floor at render time.
+    // Flexible + ellipsis: a window title can be very long, and this
+    // row must never wrap or push the badges out.
+    // owner 2026-07-27:「手机端要有 PC端实例名 → 目标 的信息」("the phone
+    // side should have PC-instance-name → target information")— the
+    // phone
+    // knows which phone it is, so the row shows the OTHER two legs.
+    // 🔴 Card L7 / owner 2026-08-02「PC 名称要显示」("the PC name must
+    // be shown"): this slot can now name a destination for every
+    // row (not only rows that landed) — see [_provenance].
+    Widget? provenanceText(String? p) => (p == null || p.isEmpty)
+        ? null
+        : Text(
+            p,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: FlowMicColors.teal, fontSize: 10.5),
+          );
 
     // 🔴 window B3-9 / Book 15 G-11 — 「有的图能重发、有的不能，没人说为什么」
     // ("some pictures can be resent and some can't, and nobody says why").
@@ -328,7 +386,7 @@ class ChatMessageTile extends StatelessWidget {
     // been delivered successfully"). The sentence it shows
     // now says the honest reason — it landed, so there is nothing to re-send —
     // see `AppStrings.imageResendUnavailableNote`. Still mutually exclusive with
-    // [canRetry] by construction: `injected` is never in `retryableFace`.
+    // [canResend] by construction: `injected` is never in `retryableFace`.
     final bool explainNoImageResend =
         entry.isImage && face == DeliveryFace.injected;
     // 🔴 Card FB-7 — the ticked state is carried by the card BORDER as well as the
@@ -348,23 +406,23 @@ class ChatMessageTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          if (instanceChip != null) ...<Widget>[
-            instanceChip!,
-            const SizedBox(height: 6),
-          ],
-          // NR-122b: the meta row is a Wrap, not a Row. As a Row its fixed-width
-          // chips (mode badge, time, status pill, resend) overflowed a 360 dp
-          // phone at text scale 1.3 and clipped the resend link, while the
-          // optional chips (provenance, metrics, resend time, reason line) were
-          // squeezed to a few pixels. Now the status pill and the resend link
-          // are never shrunk: when the line is full the low-priority chips move
-          // to the next run, and any single chip wider than the card is
-          // ellipsized by its own maxLines: 1. The "Flexible + ellipsis"
-          // remarks in the comments below describe the Row this replaced.
-          Wrap(
-            spacing: 7,
-            runSpacing: 2,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          // CARD-UI (owner 2026-10-14): the meta is TWO never-wrapping lines
+          // (chat_message_meta.dart has the why and the placement rules).
+          // Line 1 = delivery state · PC instance; the PC instance is the
+          // ONLY part of line 1 that gives way (ellipsized, possibly to
+          // nothing). Line 2 = time · duration and character count · polish
+          // mark (its short wording only when the full one does not fit),
+          // then one optional ellipsized tail (resent time / reason / picture
+          // note). Those facts are fixed: always in full. The selection tick,
+          // mode badge, Resend, edited mark and star are optional: whole, on
+          // whichever line has room (tick and mode before the delivery state
+          // when line 1 holds them), Resend and the edited mark falling back
+          // to their icon forms only when neither line can hold the word. This
+          // must not become a `Wrap` again: a Wrap moves a whole long PC name
+          // to its own run, which is the three-line card the owner
+          // photographed. The NR-122b note that stood here (the meta row was
+          // a Wrap) is superseded.
+          MetaLines(
             children: <Widget>[
               // The tick leads the meta row so every row's mark sits at the same
               // x — a column of ticks is scannable, a tick that moves with the
@@ -376,135 +434,30 @@ class ChatMessageTile extends StatelessWidget {
               // file deliberately imports only widgets.dart — the SAME call this
               // file already made for the ⭐ below, quoted there verbatim
               // (「one star is not worth dragging the whole Material layer in」).
+              //
+              // CARD-UI: optional and leading — first on line 1, or first on
+              // line 2 on a card whose delivery state fills line 1 (the
+              // card's border still marks the selection, FB-7).
               if (selectable) ...<Widget>[
-                Text(
-                  selected ? '☑' : '☐',
-                  key: ValueKey<String>(
-                    'entry.select.${selected ? 'on' : 'off'}.${entry.id}',
-                  ),
-                  style: TextStyle(
-                    color: selected ? FlowMicColors.brand : FlowMicColors.t3,
-                    fontSize: 14,
+                MetaOptional(
+                  leads: true,
+                  child: Text(
+                    selected ? '☑' : '☐',
+                    key: ValueKey<String>(
+                      'entry.select.${selected ? 'on' : 'off'}.${entry.id}',
+                    ),
+                    style: TextStyle(
+                      color: selected ? FlowMicColors.brand : FlowMicColors.t3,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
               ],
-              ModeBadge(entry.mode, strings: strings),
-              Text(
-                timelineTimeLabel(entry.createdAt),
-                style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-              ),
-              // owner 2026-07-31 real device: 「如果是重发，最好是在手机端也显示一下重发的
-              // 时间，这样好识别区分，但原时间也要保留，即在原消息上显示一个最后的
-              // 重发时间」("if it's a resend, it would be best to also show the
-              // resend time on the phone side, so it's easy to tell apart, but
-              // the original time should also be kept, i.e. show a last-resend
-              // time on the original message").
-              //
-              // Sits IMMEDIATELY after the spoken time so the two instants are
-              // read side by side — that adjacency is what makes 「哪个是原时间、
-              // 哪个是重发时间」("which is the original time, which is the resend
-              // time") a glance instead of a comparison. The original is
-              // the bare dim one (unchanged, t3); this one is labelled and one
-              // shade brighter (t2), so neither can be mistaken for the other.
-              //
-              // ⚠️ ONLY on a row that was actually re-sent. Null ⇒ nothing is
-              // built at all — no placeholder, no 「—」. A field that always
-              // renders is a field that tells you nothing.
-              //
-              // Flexible + ellipsis for the same reason as the failure code and
-              // the provenance chip below: this row already carries badge + time
-              // + pill + (code) + (resend) + (→ PC → window), and one more
-              // fixed-width
-              // child is enough to overflow a narrow handset.
-              if (entry.lastResentAt case final DateTime resentAt?) ...<Widget>[
-                Text(
-                  strings.resentAtLabel(timelineTimeLabel(resentAt)),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: FlowMicColors.t2, fontSize: 10.5),
-                ),
-              ],
-              // Inline, not a corner overlay: a Positioned chip at top-right
-              // covered the provenance / metrics / last-delivery time on the
-              // same row. The mark is orthogonal to the status pill (colour
-              // still stands); it just has to share the row instead of sitting
-              // on top of it.
-              if (entry.edited) ...<Widget>[
-                EditedMark(label: strings.editedMark),
-              ],
+              // CARD-UI: the mode badge is not one of the always-in-full facts,
+              // so it is optional — before the delivery state while line 1
+              // has room for both, otherwise on line 2.
+              MetaOptional(child: ModeBadge(entry.mode, strings: strings)),
               StatusPill(face, strings: strings),
-              // RV-14: surface the named failure code next to the bare ✗ so the
-              // carefully minted codes (LINK_DOWN / INJECT_NO_RESULT / …) are
-              // not evaporated at the store door. Raw identifier, never i18n —
-              // error codes are identifiers, not copy. Truncate so a long
-              // detail string cannot blow the meta row.
-              //
-              // N2: ✗ only. RV-43 §4 gives undelivered no reason line —
-              // 「没投递，可补投」("not delivered, can be backfilled")
-              // is the whole story there, and a row may carry a code from an
-              // earlier attempt (copyWith cannot clear one), so showing it here
-              // would attach a stale failure to a state that is not a failure.
-              //
-              // 🔴 window B3-2b / RV-67 — ⛔ JOINS ✗ HERE, and this line is half the
-              // fix. The stale-code argument above is exactly why the gate was
-              // written as 「failed only」, and it is exactly why a terminal
-              // refusal was invisible: `INJECT_PC_MISMATCH` arrives with
-              // `mode:'cached'`, so the row settles `cached`, the face was
-              // undelivered, and the carefully minted code sat in the store being
-              // shown to nobody — 「一条红线级事故」("a red-line-grade incident")
-              // rendered as a routine wait.
-              // ⛔ is not exposed to the stale-code hazard: unlike undelivered it is
-              // DERIVED FROM the code (deliveryFaceOf reads it), so the face
-              // cannot exist without the very code being printed.
-              //
-              // 🔴 window B4-5 — `DeliveryFace.noFocus` is DELIBERATELY ABSENT FROM
-              // THIS CONDITION, and for the opposite reason ⛔/✗ are in it. ✗ and
-              // ⛔ each cover MULTIPLE codes under one word (LINK_DOWN vs.
-              // INJECT_NO_RESULT vs. INJECT_SENDINPUT_FAIL all say 未成功
-              // ("unsuccessful"); six
-              // different terminal codes all say 投递被拒("delivery refused")),
-              // so the code is the
-              // ONLY thing that says WHICH one happened. `noFocus` exists for
-              // exactly ONE code (`INJECT_NO_TEXT_TARGET`) and its word already
-              // says the whole fact in Chinese — printing the raw identifier
-              // beside it would repeat the same information less legibly, not
-              // add any. If a second code is ever folded into `noFocus`, THAT
-              // is the moment to add it back here (the ✗/⛔ shape, not this one).
-              //
-              // 🔴 Card B4-12 (Book 15 G-16 partial) — 📥 UNDELIVERED CAN NOW
-              // ALSO CARRY A
-              // LINE, but only for `INJECT_CLOUD_IMAGE_TOO_LARGE` /
-              // `INJECT_CLOUD_IMAGE_QUOTA_EXCEEDED`
-              // (`AppStrings.cloudImageRelayErrorNote`), and this is a real
-              // exception to the paragraph three above, not a silent widening
-              // of it. Both codes arrive with `mode:'cached'`
-              // (relay.handler.ts `answerReject` always sends it) and are NOT
-              // in `isTerminalRefusalCode` (outbox_item.dart) — retrying
-              // genuinely can succeed once the phone is on a different link or
-              // once the 24 h window has rolled, which is clause ① of that
-              // predicate's own test — so `deliveryFaceOf` correctly settles
-              // them `undelivered`, never `refused`/`failed`. Left at
-              // undelivered's
-              // ordinary blanket silence, a quota refusal would render 「📥
-              // 未投递」("undelivered") with a live resend button and NO
-              // explanation for up to
-              // 24 h — worse than the raw identifier this card exists to
-              // replace, and arguably its own silent failure. Every OTHER code that
-              // reaches undelivered (`INJECT_FOCUS_LOST` etc.) is UNCHANGED: (see
-              // [_reasonLineFor] for the one place that decides this).
-              if (_reasonLineFor(face, entry.failureReason, strings)
-                  case final String line?) ...<Widget>[
-                // Flexible + ellipsis like the provenance chip below: this row
-                // already carries badge + time + pill + resend, and either an
-                // unflexed 28-char code or a full sentence is enough to
-                // overflow it on a narrow handset.
-                Text(
-                  line,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-                ),
-              ],
               // M2: an un-landed PC-bound text row carries its own resend right
               // where the news is announced — the retry must be discoverable at
               // the row, not buried in the long-press menu. Underlined text in
@@ -514,105 +467,157 @@ class ChatMessageTile extends StatelessWidget {
               // the pill
               // just took care not to), the same affordance language the banner
               // slot's _TextButtonlet speaks.
-              if (canRetry) ...<Widget>[
-                Semantics(
-                  button: true,
-                  label: strings.resendAction,
-                  child: GestureDetector(
-                    key: ValueKey<String>('entry.resend.${entry.id}'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => onRetry!(entry),
-                    child: Text(
-                      strings.resendAction,
-                      style: TextStyle(
-                        color: faceMeta.color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        decoration: TextDecoration.underline,
-                        decorationColor: faceMeta.color,
+              // CARD-UI: optional — beside the pill when line 1 has room,
+              // otherwise on line 2; the icon form only when neither line can
+              // hold the word.
+              if (resendShown) ...<Widget>[
+                MetaOptional(
+                  // A 48 dp hit area around the small icon (C4).
+                  compact: MetaTapTarget(
+                    child: ResendIcon(
+                      key: ValueKey<String>('entry.resend.icon.${entry.id}'),
+                      label: strings.resendAction,
+                      color: faceMeta.color,
+                      onTap: () => onRetry!(entry),
+                    ),
+                  ),
+                  child: Semantics(
+                    button: true,
+                    label: strings.resendAction,
+                    child: GestureDetector(
+                      key: ValueKey<String>('entry.resend.${entry.id}'),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => onRetry!(entry),
+                      child: Text(
+                        strings.resendAction,
+                        style: TextStyle(
+                          color: faceMeta.color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                          decorationColor: faceMeta.color,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ] else if (explainNoImageResend) ...<Widget>[
-                // window B3-9 / Book 15 G-11 — occupies the EXACT slot
-                // [canRetry]'s
-                // underlined resend would sit in. That adjacency is the
-                // point: a
-                // picture row that showed this button while queued and shows
-                // NOTHING once delivered is 「有的图能重发、有的不能，没人说为什么」
-                // ("some pictures can be resent and some can't, and nobody
-                // says why")
-                // — the gap the card was opened to close. Plain text, not a
-                // button: R8's own rule is a control that changes nothing is
-                // worse than no control, so this must never be tappable.
-                Text(
-                  strings.imageResendUnavailableNote,
-                  key: ValueKey<String>('entry.imageResendNote.${entry.id}'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-                ),
               ],
-              // owner 2026-07-27:「手机这一端也应该有这样的一个信息，这样的话
-              // 用户可以知道我这条信息到哪里去了」("this side, the phone, should
-              // also have a piece of information like this, so the user can
-              // know where this message of mine went"). The PC timeline has always
-              // shown 「→ 窗口名」("→ window name"); the phone received
-              // inject_target on the wire
-              // and stored it, then dropped it on the floor at render time.
-              // Flexible + ellipsis: a window title can be very long, and this
-              // row must never wrap or push the badges out.
-              // owner 2026-07-27:「手机端要有 PC端实例名 → 目标 的信息」("the phone
-              // side should have PC-instance-name → target information")— the
-              // phone
-              // knows which phone it is, so the row shows the OTHER two legs.
-              // 🔴 Card L7 / owner 2026-08-02「PC 名称要显示」("the PC name must
-              // be shown"): this slot can now name a destination for every
-              // row (not only rows that landed) — see [_provenance].
-              if (_provenance(entry) case final String p?
-                  when p.isNotEmpty) ...<Widget>[
-                Text(
-                  p,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: FlowMicColors.teal, fontSize: 10.5),
-                ),
-              ],
+              // V2-06b + owner 2026-07-27: WHO this row went to. One flexible
+              // region holds both the history page's attribution chip (it used
+              // to be a line of its own above the meta) and 「PC → window」; it
+              // is the only thing on line 1 that shrinks.
+              MetaFlexible(
+                // The history page's chip has a fixed icon and padding (31 px);
+                // 96 px leaves it room for about eight characters of the name.
+                minWidth: instanceChip != null ? 96 : 12,
+                // The history page lists every computer's rows: there the chip
+                // says WHICH computer a row went to (owner 2026-07-27 hard
+                // requirement ①) and is never hidden — it moves to the next
+                // line instead. The chat page is one computer's flow, so there
+                // the name may give way entirely.
+                keep: instanceChip != null,
+                // owner 2026-07-27 / Card L7: 「PC → window」 — see [_provenance].
+                // CARD-UI (C6): on the history page the chip goes first and
+                // keeps its natural width; 「→ window」 gets what is left
+                // (MetaPriorityRow), and the chip's name is not repeated in it.
+                child: instanceChip != null
+                    ? MetaPriorityRow(
+                        first: instanceChip!,
+                        second: provenanceText(
+                          _provenance(entry, chipNamesPc: true),
+                        ),
+                      )
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          if (provenanceText(_provenance(entry))
+                              case final Widget t?)
+                            Flexible(child: t),
+                        ],
+                      ),
+              ),
+              const MetaLineBreak(),
+              // CARD-UI: the time leads line 2. On line 1 a past year's
+              // 「2025/12/31 23:59」 left the delivery state no room on the
+              // history page.
+              Text(
+                timelineTimeLabel(entry.createdAt),
+                style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
+              ),
               // §4b-8 per-row display of transcription duration + word count
-              // — see [_metricsLabel]. Flexible +
-              // ellipsis like every other optional chip on this row: the row
-              // already carries badge + time + pill + (code) + (resend/note) +
-              // (→ PC → window), and this is one more item competing for a
-              // narrow handset's width.
+              // — see [_metricsLabel]. CARD-UI: fixed, never cut.
               if (_metricsLabel(entry, strings)
                   case final String m?) ...<Widget>[
                 Text(
                   m,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
+                ),
+              ],
+              // NR-122b: the polish-skipped mark lives in normal flow (it used
+              // to be a Positioned corner overlay that painted over the status
+              // / resend link / provenance). CARD-UI: fixed, on line 2 after
+              // the count.
+              if (polishSkippedLabel case final String full?)
+                switch (polishSkippedShortLabel) {
+                  final String short? => MetaShortenable(
+                    short: PolishSkippedMark(
+                      label: short,
+                      fullLabel: full,
+                      needsAction: polishNeedsAction,
+                      // In selection mode a tap toggles the row (C3).
+                      tapShowsFull: !selectable,
+                    ),
+                    child: PolishSkippedMark(
+                      label: full,
+                      needsAction: polishNeedsAction,
+                    ),
+                  ),
+                  null => PolishSkippedMark(
+                    label: full,
+                    needsAction: polishNeedsAction,
+                  ),
+                },
+              // Inline, not a corner overlay: a Positioned chip at top-right
+              // covered the provenance / metrics / last-delivery time on the
+              // same row. The mark is orthogonal to the status pill (colour
+              // still stands); it just has to share the row instead of sitting
+              // on top of it.
+              if (entry.edited) ...<Widget>[
+                MetaOptional(
+                  // A 48 dp hit area around the small icon (C4).
+                  compact: MetaTapTarget(
+                    child: EditedMark(
+                      key: ValueKey<String>('entry.edited.icon.${entry.id}'),
+                      label: strings.editedMark,
+                      compact: true,
+                      // In selection mode a tap toggles the row (C3).
+                      tapShowsLabel: !selectable,
+                    ),
+                  ),
+                  child: EditedMark(label: strings.editedMark),
                 ),
               ],
               if (isFavorite) ...<Widget>[
                 // A glyph, not an Icon: this file deliberately imports only
                 // widgets.dart (no Material), and one star is not worth
                 // dragging the whole Material layer in.
-                Text(
-                  '★',
-                  style: TextStyle(color: FlowMicColors.amber, fontSize: 11),
+                MetaOptional(
+                  child: Text(
+                    '★',
+                    style: TextStyle(color: FlowMicColors.amber, fontSize: 11),
+                  ),
                 ),
               ],
+              // CARD-UI: facts, never cut — on line 2 when they fit, else on
+              // the overflow line (chat_message_meta.dart `MetaFact`).
+              ..._metaTail(
+                entry: entry,
+                strings: strings,
+                face: face,
+                explainNoImageResend: explainNoImageResend,
+              ),
             ],
           ),
-          // NR-122b: the polish-skipped mark lives in normal flow on its own line
-          // right under the meta row (it used to be a Positioned corner overlay
-          // that painted over the status / resend link / provenance). Bounded by
-          // the card's width, so a long label wraps inside the card.
-          if (polishSkippedLabel != null) ...<Widget>[
-            const SizedBox(height: 4),
-            PolishSkippedMark(label: polishSkippedLabel!),
-          ],
           const SizedBox(height: 3),
           // owner 2026-07-27: a picture row shows the picture. The descriptor
           // stays beneath as the caption — and stands alone when there is no
@@ -676,9 +681,12 @@ class ChatMessageTile extends StatelessWidget {
           // Placed **after** the body text: let the user first recognize
           // which sentence it is, then read what happened to it.
           //
-          // 🔴 Card fix-015 — `canRetry` is handed over rather than re-derived: it
-          // is what decides whether the resend control above exists, and the sentence
-          // must not name an action this row does not offer. The picture variant
+          // 🔴 Card fix-015 — `canResend` is handed over rather than re-derived:
+          // the sentence must not name an action this row does not offer.
+          // CARD-UI (MAIN 2026-10-14): it keys on whether the row CAN be
+          // resent, not on whether the inline link is drawn this instant — in
+          // selection mode the link is hidden but the action is still the
+          // row's, one tap away once the mode ends. The picture variant
           // is deliberately rendered HERE (full width, maxLines 5) and NOT in the
           // meta-row slot `explainNoImageResend` occupies — that slot is
           // `Flexible(maxLines: 1, ellipsis)` in a row already carrying six chips,
@@ -687,7 +695,7 @@ class ChatMessageTile extends StatelessWidget {
                 face,
                 entry,
                 strings,
-                hasResendAffordance: canRetry,
+                hasResendAffordance: canResend,
               )
               case final String note?) ...<Widget>[
             const SizedBox(height: 3),

@@ -267,6 +267,10 @@ export const CACHED_CAUSE_CODES = new Set<string>([
   // 输入焦点」 is one sentence twice), neither of these is inferable from the badge.
   'INJECT_SECURE_INPUT_ACTIVE',
   'INJECT_NO_ACCESSIBILITY',
+  // Windows (2026-10-16): the window in front runs above FlowMic's integrity, so
+  // `inject/uipi.rs` `refusal_for` answered `cached` before Stage 1. Not inferable
+  // from the badge, same as the two macOS codes above.
+  'INJECT_TARGET_ELEVATED',
 ]);
 
 /** V2-07.8a: same Record shape as before, but each entry is a GETTER reading
@@ -293,6 +297,7 @@ export const INJECT_FAIL_REASON: Record<string, string> = {
   get INJECT_IMAGE_UNSUPPORTED() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_IMAGE_UNSUPPORTED!; },
   get INJECT_SECURE_INPUT_ACTIVE() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_SECURE_INPUT_ACTIVE!; },
   get INJECT_NO_ACCESSIBILITY() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_NO_ACCESSIBILITY!; },
+  get INJECT_TARGET_ELEVATED() { return INJECT_FAIL_REASON_BY_LOCALE[getLocale()].INJECT_TARGET_ELEVATED!; },
 };
 
 /** Test/guard surface (locale-parity.test.ts): raw per-locale reason tables. */

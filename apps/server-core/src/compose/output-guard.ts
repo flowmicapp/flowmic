@@ -216,6 +216,7 @@ import {
 } from './output-guard-volume';
 import { assistantFrame } from './output-guard-frames';
 import { findCjkLatinGlue } from './output-guard-space';
+import { languageDrift } from '../stt/stt-polish-guard-lang';
 
 // Re-exported, not re-declared: the union now lives beside `MAX_EXPANSION`, the
 // exhaustive table keyed by it. See that file for why the cycle forced the move.
@@ -247,7 +248,8 @@ export type ComposeGuardRule =
   | 'cjk_latin_glued'
   | 'volume_runaway'
   | 'over_compressed'
-  | 'script_changed';
+  | 'script_changed'
+  | 'language_changed';
 
 /** A repair changed the text but did NOT reject it. Reported so a caller can
  *  log that the model needed cleaning up without failing the user's turn. */
@@ -534,6 +536,19 @@ export function guardComposeOutput(input: ComposeGuardInput): ComposeGuardVerdic
         `the draft is written in ${from} and the output is in ${to} — a polish does not change writing system`,
         repairs,
       );
+    }
+  }
+
+  // ── rule 11b (ML-1): same script, different language ──
+  // The half rule 11 cannot see (German in, English out), for the two tasks
+  // that must keep the language. The realtime polish guard's detector
+  // (stt-polish-guard-lang.ts `languageDrift`): relative to the source, silent
+  // when source_lang is absent / 'auto' / unprofiled. ML-0 measured organize
+  // with no language check at all (11 of 11 drift pairs accepted).
+  if (input.task === 'draft_polish' || input.task === 'organize') {
+    const into = languageDrift(source, text, input.source_lang);
+    if (into !== null) {
+      return reject('language_changed', `the source is in '${String(input.source_lang)}' and the output is in ${into} — ${input.task} does not translate`, repairs);
     }
   }
 

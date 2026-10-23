@@ -148,6 +148,7 @@ class TextScaleSettingsRig {
     builder: (BuildContext context, Widget? page) =>
         TextScaleScope(appSettings: appSettings, child: page!),
     home: SettingsPage(
+      notesAction: SettingsNotesAction.enter,
       scenario: scenario,
       appSettings: appSettings,
       login: login,

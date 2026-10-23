@@ -20,6 +20,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { makeSnapshotProducer } from '../src/node/snapshot';
 import { makeReplicaPuller } from '../src/node/replica-puller';
+import { makeForwardLedger } from '../src/node/forward-ledger';
+import { gunzipSync } from 'node:zlib';
+import { writeFileSync } from 'node:fs';
 
 const silent = { info: () => {}, warn: () => {} };
 
@@ -198,6 +201,57 @@ describe('replication: the writer snapshot lands in the live replica', () => {
       });
       await puller.pull();
       expect(replica.prepare('SELECT COUNT(*) AS c FROM users').get()).toEqual({ c: 1 });
+    } finally {
+      writer.close();
+      replica.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// REPL-TIER 1b/1c (docs/strategy/2026-10-11-replication-tiering-design.md §5-4 R6).
+describe('the snapshot leaves the writer’s exactly-once ledger out', () => {
+  it('R6 🔴 no node_forward_seen in the copy, every other table intact, the live ledger untouched', async () => {
+    const { dir, writer, replica } = makePair();
+    try {
+      writer.prepare('INSERT INTO users (id, name) VALUES (?, ?)').run('u1', 'Ada');
+      writer.prepare('INSERT INTO pcs (id, user_id, home_node) VALUES (?, ?, ?)').run('p1', 'u1', 'srvjp');
+      const ledger = makeForwardLedger(writer);
+      for (let i = 0; i < 50; i++) ledger.once({ id: `fwd-ledger-row-${i}`, kind: 'usage', at: 1 }, () => {});
+      const lines: Record<string, unknown>[] = [];
+      const bytes = await makeSnapshotProducer(writer, { log: { info: (_m, meta) => { lines.push(meta ?? {}); } } })();
+
+      const copyPath = join(dir, 'copy.db');
+      const raw = gunzipSync(bytes);
+      writeFileSync(copyPath, raw);
+      // DROP leaves the table's pages as free pages; only the VACUUM after it
+      // keeps their old contents off the wire.
+      expect(raw.includes('fwd-ledger-row-'), 'no ledger bytes in free pages').toBe(false);
+      const count = (d: DatabaseSync, t: string): number => Number((d.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c);
+      // Read, then close BEFORE asserting: an open handle makes the cleanup
+      // throw EBUSY on Windows and that would hide the assertion that failed.
+      const copy = new DatabaseSync(copyPath, { readOnly: true });
+      const tables = (copy.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[])
+        .map((r) => r.name);
+      const copied = Object.fromEntries(tables.map((t) => [t, count(copy, t)]));
+      copy.close();
+      expect(tables, 'the ledger must not leave the writer').not.toContain('node_forward_seen');
+      expect(tables).toEqual(['pcs', 'users']);
+      for (const t of tables) expect(copied[t], t).toBe(count(writer, t));
+      expect(count(writer, 'node_forward_seen'), 'stripped from the private copy only').toBe(50);
+
+      // The first snapshot is always measured, with the sizes acceptance reads.
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({ n: 1, gz_bytes: bytes.length });
+      expect(lines[0]).toHaveProperty('vacuum_ms');
+      expect(lines[0]).toHaveProperty('raw_bytes');
+
+      const puller = makeReplicaPuller({
+        db: replica, fetchSnapshot: async () => bytes, log: silent,
+        stagePath: join(dir, 'stage.db'), setIntervalFn: () => null,
+      });
+      expect(await puller.pull()).toBe(2);
+      expect(count(replica, 'pcs')).toBe(1);
     } finally {
       writer.close();
       replica.close();

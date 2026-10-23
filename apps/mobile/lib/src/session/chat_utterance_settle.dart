@@ -234,6 +234,7 @@ String _settleSpan(
   // this same entry.id, but their ownership and reset boundaries differ.
   if (!foreign) segs.markSettled(f.segmentIdx, rowId: entry.id);
   c._articleSpanLanded(entry);
+  _noteLiveCovered(c, entry, f.segmentIdx); // NR-214
   // Card RC-B follow-up — remember this row as the live press's, so a press
   // whose last span is silent can settle on the rows it produced. A recovery
   // session mints rows that are not the press's. A foreign final whose receipt
@@ -355,4 +356,30 @@ String _settleSpan(
   }
   c.ucNotify();
   return entry.id;
+}
+
+/// NR-214 — a long recording's live row exists: once it has read back from
+/// disk, raise the manifest's live-covered mark to where the last live segment
+/// final can be shown to end (`EngineOutageStretch.lastFinalOf`, the answered
+/// position, a lower bound). After a kill that is where the catch-up starts
+/// instead of byte 0 (`RecordingManifest.liveCoveredBytes`). Nothing when the
+/// relay never reported a position: the catch-up then re-feeds as before.
+void _noteLiveCovered(ChatController c, TimelineEntry entry, int segmentIdx) {
+  final PttSession s = c.session;
+  final String? article = s.articles.liveArticleId;
+  final RetainedAudioSpill? spill = s.audio.retainedAudio;
+  final String? recording = spill?.liveAttempt?.recordingId;
+  if (!s.continuous.isActive || s.recoveryOwnsSession) return;
+  if (article == null || spill == null || recording == null) return;
+  if (entry.articleId != article) return;
+  // The final that produced [entry], read at the same moment its row
+  // settles; a later final already noted leaves nothing to write (lower bound).
+  final int? at = s.engineOutage.answeredAtFinal(article, segmentIdx);
+  if (at == null) return;
+  unawaited(() async {
+    await c.store.awaitPersisted(entry.id);
+    if (await c.store.isPersisted(entry.id)) {
+      await spill.noteLiveCovered(recording, at);
+    }
+  }());
 }

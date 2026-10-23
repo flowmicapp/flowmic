@@ -139,9 +139,14 @@ pub struct CloudStatusDto {
     pub auth_error: Option<String>,
 }
 
-fn dto(cfg: &CloudConfig) -> CloudStatusDto {
+fn dto(app: &AppHandle, cfg: &CloudConfig) -> CloudStatusDto {
     let claims = cfg.claims().unwrap_or_default();
-    let readiness = cfg.readiness(channel::now_secs());
+    // Card E-D: the local expiry reading is a hint the relay can overrule — a
+    // key it accepted on the live session is not shown as expired
+    // (`CloudReadiness::shown`). `build_sink` re-emits this DTO whenever the
+    // cloud session's `registered` flips, so the overrule tracks the session.
+    let relay_accepted = sidecar_ctl::is_registered_on(app, Channel::Cloud);
+    let readiness = cfg.readiness(channel::now_secs()).shown(relay_accepted);
     CloudStatusDto {
         endpoint: cfg.endpoint.clone(),
         key_set: cfg.jwt.is_some(),
@@ -164,7 +169,7 @@ pub fn snapshot(app: &AppHandle) -> CloudConfig {
 /// label). A global emit, same mechanism as the sidecar-state channel.
 pub fn emit_state(app: &AppHandle) {
     let cfg = snapshot(app);
-    if let Ok(v) = serde_json::to_value(dto(&cfg)) {
+    if let Ok(v) = serde_json::to_value(dto(app, &cfg)) {
         let _ = app.emit(bridge::channel::CLOUD_STATE, v);
     }
 }
@@ -284,7 +289,7 @@ pub fn cloud_status(
     // measurement), so tearing a live relay session down to re-dial an equivalent
     // address would cost a reconnect to buy nothing. The stored value is corrected
     // within that first read, and the NEXT launch dials the corrected one.
-    dto(&state.snapshot())
+    dto(&app, &state.snapshot())
 }
 
 /// Save a pasted Cloud Key + endpoint (the 「paste Cloud Key」 form).
@@ -342,8 +347,9 @@ pub fn store_verified_key(app: &AppHandle, key: &str, endpoint: &str) -> CloudSt
 /// purpose is to bring the relay up. Both channels are resident (GA-28), so the
 /// honest rule is the one that has no third input: a usable key ⇒ dial it.
 fn publish_config_change(app: &AppHandle, cfg: CloudConfig) -> CloudStatusDto {
-    let redial = cfg.readiness(channel::now_secs()).is_ready();
-    let out = dto(&cfg);
+    // Card E-D: a locally-expired key dials too; the relay judges it.
+    let redial = cfg.readiness(channel::now_secs()).is_dialable();
+    let out = dto(app, &cfg);
     emit_state(app);
     if redial {
         sidecar_ctl::ensure_dialed(app, Channel::Cloud);
@@ -666,7 +672,7 @@ pub fn cloud_clear_key(app: AppHandle) -> CloudStatusDto {
     // (「delete the local one, paste it again and it comes back」). The comment was quietly claiming a security
     // property this build does not have, and a comment is an assertion like any other.
     sidecar_ctl::drop_socket(&app);
-    let out = dto(&cfg);
+    let out = dto(&app, &cfg);
     emit_state(&app);
     out
 }

@@ -81,6 +81,7 @@ pub mod target_probe;
 /// text predicate and not an app list or an IME probe.
 pub mod text_dispatch;
 pub mod text_route;
+pub mod uipi;
 // 2026-07-30: `verify_readback` (the v0.2.1 before/after UIA read that was meant
 // to make a SendInput delivery provable) is DELETED, not just unwired. It asked
 // the target app to expose its own text through UI Automation — the target's

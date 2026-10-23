@@ -40,6 +40,7 @@ export const MESSAGE_PARAMS = {
   "injectVerdictNote_INJECT_WAYLAND_UNSUPPORTED": [],
   "injectVerdictNote_INJECT_DISPLAY_UNAVAILABLE": [],
   "injectVerdictNote_INJECT_SUBMISSION_UNCERTAIN": [],
+  "injectVerdictNote_INJECT_TARGET_ELEVATED": [],
   "deliveryRefusalNote_INJECT_FRAME_INVALID": [],
   "deliveryRefusalNote_INJECT_FRAME_TOO_LARGE": [],
   "deliveryRefusalNote_INJECT_PC_MISMATCH": [],

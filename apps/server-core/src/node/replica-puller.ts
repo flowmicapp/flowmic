@@ -116,6 +116,15 @@ export interface ReplicaPullerDeps {
   intervalMs?: number;
   setIntervalFn?: (fn: () => void, ms: number) => unknown;
   clearIntervalFn?: (handle: unknown) => void;
+  /**
+   * REVOKE-PUSH (docs/strategy/2026-10-11-replication-tiering-design.md §11-3) —
+   * called once after every import that COMMITTED, periodic or on demand, on a
+   * microtask (so the snapshot is already detached). Its one consumer is the
+   * live-socket sweep in node/revocation-follower.ts: the pull is what makes a
+   * revoked row disappear here, and nothing else on this node ever looks back
+   * at a socket that was admitted against that row.
+   */
+  onApplied?: () => void;
 }
 
 export interface ReplicaPuller {
@@ -249,8 +258,14 @@ export function makeReplicaPuller(deps: ReplicaPullerDeps): ReplicaPuller {
     emit();
   };
 
+  let stopped = false;
   const pull = async (): Promise<number> => {
     const raw = await deps.fetchSnapshot();
+    // REVOKE-PUSH — a pull can now be started by the revocation follower as well
+    // as by the timer, so one can be in flight when shutdown stops this puller.
+    // Importing after that would open a write transaction over a database that
+    // is about to close. Nothing is applied; the next boot pulls again.
+    if (stopped) throw new Error('replica puller stopped');
     // gzip magic. Accepting both means a writer that stops compressing does not
     // become an outage, and it costs one byte comparison.
     const bytes = raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : raw;
@@ -337,6 +352,16 @@ export function makeReplicaPuller(deps: ReplicaPullerDeps): ReplicaPuller {
         throw err;
       }
       appliedAt = Date.now();
+      if (deps.onApplied) {
+        const onApplied = deps.onApplied;
+        queueMicrotask(() => {
+          try {
+            onApplied();
+          } catch (err) {
+            log.warn('replica pull: post-import hook threw', { reason: err instanceof Error ? err.message : String(err) });
+          }
+        });
+      }
       return plans.length;
     } finally {
       // DETACH even on the failure path, or the next cycle cannot attach and one
@@ -382,5 +407,12 @@ export function makeReplicaPuller(deps: ReplicaPullerDeps): ReplicaPuller {
     (handle as { unref: () => void }).unref();
   }
 
-  return { pull, lastAppliedAt: () => appliedAt, stop: () => clearIntervalFn(handle) };
+  return {
+    pull,
+    lastAppliedAt: () => appliedAt,
+    stop: () => {
+      stopped = true;
+      clearIntervalFn(handle);
+    },
+  };
 }

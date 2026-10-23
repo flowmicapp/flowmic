@@ -6,12 +6,12 @@ it('counts every category after the first violation, without returning any term'
   expect(closedClassDeltas('did not ship', 'did ship').d_negation).toBe(1);
 });
 
-import { readFileSync } from 'node:fs';
-it('live verdict function and original cardinality checks are verbatim base', () => {
-  const base = readFileSync(new URL('./fixtures/polish-guard-v1-base.txt', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  const live = readFileSync(new URL('../src/stt/stt-polish-guard.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  expect(live.slice(live.indexOf('export function checkMeaningPreserved'))).toBe(base.slice(base.indexOf('export function checkMeaningPreserved')));
-  const bounds = readFileSync(new URL('../src/stt/stt-polish-guard-bounds.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  const marker = '  // §3.1 — cardinality bound (necessary, not sufficient).';
-  expect(bounds.slice(bounds.indexOf(marker))).toBe(base.slice(base.indexOf(marker)));
+// QP-1 (2026-10-13): the NR118 pin "live verdict function and original
+// cardinality checks are verbatim base" was retired here on purpose — the live
+// guard moved (numbers by value, word-level modal/negation, scaled smooth K).
+// The frozen v1 source stays in fixtures/polish-guard-v1-base.txt and is still
+// exercised against the corpus by stt-polish-guard-v2.test.ts.
+it('names a numeral first category only when the number VALUES moved', () => {
+  expect(closedClassDeltas('我一直觉得', '我觉得')).toMatchObject({ first_category: null, d_numeral: 1 });
+  expect(closedClassDeltas('三点开会', '两点开会').first_category).toBe('numeral');
 });

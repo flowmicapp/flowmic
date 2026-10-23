@@ -165,7 +165,7 @@ class StatusDot extends StatelessWidget {
   );
 }
 
-/// dot + glyph/icon + label — the delivery pill, one of [DeliveryFace]'s five.
+/// glyph/icon + label — the delivery pill, one of [DeliveryFace]'s faces.
 ///
 /// N2: takes the FACE, not the [EntryStatus]. A pill that took the status could
 /// not draw the "delivering" (投递中) / "undelivered" (未投递) distinction at
@@ -182,11 +182,12 @@ class StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final StatusMeta m = deliveryFaceMeta(face, strings);
+    // CARD-UI (owner 2026-10-14): no leading dot. The face's colour is already
+    // carried by its glyph and its words, and on a 360 dp phone the dot's
+    // 15 px were what pushed the longest states off the card's first line.
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        StatusDot(m.color),
-        const SizedBox(width: 7),
         if (m.icon != null) ...<Widget>[
           Icon(m.icon, size: 12, color: m.color),
           const SizedBox(width: 3),
@@ -214,58 +215,162 @@ class StatusPill extends StatelessWidget {
 /// deliberately NOT a status colour, so the underlying delivery colour still
 /// reads through the row. Label resolved by the caller from AppStrings
 /// ([AppStrings.editedMark]) — same contract as [PolishSkippedMark.label].
+///
+/// CARD-UI: [compact] draws the pencil alone, for a card line that cannot hold
+/// the word (`MetaOptional` picks it only then). The word is still there for
+/// a screen reader (the semantics label) and on a tap (the tooltip).
 class EditedMark extends StatelessWidget {
-  const EditedMark({super.key, required this.label});
+  const EditedMark({
+    super.key,
+    required this.label,
+    this.compact = false,
+    this.tapShowsLabel = true,
+  });
   final String label;
+  final bool compact;
+
+  /// Compact form: a tap shows [label]. False in selection mode, where a tap
+  /// must reach the row and toggle it (the semantics label still carries
+  /// [label]). Never a long press: that opens the row's menu.
+  final bool tapShowsLabel;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-    decoration: BoxDecoration(
-      color: FlowMicColors.surface2,
-      border: Border.all(color: FlowMicColors.line),
-      borderRadius: BorderRadius.circular(7),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Icon(Icons.edit_outlined, size: 10, color: FlowMicColors.t2),
-        const SizedBox(width: 3),
-        Text(
-          label,
-          style: TextStyle(
-            color: FlowMicColors.t2,
-            fontSize: 9.5,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
+  Widget build(BuildContext context) {
+    final Widget chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: FlowMicColors.surface2,
+        border: Border.all(color: FlowMicColors.line),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.edit_outlined, size: 10, color: FlowMicColors.t2),
+          if (!compact) ...<Widget>[
+            const SizedBox(width: 3),
+            Text(
+              label,
+              style: TextStyle(
+                color: FlowMicColors.t2,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+    if (!compact) return chip;
+    return Semantics(
+      label: label,
+      child: Tooltip(
+        message: label,
+        triggerMode: tapShowsLabel
+            ? TooltipTriggerMode.tap
+            : TooltipTriggerMode.manual,
+        excludeFromSemantics: true,
+        child: chip,
+      ),
+    );
+  }
+}
+
+/// CARD-UI: the inline Resend's compact form — the same action and the same
+/// words (its semantics label), drawn as one circular-arrow icon in the
+/// face's colour, for a card whose two meta lines cannot hold the word
+/// (`MetaOptional` picks it only then; the word form is preferred). No
+/// tooltip: a long-press tooltip would take the long press that opens the
+/// row's menu.
+class ResendIcon extends StatelessWidget {
+  const ResendIcon({
+    super.key,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: label,
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Icon(Icons.refresh, size: 15, color: color),
+      ),
     ),
   );
 }
 
-/// WP-R4-6 ⑦: transient polish-skipped corner mark. Amber (attention, not
-/// delivery failure) — orthogonal to the five-state status pill. Label comes
-/// from AppStrings (explicit locale), never OS locale.
+/// WP-R4-6 ⑦: transient polish-skipped corner mark — orthogonal to the
+/// five-state status pill (original spec: docs/archive/strategy/
+/// R4-PRIVATE-TASK-CARDS.md WP-R4-6 ⑦, "amber, attention, not delivery
+/// failure"). UI-1 (2026-10-13): amber only where the user can fix something
+/// ([needsAction], i.e. `PolishBadge.noModel` / `modelRejected`); every other
+/// kind is a missed optional polish on text that WAS delivered and renders as
+/// the same calm neutral chip as [EditedMark]. Label comes from AppStrings
+/// (explicit locale), never OS locale.
 class PolishSkippedMark extends StatelessWidget {
-  const PolishSkippedMark({super.key, required this.label});
+  const PolishSkippedMark({
+    super.key,
+    required this.label,
+    this.fullLabel,
+    this.needsAction = false,
+    this.tapShowsFull = true,
+  });
   final String label;
 
+  /// With [fullLabel]: a tap shows it. False in selection mode, where a tap
+  /// must reach the row and toggle it (the semantics label still carries it).
+  final bool tapShowsFull;
+
+  /// CARD-UI: set when [label] is the short wording; the full one is then the
+  /// screen-reader label and shows on a tap.
+  final String? fullLabel;
+
+  /// true ⇒ amber attention style; false ⇒ neutral style.
+  final bool needsAction;
+
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-    decoration: BoxDecoration(
-      color: FlowMicColors.amberSoft,
-      border: Border.all(color: const Color(0x4DFBBF24)),
-      borderRadius: BorderRadius.circular(7),
-    ),
-    child: Text(
-      label,
-      style: TextStyle(
-        color: FlowMicColors.amber,
-        fontSize: 9.5,
-        fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) {
+    final Widget chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: needsAction ? FlowMicColors.amberSoft : FlowMicColors.surface2,
+        border: Border.all(
+          color: needsAction ? const Color(0x4DFBBF24) : FlowMicColors.line,
+        ),
+        borderRadius: BorderRadius.circular(7),
       ),
-    ),
-  );
+      child: Text(
+        label,
+        style: TextStyle(
+          color: needsAction ? FlowMicColors.amber : FlowMicColors.t2,
+          fontSize: 9.5,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+    if (fullLabel case final String full?) {
+      return Semantics(
+        label: full,
+        excludeSemantics: true,
+        child: Tooltip(
+          message: full,
+          triggerMode: tapShowsFull
+              ? TooltipTriggerMode.tap
+              : TooltipTriggerMode.manual,
+          excludeFromSemantics: true,
+          child: chip,
+        ),
+      );
+    }
+    return chip;
+  }
 }

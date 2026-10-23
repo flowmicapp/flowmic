@@ -11,6 +11,9 @@
 //     (guards reconnect-replay storms re-emitting a locked segment).
 //   - Joiner is CJK-aware: '\n' after 。！？, '' after ，；、：or CJK↔CJK,
 //     ' ' when crossing into Latin words.
+//     Book 08 §3 correction (2026-10-14): the space follows the PC's typing
+//     rule (delivery_spacing.rs) — see `seamTakesSpace`; the one point where this
+//     file is no longer byte-identical to the legacy port below.
 //
 // Ported from legacy stt/segment_buffer.dart (behaviour byte-identical).
 
@@ -449,18 +452,82 @@ class SegmentBuffer {
   static String joinerBetween(String left, String right) =>
       _joinerBetween(left, right);
 
+  // ── Row-seam rule (book 08 §3 correction, 2026-10-14, card POL-3 review) ──
+  // The REFERENCE is what the PC types: apps/desktop/src-tauri/src/inject/
+  // delivery_spacing.rs `should_append_delivery_space`. This is its char-class
+  // core plus two display-only rules ('\n' after 。！？; no second space before
+  // a row that starts with whitespace). Four copies must agree (Rust, this, the PC
+  // capsule apps/desktop/src/capsule/utterance-view.ts, the relay
+  // apps/server-core/src/engine/stt-seam-join.ts); all four suites read
+  // verify/fixtures/seam-join-cases.json. Its INJECT_TEXT_MAX_CHARS guard is about
+  // one injected payload and is not taken. The two tables were generated from
+  // that file's `is_no_space_script` / `is_unspaced_script_or_cjk_form`.
+  static const List<List<int>> _noSpaceScript = <List<int>>[
+    <int>[0x2E80, 0x2FDF], <int>[0x3005, 0x3005], <int>[0x3007, 0x3007], <int>[0x3021, 0x3029],
+    <int>[0x3038, 0x303B], <int>[0x3400, 0x4DBF], <int>[0x4E00, 0x9FFF], <int>[0xF900, 0xFAFF],
+    <int>[0x20000, 0x323AF], <int>[0x3040, 0x309F], <int>[0x1B001, 0x1B11F], <int>[0x30A0, 0x30FF],
+    <int>[0x31F0, 0x31FF], <int>[0xFF66, 0xFF9F], <int>[0x1B000, 0x1B000], <int>[0x1B120, 0x1B16F],
+    <int>[0x3100, 0x312F], <int>[0x31A0, 0x31BF], <int>[0xA000, 0xA4CF], <int>[0x17000, 0x18AFF],
+    <int>[0x18D00, 0x18D8F], <int>[0xE00, 0xE7F], <int>[0xE80, 0xEFF], <int>[0x1780, 0x17FF],
+    <int>[0x19E0, 0x19FF], <int>[0x1000, 0x109F], <int>[0xA9E0, 0xA9FF], <int>[0xAA60, 0xAA7F],
+  ];
+
+  static const List<List<int>> _unspacedScriptOrCjkForm = <List<int>>[
+    <int>[0xE00, 0xEFF], <int>[0xF00, 0xFFF], <int>[0x1000, 0x109F], <int>[0x1780, 0x17FF],
+    <int>[0x1950, 0x19FF], <int>[0x1A20, 0x1AAF], <int>[0x2E80, 0x2EFF], <int>[0x2F00, 0x2FDF],
+    <int>[0x3000, 0x30FF], <int>[0x31C0, 0x31FF], <int>[0x32D0, 0x3357], <int>[0x3400, 0x4DBF],
+    <int>[0x4E00, 0x9FFF], <int>[0xA9E0, 0xA9FF], <int>[0xAA60, 0xAA7F], <int>[0xAA80, 0xAADF],
+    <int>[0xF900, 0xFAFF], <int>[0xFE10, 0xFE1F], <int>[0xFE30, 0xFE4F], <int>[0xFE50, 0xFE6F],
+    <int>[0xFF01, 0xFF9F], <int>[0xFFE0, 0xFFEE], <int>[0x116D0, 0x116E3], <int>[0x16FE2, 0x16FE3],
+    <int>[0x16FF0, 0x16FF6], <int>[0x1AFF0, 0x1AFFF], <int>[0x1B000, 0x1B16F],
+    <int>[0x1E6C0, 0x1E6FF], <int>[0x1F200, 0x1F200], <int>[0x20000, 0x2A6DF],
+    <int>[0x2A700, 0x2B81D], <int>[0x2B820, 0x2CEAD], <int>[0x2CEB0, 0x2EBE0],
+    <int>[0x2EBF0, 0x2EE5D], <int>[0x2F800, 0x2FA1D], <int>[0x30000, 0x3134A],
+    <int>[0x31350, 0x33479],
+  ];
+
+  static final RegExp _letterOrNumber = RegExp(r'^[\p{L}\p{N}]$', unicode: true);
+  static final RegExp _whiteSpace = RegExp(r'^\p{White_Space}$', unicode: true);
+
+  static bool _inRanges(int cp, List<List<int>> ranges) {
+    for (final List<int> r in ranges) {
+      if (cp >= r[0] && cp <= r[1]) return true;
+    }
+    return false;
+  }
+
+  /// The reference's answer for [left]: would the PC type a space after it?
+  ///
+  /// Scans backwards from the end (no copy of [left]): the live view calls this
+  /// on the growing joined text at every seam.
+  static bool seamTakesSpace(String left) {
+    if (left.isEmpty) return false;
+    final int last = left.runes.last;
+    if (_whiteSpace.hasMatch(String.fromCharCode(last))) return false;
+    int end = left.length;
+    while (end > 0) {
+      int cp = left.codeUnitAt(end - 1);
+      int start = end - 1;
+      if (cp >= 0xDC00 && cp <= 0xDFFF && end >= 2) {
+        final int hi = left.codeUnitAt(end - 2);
+        if (hi >= 0xD800 && hi <= 0xDBFF) {
+          cp = ((hi - 0xD800) << 10) + (cp - 0xDC00) + 0x10000;
+          start = end - 2;
+        }
+      }
+      if (_letterOrNumber.hasMatch(String.fromCharCode(cp))) {
+        return !_inRanges(cp, _noSpaceScript);
+      }
+      end = start;
+    }
+    return !_inRanges(last, _unspacedScriptOrCjkForm);
+  }
+
   static String _joinerBetween(String left, String right) {
     if (left.isEmpty || right.isEmpty) return '';
-    final String last = left[left.length - 1];
-    if ('。！？'.contains(last)) return '\n';
-    if ('，；、：'.contains(last)) return '';
-    final int codeUnit = last.codeUnitAt(0);
-    final bool lastIsAscii = codeUnit < 0x80;
-    if (lastIsAscii) {
-      final String firstR = right[0];
-      if (firstR == ' ' || firstR == '\n') return '';
-      return ' ';
-    }
-    return '';
+    final int last = left.runes.last;
+    if (last == 0x3002 || last == 0xFF01 || last == 0xFF1F) return '\n';
+    if (_whiteSpace.hasMatch(String.fromCharCode(right.runes.first))) return '';
+    return seamTakesSpace(left) ? ' ' : '';
   }
 }

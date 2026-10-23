@@ -45,7 +45,9 @@ import 'package:flowmic/src/session/delivery_outbox.dart';
 import 'package:flowmic/src/session/outbox_destination.dart';
 import 'package:flowmic/src/session/outbox_frame.dart';
 import 'package:flowmic/src/session/outbox_item.dart';
+import 'package:flowmic/src/session/outbox_store.dart';
 import 'support/di.dart';
+import 'support/gated_outbox_store.dart';
 
 Uint8List jpegOfLength(int length) {
   final Uint8List bytes = Uint8List(length);
@@ -85,11 +87,15 @@ class _Host implements ManualDeliveryHost, OutboxDrainHost {
   /// "whether this frame went out as live or as a re-delivery" on the HOST boundary, not only in the frame.
   InjectOrigin? lastOrigin;
 
+  /// NR-279 S4a — a rig may hand in its own store (to hold one write).
+  late final OutboxStore outboxStore;
+
   @override
   late final DeliveryOutbox outbox = DeliveryOutbox(
-    store: newTestOutboxStore(),
+    store: outboxStore,
     blobs: newTestOutboxBlobs(),
     host: this,
+    retryLinkUp: () => false,
   );
 
   /// Bound by [_Rig] right after construction — the queue needs the very gate
@@ -140,7 +146,9 @@ class _Host implements ManualDeliveryHost, OutboxDrainHost {
   @override
   void onOutboxChanged() {}
 
-  _Host({required this.store, required this.syncGate});
+  _Host({required this.store, required this.syncGate, OutboxStore? outboxStore}) {
+    this.outboxStore = outboxStore ?? newTestOutboxStore();
+  }
 
   @override
   final TimelineStore store;
@@ -178,11 +186,11 @@ class _Host implements ManualDeliveryHost, OutboxDrainHost {
 }
 
 class _Rig {
-  _Rig({ImageUploadPoster? poster}) {
+  _Rig({ImageUploadPoster? poster, OutboxStore? outboxStore}) {
     transport = FakeSocketTransport();
     store = newTestStore();
     gate = TimelineSyncGate(transport: transport);
-    host = _Host(store: store, syncGate: gate);
+    host = _Host(store: store, syncGate: gate, outboxStore: outboxStore);
     final ComposeGate compose = ComposeGate(transport: transport);
     delivery = ManualDelivery(host: host, gate: compose);
     // The queue drains through the SAME gate and the SAME link probe the direct
@@ -391,6 +399,46 @@ void main() {
       final ImageSendFailure? failure = await r.imageSend.pickAndSend();
       expect(failure, ImageSendFailure.pcOffline);
       expect(r.row.status, EntryStatus.failed);
+    });
+
+    // ── NR-279 — the 「will not type it in」 promise on this leg ─────────────
+    test('NR-279: INJECT_PC_OFFLINE stamps deferPromisedAt on the queue item (the HTTP leg too)', () async {
+      final GatedOutboxStore items = GatedOutboxStore();
+      final _Rig r = _Rig(
+        poster: fakePoster(200, <String, Object?>{'ok': false, 'error': 'INJECT_PC_OFFLINE'}),
+        outboxStore: items,
+      );
+      r.host.ingress = const LanImageIngress(endpoint: 'http://pc:41879', token: 'tok');
+      expect(await r.imageSend.pickAndSend(), ImageSendFailure.pcOffline);
+      final OutboxItem item = (await items.loadAll()).single;
+      expect(item.kind, OutboxPayloadKind.image);
+      expect(item.state, OutboxDeliveryState.queued);
+      expect(item.deferPromisedAt, isNotNull,
+          reason: 'the row note promises the PC will not paste it by itself; '
+              'the next automatic drain must go out deferred');
+      expect(r.row.failureReason, 'INJECT_PC_OFFLINE');
+    });
+
+    test('NR-279 S4a: on this leg too, the stamp lands BEFORE the row shows the promise', () async {
+      final GatedOutboxStore items = GatedOutboxStore()
+        ..holdWhere = (OutboxItem i) => i.deferPromisedAt != null;
+      final _Rig r = _Rig(
+        poster: fakePoster(200, <String, Object?>{'ok': false, 'error': 'INJECT_PC_OFFLINE'}),
+        outboxStore: items,
+      );
+      r.host.ingress = const LanImageIngress(endpoint: 'http://pc:41879', token: 'tok');
+      final Future<ImageSendFailure?> sending = r.imageSend.pickAndSend();
+      await items.firstHeld.timeout(const Duration(seconds: 5));
+      await pumpEventQueue();
+      // The 「killed here」 instant: no stamp on disk ⇒ no promise on the row.
+      expect((await items.loadAll()).single.deferPromisedAt, isNull,
+          reason: 'fixture: the stamp write is the one being held');
+      expect(r.row.failureReason, isNot('INJECT_PC_OFFLINE'),
+          reason: 'row-only is the A1 shape (doc 15 §2.5e-3, S4 append)');
+      items.release();
+      expect(await sending, ImageSendFailure.pcOffline);
+      expect(r.row.failureReason, 'INJECT_PC_OFFLINE');
+      expect((await items.loadAll()).single.deferPromisedAt, isNotNull);
     });
 
     test('INJECT_RESULT_TIMEOUT → noAnswer: relayed, unconfirmed, said exactly so', () async {

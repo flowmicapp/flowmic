@@ -173,6 +173,15 @@ extension PttSessionInbound on PttSession {
             emptyIsVerdict: !p.isSegment && p.emptyReason != null,
           );
           audio.noteSegmentObserved(p.segmentIdx); // N1-B3, see the interim arm
+          // D6-CATCHUP-DUP - where this live row ends, in capture bytes.
+          final String? liveArticle = articles.liveArticleId;
+          if (p.isSegment &&
+              !recoveryOwnsSession &&
+              continuous.isActive &&
+              liveArticle != null) {
+            engineOutage.noteSegmentFinal(
+                articleId: liveArticle, segmentIdx: p.segmentIdx);
+          }
           // Only the TERMINAL final (is_segment=false) closes the utterance and
           // drives PROCESSING → JUST_DONE; soft-segment finals keep recording.
           if (!recoveryOwnsSession) timings.active?.finalReceived(p);

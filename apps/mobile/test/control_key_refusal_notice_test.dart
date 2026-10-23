@@ -181,6 +181,81 @@ void main() {
       _releaseTimers(r);
     });
   }
+  // NR-267-B: an elevated window in front blocks a KEY. The text-path note for
+  // this code says the text is on the computer's timeline; a key leaves no row
+  // there, so the key must get its own sentence and never that one.
+  testWidgets(
+    'INJECT_TARGET_ELEVATED on a key names the key and never claims a timeline row',
+    (WidgetTester tester) async {
+      final _Rig r = _rig();
+      await tester.pumpWidget(
+        MaterialApp(home: ChatFlowPage(controller: r.controller)),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(r.controller.sendControlKey(ControlKeyKind.enter), isTrue);
+      await tester.pump();
+      final Map<dynamic, dynamic> press =
+          r.transport.emittedWhere(FlowMicEvents.controlKey).last.data
+              as Map<dynamic, dynamic>;
+      final String requestId = press['request_id'] as String;
+
+      final String expected = _zh.controlKeyRefusedElevated(
+        controlKeyLabel(_zh, 'enter'),
+      );
+      final String? textNote = _zh.injectVerdictNote('INJECT_TARGET_ELEVATED');
+      // Positive controls: the text-path note exists (so 「findsNothing」 below
+      // is about this branch, not a missing string), and nothing is up yet.
+      expect(textNote, isNotNull);
+      expect(_bannerCopy(expected), findsNothing);
+
+      r.receipt(
+        'enter',
+        ok: false,
+        reason: 'failed',
+        errorCode: 'INJECT_TARGET_ELEVATED',
+        requestId: requestId,
+      );
+      await _deliverAndPaint(tester);
+
+      expect(_bannerCopy(expected), findsOneWidget);
+      expect(expected, contains(controlKeyLabel(_zh, 'enter')));
+      expect(find.text(textNote!), findsNothing);
+      // Not a success: the refusal is held, the row was not promoted to
+      // injected, and no success word is on screen.
+      expect(r.controller.controlKeyRefusal?.errorCode, 'INJECT_TARGET_ELEVATED');
+      expect(
+        r.store.findByClientId(requestId)?.status,
+        isNot(EntryStatus.injected),
+      );
+      expect(find.text(_zh.statusInjected), findsNothing);
+      _releaseTimers(r);
+    },
+  );
+
+  test('INJECT_TARGET_ELEVATED key sentence in nine languages', () {
+    for (final AppLocale locale in AppLocale.values) {
+      final AppStrings s = AppStrings.of(locale);
+      final String key = controlKeyLabel(s, 'backspace');
+      final String sentence = controlKeyRefusalText(
+        s,
+        const ControlKeyRefusal(
+          ticket: 1,
+          kind: 'backspace',
+          reason: 'failed',
+          errorCode: 'INJECT_TARGET_ELEVATED',
+        ),
+      );
+      expect(sentence, s.controlKeyRefusedElevated(key), reason: '$locale');
+      expect(sentence, contains(key), reason: '$locale');
+      final String? textNote = s.injectVerdictNote('INJECT_TARGET_ELEVATED');
+      expect(textNote, isNotNull, reason: '$locale');
+      expect(sentence, isNot(textNote), reason: '$locale');
+      expect(sentence, isNot(s.controlKeyRefusedFailed(key)), reason: '$locale');
+    }
+  });
+
   setUp(DiagLog.instance.clear);
 
   // ── ① the seam: a refusal reaches the REAL page ───────────────────────────

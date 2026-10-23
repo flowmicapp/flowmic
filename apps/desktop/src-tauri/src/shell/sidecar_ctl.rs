@@ -42,7 +42,7 @@ use crate::forensic;
 use crate::sidecar::io::{self, BringUpOptions};
 use crate::sidecar::state::FailReason;
 use crate::sidecar::{self, Phase};
-use crate::socket::channel::{self as chan, Channel, CloudReadiness};
+use crate::socket::channel::{self as chan, Channel};
 use crate::socket::bridge;
 use crate::socket::node_select;
 
@@ -55,6 +55,7 @@ use super::cloud;
 /// `shell::setup_tray`. Not a convenience alias: delete it and `shell/cloud.rs`
 /// stops compiling.
 pub use super::channel_session::drop_socket;
+pub(super) use super::channel_session::is_registered_on;
 
 /// Managed sidecar control state (one per desktop process).
 pub struct SidecarState {
@@ -437,8 +438,10 @@ fn start_cloud(app: &AppHandle) {
 /// connection the user did not ask for.
 fn connect_cloud(app: &AppHandle) {
     let cfg = cloud::snapshot(app);
+    // Card E-D: `KeyExpired` dials too — the local clock no longer decides
+    // (`CloudReadiness::is_dialable`, socket/channel_dial.rs).
     match cfg.readiness(chan::now_secs()) {
-        CloudReadiness::Ready => {
+        verdict if verdict.is_dialable() => {
             let head = cfg.key_head().unwrap_or_default();
             // 2026-08-29 multi-node — WHICH DOOR of this endpoint to use. This
             // never rewrites `cfg.endpoint`: that field answers「which service

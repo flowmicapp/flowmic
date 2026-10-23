@@ -25,9 +25,11 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 const keys: Record<string, string[]> = {
-  'stt.polish.timing': 'tcorr outcome elapsed_ms ttfb_ms budget_ms chars_in chars_out strength lang llm_source model finish_reason'.split(' '),
-  'stt.polish.guard': 'tcorr verdict family first_category d_numeral d_digit d_modal d_negation d_quantifier distance edit_bound length_ratio open_class_delta open_class_k strength lang v2_verdict v2_family v2_explained'.split(' '),
-  'latency.segment': 'entry_id tcorr mode send_policy delivery continuous audio_ms uplink_lag_ms backlog_ms inj_source inj_origin stt_ms phone_turnaround_ms inject_ms server_total_ms dropped_so_far stt_to_flush_ms stt_from_flush_ms'.split(' '),
+  'stt.polish.timing': 'tcorr is_segment outcome elapsed_ms ttfb_ms budget_ms chars_in chars_out strength lang llm_source model finish_reason applied_strength first_reject attempts first_elapsed_ms first_ttfb_ms first_chars_out first_finish_reason phase span_idx ctx_chars stage'.split(' '), // INC-1e: phase is an enum, the other two counts
+  // INC-1c/1f: the polish wait split and the speculation counters (numbers + one enum).
+  'stt.polish.final': 'tcorr is_segment path wait_ms engine_final_ms chars spec_hit_chars release_chars spec_calls spec_unused_calls spec_rejected_calls stage ctx_chars ctx_pending hold_cap_hit'.split(' '), // POL-1: one enum, one count, two booleans
+  'stt.polish.guard': 'tcorr verdict family first_category d_numeral d_digit d_modal d_negation d_quantifier distance edit_bound length_ratio open_class_delta open_class_k strength lang v2_verdict v2_family v2_explained self_correction'.split(' '),
+  'latency.segment': 'entry_id tcorr mode send_policy delivery continuous audio_ms uplink_lag_ms backlog_ms inj_source inj_origin stt_ms phone_turnaround_ms inject_ms server_total_ms dropped_so_far stt_to_flush_ms stt_from_flush_ms engine_final_ms polish_wait_ms polish_path polish_chars spec_hit_chars release_chars spec_calls spec_unused_calls spec_rejected_calls'.split(' '),
   'compose.timing': 'task outcome error_code elapsed_ms ttfb_ms chars_in chars_out llm_source model finish_reason'.split(' '),
 };
 const enums: Record<string, string[]> = {
@@ -38,6 +40,12 @@ const enums: Record<string, string[]> = {
   send_policy: ['direct', 'manual'], delivery: ['inject', 'none'], inj_source: ['stt', 'llm', 'manual', 'history', 'image'], inj_origin: ['live', 'deferred'],
   error_code: ['COMPOSE_OUTPUT_REJECTED', 'LLM_TIMEOUT'],
   finish_reason: ['stop', 'length', 'content_filter', 'none', 'other'],
+  // QP-1: the delivered strength and the smooth attempt's reject FAMILY (never the raw reason).
+  applied_strength: ['strict', 'smooth'],
+  phase: ['whole', 'spec', 'release'], path: ['whole', 'spec'], polish_path: ['whole', 'spec'], // INC-1c/1e/1f
+  first_finish_reason: ['stop', 'length', 'content_filter', 'none', 'other'],
+  stage: ['segment', 'tail', 'whole'], // POL-1
+  first_reject: ['closed_class', 'dict', 'edit', 'length', 'han', 'open_class', 'none', 'empty_output'],
 };
 function assertPrivate(msg: string, fields: Record<string, unknown>): void {
   expect(Object.keys(fields).filter(k => !keys[msg]!.includes(k))).toEqual([]);

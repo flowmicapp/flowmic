@@ -45,8 +45,15 @@
 
     #[test]
     fn http_get_against_a_dead_port_errors_not_panics() {
-        // Nothing listens on this high port → connect error, no panic.
-        let r = http_get("127.0.0.1", 1, "/api/health", Duration::from_millis(200));
+        // A port that was just released: bind an ephemeral port, read it, drop the
+        // listener. A fixed port is not dead on every machine (port 1 was measured
+        // listening, owned by the IDE, on 2026-10-11), and a live port made this
+        // test fail while the code under test was fine.
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+            l.local_addr().expect("local addr").port()
+        };
+        let r = http_get("127.0.0.1", port, "/api/health", Duration::from_millis(200));
         assert!(r.is_err());
     }
 

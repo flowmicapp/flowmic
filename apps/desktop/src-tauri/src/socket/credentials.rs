@@ -233,8 +233,25 @@ pub(super) fn write_user_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> 
         std::fs::rename(&tmp_path, path)
     }
 
+    // Card E-D (2026-10-10): the same temp-file + rename on Windows. This used
+    // to be `std::fs::write(path, bytes)`, which truncates the REAL file first:
+    // a crash mid-write left a torn DPAPI blob, `CloudConfig::load` /
+    // `Credentials::load` then fell back to their defaults, and the Cloud Key,
+    // its endpoint or the pairing vanished with no line saying why.
+    // `std::fs::rename` on Windows is `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`,
+    // so the real path flips from the old complete file to the new complete
+    // one. `sync_all` (FlushFileBuffers) runs BEFORE the rename so a power loss
+    // cannot persist the rename ahead of the bytes it points at.
     #[cfg(not(unix))]
-    std::fs::write(path, bytes)
+    {
+        use std::io::Write;
+        let tmp_path = atomic_write_tmp_path(path);
+        let mut f = std::fs::File::create(&tmp_path)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp_path, path)
+    }
 }
 
 /// Sibling temp-file path used by the atomic write in [`write_user_only`]:
@@ -244,18 +261,14 @@ pub(super) fn write_user_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> 
 /// no-dev-trees-on-system-drive lesson elsewhere in this repo, a different
 /// volume is exactly the kind of thing that quietly breaks an assumption).
 ///
-/// Pure and platform-neutral on purpose: the unix branch of `write_user_only`
-/// is the only caller, but the path arithmetic itself has nothing unix-
-/// specific in it, so it is unit-tested here on Windows. That proves the
+/// Pure and platform-neutral on purpose: the path arithmetic has nothing
+/// unix-specific in it, so it is unit-tested here on Windows. That proves the
 /// naming is right; it proves nothing about `OpenOptions::mode` or `rename`'s
 /// atomicity guarantee on a real unix filesystem — only
 /// `scripts/mac-verify.sh` on flowmic-mac can prove that half.
 ///
-/// ⚠️ On a Windows build the only production call site (`write_user_only`'s
-/// `#[cfg(unix)]` branch) does not exist, so this is real dead code outside
-/// `#[cfg(test)]` there. `allow(dead_code)` is scoped to `cfg(windows)` only —
-/// on macOS/Linux the compiler must keep proving it is actually called.
-#[cfg_attr(windows, allow(dead_code))]
+/// Both branches of `write_user_only` call it since card E-D (2026-10-10), so
+/// the `allow(dead_code)` that used to sit here for Windows builds is gone.
 fn atomic_write_tmp_path(path: &Path) -> PathBuf {
     let tmp_name = match path.file_name() {
         Some(name) => {
@@ -582,6 +595,48 @@ mod tests {
         // collide with a real credential file.
         let tmp = atomic_write_tmp_path(Path::new(""));
         assert_eq!(tmp, Path::new("credentials.tmp"));
+    }
+
+    /// Card E-D reverse control, platform-neutral: a write that fails before
+    /// the new bytes are complete must leave the OLD file intact at the real
+    /// path. The failure is forced by occupying the temp sibling with a
+    /// directory, so the temp file cannot be created. The pre-E-D Windows
+    /// branch (`std::fs::write(path, bytes)`) never touches the temp path: it
+    /// overwrote the real file and returned Ok, which this test sees as red.
+    #[test]
+    fn a_write_that_fails_midway_leaves_the_old_credential_intact() {
+        let dir = std::env::temp_dir().join(format!("flowmic-atomic-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("credentials-cloud.bin");
+        let mut c = Credentials::fresh("Atomic PC");
+        c.accept_registration("fm_tok_good", None, None);
+        c.save(&path).expect("first save");
+
+        std::fs::create_dir_all(atomic_write_tmp_path(&path)).expect("occupy the temp sibling");
+        c.accept_registration("fm_tok_never_landed", None, None);
+        assert!(c.save(&path).is_err(), "the write must fail, not land in place");
+
+        assert_eq!(
+            Credentials::load(&path).and_then(|c| c.token),
+            Some("fm_tok_good".to_string()),
+            "the real path must still hold the last complete credential"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Card E-D: a successful save leaves no temp sibling behind and a second
+    /// save replaces the first (exercises the Windows branch on Windows).
+    #[test]
+    fn saves_replace_atomically_and_leave_no_temp_file() {
+        let dir = std::env::temp_dir().join(format!("flowmic-atomic2-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("credentials.bin");
+        let mut c = Credentials::fresh("Atomic PC");
+        c.accept_registration("fm_tok_one", None, None);
+        c.save(&path).expect("first save");
+        c.accept_registration("fm_tok_two", None, None);
+        c.save(&path).expect("second save over an existing file");
+        assert!(!atomic_write_tmp_path(&path).exists(), "no temp sibling after success");
+        assert_eq!(Credentials::load(&path).and_then(|c| c.token), Some("fm_tok_two".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// AUD-D3 P3 reverse control: `save()` must replace the file via a fresh

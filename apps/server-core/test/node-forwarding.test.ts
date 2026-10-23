@@ -18,7 +18,11 @@ import { makeForwardLedger } from '../src/node/forward-ledger';
 import { makeForwardReceiver } from '../src/node/forward-receiver';
 import { makeForwardingUsageTracker } from '../src/node/forwarding-usage-tracker';
 import { ReplicaOutbox } from '../src/db/replica-outbox';
-import { parseForwardedWrite, applyForwardedWrite, type ForwardTargets } from '../src/node/forwarded-write';
+import { parseForwardedWrite, applyForwardedWrite, makeForwardedPresenceApplier, type ForwardTargets } from '../src/node/forwarded-write';
+import { createDbConnection } from '../src/db/connection';
+import { deriveKey } from '../src/auth/crypto';
+import { makeUsageTracker } from '../src/billing/usage-tracker';
+import { claimInCallerTransaction } from '../src/db/repos/usage-effects.repo';
 import type { UsageTracker } from '../src/billing/usage-tracker';
 import { makeAuthoritativeQuotaReader } from '../src/node/authoritative-quota';
 import { wireNodeRuntime } from '../src/node/node-runtime';
@@ -481,5 +485,87 @@ describe('home_node is recorded on WHICHEVER node admits the PC', () => {
     // Not a no-op function: null. With one node there is nothing to record, and
     // writing a node id there would assert something nothing observed.
     expect(runtime({}).rt.stampHomeNode).toBeNull();
+  });
+});
+
+// ── REPL-TIER 1a: presence skips the ledger, billing does not ───────────────
+// docs/strategy/2026-10-11-replication-tiering-design.md §5-4 (R1–R5). Real
+// database, real ledger, real pc repo, the production presence applier.
+
+describe('REPL-TIER 1a — presence bypasses the exactly-once ledger, monotonically', () => {
+  const KEY = deriveKey('repl-tier-1a-presence-ledger-32b!');
+  const MONTH = '2026-10';
+  const t = (s: number): number => Date.UTC(2026, 9, 11, 10, 0, s);
+
+  function writer() {
+    const db = createDbConnection({ dbPath: ':memory:', encryptionKey: KEY });
+    db.users.insert({ id: 'u1', display_name: 'U', plan: 'pro' });
+    db.pcs.insert({
+      id: 'pc-1', user_id: 'u1', device_name: 'PC', device_token: 'tok-1', room_uuid: 'room-1', short_code: '1234',
+    });
+    const recv = makeForwardReceiver({
+      ledger: makeForwardLedger(db.raw),
+      targets: {
+        usage: makeUsageTracker(db.usage, {
+          mode: 'saas', now: () => t(0), periodKeyFor: () => MONTH, operations: claimInCallerTransaction(db.usageEffects),
+        }),
+        setHomeNode: (pc, n) => db.pcs.setHomeNode(pc, n),
+        setPresence: makeForwardedPresenceApplier(db.pcs),
+        setPcIdentity: () => {},
+      },
+    });
+    const ledgerRows = (): number =>
+      (db.raw.prepare('SELECT COUNT(*) AS n FROM node_forward_seen').get() as { n: number }).n;
+    const row = () => db.pcs.findById('pc-1')!;
+    const sttMs = (): number => Math.round((db.usage.get('u1', MONTH)?.stt_minutes ?? 0) * 60_000);
+    return { db, recv, ledgerRows, row, sttMs };
+  }
+  const presence = (id: string, online: boolean, at: number) => ({
+    id, kind: 'presence', at, node: 'srvjp',
+    body: { kind: 'pc.presence', pc_id: 'pc-1', is_online: online, last_seen_at: at },
+  });
+  const stt = (id: string, envelopeKind = 'usage') => ({
+    id, kind: envelopeKind, at: t(0), node: 'srvjp',
+    body: { kind: 'usage.stt', user_id: 'u1', engine: { is_byok: false }, duration_ms: 60_000, chars: { transcript: 1, delivered: 1 } },
+  });
+
+  it('R1 🔴 N forwarded heartbeats add no ledger rows and move last_seen_at forward', () => {
+    const w = writer();
+    const before = w.ledgerRows();
+    const out = w.recv([presence('h1', true, t(5)), presence('h2', true, t(10)), presence('h3', true, t(15))], 'srvjp');
+    expect(out).toEqual({ h1: 'accepted', h2: 'accepted', h3: 'accepted' });
+    expect(w.ledgerRows(), 'presence must not enter node_forward_seen').toBe(before);
+    expect(w.row().last_seen_at).toBe(new Date(t(15)).toISOString());
+    expect(w.row().is_online).toBe(1);
+  });
+
+  it('R2 🔴 the same usage.stt id twice is a duplicate and bills once', () => {
+    const w = writer();
+    expect(w.recv([stt('s1')], 'srvjp')).toEqual({ s1: 'accepted' });
+    expect(w.recv([stt('s1')], 'srvjp')).toEqual({ s1: 'duplicate' });
+    expect(w.sttMs()).toBe(60_000);
+    expect(w.ledgerRows()).toBe(1);
+  });
+
+  it('R3 🔴 a usage.stt body under a "presence" envelope still goes through the ledger', () => {
+    const w = writer();
+    w.recv([stt('s2', 'presence')], 'srvjp');
+    expect(w.recv([stt('s2', 'presence')], 'srvjp')).toEqual({ s2: 'duplicate' });
+    expect(w.sttMs()).toBe(60_000);
+  });
+
+  it('R4 🔴 an older heartbeat arriving late does not move last_seen_at backwards', () => {
+    const w = writer();
+    w.recv([presence('late-new', true, t(20))], 'srvjp');
+    w.recv([presence('late-old', true, t(10))], 'srvjp');
+    expect(w.row().last_seen_at).toBe(new Date(t(20)).toISOString());
+  });
+
+  it('R5 🔴 a re-delivered (online, t1) after (offline, t2) leaves the PC offline', () => {
+    const w = writer();
+    w.recv([presence('p1', true, t(10)), presence('p2', false, t(20))], 'srvjp');
+    expect(w.recv([presence('p1', true, t(10))], 'srvjp')).toEqual({ p1: 'accepted' });
+    expect(w.row().is_online).toBe(0);
+    expect(w.row().last_seen_at).toBe(new Date(t(20)).toISOString());
   });
 });

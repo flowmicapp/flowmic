@@ -209,6 +209,7 @@ class _SettingsRig {
 
   Widget widget() => MaterialApp(
         home: SettingsPage(
+          notesAction: SettingsNotesAction.enter,
           scenario: scenario,
           appSettings: appSettings,
           login: login,

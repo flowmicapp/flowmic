@@ -223,14 +223,15 @@ class PttSession {
       audio: this.audio,
       reconnect: this.reconnect,
       tokenStorage: tokenStorage,
-      onDrained: () {
+      onDrained: (String? refusedJwt) {
         _authValid = false;
         paired.value = false;
         connectedDeviceName.value = '';
         // Cloud (JWT) socket only: the pairing-token socket is watchdog-exempt,
         // so an auth:expired here means the SaaS bearer hit exp — clear the
-        // stored JWT + drive back to login (fail-loud, never a silent retry).
-        onAuthExpired?.call();
+        // stored JWT + drive back to login (fail-loud, never a silent retry),
+        // naming the refused bearer (card E-M, auth_expired_handler.dart).
+        onAuthExpired?.call(refusedJwt);
       },
     );
     _statusSub = this.transport.status.listen((SocketStatus s) {
@@ -295,7 +296,7 @@ class PttSession {
   /// Fired when auth:expired drains the session (SaaS JWT socket only). The
   /// composition root routes it to LoginController.handleAuthExpired so the
   /// stored JWT is cleared and the user is driven back to login.
-  final void Function()? onAuthExpired;
+  final void Function(String? refusedJwt)? onAuthExpired;
   late final ReconnectCoordinator reconnect;
   late final AuthExpiredHandler _authHandler;
 

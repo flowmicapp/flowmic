@@ -44,6 +44,11 @@ class ContinuousSheetKeys {
   static const ValueKey<String> noCancel = ValueKey<String>(
     'continuous.sheet.noCancel',
   );
+
+  /// NR-213 — leaving the app pauses the recording (owner 2026-10-10 ruling 2).
+  static const ValueKey<String> leavePauses = ValueKey<String>(
+    'continuous.sheet.leavePauses',
+  );
   static const ValueKey<String> start = ValueKey<String>(
     'continuous.sheet.start',
   );
@@ -185,6 +190,15 @@ class _Sheet extends StatelessWidget {
                 icon: Icons.error_outline,
                 text: strings.continuousSheetNoCancel,
                 accent: FlowMicDockColors.rec,
+              ),
+              const SizedBox(height: 8),
+              // NR-213 (D1) — said BEFORE the first byte: there is no
+              // background recording, and the user should not find that out
+              // from a gap in their meeting notes.
+              _Line(
+                key: ContinuousSheetKeys.leavePauses,
+                icon: Icons.pause_circle_outline,
+                text: strings.continuousSheetLeavePauses,
               ),
               const SizedBox(height: 16),
               Row(

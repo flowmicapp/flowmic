@@ -25,6 +25,8 @@ import 'retained_audio_owed_ranges.dart';
 
 export 'retained_audio_owed_ranges.dart';
 
+part 'retained_audio_manifest_hole_ledger.dart'; // D-14 split, NR-214
+
 /// PCM layout of one recording. Carried per manifest rather than assumed
 /// globally: §A3-2a — offsets from two recordings with different formats are
 /// not interchangeable, so the format travels with the offsets it indexes.
@@ -544,6 +546,16 @@ class RecordingManifest {
   /// RC-3b behaviour, unchanged. Additive; [formatVersion] does not move.
   final List<OwedRange> owedRanges;
 
+  /// NR-214 — how far into the capture the LIVE rows of a long recording are
+  /// known to reach, written after each segment final's row read back from
+  /// disk (`RetainedAudioOwedAfterStop.noteLiveCovered`). A lower bound: a
+  /// few words may come back twice, none are skipped. Read only when
+  /// [owedRanges] is empty, i.e. when the recording ended without its stop
+  /// measuring a tail (the app was killed): the recovery then owes from here,
+  /// not from byte 0 (retained_audio_journal_scan.dart `_Owed.of`). Additive
+  /// and optional; absent ⇒ the whole recording, as before.
+  final int? liveCoveredBytes;
+
   const RecordingManifest({
     required this.recordingId,
     this.format = AudioJournalFormat.current,
@@ -561,6 +573,7 @@ class RecordingManifest {
     this.claimAheadOfObservedAt,
     this.liveSettlePendingAtMs,
     this.owedRanges = const <OwedRange>[],
+    this.liveCoveredBytes,
   });
 
   RecordingManifest copyWith({
@@ -579,6 +592,7 @@ class RecordingManifest {
     int? liveSettlePendingAtMs,
     bool clearLiveSettlePending = false,
     List<OwedRange>? owedRanges,
+    int? liveCoveredBytes,
   }) =>
       RecordingManifest(
         recordingId: recordingId,
@@ -608,6 +622,7 @@ class RecordingManifest {
             ? null
             : (liveSettlePendingAtMs ?? this.liveSettlePendingAtMs),
         owedRanges: owedRanges ?? this.owedRanges,
+        liveCoveredBytes: liveCoveredBytes ?? this.liveCoveredBytes,
       );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -635,6 +650,7 @@ class RecordingManifest {
         // older app (which then re-feeds more: duplicated words, never lost).
         if (owedRanges.isNotEmpty)
           'owedRanges': owedRanges.map((OwedRange r) => r.toJson()).toList(),
+        if (liveCoveredBytes != null) 'liveCoveredBytes': liveCoveredBytes,
       };
 
   String encode() => jsonEncode(toJson());
@@ -697,6 +713,7 @@ class RecordingManifest {
       liveSettlePendingAtMs: _int(raw['liveSettlePendingAtMs']),
       // RC-3 / RC-3b / RC-K — see [_owedRangesOf] for the migration.
       owedRanges: _owedRangesOf(raw),
+      liveCoveredBytes: _int(raw['liveCoveredBytes']),
     );
   }
 }
@@ -738,62 +755,3 @@ int? _int(Object? v) => v is int ? v : (v is num ? v.toInt() : null);
 List<Map<String, Object?>> _list(Object? v) => v is List
     ? v.whereType<Map<String, Object?>>().toList()
     : const <Map<String, Object?>>[];
-
-/// The running record of what did not land, in STREAM coordinates.
-///
-/// 🔴 A HOLE'S `start` IS A POSITION IN THE CAPTURED STREAM, NOT A FILE OFFSET.
-/// The two agree only until the first loss. Drill D-5b (2026-09-06, device
-/// HA2F8D3H) recorded 132 holes at 2 distinct starts: nothing had landed
-/// between the failures, so every catch re-used the same file length and all
-/// 132 ranges overlapped. `sum(length)` was right (835,584 B) but the UNION of
-/// the ranges was 6,400 B — a reader who merges instead of adding under-reports
-/// the loss by ~130x. This ledger advances the cursor past every missing byte,
-/// so union == sum by construction.
-class JournalHoleLedger {
-  final List<JournalHole> _holes = <JournalHole>[];
-  int _missing = 0;
-
-  List<JournalHole> get holes => List<JournalHole>.unmodifiable(_holes);
-
-  /// Total bytes recorded as missing. Equals the sum of [holes] lengths.
-  int get missingBytes => _missing;
-
-  /// Stream position of the next byte, given the file currently holds
-  /// [observedBytes].
-  int cursor(int observedBytes) => observedBytes + _missing;
-
-  /// Reload from a manifest being resumed, so the cursor continues past what a
-  /// previous run already lost.
-  void restore(List<JournalHole> prior) {
-    _holes.addAll(prior);
-    for (final JournalHole h in prior) {
-      _missing += h.length;
-    }
-  }
-
-  /// Record [length] bytes missing at stream position [start].
-  ///
-  /// Adjacent holes with the same reason coalesce: a disk that stays full emits
-  /// one failure per captured chunk, and 132 rows describing one continuous gap
-  /// are 132 chances for a reader to mis-add them.
-  void record({
-    required int start,
-    required int length,
-    required String reason,
-  }) {
-    if (length <= 0) return;
-    _missing += length;
-    if (_holes.isNotEmpty) {
-      final JournalHole last = _holes.last;
-      if (last.reason == reason && last.start + last.length == start) {
-        _holes[_holes.length - 1] = JournalHole(
-          start: last.start,
-          length: last.length + length,
-          reason: reason,
-        );
-        return;
-      }
-    }
-    _holes.add(JournalHole(start: start, length: length, reason: reason));
-  }
-}

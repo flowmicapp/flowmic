@@ -20,6 +20,9 @@ articleRecoveryPresentation(
   ArticleCompletion? completion,
   bool recovering = false,
   PendingRecoveryItem? item,
+  // NR-214 — [BackfillRunner.waitReason]; [BackfillWait.due] keeps the
+  // original sentence.
+  BackfillWait wait = BackfillWait.due,
 }) {
   item ??= owed.recoveryItem;
   completion ??= recovering
@@ -33,7 +36,11 @@ articleRecoveryPresentation(
   final String? sentence = switch (completion) {
     ArticleCompletion.finishing ||
     ArticleCompletion.recovering => strings.articleFinishingStatus,
-    ArticleCompletion.recoveryPending => strings.articleTailOwedWaiting,
+    ArticleCompletion.recoveryPending => switch (wait) {
+      BackfillWait.due => strings.articleTailOwedWaiting,
+      BackfillWait.recording => strings.articleTailOwedPausedForRecording,
+      BackfillWait.offline => strings.articleTailOwedOffline,
+    },
     ArticleCompletion.recoveryManual =>
       state == null
           ? null

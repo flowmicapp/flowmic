@@ -40,7 +40,19 @@ extension ChatControllerWiring on ChatController {
     utteranceCompose = UtteranceComposeController(host: this, gate: composeGate);
     delivery = ManualDelivery(host: this, gate: composeGate);
     // Built here for the same reason `delivery` is: it needs `host: this`.
-    outbox = DeliveryOutbox(store: outboxStore, blobs: outboxBlobs, host: this, onPersisted: session.timings.persisted);
+    outbox = DeliveryOutbox(
+      store: outboxStore,
+      blobs: outboxBlobs,
+      host: this,
+      onPersisted: session.timings.persisted,
+      // NR-286 (doc 15 §2.6-a rule 3) — a no-answer retry drains only while the
+      // socket is connected AND the computer is not known to be away. Either
+      // half false ⇒ the `DeliveryLinkUp` edge (room join / PC back in room)
+      // owns the next drain, so this never kicks the reconnect ladder.
+      retryLinkUp: () =>
+          _conn == ConnectionState.connected &&
+          session.pcPresence.value != PcPresence.offline,
+    );
     rowImages = outboxBlobs;
     imageSend = ImageSendController(
       host: this,
@@ -136,6 +148,10 @@ extension ChatControllerWiring on ChatController {
     // (chat_link_watch.dart `_stopHeldLadderRouted`). One producer for that
     // edge, two consumers: this and the PC-release exit's re-pull.
     session.captureStopped.addListener(_onCaptureStopped);
+    // NR-213 — the return edge of a long recording (continuous_away.dart),
+    // and the gap store's own load landing.
+    session.continuous.away.lastReturn.addListener(_onContinuousAwayReturn);
+    awayGaps.addListener(notifyUi);
     // Card RC-3 — the owed tail's two conditions: its journal closed (this
     // one) and the session at rest (chat_outbox_host.dart `onFsmChangeRouted`).
     // Plus the engine-down fact the offline sentences are rebuilt from.

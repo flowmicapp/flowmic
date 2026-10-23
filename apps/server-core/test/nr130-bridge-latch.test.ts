@@ -1,4 +1,4 @@
-// NR-130 — the REAL polish bridge (engine/stt-session.ts `runPolishedFinal`) is
+// NR-130 — the REAL polish bridge (engine/stt-session-polish.ts `runPolishedFinal`) is
 // the one production writer of stt/llm-reject-latch.ts, the fact behind the
 // desktop's `capability.llm.rejected`. This drives the bridge end to end with a
 // fake engine and a fake streamer and asserts on the latch, so "the bridge
@@ -7,7 +7,7 @@
 // engine double below is the same shape as the one there.)
 //
 // REVERSE CONTROL (2026-09-29): the `observePolishSignal(...)` line in
-// stt-session.ts commented out ⇒ this case red ("expected false to be true"),
+// stt-session.ts (now stt-session-polish.ts, card INC-1b) commented out ⇒ this case red ("expected false to be true"),
 // restored ⇒ green. Command: `npx vitest run test/nr130-bridge-latch.test.ts`.
 
 import { EventEmitter } from 'node:events';

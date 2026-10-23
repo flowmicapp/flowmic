@@ -221,8 +221,12 @@ class SettingsBackup implements SettingsBackupPort {
       // settings screen since upgrading may still hold a pre-id store, and an
       // export must never carry the mixed-language duplicates forward into the
       // next phone. It is a no-op on a card that is already ids.
+      //
+      // `normalizedToLimits` likewise (FM-001): an export must never write a
+      // card that this app's own restore refuses.
       if (!card.isEmpty)
-        FlowMicSettingsKeys.scenarioCard: card.migratedToIds().toJson(),
+        FlowMicSettingsKeys.scenarioCard:
+            card.migratedToIds().normalizedToLimits().toJson(),
       if (rows.polish != null) FlowMicSettingsKeys.sttPolish: rows.polish!.toJson(),
       if (rows.refine != null) FlowMicSettingsKeys.sttRefine: rows.refine!.toJson(),
       if (rows.inference != null)
@@ -348,6 +352,17 @@ class SettingsBackup implements SettingsBackupPort {
       return const SettingsRestoreOutcome.refused(SettingsRestoreRefusal.newerFormat);
     }
 
+    // 🔴 FM-001: an over-limit scenario card refuses the WHOLE file, before a
+    // single key is written. The card rides every `audio:start` /
+    // `compose:start` and the server refuses a bundle outside the schema caps,
+    // so restoring it would turn 「Settings restored」 into 「every recording
+    // refused」. Refused, not trimmed: the user still holds the file, and
+    // keeping the first hundred of their terms is a choice they did not make
+    // (the device-local load normalizes instead — scenario_card.dart header).
+    if (!_scenarioCardRestorable(decoded['prefs'])) {
+      return const SettingsRestoreOutcome.refused(SettingsRestoreRefusal.notASettingsFile);
+    }
+
     int written = 0;
     // MCP is a known sensitive key now. Never retain a rejected raw document in
     // the unknown-key vault where endpoint/credential fields could re-export.
@@ -403,6 +418,16 @@ class SettingsBackup implements SettingsBackupPort {
     }
     await _onImported();
     return SettingsRestoreOutcome.restored(written);
+  }
+
+  /// False only when the file carries a scenario card that would be written
+  /// (a map — a non-map value goes to the unknown-key keep, see
+  /// [_restorePref]) and that card, as it would be stored, breaks a schema cap.
+  bool _scenarioCardRestorable(Object? prefs) {
+    if (prefs is! Map) return true;
+    final Object? value = prefs[FlowMicSettingsKeys.scenarioCard];
+    if (value is! Map) return true;
+    return ScenarioCard.fromJson(value).migratedToIds().fitsWireSchema;
   }
 
   /// True when [key] is one this app owns and [value] was written; false hands

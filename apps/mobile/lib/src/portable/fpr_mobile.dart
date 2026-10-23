@@ -69,6 +69,7 @@ const Set<String> kMobileRowKeys = <String>{
   'failure_reason',
   'cached_by_verdict',
   'last_resent_at',
+  'first_handed_off_at',
   'created_at',
   'updated_at',
 };
@@ -131,6 +132,7 @@ const Set<String> kFprDroppedRowKeys = <String>{'deleted', 'control_kind'};
 /// | `failure_reason` | named delivery-failure code |
 /// | `cached_by_verdict` | 「在等判决」 ("awaiting a verdict") vs 「判决说没投」 ("the verdict says it wasn't delivered") (15 册 §2.1) |
 /// | `last_resent_at` | 「最后一次重发」 ("the last resend") — records the ACT, not its outcome |
+/// | `first_handed_off_at` | POL-M1 / R12 freeze stamp: when the row was first handed to a delivery path; exported so an imported row stays frozen (16 册 §4.2 2026-10-14 补注). Null means 「not recorded」, not 「never delivered」 |
 /// | `updated_at` | last mutation instant |
 const Set<String> kMobileSourceExtKeys = <String>{
   'client_id',
@@ -151,6 +153,7 @@ const Set<String> kMobileSourceExtKeys = <String>{
   'failure_reason',
   'cached_by_verdict',
   'last_resent_at',
+  'first_handed_off_at',
   'updated_at',
 };
 

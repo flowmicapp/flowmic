@@ -174,4 +174,25 @@ CREATE TABLE IF NOT EXISTS usage_effects (
   PRIMARY KEY (user_id, operation_id, kind)
 );
 CREATE INDEX IF NOT EXISTS idx_usage_effects_applied_at ON usage_effects(applied_at);
+
+-- 17. recording_coverage (NR-224, book 22 §4.12 -- 「the same audio of one recording is paid for once」)
+--
+-- One row per (account, recording). segments: JSON list of disjoint [start_sample, end_sample, paid_ms, by] where
+-- paid_ms is the §4.9 basis already charged for that audio and by is 'l' (a live session wrote it) or 'r' (a recovery
+-- session). credits: free sessions this recording has had because of it, re-sends of credited operations included
+-- (at most COVERAGE_CREDIT_LIMIT). At most COVERAGE_MAX_STRETCHES stretches per row.
+-- Written and read only inside the claim's transaction (db/repos/usage-effects.repo.ts, function step). Additive, idempotent,
+-- touches no existing table; pruned with the claims at 90 days by created_at; goes with the account.
+CREATE TABLE IF NOT EXISTS recording_coverage (
+  user_id      TEXT    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recording_id TEXT    NOT NULL,
+  segments     TEXT    NOT NULL,
+  credits      INTEGER NOT NULL DEFAULT 0,
+  -- JSON list of the operations whose metering was credited: their free re-sends spend credits too (NR-224 review).
+  credited_ops TEXT    NOT NULL DEFAULT '[]',
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (user_id, recording_id)
+);
+CREATE INDEX IF NOT EXISTS idx_recording_coverage_created_at ON recording_coverage(created_at);
 `;

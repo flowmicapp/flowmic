@@ -98,6 +98,53 @@ class EngineOutageStretch {
     return at < 0 ? 0 : at;
   }
 
+  // D6-CATCHUP-DUP - where the last live segment final could end, per article.
+  String? _finalArticleId;
+  int? _finalSentBytes;
+  int? _finalAnsweredBytes;
+
+  /// D6-CATCHUP-DUP - a live soft-segment final of [articleId] arrived. Kept in
+  /// CAPTURE bytes, the clock the journal and the owed range are measured in:
+  ///   * `sentBytes` - the capture position of the last chunk put on the wire.
+  ///     The final cannot cover audio that was not sent, so this is an upper
+  ///     bound of where its words end;
+  ///   * `answeredBytes` - how far the relay had answered at that moment (the
+  ///     last interim's `acked_audio_ms`), or null when it never said. The
+  ///     relay emits a row's final and only then opens the next segment
+  ///     (server-core `orchestrator-rollover.ts` `endRowAtSilence`: emit, then
+  ///     `beginNextSegment`), so every interim read before this final belongs
+  ///     to the segment it closes: a lower bound of where its words end.
+  /// Read by `_accountOwedTail` (ptt_capture_pump.dart) when the article clock
+  /// cannot be used as a capture position.
+  void noteSegmentFinal({required String articleId, int? segmentIdx}) {
+    if (_chunkArticleId != articleId) return;
+    _finalArticleId = articleId;
+    _finalSentBytes = _chunkBytes;
+    _finalAnsweredBytes = answeredBytes(articleId);
+    _finalSegmentIdx = segmentIdx;
+  }
+
+  /// NR-214 (review hardening) — [lastFinalOf]'s answered position, but only
+  /// when the last final noted IS segment [segmentIdx] of [articleId]: a row
+  /// settled after a later final arrived must not borrow that final's mark.
+  int? answeredAtFinal(String articleId, int segmentIdx) =>
+      _finalSegmentIdx == segmentIdx
+          ? lastFinalOf(articleId)?.answeredBytes
+          : null;
+  int? _finalSegmentIdx;
+
+  /// D6-CATCHUP-DUP - see [noteSegmentFinal]; null when no live segment final
+  /// of [articleId] arrived.
+  ({int sentBytes, int? answeredBytes})? lastFinalOf(String articleId) {
+    final int? sent = _finalSentBytes;
+    if (_finalArticleId != articleId || sent == null) return null;
+    final int? answered = _finalAnsweredBytes;
+    return (
+      sentBytes: sent,
+      answeredBytes: answered != null && answered > sent ? sent : answered,
+    );
+  }
+
   /// Card RC-L / RC-P — the capture position the relay last answered up to for
   /// [articleId], or null when it never said (an engine that reports no
   /// position, or a relay older than RC-2).

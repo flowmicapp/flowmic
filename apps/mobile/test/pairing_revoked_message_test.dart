@@ -24,6 +24,8 @@
 
 import 'package:flowmic/src/auth/token_storage.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
+import 'package:flowmic/src/session/endpoint_candidates.dart'
+    show CandidateFailure, decodeCandidateFailure;
 import 'package:flowmic/src/session/instance_probe.dart' show HealthReading;
 import 'package:flowmic/src/settings/app_settings.dart' show AppLocale;
 import 'package:flowmic/src/settings/app_strings.dart';
@@ -79,8 +81,20 @@ void main() {
     // Both of these are 「we never got an answer」. Impersonating AUTH_TOKEN_INVALID
     // would send the user to re-pair a pairing that is actually fine — the
     // mirror of the error the L-② round already fixed.
-    expect(await _codeAfterResume('xhr poll error'), isNull);
-    expect(await _codeAfterResume('timeout'), isNull);
+    //
+    // ⚠️ NR-279 (A3) changed WHAT is reported here, not this guard: the code
+    // used to be null (⇒ 「Pairing failed — check the network」 for a pairing
+    // that was never attempted); it is now the phone's own measurement of the
+    // dial (this fixture is a plain-http LAN row ⇒ the per-address report).
+    // Still not a server verdict, and still never AUTH_TOKEN_INVALID — which is
+    // what this case exists to pin. Full coverage:
+    // test/resume_unreached_copy_test.dart.
+    for (final String raw in <String>['xhr poll error', 'timeout']) {
+      final String? code = await _codeAfterResume(raw);
+      expect(code, isNot('AUTH_TOKEN_INVALID'), reason: raw);
+      expect(decodeCandidateFailure(code)?.single.value,
+          CandidateFailure.dialFailed, reason: raw);
+    }
   });
 
   test('handshakeRefusal only recognises the one code it knows', () {

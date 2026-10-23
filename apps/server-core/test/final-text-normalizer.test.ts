@@ -45,7 +45,9 @@ describe('normalizeFinalText — CJK disfluency stripping (spoken fillers)', () 
   });
 
   it('leaves a Latin-only span untouched by the CJK disfluency pass', () => {
-    expect(seg('uh well then', 'en-US')).toBe('uh well then');
+    // ML-2 EN-1: an English session now strips "uh" (final-text-en-fillers.ts,
+    // pinned in final-text-en-fillers.test.ts); this case is about the CJK pass.
+    expect(seg('uh well then', 'fr-FR')).toBe('uh well then');
   });
 });
 
@@ -102,5 +104,11 @@ describe('normalizeFinalText — terminal punctuation ONLY on the closing final'
 
   it('places the terminal mark INSIDE a trailing closer', () => {
     expect(term('他说“你好”')).toBe('他说“你好。”');
+  });
+
+  // Card SEAM-2 review C2: the dash is the orchestrator's to drop (Soniox only, seam-artifact.ts dropTerminalDash);
+  // the normalizer closes what it is given, as before.
+  it('a terminal final the orchestrator handed without its dash is closed with a stop', () => {
+    expect(term('the build stays green until it is', 'en')).toBe('the build stays green until it is.');
   });
 });

@@ -115,7 +115,7 @@ class _Rig {
   }
 
   /// The server hit its own wall — the frame, byte-shaped as
-  /// `AudioAutoStoppedSchema` emits it (stt-session.ts:519).
+  /// `AudioAutoStoppedSchema` emits it (stt-session.ts `onAutoStopped`).
   void cap() => transport.pushIncoming(
     FlowMicEvents.audioAutoStopped,
     const <String, Object?>{'reason': 'hard_limit'},

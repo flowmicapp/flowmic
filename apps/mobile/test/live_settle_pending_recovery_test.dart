@@ -11,6 +11,10 @@
 // SPEC-REF: see `live_settle_test.dart`'s own header for the card and the
 // owner rulings this rig exists to prove against.
 
+import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flowmic/src/audio/retained_audio_journal.dart';
 import 'package:flowmic/src/ptt/ptt_session.dart';
 import 'package:flowmic/src/session/pending_recovery.dart';
@@ -177,8 +181,67 @@ void main() {
       expect(settled, isTrue, reason: 'the settle really landed');
       expect(samples, greaterThanOrEqualTo(1),
           reason: 'the window was really sampled at least once');
+      // 🔴 DRAIN BEFORE THE FINAL SAMPLE (card FLAKE-LS). `settled` flips on the
+      // commit that records the attempt outcome; the journal CLOSE commits the
+      // manifest once more (fsync'd tmp write + rename) a moment later. A scan
+      // landing inside that rename read the manifest during the swap on a
+      // Windows test host, hit a sharing violation (errno 32), quarantined a
+      // healthy file, and the row appeared. Phones do not behave that way, and
+      // the reads are now also serialised against the rename in the rig
+      // (`RigJournalFs.readBytes`); draining the queue keeps this sample about
+      // the quiet state it claims to be about.
+      await tester.runAsync(() => r.spill.journalFlush());
       expect(await sample(tester, src), isFalse,
           reason: 'and it stays absent afterwards (card LK-1)');
+    });
+
+    testWidgets(
+        '🔴 a manifest read that overlaps a publish is not read as a corrupt '
+        'manifest (card FLAKE-LS)', (WidgetTester tester) async {
+      // DETERMINISTIC MODEL OF THE WINDOWS TEST-HOST COLLISION. The inner fs
+      // throws errno 32 for a manifest read while a manifest rename is in
+      // flight, and the rename is held open until this case releases it, so the
+      // scan's read provably lands inside the swap. Without the rig's
+      // turn-taking `_scanOne` quarantines a healthy manifest; with it the read
+      // waits for the rename and sees the finished file.
+      final _SharingViolationFs inner = _SharingViolationFs();
+      await tester.runAsync(() async {
+        r = await Rig.open(
+            capabilities: const <String>[], journalInner: inner);
+        r.transport.withReceipt = false;
+        await r.press();
+      });
+      late final PendingRecoveryStore src;
+      await tester.runAsync(() async {
+        src = PendingRecoveryStore(
+            runner: r.controller.backfill, sourceLang: () => 'zh');
+        final List<FileSystemEntity> before = r.tmp.listSync();
+        final File manifest = before.whereType<File>().firstWhere(
+            (File f) => f.path.endsWith(RetainedAudioJournal.manifestSuffix));
+        // A publish of the same bytes: tmp then rename over the target.
+        final File tmpFile = File('${manifest.path}.tmp')
+          ..writeAsBytesSync(manifest.readAsBytesSync());
+        final Completer<void> hold = Completer<void>();
+        inner.holdNextRename = hold;
+        final Future<void> publish =
+            r.journalFs.rename(tmpFile.path, manifest.path);
+        while (!inner.renameInFlight) {
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+        final Future<Object?> listing = src.list();
+        // Give an unguarded read every chance to run INSIDE the swap.
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        hold.complete();
+        await publish;
+        await listing;
+        expect(inner.collisions, 0,
+            reason: 'no manifest read happened while the rename was in flight');
+        expect(
+            r.tmp.listSync().any((FileSystemEntity e) =>
+                e.path.endsWith(RetainedAudioJournal.quarantineSuffix)),
+            isFalse,
+            reason: 'a healthy manifest was not quarantined');
+      });
     });
 
     testWidgets('a recording that really is owed a transcription DOES raise it',
@@ -234,4 +297,41 @@ class _Snapshot implements PendingRecoverySource {
   @override
   Future<PendingDeleteOutcome> delete(PendingRecoveryItem item) =>
       inner.delete(item);
+}
+
+/// An [IoJournalFileSystem] that models a Windows sharing violation: a manifest
+/// read that starts while a manifest rename is in flight throws errno 32. The
+/// rename can be held open ([holdNextRename]) so the overlap is deterministic.
+class _SharingViolationFs extends IoJournalFileSystem {
+  _SharingViolationFs();
+
+  Completer<void>? holdNextRename;
+  bool renameInFlight = false;
+  int collisions = 0;
+
+  @override
+  Future<void> rename(String from, String to) async {
+    renameInFlight = true;
+    try {
+      final Completer<void>? hold = holdNextRename;
+      holdNextRename = null;
+      if (hold != null) await hold.future;
+      await super.rename(from, to);
+    } finally {
+      renameInFlight = false;
+    }
+  }
+
+  @override
+  Future<Uint8List> readBytes(String path) {
+    if (renameInFlight && path.endsWith(RetainedAudioJournal.manifestSuffix)) {
+      collisions++;
+      throw FileSystemException(
+          'The process cannot access the file because it is being used by '
+          'another process',
+          path,
+          const OSError('sharing violation', 32));
+    }
+    return super.readBytes(path);
+  }
 }

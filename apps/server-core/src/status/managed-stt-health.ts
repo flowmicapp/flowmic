@@ -5,7 +5,7 @@
 //     probe does not consume real session quota)
 //   apps/server-core/src/stt/pool-health.ts (`probeRouteLiveness` — THE liveness
 //     primitive this composes; its header carries the settle-window measurement
-//     and the 「sends NO audio」 cost argument that make this cheap and honest)
+//     that makes this honest, and the cost note corrected on 2026-10-11)
 //   apps/server-core/src/compose/llm-health.ts (`probeManagedLlmLiveness` — the
 //     LLM-side twin whose SHAPE this copies one for one, including returning
 //     `null` for "there is no managed line to probe" and turning a resolver throw into a fatal
@@ -29,14 +29,27 @@
 // ── 🔴 WHAT A GREEN VERDICT HERE ACTUALLY PROVES, AND WHAT IT DOES NOT ──────
 // PROVES: the configured managed route could be constructed, the provider
 // accepted the session, and it raised no error within the settle window.
-// DOES NOT PROVE: that it will transcribe. No audio is sent (deliberately — see
-// the cost note below), so nothing here exercises recognition, and a provider
-// that accepts sessions while returning empty finals would read as `up`. It also
-// speaks for ONE language ({@link STT_PROBE_LANGUAGE}); a per-language matrix is
-// not v1. The status page must therefore be read as "this line can currently
-// connect", never as "recognition is good" — two different questions, and this answers the first.
-// This gap is NAMED rather than closed because closing it means sending billable
-// audio on a timer, which is the one thing §9-2.6 forbids.
+// DOES NOT PROVE: that it will transcribe. No audio is sent, so nothing here
+// exercises recognition, and a provider that accepts sessions while returning
+// empty finals would read as `up`. It also speaks for ONE language
+// ({@link STT_PROBE_LANGUAGE}); a per-language matrix is not v1. The status page
+// must therefore be read as "this line can currently connect", never as
+// "recognition is good" — two different questions, and this answers the first.
+//
+// ── 🔴 THE PROBE IS BILLED, EVEN THOUGH IT SENDS NO AUDIO ──────────────────
+// This header used to say the opposite ("closing the gap means sending billable
+// audio"), on the belief that Soniox bills audio sent. It bills STREAM DURATION.
+// Measured 2026-10-11 from Soniox `GET /v1/usage-logs` (both production keys,
+// 09-11..10-11): every probe is a row of 0.88-0.95 s of billed input audio with
+// zero output tokens — exactly 1,440 a day per key on every full day, i.e. the
+// settle window (`DEFAULT_SETTLE_MS` = 900, stt/pool-health.ts) once a minute
+// (status-probes.ts `STATUS_PROBE_INTERVAL_MS` = 60_000) — about 21 billed minutes a day for EVERY
+// process that runs this timer with a managed key. Two production nodes ⇒ about
+// 42 min/day; the audit that measured it put probes at 63% of all Soniox minutes
+// over that month. So the cost is real and per process, which is why a
+// non-production relay can switch the timer off (status-probes.ts
+// `FLOWMIC_STATUS_PROBES`). Sending audio would not make it free either; it
+// would only add recognised audio on top of the same open stream.
 //
 // ⚠️ NOTHING IS METERED, and it is structural rather than careful: metering
 // happens in `SttSessionBridge.settle()` → `recordSttUsage`

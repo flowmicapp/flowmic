@@ -156,7 +156,8 @@ describe('fix-019 · zero producers today, and the pin that says so', () => {
     // are keyed to, so a change in any of them has to be a deliberate edit here.
     // Linux implementation additions; lead decision: docs/decisions/2026-09-22-linux-inject-verdict-codes-and-no-new-history-status.md.
     // Acceptance R-2 adds the distinct unknown-display verdict (contract 15).
-    expect(PC_INJECTION_VERDICT_CODES).toHaveLength(13);
+    // 13 → 14: INJECT_TARGET_ELEVATED (Windows, higher-integrity target), 2026-10-16, MAIN-ruled.
+    expect(PC_INJECTION_VERDICT_CODES).toHaveLength(14);
     // 1 → 2: INJECT_TARGET_NOT_READY (web target admission refusal); lead ruling:
     // docs/decisions/2026-09-22-inject-target-not-ready-lead-ruling-and-cached-mode-pin.md.
     expect(PC_ADMISSION_REFUSAL_CODES).toHaveLength(2);

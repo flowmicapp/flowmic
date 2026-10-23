@@ -46,7 +46,10 @@ export interface VadGateOptions {
 /** card RC-6 — how often the gate CLOSED after having been open, and how long those closures ran (hangover
  *  excluded, gate time not wall time). The two thresholds are the relay's own: `MIN_PAUSE_MS` (600, the
  *  pause-cut arm, segment-boundary.ts) and the 3 s silence hang-up (`DEFAULT_ENGINE_IDLE_HANGUP_MS`). A closure
- *  still running at `finish()` is counted with the length it reached. */
+ *  still running at `finish()` is counted with the length it reached.
+ *  ⚠️ 更正（IDLE-1，2026-10-14）：3 s is now the LONG-RECORDING hang-up only; a held press hangs up at
+ *  `PRESS_ENGINE_IDLE_HANGUP_MS` (10 s). The bucket stays at 3 s so the statistic keeps its meaning across
+ *  releases; for presses it now counts closures that WOULD have hung up before IDLE-1, not ones that did. */
 export interface GateClosureCounts { count: number; ge_600ms: number; ge_3s: number }
 
 export interface VadFrameResult {

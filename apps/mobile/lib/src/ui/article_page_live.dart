@@ -29,15 +29,17 @@ part of 'article_page.dart';
 /// The four things design §4.2 says the in-progress form adds.
 class _ArticleLiveFace {
   const _ArticleLiveFace({
-    required this.paragraphs,
+    required this.openTail,
     required this.scroll,
     this.draft,
     this.bar,
     this.banner,
   });
 
-  /// Folded with the last paragraph left open while recording.
-  final List<ArticleParagraph> paragraphs;
+  /// The recording is still running or finishing: the last paragraph is
+  /// still being spoken into (NR-213 moved the folding into `ArticlePage`,
+  /// which breaks the paragraphs at away gaps — `paragraphsWithAwayGaps`).
+  final bool openTail;
   final ScrollController scroll;
 
   /// `LiveDraftTile`, under the open paragraph. Not a row, never folded.
@@ -185,6 +187,7 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
           widget.strings,
           completion: completion,
           item: c.articleRecoveryItem(widget.articleId),
+          wait: c.backfill.waitReason, // NR-214
         );
         WidgetsBinding.instance.addPostFrameCallback((_) => _followToEnd());
         return ArticlePage._live(
@@ -195,10 +198,9 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
           strings: widget.strings,
           pendingBackfillMs: recovery.pendingMs,
           pendingBackfillFromOutage: owed.fromOutage,
+          awayGaps: c.awayGaps.gapsOf(widget.articleId), // NR-213
           live: _ArticleLiveFace(
-            paragraphs: recording || finishing
-                ? _foldOpen(rows)
-                : paragraphsOf(rows),
+            openTail: recording || finishing,
             scroll: _scroll,
             draft:
                 recording && c.hasLiveDraft ||
@@ -219,16 +221,6 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
         );
       },
     );
-  }
-
-  /// The same reducer [paragraphsOf] folds with, read before `onEnd`: the
-  /// last paragraph is still being spoken into.
-  List<ArticleParagraph> _foldOpen(List<TimelineEntry> rows) {
-    final ArticleParagrapher p = ArticleParagrapher();
-    for (final TimelineEntry r in rows) {
-      p.onRow(r);
-    }
-    return p.paragraphs;
   }
 
   /// Wired the way the light-record list wires it (`chat_flow_scroll.dart`),
@@ -315,7 +307,14 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
     final EngineReconnectFace? engine = current
         ? c.session.engineReconnect.value
         : null;
-    if (stop == null && !offline && engine == null) return null;
+    // NR-213 — the return notice, on the screen a long recording is usually
+    // watched from; same sentence and same ticket as the list's banner.
+    final String? away = current
+        ? continuousAwayNotice(c.session.continuous.away, widget.strings)
+        : null;
+    if (stop == null && !offline && engine == null && away == null) {
+      return null;
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -334,6 +333,7 @@ class _ArticleLiveHostState extends State<_ArticleLiveHost> {
                   )
                 : widget.strings.articleLiveEngineReconnecting(engine.attempt),
           ),
+        if (away != null) _line(const Key('article.live.awayReturn'), away),
         if (stop != null)
           _line(
             const Key('article.live.stopped'),

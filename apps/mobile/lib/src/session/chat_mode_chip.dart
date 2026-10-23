@@ -152,5 +152,29 @@ void setBufferRouted(ChatController c, String text) {
   // user types next is a NEW draft — offering it 「回到原文」 would hand back a
   // sentence belonging to something they already threw away.
   if (text.isEmpty) c.aiCompose.forgetRestorable();
+  // 🔴 POL-M1b — the same 「new draft」 signal releases the rows that fed the
+  // old one. Emptying the box by hand is a discard: if ➤ still covered those
+  // rows, the next ➤ (whatever the user types now) would mark them delivered
+  // and freeze them although their words never went out (R11 / R12). They get
+  // exactly the state ✕ leaves (`discardBufferedRowsRouted`: noted, the record
+  // stays). A row already inside an in-flight ➤ is handed off (frozen) and
+  // belongs to that send; it is left alone. ⚠️ An edit that keeps the box
+  // non-empty keeps covering the rows — that is how a user corrects a word
+  // before ➤, and T-7 links the sent text to the rows' original transcript.
+  // Whitespace-only counts as emptied: nothing of the old draft is left in it.
+  if (text.trim().isEmpty) _releaseBufferedRowsOnEmpty(c);
   c.notifyUi();
+}
+
+void _releaseBufferedRowsOnEmpty(ChatController c) {
+  final List<String> released = <String>[
+    for (final String id in c._bufferedEntryIds)
+      if (!(c.store.findById(id)?.isHandedOff ?? false)) id,
+  ];
+  if (released.isEmpty) return;
+  for (final String id in released) {
+    c.store.markNoted(id);
+  }
+  c._bufferedEntryIds.removeWhere(released.contains);
+  diag('compose.buffer_rows_released', <String, Object?>{'released': released.length});
 }

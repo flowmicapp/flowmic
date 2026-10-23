@@ -570,6 +570,11 @@ class TimelineStore extends ChangeNotifier {
   TimelineEntry? applyRefined(String id, String refinedText) =>
       _applyRefined(this, id, refinedText);
 
+  /// POL-M1 / R12 — freeze rows at their first handoff to a delivery path.
+  /// Body and argument in timeline_store_edit_family.dart.
+  List<TimelineEntry> markHandedOff(Iterable<String> ids) =>
+      _markHandedOff(this, ids);
+
   TimelineEntry? applyProcessed(
     String id,
     String processedText,

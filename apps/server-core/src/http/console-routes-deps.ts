@@ -118,7 +118,7 @@ export interface ConsoleRoutesDeps {
   usage: UsageRepo;
   /** NR-138 round 5 — the account export lists these (http/account-lifecycle.ts `AccountExportStores`). */
   recoveryOps: Pick<RecoveryOperationsRepo, 'listByUser'>;
-  usageEffects: Pick<UsageEffectLedger, 'listByUser'>;
+  usageEffects: Pick<UsageEffectLedger, 'listByUser' | 'listCoverageByUser'>; // NR-224: the coverage rows too
   /** Per-IP throttle for the password reset surface — same discipline as the
    *  register/login limiter (5 / 10-min), a SEPARATE bucket so a legitimate
    *  reset never starves the login budget (and vice-versa). */

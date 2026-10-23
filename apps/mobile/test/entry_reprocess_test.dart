@@ -230,7 +230,12 @@ Future<void> main() async {
   });
 
   // ── GA-14: the late second-pass transcript ────────────────────────────────
-  test('GA-14: a refine adopts the better text as a MACHINE update, never re-injects', () async {
+  // ⚠️ POL-M1 / R12 (2026-10-14): this case used to assert the refine WAS
+  // adopted on this row — a direct-send row whose words the PC had already
+  // typed (NR-261: phone history and PC text diverged with no mark). The row
+  // is frozen at its handoff now, so the same press asserts the opposite.
+  // Adoption on a never-handed-off row: refined_row_selection_test.dart.
+  test('GA-14 × POL-M1: a refine never rewrites a row already handed to the PC, never re-injects', () async {
     final _Rig rig = _Rig();
     rig.controller.setMode(FlowMode.realtime);
     await rig.controller.pttDown();
@@ -255,9 +260,10 @@ Future<void> main() async {
     });
     await pumpEventQueue();
 
-    expect(rig.store.findById(row.id)!.outputText, '鹅鹅鹅，曲项向天歌。');
-    expect(rig.store.findById(row.id)!.refinedAt, isNotNull);
-    // NOT an edit: the bit means 「a person changed it」 and a second pass is not a person.
+    expect(row.isHandedOff, isTrue, reason: 'setup: a direct-send row is frozen at its handoff');
+    expect(rig.store.findById(row.id)!.outputText, '鹅鹅鹅曲项向天歌',
+        reason: 'R12: the words that went to the PC stay the words history shows');
+    expect(rig.store.findById(row.id)!.refinedAt, isNull);
     expect(rig.store.findById(row.id)!.edited, isFalse);
     // 0.2.27: this asserted the machine `history:update` (origin:'machine').
     // Retired — an adopted refine is a local write on a row this phone owns.

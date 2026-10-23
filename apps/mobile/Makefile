@@ -121,6 +121,7 @@ test: gen
 gate-test: gen
 	@node ../../scripts/require-programfiles-x86.mjs
 	flutter test --timeout 90s --reporter compact
+	flutter test --timeout 90s --reporter compact --dart-define=FLOWMIC_STORE_CHANNEL=1 test/quota_rules_store_channel_test.dart
 
 build: gen
 	flutter build apk --debug
@@ -162,9 +163,19 @@ build: gen
 # release gate reaches this line through pnpm/cmd.
 #
 # `{sha}` is substituted by the runner; it is not a make variable.
+#
+# ── NR-170: THE LAST LINE READS THE APK BACK ────────────────────────────────
+# 0.3.107: a reused slot exited 0 with an APK whose three libapp.so were two
+# days old (Gradle packaged stale merged_jni_libs/stripped_native_libs). GATE 0f
+# caught it only at publish; everything tested before that used the stale APK.
+# The recipe's final line re-reads the artifact it just wrote and fails the
+# target unless every ABI's libapp.so carries THIS tree's stamp. Reader and
+# drill: scripts/build-stamp/verify-built-artifact.mjs,
+# scripts/nr170-built-artifact-stamp.test.mjs.
 release: gen
 	@node ../../scripts/require-programfiles-x86.mjs
 	node ../../scripts/build-stamp/with-build-sha.mjs -- flutter build apk --release --flavor direct --dart-define=FLOWMIC_SELF_UPDATE=1 --dart-define=FLOWMIC_BUILD_SHA={sha}
+	node ../../scripts/build-stamp/verify-built-artifact.mjs --kind apk build/app/outputs/flutter-apk/app-direct-release.apk
 
 # THE STORE ARTIFACT — Google Play (ST-1, 2026-08-19).
 #
@@ -191,6 +202,14 @@ release: gen
 # anything. So the second line below reads the bundle the first line just wrote,
 # and a refusal fails this target (make stops on a non-zero recipe line).
 #
+# NR-170 (0.3.108): THE BUNDLE NOW CARRIES THE COMMIT STAMP TOO. It used to
+# carry none and never passed publish.mjs GATE 0f, so a stale bundle (the
+# 0.3.107 APK incident, same Gradle packaging) could reach the Play console
+# unnoticed. The define is the same FLOWMIC_BUILD_SHA the APK gets, through the
+# same runner (a dirty tree refuses before any byte is built), and the second
+# line reads every libapp.so back out of the .aab. The stamp string contains no
+# self-update marker, so the store gate on the third line is unaffected.
+#
 # WHAT IT PROVES: the .aab submitted to Play -- these exact bytes -- carries no
 # self-update marker in any module entry, and declares no
 # REQUEST_INSTALL_PACKAGES in any module manifest. The gate inflates the bundle
@@ -207,8 +226,16 @@ release: gen
 #   3. `flutter build appbundle` prints its own green "Built ..." line BEFORE
 #      the gate runs. That line is not the verdict. The verdict is the OK/FAIL
 #      line after it, and the exit code of this target.
+#
+# NR-297 (2026-10-20): THE STORE DEFINE. `FLOWMIC_STORE_CHANNEL=1` drops the
+# in-app link to the web billing page (Play Payments policy; the reasoning and
+# its default are in lib/src/support/store_channel_flag.dart). It is NOT passed
+# by `release` (the direct APK keeps the link). Forgetting it here is not
+# silent: the store gate on the last line also refuses a bundle whose Dart
+# payload still carries `/console/billing` (scripts/store-billing-link-marker.mjs).
 release-store: gen
-	flutter build appbundle --release --flavor store
+	node ../../scripts/build-stamp/with-build-sha.mjs -- flutter build appbundle --release --flavor store --dart-define=FLOWMIC_STORE_CHANNEL=1 --dart-define=FLOWMIC_BUILD_SHA={sha}
+	node ../../scripts/build-stamp/verify-built-artifact.mjs --kind aab build/app/outputs/bundle/storeRelease/app-store-release.aab
 	node ../../scripts/store-channel-gate.mjs build/app/outputs/bundle/storeRelease/app-store-release.aab
 
 # THE iOS ARCHIVE — TestFlight / App Store (owner 2026-08-20: iOS gets a
@@ -236,5 +263,27 @@ release-store: gen
 # from the artifact's bytes. Until then: forgetting the define costs iOS the
 # reminder silently (build green, exit 0) — UP-7's failure direction, unclosed
 # on this platform.
+#
+# NR-170 (0.3.108) closes ONE half of that debt, not the one above: the build now
+# carries the commit stamp and the last line reads it back out of the .ipa
+# (App.framework/App), so a stale snapshot fails the target. It does NOT check
+# the update-notify define. And the ipa reader was drilled on synthetic zips
+# only; the first real run on the mac line is its first measurement - a BLIND
+# verdict there means re-measure the scan, not "the build is fine".
+#
+# NR-297 (2026-10-20): THE STORE DEFINE, AND THE FIRST BYTE GATE ON THE IPA.
+# `FLOWMIC_STORE_CHANNEL=1` drops the in-app link to the web billing page (App
+# Store 3.1.1/3.1.3); the last line reads App.framework/App out of the .ipa and
+# refuses it while `/console/billing` is in there (control marker included, so a
+# blind scan is a refusal, not a pass). Measured against the real 0.3.117 IPA,
+# built without the define: refused, 1 hit. It answers that one question only —
+# the update-notify debt above is still open.
+#
+# BUILD_NUMBER: optional, `make release-ios BUILD_NUMBER=1`. The Mac line's
+# scripts used to copy this recipe just to add `--build-number`, and a copied
+# recipe does not pick up a new define (that is how NR-297 would have missed
+# iOS). With the variable they can call this target instead.
 release-ios: gen
-	flutter build ipa --release --dart-define=FLOWMIC_UPDATE_NOTIFY=1
+	node ../../scripts/build-stamp/with-build-sha.mjs -- flutter build ipa --release $(if $(BUILD_NUMBER),--build-number=$(BUILD_NUMBER)) --dart-define=FLOWMIC_UPDATE_NOTIFY=1 --dart-define=FLOWMIC_STORE_CHANNEL=1 --dart-define=FLOWMIC_BUILD_SHA={sha}
+	node ../../scripts/build-stamp/verify-built-artifact.mjs --kind ipa build/ios/ipa
+	node ../../scripts/ios-store-billing-gate.mjs build/ios/ipa

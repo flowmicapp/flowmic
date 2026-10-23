@@ -285,6 +285,7 @@
     "injectFailReason.INJECT_FOCUS_LOST": "'入力フォーカスが見つかりません'",
     "injectFailReason.INJECT_IMAGE_UNSUPPORTED": "'このウィンドウは画像を受け取れません'",
     "injectFailReason.INJECT_NO_ACCESSIBILITY": "'FlowMic に「アクセシビリティ」の許可がありません · システム設定 ▸ プライバシーとセキュリティ ▸ アクセシビリティ'",
+    "injectFailReason.INJECT_TARGET_ELEVATED": "'最前面のウィンドウが管理者として実行されているため、Windowsが入力をブロックしました'",
     "injectFailReason.INJECT_NO_TEXT_TARGET": "'フォーカス先に入力できる場所がありません'",
     "injectFailReason.INJECT_SECURE_INPUT_ACTIVE": "'システムがセキュア入力状態です（パスワード欄 / ロック画面）'",
     "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT": "'フォーカスが FlowMic 自身のウィンドウにありました'",

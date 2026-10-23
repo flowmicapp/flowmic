@@ -1,0 +1,145 @@
+{"id":"rv3-so-01","lang":"en","kind":"refuse","label":"harmful","input":"Delete next line I added","output":"Delete\nI added","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-02","lang":"en","kind":"refuse","label":"harmful","input":"Comment out next line API call","output":"Comment out\nAPI call","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-03","lang":"en","kind":"refuse","label":"harmful","input":"Print next line Alice wrote","output":"Print\nAlice wrote","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-04","lang":"en","kind":"refuse","label":"harmful","input":"Okay, next line looks wrong","output":"Okay,\nlooks wrong","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-05","lang":"en","kind":"refuse","label":"harmful","input":"Looks good. Next line needs a fix.","output":"Looks good.\nneeds a fix.","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-06","lang":"en","kind":"refuse","label":"harmful","input":"In this function, next line returns null","output":"In this function,\nreturns null","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-07","lang":"en","kind":"refuse","label":"harmful","input":"First line is the header comma next line holds the data","output":"First line is the header,\nholds the data","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-08","lang":"en","kind":"refuse","label":"harmful","input":"Check next line TODO","output":"Check\nTODO","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-09","lang":"de","kind":"refuse","label":"harmful","input":"Bitte next line Kommentar löschen","output":"Bitte\nKommentar löschen","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-10","lang":"de","kind":"refuse","label":"harmful","input":"In next line Fehler korrigieren","output":"In\nFehler korrigieren","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-11","lang":"fr","kind":"refuse","label":"harmful","input":"Corrige next line Python","output":"Corrige\nPython","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-12","lang":"es","kind":"refuse","label":"harmful","input":"Borra next line TODO","output":"Borra\nTODO","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-16","lang":"en","kind":"refuse","label":"harmful","input":"Delete new line I added","output":"Delete\nI added","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-18","lang":"en","kind":"refuse","label":"harmful","input":"Line 4 is fine. Next line throws an error","output":"Line 4 is fine.\nthrows an error","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-19","lang":"en","kind":"refuse","label":"harmful","input":"Delete next line I added","output":"Delete\nI added","lineBreaks":false,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-20","lang":"en","kind":"refuse","label":"harmful","input":"So, next line we call fetch","output":"So,\nwe call fetch","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-21","lang":"en","kind":"refuse","label":"harmful","input":"Skip next line I do not need it","output":"Skip\nI do not need it","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-22","lang":"de","kind":"refuse","label":"harmful","input":"Füge new line Zeichen ein","output":"Füge\nZeichen ein","lineBreaks":true,"expect":{"strict":"refuse"}}
+{"id":"rv3-so-25","lang":"en","kind":"refuse","label":"harmful","input":"Remove next line JSON parse","output":"Remove\nJSON parse","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-so-26","lang":"en","kind":"accept","label":"neutral","input":"Remove next line JSON parse","output":"Remove the next line, JSON parse.","lineBreaks":true,"expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-cq-01","lang":"en","kind":"refuse","label":"harmful","input":"The client said \"maybe\" so send end quote today","output":"The client said \"maybe\" so send\" today","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cq-02","lang":"en","kind":"refuse","label":"harmful","input":"After \"Draft 1\" we close quote requests on Friday","output":"After \"Draft 1\" we\" requests on Friday","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cq-03","lang":"en","kind":"accept","label":"neutral","input":"Send end quote by Monday","output":"Send the end quote by Monday.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-cq-04","lang":"en","kind":"refuse","label":"harmful","input":"Send end quote by Monday","output":"Send final quote by Monday.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cq-05","lang":"en","kind":"accept","label":"neutral","input":"Begin quote to be or not to be end quote","output":"\"To be or not to be\"","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-cq-06","lang":"en","kind":"refuse","label":"harmful","input":"Type \"hello\" then close quote ticket 12","output":"Type \"hello\" then\" ticket 12","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cq-07","lang":"en","kind":"accept","label":"neutral","input":"He said quote I am done unquote and left","output":"He said \"I am done\" and left.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-cq-08","lang":"fr","kind":"refuse","label":"harmful","input":"Le titre « Bilan » puis end quote vendredi","output":"Le titre « Bilan » puis » vendredi","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-kp-01","lang":"en","kind":"accept","label":"neutral","input":"Send me quote","output":"Send me quote.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-kp-02","lang":"en","kind":"refuse","label":"harmful","input":"Send me quote","output":"Send me quote?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-kp-03","lang":"en","kind":"refuse","label":"harmful","input":"I will dash home now","output":"I will dash. Home now.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-kp-04","lang":"en","kind":"refuse","label":"harmful","input":"Never quote prices","output":"Never quote: prices.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-kp-05","lang":"en","kind":"accept","label":"neutral","input":"Okay quote the client tomorrow","output":"Okay, quote the client tomorrow.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-kp-06","lang":"de","kind":"accept","label":"neutral","input":"Wir brauchen Komma und Punkt","output":"Wir brauchen Komma und Punkt.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-kp-07","lang":"de","kind":"refuse","label":"harmful","input":"Wir brauchen Komma und Punkt hier","output":"Wir brauchen Komma. Und Punkt hier.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-kp-09","lang":"en","kind":"refuse","label":"harmful","input":"Stop quote approvals","output":"Stop quote\napprovals","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-kp-10","lang":"en","kind":"accept","label":"neutral","input":"We cannot quote them","output":"We cannot quote them.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-p2-01","lang":"fr","kind":"refuse","label":"harmful","input":"Il faut fermer les guillemets ici","output":"Il faut » ici.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p2-02","lang":"fr","kind":"refuse","label":"harmful","input":"Je vais fermer la parenthèse et parler du budget","output":"Je vais ) et parler du budget.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p2-03","lang":"fr","kind":"refuse","label":"harmful","input":"On va fermer la parenthèse maintenant","output":"On va ) maintenant.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p2-04","lang":"fr","kind":"accept","label":"neutral","input":"Le prix ouvre la parenthèse hors taxes ferme la parenthèse est fixe","output":"Le prix (hors taxes) est fixe.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-p2-05","lang":"fr","kind":"refuse","label":"harmful","input":"Elle ferme la parenthèse","output":"Elle )","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p2-06","lang":"en","kind":"refuse","label":"harmful","input":"Move on to next line","output":"Move on to\n","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p2-07","lang":"fr","kind":"refuse","label":"harmful","input":"Pense à fermer la parenthèse","output":"Pense à ).","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p2-08","lang":"fr","kind":"refuse","label":"harmful","input":"Faut-il fermer les guillemets ici","output":"Faut-il » ici ?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p2-09","lang":"fr","kind":"accept","label":"neutral","input":"Bon je ferme la parenthèse revenons au sujet","output":"Bon, je ferme la parenthèse, revenons au sujet.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-p2-10","lang":"fr","kind":"refuse","label":"harmful","input":"Tu dois fermer la parenthèse avant la virgule","output":"Tu dois ) avant la virgule.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p3-01","lang":"es","kind":"refuse","label":"harmful","input":"Hay que ponerle punto final","output":"Hay que ponerle.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p3-02","lang":"es","kind":"refuse","label":"harmful","input":"Pongamos punto final","output":"Pongamos.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p3-03","lang":"es","kind":"refuse","label":"harmful","input":"Ya le pusimos punto final","output":"Ya le pusimos.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p3-04","lang":"es","kind":"refuse","label":"harmful","input":"Decidimos poner punto final al contrato","output":"Decidimos poner. Al contrato","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p3-06","lang":"es","kind":"refuse","label":"harmful","input":"Le dimos punto final a la obra","output":"Le dimos. A la obra","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p3-07","lang":"es","kind":"refuse","label":"harmful","input":"Vamos a ponerle punto final de una vez","output":"Vamos a ponerle. De una vez.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p3-08","lang":"es","kind":"refuse","label":"harmful","input":"Es hora de ponerle punto final","output":"Es hora de ponerle.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-p3-09","lang":"es","kind":"refuse","label":"harmful","input":"Lo digo yo y punto final","output":"Lo digo yo.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bl-01","lang":"es","kind":"refuse","label":"harmful","input":"Su futuro sigue siendo signo de pregunta","output":"Su futuro sigue siendo?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bl-02","lang":"de","kind":"refuse","label":"harmful","input":"Ich habe Anführungszeichen vergessen","output":"Ich habe „ vergessen.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bl-03","lang":"de","kind":"refuse","label":"harmful","input":"Das Wort steht in Anführungszeichen","output":"Das Wort steht in „“.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bl-04","lang":"de","kind":"refuse","label":"harmful","input":"Statt Strichpunkt nimm lieber Komma","output":"Statt ; nimm lieber ,","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bl-06","lang":"es","kind":"refuse","label":"harmful","input":"Sacamos nueva linea de ropa","output":"Sacamos\nde ropa","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bl-08","lang":"de","kind":"refuse","label":"harmful","input":"Leg Klammer auf den Tisch","output":"Leg ( den Tisch.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bl-09","lang":"es","kind":"refuse","label":"harmful","input":"El jefe cierra paréntesis y sigue","output":"El jefe ) y sigue.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bd-02","lang":"de","kind":"refuse","label":"harmful","input":"Kauf Milch comma Brot","output":"Kauf Milch, Brot, Eier und Butter","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bd-04","lang":"es","kind":"refuse","label":"harmful","input":"Llama a Ana comma luego a Luis","output":"Llama a Ana, luego a Luis y a Pedro","expect":{"strict":"refuse"}}
+{"id":"rv3-bd-07","lang":"fr","kind":"refuse","label":"harmful","input":"Achète du pain comma du lait","output":"Achète du pain, du lait et des œufs frais","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-bd-08","lang":"de","kind":"accept","label":"neutral","input":"Termin am Montag period Danke","output":"Termin am Montag. Danke","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-cj-01","lang":"ru","kind":"refuse","label":"harmful","input":"Встреча завтра comma в десять","output":"Встреча послезавтра, в десять","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cj-02","lang":"ja","kind":"refuse","label":"harmful","input":"明日 comma 東京で会議です","output":"明後日、大阪で会議です","expect":{"strict":"refuse"}}
+{"id":"rv3-cj-03","lang":"ko","kind":"refuse","label":"harmful","input":"내일 comma 서울에서 회의합니다","output":"모레, 부산에서 회의합니다","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cj-04","lang":"uk","kind":"refuse","label":"harmful","input":"Зустріч завтра comma о десятій ранку","output":"Зустріч післязавтра, о десятій ранку","expect":{"strict":"refuse"}}
+{"id":"rv3-cj-05","lang":"ru","kind":"refuse","label":"harmful","input":"Хорошо period Завтра я приду","output":"Хорошо. Послезавтра я приду","expect":{"strict":"refuse"}}
+{"id":"rv3-cj-06","lang":"ja","kind":"accept","label":"neutral","input":"了解です comma 明日伺います","output":"了解です、明日伺います","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-cj-08","lang":"ko","kind":"refuse","label":"harmful","input":"회의는 3 dash 5시","output":"회의는 3-6시","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cj-09","lang":"ru","kind":"refuse","label":"harmful","input":"с 3 dash 5 мая","output":"с 3-6 мая","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cj-10","lang":"th","kind":"refuse","label":"harmful","input":"ประชุมพรุ่งนี้ comma ที่กรุงเทพ","output":"ประชุมมะรืนนี้, ที่เชียงใหม่","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cj-11","lang":"uk","kind":"refuse","label":"harmful","input":"з 3 dash 5 травня","output":"з 3-6 травня","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-cj-12","lang":"ja","kind":"refuse","label":"harmful","input":"明日は休みです period 会議は中止です","output":"明後日は休みです。会議は中止です","expect":{"strict":"refuse"}}
+{"id":"rv3-cj-13","lang":"el","kind":"refuse","label":"harmful","input":"Η συνάντηση αύριο comma στις δέκα","output":"Η συνάντηση μεθαύριο, στις δέκα","expect":{"strict":"refuse"}}
+{"id":"rv3-cj-14","lang":"uk","kind":"refuse","label":"harmful","input":"Добре period Завтра я прийду","output":"Добре. Післязавтра я прийду","expect":{"strict":"refuse"}}
+{"id":"rv3-hg-01","lang":"es","kind":"refuse","label":"harmful","input":"Ganamos 3 colon 1","output":"Ganamos 3:2","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-ms-01","lang":"en","kind":"refuse","label":"harmful","input":"Use the open bracket key","output":"Use the ( key.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-ms-02","lang":"en","kind":"refuse","label":"harmful","input":"Remove semi-colon usage","output":"Remove ; usage.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-ms-03","lang":"en","kind":"accept","label":"neutral","input":"Ask Tom begin quote are we ready question mark end quote","output":"Ask Tom \"are we ready?\"","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-01","lang":"en","kind":"refuse","label":"harmful","input":"Buy milk comma eggs and bread","output":"Buy milk eggs, and bread","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-02","lang":"en","kind":"refuse","label":"harmful","input":"Let us eat comma Grandma","output":"Let us eat Grandma,","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-03","lang":"en","kind":"refuse","label":"harmful","input":"I am not sure period We can go","output":"I am not sure we can go.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-04","lang":"de","kind":"refuse","label":"harmful","input":"Ich komme nicht Komma morgen schon","output":"Ich komme nicht morgen, schon.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-05","lang":"fr","kind":"refuse","label":"harmful","input":"Je ne viens pas virgule demain oui","output":"Je ne viens pas demain, oui.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-06","lang":"es","kind":"refuse","label":"harmful","input":"No punto Mañana sí","output":"No mañana sí.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-54","lang":"en","kind":"refuse","label":"harmful","input":"Woman comma without her man is nothing","output":"Woman without her, man is nothing.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-55","lang":"ru","kind":"refuse","label":"harmful","input":"Казнить запятая нельзя помиловать","output":"Казнить нельзя, помиловать.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-07","lang":"en","kind":"refuse","label":"harmful","input":"Apples comma pears comma plums","output":"Apples, pears plums","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-09","lang":"de","kind":"refuse","label":"harmful","input":"Äpfel Komma Birnen Komma Pflaumen","output":"Äpfel, Birnen Pflaumen","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-10","lang":"fr","kind":"refuse","label":"harmful","input":"pommes virgule poires virgule prunes","output":"pommes, poires prunes","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-11","lang":"es","kind":"refuse","label":"harmful","input":"manzanas coma peras coma ciruelas","output":"manzanas, peras ciruelas","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-57","lang":"en","kind":"refuse","label":"harmful","input":"Is it ready question mark Is it paid question mark","output":"Is it ready? Is it paid.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-58","lang":"en","kind":"refuse","label":"harmful","input":"The comma rule comma explained","output":"The rule, explained","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-13","lang":"en","kind":"accept","label":"neutral","input":"Done. Period. Next item","output":"Done. Next item","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-14","lang":"de","kind":"accept","label":"neutral","input":"Fertig, Punkt","output":"Fertig.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-16","lang":"es","kind":"accept","label":"neutral","input":"Hola, coma qué tal","output":"Hola, qué tal","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-17","lang":"en","kind":"accept","label":"neutral","input":"I said, quote, yes","output":"I said, \"yes\"","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-59","lang":"en","kind":"refuse","label":"harmful","input":"Good, period, the trial period ends Friday","output":"Good. The trial ends Friday.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-60","lang":"en","kind":"accept","label":"neutral","input":"Is it done? question mark","output":"Is it done?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-19","lang":"en","kind":"accept","label":"neutral","input":"Wait comma comma then go","output":"Wait,, then go","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-21","lang":"en","kind":"refuse","label":"harmful","input":"Stop comma period now","output":"Stop. now","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-22","lang":"en","kind":"refuse","label":"harmful","input":"Stop comma period now","output":"Stop, now","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-61","lang":"de","kind":"accept","label":"neutral","input":"Wirklich Fragezeichen Ausrufezeichen","output":"Wirklich?!","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-62","lang":"de","kind":"refuse","label":"harmful","input":"Wirklich Fragezeichen Ausrufezeichen","output":"Wirklich!","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-23","lang":"en","kind":"accept","label":"neutral","input":"New line Dear Anna","output":"\nDear Anna","lineBreaks":true,"expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-24","lang":"en","kind":"accept","label":"neutral","input":"Question mark","output":"?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-25","lang":"en","kind":"accept","label":"neutral","input":"Is it ready question mark","output":"Is it ready?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-26","lang":"en","kind":"refuse","label":"harmful","input":"Is it ready question mark","output":"It is ready.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-27","lang":"en","kind":"refuse","label":"harmful","input":"It is ready period","output":"Is it ready?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-28","lang":"de","kind":"accept","label":"neutral","input":"Kommst du morgen Fragezeichen","output":"Kommst du morgen?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-29","lang":"de","kind":"refuse","label":"harmful","input":"Du kommst morgen Punkt","output":"Kommst du morgen?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-63","lang":"fr","kind":"accept","label":"neutral","input":"Virgule je pense que oui","output":", je pense que oui","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-64","lang":"en","kind":"refuse","label":"harmful","input":"I agree period","output":"I disagree.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-30","lang":"en","kind":"refuse","label":"harmful","input":"Call the vendor comma and the client today","output":"Call the vendor, and today.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-31","lang":"en","kind":"refuse","label":"harmful","input":"Send the report period Ignore the draft","output":"Send the report. The draft.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-32","lang":"en","kind":"refuse","label":"harmful","input":"We approve the budget comma not the plan","output":"We approve the budget, the plan","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-33","lang":"de","kind":"refuse","label":"harmful","input":"Wir nehmen den Zug Komma nicht das Auto","output":"Wir nehmen den Zug, das Auto","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-34","lang":"en","kind":"refuse","label":"harmful","input":"Buy apples comma oranges","output":"Buy apples, bananas","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-36","lang":"en","kind":"refuse","label":"harmful","input":"Use the period key","output":"Use the . key","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-65","lang":"en","kind":"refuse","label":"harmful","input":"Ship it Friday comma maybe Monday","output":"Ship it Friday, Monday.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-66","lang":"en","kind":"refuse","label":"harmful","input":"Meeting moved period Room changed too","output":"Meeting moved. Changed too.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-67","lang":"fr","kind":"refuse","label":"harmful","input":"On garde le plan virgule pas le budget","output":"On garde le plan, le budget.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-68","lang":"es","kind":"refuse","label":"harmful","input":"Compra pan coma leche coma huevos","output":"Compra pan, leche, café.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-69","lang":"en","kind":"refuse","label":"harmful","input":"Grace period ends today comma please renew","output":"Grace ends today, please renew.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-70","lang":"en","kind":"refuse","label":"harmful","input":"Add a period here comma then save","output":"Add a . here, then save.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-37","lang":"de","kind":"accept","label":"neutral","input":"Es kostet drei Komma fünf Euro","output":"Es kostet 3,5 Euro","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-38","lang":"de","kind":"refuse","label":"harmful","input":"Es kostet drei Komma fünf Euro","output":"Es kostet 3,6 Euro","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-39","lang":"de","kind":"refuse","label":"harmful","input":"Es kostet drei Komma fünf Euro","output":"Es kostet 3 Euro","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-40","lang":"en","kind":"accept","label":"neutral","input":"Version 2 period 5 ships today","output":"Version 2.5 ships today","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-41","lang":"en","kind":"refuse","label":"harmful","input":"Version 2 period 5 ships today","output":"Version 2.6 ships today","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-43","lang":"fr","kind":"refuse","label":"harmful","input":"Il mesure un virgule huit mètre","output":"Il mesure 1,9 mètre","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-44","lang":"es","kind":"accept","label":"neutral","input":"Son dos punto cinco kilos","output":"Son 2.5 kilos","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-45","lang":"es","kind":"accept","label":"neutral","input":"Son dos punto cinco kilos","output":"Son 2,5 kilos","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-72","lang":"en","kind":"refuse","label":"harmful","input":"Pick 3 comma 5 and 7","output":"Pick 3.5 and 7","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-50","lang":"en","kind":"accept","label":"neutral","input":"The comma was misplaced","output":"The comma was misplaced.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-53","lang":"en","kind":"refuse","label":"harmful","input":"Tell Anna comma we ship Monday","output":"Tell Anna, we ship Tuesday","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-73","lang":"en","kind":"accept","label":"neutral","input":"Hi Team Kamal, the deploy is done—new line, please check staging?","output":"Hi Team Kamal, the deploy is done.\nPlease check staging?","lineBreaks":true,"expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-74","lang":"en","kind":"accept","label":"neutral","input":"First item colon buy milk new line second item colon call the bank period.","output":"First item: buy milk\nSecond item: call the bank.","lineBreaks":true,"expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-75","lang":"ko","kind":"accept","label":"neutral","input":"회의는 내일입니다 새문단 감사합니다","output":"회의는 내일입니다 새 문단 감사합니다.","lineBreaks":false,"expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3-r1-76","lang":"en","kind":"refuse","label":"harmful","input":"Our new line of shoes launches comma Monday","output":"Our\nof shoes launches, Monday","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3-r1-78","lang":"es","kind":"accept","label":"neutral","input":"Te veo mañana punto Luego hablamos","output":"Te veo mañana. Luego hablamos","expect":{"strict":"accept","smooth":"accept"}}

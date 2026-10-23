@@ -164,7 +164,9 @@ describe('RC-6 — the stt.cut line', () => {
     await driveLeg(() => new GapLeg(), 31_000);   // 3.5 s past the last word, past `due` ⇒ 'word_gap'
     await driveLeg(() => new WordLeg(), 122_000); // no ≥600 ms gap by 120 s ⇒ 'overdue'
     expect(lines.length, 'POSITIVE CONTROL: the probe saw lines at all').toBeGreaterThan(0);
-    for (const l of lines) expect(Object.keys(l).sort(), JSON.stringify(l)).toEqual([...FIELDS, ...(l.kind === 'stop' ? ['backlog_ms'] : [])].sort());
+    for (const l of lines) expect(Object.keys(l).sort(), JSON.stringify(l)).toEqual([...FIELDS, ...(l.kind === 'stop' ? ['backlog_ms'] : []), ...(l.kind === 'hangup' ? ['idle_trigger'] : [])].sort());
+    // card IDLE-1 — a hang-up says what fired it; this run's hang-ups are all received silence.
+    for (const l of lines.filter(l => l.kind === 'hangup')) expect(l.idle_trigger).toBe('silence');
     expect(lines.filter(l => l.kind === 'stop').some(l => typeof l.backlog_ms === 'number')).toBe(true);
     for (const l of lines.filter(l => l.kind === 'stop')) expect(l.backlog_ms === null || Number.isFinite(l.backlog_ms)).toBe(true);
     const kinds = new Set(lines.map((l) => l.kind));
@@ -187,6 +189,108 @@ describe('RC-6 — the stt.cut line', () => {
     }
     expect(rows.some((l) => typeof l.vendor_last_word_ms === 'number'), 'the vendor position rides through when the engine gives one').toBe(true);
     expect(lines.find((l) => l.kind === 'hangup')!.replayed_ms).toBeNull();
+  });
+});
+
+/** card SEAM-2 — a pause-cut leg whose final is written by our end-of-stream ([closes]) or not. */
+class SeamLeg extends EventEmitter implements SttEngine {
+  readonly id: SttEngineId;
+  readonly finalsOnlyAtFlush?: true;
+  private _state: EngineState = 'closed';
+  private heard = false;
+  constructor(private readonly text: string, closes: boolean) { super(); this.id = closes ? 'soniox' : 'custom-openai-compatible'; if (closes) this.finalsOnlyAtFlush = true; }
+  get state(): EngineState { return this._state; }
+  async open(): Promise<void> { this._state = 'open'; }
+  push(): void { this.heard = true; this.emit('interim', { kind: 'interim', text: 'x', confidence: 0.5, language: 'en' }); }
+  async flush(): Promise<void> { if (this.heard) this.emit('final', { kind: 'final', text: this.text, confidence: 0.9, language: 'en', duration_ms: 0 }); }
+  async close(): Promise<void> { this._state = 'closed'; }
+}
+
+describe('card SEAM-2 — `seam_open` on a row cut', () => {
+  // REVERSE CONTROL (SAW RED, card SEAM-2): `logField()` made to return `{ seam_open: false }` whenever the
+  // rule applied ⇒ the 「we—」 row below red (expected false to be true).
+  it('true when the vendor mark was stripped, false at a real sentence end, absent when the engine does not close at end-of-stream', async () => {
+    const lines: Record<string, unknown>[] = [];
+    vi.spyOn(log, 'info').mockImplementation((msg: string, fields?: Record<string, unknown>) => { if (msg === STT_CUT_EVENT) lines.push(fields ?? {}); });
+    const run = async (texts: string[], closes: boolean): Promise<Record<string, unknown>[]> => {
+      lines.length = 0;
+      const clock = new FakeClock(T0);
+      const session = new AudioSession({ now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout, hardLimitMs: 3_600_000 });
+      session.start();
+      let voiced = true; let legs = 0;
+      const orch = new SttEngineOrchestrator(session, () => new SeamLeg(texts[Math.min(legs++, texts.length - 1)]!, closes), {
+        now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
+        softSegmentMs: 1_000, softSegmentGraceMs: 600_000, shouldFeedEngine: (): boolean => voiced, idleHangupMs: 3_000,
+      });
+      for (const ev of ['error', 'engine-status', 'interim', 'final']) orch.on(ev, () => { /* listeners mandatory */ });
+      await orch.start({ language: 'en', mode: 'realtime' });
+      let seq = 0;
+      for (const [n, loud] of [[7, true], [5, false], [7, true], [5, false], [3, true]] as const) {
+        voiced = loud;
+        for (let i = 0; i < n; i++) { orch.pushChunk({ seq: seq++, ts_ms: clock.now, payload: Buffer.alloc(CHUNK_BYTES, loud ? 0x40 : 0) }); await clock.advance(CHUNK_MS); }
+      }
+      await orch.stop(); await drain(); await orch.close();
+      return [...lines];
+    };
+    const soniox = await run(['and in the afternoon we—', 'on Tuesday afternoon.', 'thanks'], true);
+    const rows = soniox.filter((l) => l.kind === 'segment');
+    expect(rows.map((l) => l.reason), 'POSITIVE CONTROL: two pause row cuts').toEqual(['pause', 'pause']);
+    expect(rows.map((l) => l.seam_open)).toEqual([true, false]);
+    expect(soniox.filter((l) => l.kind === 'stop').every((l) => !('seam_open' in l)), 'the terminal flush is not a row cut').toBe(true);
+    const funasr = await run(['and in the afternoon we—', 'on Tuesday afternoon.', 'thanks'], false);
+    expect(funasr.filter((l) => l.kind === 'segment').map((l) => l.reason), 'POSITIVE CONTROL').toEqual(['pause', 'pause']);
+    expect(funasr.every((l) => !('seam_open' in l)), 'absent, not false: the rule was not asked').toBe(true);
+  });
+});
+
+/** card SEAM-2 review P6 — a Soniox-shaped leg whose flush answers only when the test releases it. */
+class HeldLeg extends EventEmitter implements SttEngine {
+  readonly id = 'soniox' as const;
+  readonly finalsOnlyAtFlush = true as const;
+  private _state: EngineState = 'closed';
+  private release: (() => void) | null = null;
+  get state(): EngineState { return this._state; }
+  async open(): Promise<void> { this._state = 'open'; }
+  push(): void { this.emit('interim', { kind: 'interim', text: 'and in the afternoon we', confidence: 0.5, language: 'en' }); }
+  flush(): Promise<void> {
+    return new Promise((done) => { this.release = (): void => { this.emit('final', { kind: 'final', text: 'and in the afternoon we—', confidence: 0.9, language: 'en', duration_ms: 0 }); done(); }; });
+  }
+  answer(): void { this.release?.(); }
+  get flushing(): boolean { return this.release !== null; }
+  async close(): Promise<void> { this._state = 'closed'; }
+}
+
+describe('card SEAM-2 review P6 — no `seam_open` on a hang-up line that emitted no row', () => {
+  // REVERSE CONTROL (SAW RED, card SEAM-2): the `!host.terminated` term removed from the hang-up line ⇒ red.
+  it('the session closes while a long recording\u2019s ending hang-up is flushing ⇒ the line has no seam_open', async () => {
+    const lines: Record<string, unknown>[] = [];
+    vi.spyOn(log, 'info').mockImplementation((msg: string, fields?: Record<string, unknown>) => { if (msg === STT_CUT_EVENT) lines.push(fields ?? {}); });
+    const clock = new FakeClock(T0);
+    const session = new AudioSession({ now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout, hardLimitMs: 3_600_000 });
+    session.start();
+    let voiced = true;
+    const leg = new HeldLeg();
+    const orch = new SttEngineOrchestrator(session, () => leg, {
+      now: clock.nowFn, setTimeoutFn: clock.setTimeout, clearTimeoutFn: clock.clearTimeout,
+      softSegmentMs: 600_000, shouldFeedEngine: (): boolean => voiced, idleHangupMs: 3_000, engineFlushTimeoutMs: 600_000, continuous: true,
+    });
+    const finals: unknown[] = [];
+    for (const ev of ['error', 'engine-status', 'interim']) orch.on(ev, () => { /* listeners mandatory */ });
+    orch.on('final', (f) => finals.push(f));
+    await orch.start({ language: 'en', mode: 'realtime' });
+    let seq = 0;
+    for (const [n, loud] of [[55, true], [20, false]] as const) {
+      voiced = loud;
+      for (let i = 0; i < n; i++) { orch.pushChunk({ seq: seq++, ts_ms: clock.now, payload: Buffer.alloc(CHUNK_BYTES, loud ? 0x40 : 0) }); await clock.advance(CHUNK_MS); }
+    }
+    expect(leg.flushing, 'POSITIVE CONTROL: the hang-up flush is out').toBe(true);
+    const closing = orch.close();
+    leg.answer();
+    await closing; await drain();
+    const hangup = lines.find((l) => l.kind === 'hangup');
+    expect(hangup?.reason, 'POSITIVE CONTROL: the hang-up would have ended the row').toBe('pause');
+    expect(finals, 'no row was emitted').toEqual([]);
+    expect('seam_open' in hangup!).toBe(false);
   });
 });
 

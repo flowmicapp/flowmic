@@ -54,6 +54,33 @@ import { probeManagedSttLiveness } from './managed-stt-health';
  *  the two numbers must move together or the anti-cache rule drifts. */
 export const STATUS_PROBE_INTERVAL_MS = 60_000;
 
+/**
+ * The env switch that lets a non-production relay keep its hands off the vendor.
+ *
+ * Unset (or `'1'`) ⇒ the timer runs, which is every production node today: their env files do not name this key, so
+ * production behaviour is byte-identical. `'0'` ⇒ the timer is never armed and both managed rows read `'unknown'`
+ * (never measured), which is the truth for a relay that chose not to measure. Any other value fails construction,
+ * so a typo such as `false` cannot silently leave a dev relay probing.
+ *
+ * Why it exists: every probe holds a real provider session for the settle window, and the provider bills that
+ * time (see managed-stt-health.ts, 「THE PROBE IS BILLED」). A local relay or test rig started with a real managed
+ * key used to probe on the same 60 s cadence as production — on 2026-09-23 the US key took 120 probes an hour,
+ * twice the one production node holding it. Rigs that boot a relay with a real key set it to `'0'`
+ * (scripts/emb13-live-rig.mjs `FLOWMIC_STATUS_PROBES`).
+ *
+ * Deliberately NOT keyed on `FLOWMIC_MANAGED_STT_ENABLED`: those rigs need the managed line on to transcribe at all,
+ * and a relay with it off already probes nothing (`probeManagedSttLiveness` returns `null` before any dial).
+ */
+export const STATUS_PROBES_ENV = 'FLOWMIC_STATUS_PROBES';
+
+/** `true` when the status timer may run under [env]. Throws on a value that is neither unset, `'1'` nor `'0'`. */
+export function statusProbesEnabled(env: NodeJS.ProcessEnv): boolean {
+  const raw = (env[STATUS_PROBES_ENV] ?? '').trim();
+  if (raw === '' || raw === '1') return true;
+  if (raw === '0') return false;
+  throw new Error(`${STATUS_PROBES_ENV} must be '1', '0' or unset (got ${JSON.stringify(raw)})`);
+}
+
 /** A result older than this many intervals is not an answer any more (§9-2.2).
  *  2 rather than 1: one missed tick is a slow provider, not a dead prober, and
  *  flapping to `'unknown'` on every slow round trip would train readers to
@@ -133,6 +160,7 @@ export function makeStatusProbes(deps: StatusProbeDeps = {}): StatusProbeRunner 
   const now = deps.now ?? Date.now;
   const probeStt = deps.probeStt ?? ((e): Promise<{ ok: boolean } | null> => probeManagedSttLiveness(e));
   const probeLlm = deps.probeLlm ?? ((e): Promise<{ ok: boolean } | null> => probeManagedLlmLiveness(e));
+  const enabled = statusProbesEnabled(env);
 
   const results = new Map<ProbeTarget, StoredResult>();
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -189,6 +217,11 @@ export function makeStatusProbes(deps: StatusProbeDeps = {}): StatusProbeRunner 
   return {
     start(): void {
       if (timer !== null) return;
+      if (!enabled) {
+        // Said once at boot, so a status page reading `unknown` on this relay has its reason in the journal.
+        log.info('status.probe disabled', { env: STATUS_PROBES_ENV });
+        return;
+      }
       // Kick one immediately so a fresh relay is not `'unknown'` for a whole
       // interval, then settle into the cadence.
       void runOnce();

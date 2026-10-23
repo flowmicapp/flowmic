@@ -174,6 +174,10 @@ extension ChatStatusSurface on ChatController {
   /// Consumer: `chat_flow_page._scroll` → `ChatMessageTile.queued` → 「排队中」 ("queued").
   Set<String> get queuedEntryIds => outbox.queuedEntryIds;
 
+  /// NR-279 — rows the queue still owes (queued OR inflight). Consumer:
+  /// `chat_flow_scroll.dart` → `ChatMessageTile.owed` → `noAnswerYet` face.
+  Set<String> get owedEntryIds => outbox.owedEntryIds;
+
   /// Image rows whose compressed copy is still on disk. Consumer:
   /// `ChatMessageTile.canResendImage` — whether the resend affordance exists at
   /// all (owner's two-stage model / R8).

@@ -55,7 +55,7 @@ function set(userId: string, fp: string | null): void {
 }
 
 /**
- * Called by the polish bridge (engine/stt-session.ts `runPolishedFinal`) with the
+ * Called by the polish bridge (engine/stt-session-polish.ts `runPolishedFinal`) with the
  * signal it is about to put on the wire and the config the run used.
  * `model_rejected` ⇒ remember; a run the provider answered ⇒ forget;
  * `timeout` / `llm_error` ⇒ no change.

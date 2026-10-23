@@ -374,7 +374,7 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
   // the CLOSING transcript of a recording is ever sent to the model, and that the
   // provisional words are never sent. Async-ification must change WHEN the answer
   // comes back, never WHICH text leaves the device.
-  it('🔴 only the utterance-closing final ever reaches the vendor (interim + soft-segment never do)', async () => {
+  it('🔴 interims never reach the vendor; soft-segment and closing finals do (card SEG-1)', async () => {
     const seen: string[] = [];
     const spyStreamer = (_p: LlmProtocol): LlmStreamer =>
       async function* (opts): AsyncGenerator<LlmEvent> {
@@ -391,10 +391,10 @@ describe('SttSessionBridge — WP-R4-6 polish, delivered synchronously (producti
     eng.finalOnFlush = '终稿';
     await bridge.finish();
     await settleDetached();
-    // The census, not a spot check: exactly one text left, and it is the terminal.
-    expect(seen).toEqual(['终稿']);
+    // The census, not a spot check: the two FINAL texts left, in order; no interim did.
+    expect(seen).toEqual(['这是一个软分段', '终稿']);
     const seg = emitted.filter((e) => e.event === 'stt:final').map((e) => e.payload as FinalCap);
-    expect(seg.find((f) => f.is_segment)?.polish).toBeUndefined();
+    expect(seg.find((f) => f.is_segment)?.polish).toBe('applied'); // SEG-1: was undefined — an unmarked unpolished row
     expect((emitted.find((e) => e.event === 'stt:interim')?.payload as { polish?: string }).polish).toBeUndefined();
   });
 
@@ -713,11 +713,11 @@ describe('SttSessionBridge — RT-1 polishUnavailable', () => {
     expect(degraded).toMatchObject({ polish: 'skipped', polish_reason: 'llm_error' });
   });
 
-  it('a SOFT-SEGMENT final never carries it (polish is an utterance-closing concern)', async () => {
+  it('card SEG-1: a SOFT-SEGMENT final carries it too (in realtime it is its own row)', async () => {
     const { bridge, emitted, orch } = makeBridge({ polishUnavailable: 'llm_error' });
     await tick();
     orch().emit('final', { text: '软分段', confidence: 1, language: 'zh', segment_idx: 0, is_segment: true, duration_ms: 500 });
-    expect(finalPayload(emitted).polish).toBeUndefined();
+    expect(finalPayload(emitted)).toMatchObject({ polish: 'skipped', polish_reason: 'llm_error' });
     bridge.dispose();
   });
 

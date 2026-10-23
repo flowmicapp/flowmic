@@ -35,10 +35,15 @@ part of 'chat_message_tile.dart';
 /// that can be proven.
 ///
 /// Never invents a leg: neither present (legacy data) ⇒ nothing is drawn.
-String? _provenance(TimelineEntry e) {
+String? _provenance(TimelineEntry e, {bool chipNamesPc = false}) {
   final String dest = (e.spokenToInstanceName ?? '').trim();
   final String landed = (e.pcName ?? '').trim();
-  final String pc = landed.isNotEmpty ? landed : dest;
+  // CARD-UI (C6): on the history page the attribution chip already names the
+  // spoken-to computer; repeating it here halved the room the chip gets. A
+  // row that LANDED on a differently named computer still says so.
+  final String pc = landed.isNotEmpty && landed != dest
+      ? landed
+      : (chipNamesPc ? '' : dest);
   final String win = (e.injectTarget?.windowTitle ?? '').trim();
   if (pc.isEmpty && win.isEmpty) return null;
   if (pc.isEmpty) return '→ $win';

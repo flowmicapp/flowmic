@@ -95,6 +95,9 @@
 // ⚠️ Only the READ half was falsified. **Whether `SendInput` into an elevated
 //   window is blocked by UIPI was not tested** (same report §7-4) — this
 //   correction must not be read as 「UIPI does not block it」.
+//   🔴 UPDATE 2026-10-16 【measured】: it IS blocked, silently (Medium → High,
+//   typing and paste both; docs/strategy/2026-10-16-msix-sendinput-spike.md
+//   §3.2). The per-window check lives in `inject/uipi.rs`, not in this probe.
 
 use crate::error_codes;
 

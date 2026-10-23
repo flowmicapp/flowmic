@@ -75,7 +75,56 @@ typedef OutboxOriginRequest = ({
   /// without looking at the clock. True for ➤ / Favorites / inline resend; false for every
   /// automatic drain (reconnect edge, PC_BUSY release).
   bool userRequested,
+
+  /// 🔴 NR-279 — has the phone already TOLD the user, on this item's row, that
+  /// the computer will not type it in on its own? The item's write-once
+  /// [OutboxItem.deferPromisedAt] fact, read as a bool (see [kDeferPromiseCodes]
+  /// for what writes it). True ⇒ every automatic attempt is `deferred`, however
+  /// young the item is.
+  bool deferPromised,
 });
+
+/// 🔴 NR-279 — the verdicts after which an automatic re-delivery may NEVER be
+/// stamped `live`.
+///
+/// Membership rule: a code belongs here iff the row sentence it selects
+/// promises the user that the computer will not type the item in by itself.
+/// Today that is only `INJECT_PC_OFFLINE`, whose note
+/// (`deliveryRefusalNote_INJECT_PC_OFFLINE`, selected in
+/// `settings/strings/inject_note_strings.dart` `deliveryRefusalNote`) ends with
+/// 「the computer will not type it in on its own」. Pinned by
+/// test/outbox_defer_promise_test.dart (membership + that the note exists).
+///
+/// WHY THE WINDOW MUST NOT APPLY TO THESE. [kLiveDeliveryWindow] exists for a
+/// lost emit the user never saw fail. A delivery the phone has openly reported
+/// as refused is the opposite case: the user was told what will NOT happen, and
+/// a PC that comes back 20 s later typing it into whatever window has focus is
+/// exactly the accident owner's 2026-08-02 ruling (provenance row 3, 「auto
+/// backfill ⇒ never auto-inject」) exists to prevent. Root cause:
+/// `.local/device-evidence/0315-upgrade/rca-anomalies.md` §1.
+///
+/// ⚠️ NOT `pc_presence.dart` `kPcAbsentInjectCodes`, although the members
+/// coincide today: that set answers 「is the PC absent」, this one answers
+/// 「did we promise the user it will not be typed」. One value, one question.
+const Set<String> kDeferPromiseCodes = <String>{'INJECT_PC_OFFLINE'};
+
+/// 🔴 NR-279 S4a — does this verdict make the promise (on the row) and record
+/// the fact (on the queue item, `outboxSettle`'s retryable branch)?
+///
+/// The two writers of ONE verdict must then run in a fixed order: the queue
+/// item's `deferPromisedAt` is persisted FIRST and the row is written AFTER it
+/// (`chat_outbox_host.dart` `onInjectResultRouted`; `image_send_http.dart` the
+/// `pcOffline` arm, which is the only arm of that leg that can carry this code
+/// — `image_upload.dart` maps a 200 with `error == 'INJECT_PC_OFFLINE'` to
+/// `ImageUploadStatus.pcOffline` before the verdict arm). A kill between the two leaves either
+/// both or the fact alone — never a row that promises 「will not type it in」
+/// over an item that does not know it (the A1 shape: boot revive, then a live
+/// drain inside the 60 s window). Pinned by
+/// test/outbox_defer_promise_order_test.dart.
+///
+/// Every other verdict keeps its old order (row first, queue write unawaited).
+bool verdictRecordsDeferPromise({required bool ok, String? code}) =>
+    !ok && code != null && kDeferPromiseCodes.contains(code);
 
 /// 🔴 THE STAMP. Everything that reaches the wire carries this answer.
 InjectOrigin outboxInjectOrigin(OutboxOriginRequest req) {
@@ -84,6 +133,9 @@ InjectOrigin outboxInjectOrigin(OutboxOriginRequest req) {
   // immediately, because the whole point is that the clock does not get a vote —
   // an `&&` with the age test would silently re-introduce one.
   if (req.userRequested) return InjectOrigin.live;
+  // NR-279 — checked AFTER the user's press (a press still types) and BEFORE
+  // the clock (the window must not overrule what the row already promised).
+  if (req.deferPromised) return InjectOrigin.deferred;
   final Duration age = req.attemptAt.difference(req.createdAt);
   // A NEGATIVE age means the two clocks disagree with themselves (a device clock
   // moved between enqueue and drain, or a row was built with a future stamp). It is

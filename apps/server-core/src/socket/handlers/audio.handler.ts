@@ -32,7 +32,7 @@ import type { RoomStore } from '../../room/store';
 import type { SttOrchestrator } from '../../engine/orchestrator';
 import type { SttCharCounts, SttEngineFailure } from '../../engine/stt-session-deps'; import type { ClaimBinding } from '../../db/repos/usage-effects.repo';
 import { EngineNotWiredError } from '../../engine/orchestrator';
-import { recoveryEchoOf, type RecoveryEcho } from '../../engine/stt-session-receipt';
+import { isRecoveryLeg, recoveryEchoOf, type RecoveryEcho } from '../../engine/stt-session-receipt';
 import {
   audioSessionKey, publishAudioSessions,
   type AudioSessionRegistry, type AudioSessionState, type AudioSessionEntry,
@@ -57,6 +57,7 @@ import type { SttStartArgs, AudioHandlerDeps } from './audio-handler-deps';
 
 export type { SttStartArgs, AudioHandlerDeps } from './audio-handler-deps';
 import { admitOperation } from './audio-start-operation';
+import { coverageRefOf, type RecordingCoverageRef } from '../../db/repos/recording-coverage.repo'; // NR-224
 import { hashedRoomId } from '../../http/presence-routes';
 import { armFinishWatchdog } from './audio-stop-watchdog';
 
@@ -133,9 +134,9 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   // more fact in hand. Which is the point of R11 — the layer that decides must
   // hold what the decision needs.
   function commitSttUsage(
-    userId: string, durationMs: number, isByok: boolean, chars: SttCharCounts, operationId?: string, failure?: SttEngineFailure, binding?: ClaimBinding,
-  ): void { // NR-138 item 5: [failure] ⇒ nothing charged or claimed (book 22 §4.10); round 6: [binding] binds the claim (§4.11)
-    usageTracker.recordSttUsage(userId, { is_byok: isByok }, durationMs, chars, principalRefOf(socket), operationId, failure, binding);
+    userId: string, durationMs: number, isByok: boolean, chars: SttCharCounts, operationId?: string, failure?: SttEngineFailure, binding?: ClaimBinding, attemptId?: string, coverage?: RecordingCoverageRef,
+  ): void { // NR-138 item 5: [failure] ⇒ nothing charged or claimed (book 22 §4.10); round 6: [binding] binds the claim (§4.11); NR-151: [attemptId]; NR-224: [coverage] (§4.12)
+    usageTracker.recordSttUsage(userId, { is_byok: isByok }, durationMs, chars, principalRefOf(socket), operationId, failure, binding, attemptId, coverage);
   }
 
   // *** billing call site (LLM metering) — the SECOND recordLlmUsage site ***
@@ -151,9 +152,9 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
   // actually call an LLM: the compose turn and the polish pass.
   // 🔴 card MP-9 — it carries the SAME principal `commitSttUsage` passes (whole argument at `principalRefOf`).
   function commitPolishUsage(
-    userId: string, tokensIn: number, tokensOut: number, isByok: boolean, operationId?: string, binding?: ClaimBinding,
+    userId: string, tokensIn: number, tokensOut: number, isByok: boolean, operationId?: string, binding?: ClaimBinding, attemptId?: string,
   ): void {
-    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut, principalRefOf(socket), operationId, binding);
+    usageTracker.recordLlmUsage(userId, { is_byok: isByok }, tokensIn, tokensOut, principalRefOf(socket), operationId, binding, attemptId);
   }
 
   /** Mirror an utterance-lifecycle edge to the paired PC — iff this utterance
@@ -587,6 +588,7 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
         sourceLang: parsed.data.source_lang,
         ...(parsed.data.target_lang !== undefined ? { targetLang: parsed.data.target_lang } : {}),
         ...(recoveryEcho !== undefined ? { recovery: recoveryEcho } : {}), // card CV-1
+        ...(isRecoveryLeg(parsed.data) ? { recoveryLeg: true as const } : {}), // card SEG-1b — a live press carries the echo too
         clientCaps: getClientCaps(socket), // card HANGUP-3 — what this client declared at admission
         ...(parsed.data.continuous === true ? { continuous: true as const } : {}), // card RC-1 — the relay's ONE reader of audio:start.continuous
 
@@ -608,10 +610,10 @@ export function registerAudioHandlers(socket: Socket, deps: AudioHandlerDeps): v
           slot !== local
             ? (): Pick<Socket, 'emit'> | null => (slot as AudioSessionEntry).socket
             : (): Socket => socket,
-        onComplete: (durationMs, isByok, chars, failure) =>
-          commitSttUsage(auth.userId, durationMs, isByok, chars, operationId, failure, operation.binding),
+        onComplete: (durationMs, isByok, chars, failure, received) =>
+          commitSttUsage(auth.userId, durationMs, isByok, chars, operationId, failure, operation.binding, parsed.data.attempt_id, coverageRefOf(parsed.data, received?.uniqueMs)),
         onPolishUsage: (tIn, tOut, isByok) =>
-          commitPolishUsage(auth.userId, tIn, tOut, isByok, operationId, operation.binding),
+          commitPolishUsage(auth.userId, tIn, tOut, isByok, operationId, operation.binding, parsed.data.attempt_id),
         // card S2-02 — push point 4 of 4. Fired by the stt emitter at the exact
         // instant it is about to send `audio:auto-stopped{quota_exhausted}`, so
         // 「the meter reached zero」 and 「the recording was ended」 are one event

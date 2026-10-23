@@ -64,6 +64,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import { RECOVERY_CLAIM_RETENTION_MS } from '../schema-recovery';
+import type { RecordingCoverageRef, RecordingCoverageRow, RecordingCoverageStore } from './recording-coverage-types';
 
 /** The two metering kinds that can each happen once per operation. They are the
  *  two things `usage_records` counts in different columns (STT minutes / LLM
@@ -148,9 +149,12 @@ function sameClaimBinding(a: ClaimBinding, b: ClaimBinding): boolean {
 }
 
 type ClaimRef = {
-  user_id: string; operation_id: string; kind: UsageEffectKind; at?: number;
+  /** NR-224 — absent ⇒ a session with no operation (a live press): no claim is read or written, only [coverage]. */
+  user_id: string; operation_id?: string | undefined; kind: UsageEffectKind; at?: number;
   /** Round 6 — the metered frame's binding. Absent ⇒ the claim (if new) is unbound, and a replay is billed normally. */
   binding?: ClaimBinding | undefined;
+  /** NR-224 (book 22 §4.12) — the recording audio this STT session covered. Absent ⇒ the pre-NR-224 metering exactly. */
+  coverage?: RecordingCoverageRef | undefined;
 };
 
 /**
@@ -176,8 +180,11 @@ export interface UsageEffectLedger extends UsageEffectClaim {
    */
   meterInCallerTransaction(ref: ClaimRef, amount: number, effect: (charge: number) => void): MeterVerdict;
   /** NR-138 round 5 — drop claims whose original `applied_at` is older than RECOVERY_CLAIM_RETENTION_MS (90 days).
-   *  Returns how many went. An automatic re-send after that is metered again (book 22 §4.11, rule ⑧ consequence). */
+   *  Returns how many went. An automatic re-send after that is metered again (book 22 §4.11, rule ⑧ consequence).
+   *  NR-224 — the recording coverage rows go by the same age in the same call (not counted in the return). */
   prune(now?: number): number;
+  /** NR-224 — this account's recording coverage rows, for the account export (empty when no store is wired). */
+  listCoverageByUser(user_id: string): RecordingCoverageRow[];
   /** NR-138 round 5 — this account's claims, for the account export (http/account-lifecycle.ts). */
   listByUser(user_id: string): {
     operation_id: string; kind: string; applied_at: number; billed_ms: number | null; replays: number;
@@ -185,7 +192,11 @@ export interface UsageEffectLedger extends UsageEffectClaim {
   }[];
 }
 
-export function makeUsageEffectLedger(db: DatabaseSync): UsageEffectLedger {
+/**
+ * [coverage] — NR-224 (book 22 §4.12): the per-recording 「which audio is already paid for」 store. The ONE production
+ * construction (db/connection.ts) passes it; absent ⇒ the ledger meters exactly as before NR-224.
+ */
+export function makeUsageEffectLedger(db: DatabaseSync, coverage?: RecordingCoverageStore): UsageEffectLedger {
   // *** billing *** Round 6 (book 22 §4.11, review B6 + B7): the claim stores the binding of the frame it metered, in
   // the same row — so claim and binding expire together. No binding ⇒ an unbound claim, whose replays bill normally.
   const insert = db.prepare(
@@ -206,18 +217,41 @@ export function makeUsageEffectLedger(db: DatabaseSync): UsageEffectLedger {
        FROM usage_effects WHERE user_id = ? ORDER BY applied_at DESC`,
   );
 
+  /** *** billing *** NR-224 — what to charge once earlier payment for the same recording audio is counted: never more
+   *  than [proposed]. STT only (tokens vary between runs and are a safety valve, D-21). Never throws (the store's own catch). */
+  function cover(ref: ClaimRef, amount: number, proposed: number, at: number): number {
+    if (coverage === undefined || ref.coverage === undefined || ref.kind !== 'stt') return proposed;
+    return coverage.settle(ref.user_id, ref.coverage, amount, proposed, at, ref.operation_id).charge;
+  }
+  /** *** billing *** NR-224 review — a re-send of an operation coverage CREDITED spends the recording's free budget
+   *  (then bills in full). Null ⇒ not such an operation, or no coverage on this frame: the claim's rule stands. */
+  function creditedReplay(ref: ClaimRef, operation_id: string, amount: number, claimCharge: number, at: number): number | null {
+    if (coverage === undefined || ref.coverage === undefined || ref.kind !== 'stt') return null;
+    return coverage.creditedReplay(ref.user_id, ref.coverage, operation_id, amount, claimCharge, at);
+  }
+
   /** Read, decide, write, apply — inside whatever transaction the caller of this function holds. A throw from
    *  [effect] must reach that transaction's rollback, so nothing here catches it. */
   function step(ref: ClaimRef, amount: number, effect: (charge: number) => void): MeterVerdict {
     const at = ref.at ?? Date.now();
+    // *** billing *** NR-224 — a session with no operation (a live press) takes no claim; only the coverage store
+    // decides, and it charges in full unless a RECOVERY session already paid for this audio (design §2.2).
+    if (ref.operation_id === undefined) {
+      // The effect runs even at 0: a credited session still leaves its usage row (characters, statistics), as a
+      // live press always did — what moves is only the minutes.
+      effect(cover(ref, amount, amount, at));
+      return 'applied';
+    }
     type Bound = { recording_id: string | null; job_id: string | null; range_start_sample: number | null; range_end_sample: number | null };
     const r = select.get(ref.user_id, ref.operation_id, ref.kind) as
       ({ applied_at: number; billed_ms: number | null; replays: number } & Bound) | undefined;
     if (r === undefined) {
       const b = ref.binding;
+      // *** billing *** NR-224: the claim still records the operation's whole basis as settled (`billed_ms`), so its own
+      // honest replays stay free inside the bound even when coverage made this first charge smaller.
       insert.run(ref.user_id, ref.operation_id, ref.kind, at, ref.kind === 'stt' ? Math.round(amount) : null,
         b?.recording_id ?? null, b?.job_id ?? null, b?.range_start_sample ?? null, b?.range_end_sample ?? null);
-      effect(amount);
+      effect(cover(ref, amount, amount, at)); // NR-224: runs at 0 too (see the op-less branch above)
       return 'applied';
     }
     // Round 6: a replay may use the claim only if the claim is bound AND the metered frame carries the same binding.
@@ -237,7 +271,17 @@ export function makeUsageEffectLedger(db: DatabaseSync): UsageEffectLedger {
       ref.kind, amount, at,
     );
     replayed.run(d.billed_ms === null ? null : Math.round(d.billed_ms), ref.user_id, ref.operation_id, ref.kind);
-    if (d.charge > 0) effect(d.charge);
+    // *** billing *** NR-224 — only a LONGER replay's excess consults coverage (it may be audio a live session paid
+    // for). `replay_billed` (sixth onward) and `replay_unbound` stay in full: coverage must not undo the round-4 bound.
+    // NR-224 review (MAIN decision): a re-send of a CREDITED operation — free or longer — also spends the recording's
+    // free budget, and is billed the whole amount once it is gone; the claim alone would let it through free.
+    let charge = d.charge;
+    if (d.verdict === 'replay_free' || d.verdict === 'replay_excess') {
+      const spent = creditedReplay(ref, ref.operation_id, amount, d.charge, at);
+      if (spent !== null) charge = spent;
+      else if (d.verdict === 'replay_excess' && d.charge > 0) charge = cover(ref, amount, d.charge, at);
+    }
+    if (charge > 0) effect(charge);
     return d.verdict;
   }
 
@@ -264,7 +308,11 @@ export function makeUsageEffectLedger(db: DatabaseSync): UsageEffectLedger {
       return step(ref, amount, effect);
     },
     prune(now = Date.now()): number {
+      coverage?.prune(now);
       return Number(sweep.run(now - RECOVERY_CLAIM_RETENTION_MS).changes ?? 0);
+    },
+    listCoverageByUser(user_id): RecordingCoverageRow[] {
+      return coverage?.listByUser(user_id) ?? [];
     },
     listByUser(user_id) {
       return (byUser.all(user_id) as Record<string, unknown>[]).map((r) => ({

@@ -292,6 +292,7 @@ class ManualDelivery {
     // send the same words twice.
     if (_deliverInFlight) return null;
     _deliverInFlight = true;
+    _idle = Completer<void>();
     // 🔴 Card B4-18 ③ — ONE CONCLUSION ON SCREEN AT A TIME (same posture as
     // RV-97 ③).
     //
@@ -316,6 +317,10 @@ class ManualDelivery {
         typedEntry = buildDeliveryRow(clientId: requestId, text: text);
         settle.add(typedEntry.id);
       }
+      // 🔴 POL-M1 / R12 — every row this delivery covers (and the row it just
+      // built) is frozen here, before the first `await` below: queued or
+      // in flight, its words are the ones handed off.
+      _host.store.markHandedOff(settle);
       // RCA-v3 transport-truth gate: an acked round-trip within the last few
       // milliseconds is the ONLY proof this link is alive — after the photo
       // picker (or any backgrounding) the socket can be dead for up to 30 s
@@ -465,11 +470,29 @@ class ManualDelivery {
       return null;
     } finally {
       _deliverInFlight = false;
+      _idle?.complete();
+      _idle = null;
       _host.deliveryNotify();
     }
   }
 
   bool _deliverInFlight = false;
+  Completer<void>? _idle;
+
+  /// POL-M1b — completes when the delivery now inside the ack gate is done
+  /// (immediately when none is). For a caller whose send is a DIFFERENT act
+  /// from the one in flight — the 「+」 panel's send while a ➤ is still out —
+  /// and must therefore queue behind it rather than hit the double-tap guard
+  /// above, which would drop its words silently. The caller re-checks
+  /// [sendPending] after it resumes (another send may have started in between).
+  Future<void> whenIdle() => _idle?.future ?? Future<void>.value();
+
+  /// POL-M1b — saved phrases (常用语) waiting for, or inside, their own send.
+  /// A phrase's identity is its text (the panel keys it `fav:<text>`), so a
+  /// second tap of the SAME phrase while it is here is a double tap and is
+  /// ignored; a different phrase queues behind it. See
+  /// `ChatExplicitDelivery.sendFavorite`.
+  final Set<String> pendingFavorites = <String>{};
 
   /// True while a delivery is inside the ack gate (the UI greys ➤ / the image
   /// tile off this instead of double-sending).
@@ -613,6 +636,11 @@ class ManualDelivery {
   /// there.
   void armInFlight(String requestId, List<String> settle) =>
       runArmInFlight(this, requestId, settle);
+
+  /// NR-286 — the claim for a frame the QUEUE put out; quiet when its rows
+  /// already show no-answer. Body + rule in manual_delivery_result.dart.
+  void armOutboxSend(String requestId, List<String> settle) =>
+      runArmOutboxSend(this, requestId, settle);
 
   /// Release every watchdog timer. Body moved to manual_delivery_result.dart
   /// (800-line cap); header there.

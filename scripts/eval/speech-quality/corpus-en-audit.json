@@ -1,0 +1,457 @@
+{
+ "version": 1,
+ "note": "EN-AUDIT 2026-10-14: English-native dictation habits (fillers F, self-corrections C, false-trigger probes X, scratch-that S, spoken punctuation P, contractions K, numbers N, meaning protection M). Scored by score-en-audit.mjs.",
+ "variants": {
+  "onset_silence_sec": [
+   0
+  ],
+  "noise_snr_db": 20,
+  "ids": []
+ },
+ "items": [
+  {
+   "id": "ea-01",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "Um, can you send me the slides before the call?",
+   "reference": "Um, can you send me the slides before the call?",
+   "tags": [
+    "F"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-02",
+   "lang": "en",
+   "voice": "Daniel",
+   "speak_text": "So I was thinking, uh, we could push the launch to Thursday.",
+   "reference": "So I was thinking, uh, we could push the launch to Thursday.",
+   "tags": [
+    "F"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-03",
+   "lang": "en",
+   "voice": "Karen",
+   "speak_text": "Hey team, um, the build is green again, uh, thanks Priya.",
+   "reference": "Hey team, um, the build is green again, uh, thanks Priya.",
+   "tags": [
+    "F"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-04",
+   "lang": "en",
+   "voice": "Rishi",
+   "speak_text": "I mean the deploy worked, but like, the logs are kind of noisy, you know.",
+   "reference": "I mean the deploy worked, but like, the logs are kind of noisy, you know.",
+   "tags": [
+    "F"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-05",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "Erm, I'll be about ten minutes late, sorry.",
+   "reference": "Erm, I'll be about ten minutes late, sorry.",
+   "tags": [
+    "F",
+    "X"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-06",
+   "lang": "en",
+   "voice": "Moira",
+   "speak_text": "Hmm, let me check the invoice and get back to you.",
+   "reference": "Hmm, let me check the invoice and get back to you.",
+   "tags": [
+    "F"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-07",
+   "lang": "en",
+   "voice": "Daniel",
+   "speak_text": "The meeting, um, is at three thirty in room four.",
+   "reference": "The meeting, um, is at three thirty in room four.",
+   "tags": [
+    "F"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-08",
+   "lang": "en",
+   "voice": "Tessa",
+   "speak_text": "We need, uh, like, three more reviewers on this pull request.",
+   "reference": "We need, uh, like, three more reviewers on this pull request.",
+   "tags": [
+    "F"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-09",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "Let's meet at two, no wait, three o'clock tomorrow.",
+   "reference": "Let's meet at two, no wait, three o'clock tomorrow.",
+   "tags": [
+    "C"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-10",
+   "lang": "en",
+   "voice": "Daniel",
+   "speak_text": "Send it to Mark, sorry, I mean Marcus, by Friday.",
+   "reference": "Send it to Mark, sorry, I mean Marcus, by Friday.",
+   "tags": [
+    "C"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-11",
+   "lang": "en",
+   "voice": "Karen",
+   "speak_text": "The budget is fifty thousand, actually sixty thousand dollars.",
+   "reference": "The budget is fifty thousand, actually sixty thousand dollars.",
+   "tags": [
+    "C"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-12",
+   "lang": "en",
+   "voice": "Rishi",
+   "speak_text": "Book the flight for Tuesday, no, Wednesday morning.",
+   "reference": "Book the flight for Tuesday, no, Wednesday morning.",
+   "tags": [
+    "C"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-13",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "Scratch that, let's just use the old template.",
+   "reference": "Scratch that, let's just use the old template.",
+   "tags": [
+    "S"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-14",
+   "lang": "en",
+   "voice": "Moira",
+   "speak_text": "Actually, I think the first draft was better.",
+   "reference": "Actually, I think the first draft was better.",
+   "tags": [
+    "X"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-15",
+   "lang": "en",
+   "voice": "Tessa",
+   "speak_text": "Tell them no, wait until they send the new quote.",
+   "reference": "Tell them no, wait until they send the new quote.",
+   "tags": [
+    "X"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-16",
+   "lang": "en",
+   "voice": "Daniel",
+   "speak_text": "The deadline is the fifteenth, sorry, the sixteenth of November.",
+   "reference": "The deadline is the fifteenth, sorry, the sixteenth of November.",
+   "tags": [
+    "C"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-17",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "We have four, no, five open bugs on the checkout page.",
+   "reference": "We have four, no, five open bugs on the checkout page.",
+   "tags": [
+    "C"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-18",
+   "lang": "en",
+   "voice": "Karen",
+   "speak_text": "I'm sorry the release slipped, we'll fix it this week.",
+   "reference": "I'm sorry the release slipped, we'll fix it this week.",
+   "tags": [
+    "X"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-19",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "Hi Anna comma thanks for the update period I'll review it tonight period",
+   "reference": "Hi Anna comma thanks for the update period I'll review it tonight period",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-20",
+   "lang": "en",
+   "voice": "Daniel",
+   "speak_text": "Dear Mr Patel comma new paragraph I'm writing to confirm our meeting on Monday period",
+   "reference": "Dear Mr Patel comma new paragraph I'm writing to confirm our meeting on Monday period",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-21",
+   "lang": "en",
+   "voice": "Rishi",
+   "speak_text": "Can you check the staging server question mark it seems slow today period",
+   "reference": "Can you check the staging server question mark it seems slow today period",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-22",
+   "lang": "en",
+   "voice": "Karen",
+   "speak_text": "Great work everyone exclamation mark see you all on Friday period",
+   "reference": "Great work everyone exclamation mark see you all on Friday period",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-23",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "What time works for you question mark",
+   "reference": "What time works for you question mark",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-24",
+   "lang": "en",
+   "voice": "Moira",
+   "speak_text": "Two things colon update the docs semicolon then fix the tests period",
+   "reference": "Two things colon update the docs semicolon then fix the tests period",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-25",
+   "lang": "en",
+   "voice": "Tessa",
+   "speak_text": "Thanks so much comma Sarah period new line Best comma Tom",
+   "reference": "Thanks so much comma Sarah period new line Best comma Tom",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-26",
+   "lang": "en",
+   "voice": "Daniel",
+   "speak_text": "The trial period is thirty days comma after that it's ten dollars a month period",
+   "reference": "The trial period is thirty days comma after that it's ten dollars a month period",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-27",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "Put a comma after the greeting and a period at the end.",
+   "reference": "Put a comma after the greeting and a period at the end.",
+   "tags": [
+    "X"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-28",
+   "lang": "en",
+   "voice": "Rishi",
+   "speak_text": "Is it ready question mark I need to ship it by noon",
+   "reference": "Is it ready question mark I need to ship it by noon",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-29",
+   "lang": "en",
+   "voice": "Karen",
+   "speak_text": "Write a Python function that sorts a list by date comma then returns the top five period",
+   "reference": "Write a Python function that sorts a list by date comma then returns the top five period",
+   "tags": [
+    "P"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-30",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "I don't think we're ready, and they can't ship it until it's tested.",
+   "reference": "I don't think we're ready, and they can't ship it until it's tested.",
+   "tags": [
+    "K"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-31",
+   "lang": "en",
+   "voice": "Daniel",
+   "speak_text": "We won't make it, so let's tell them we'll need another day.",
+   "reference": "We won't make it, so let's tell them we'll need another day.",
+   "tags": [
+    "K"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-32",
+   "lang": "en",
+   "voice": "Tessa",
+   "speak_text": "She isn't sure, but I'd say it's worth a try.",
+   "reference": "She isn't sure, but I'd say it's worth a try.",
+   "tags": [
+    "K"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-33",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "The invoice is two thousand four hundred dollars, due on March third.",
+   "reference": "The invoice is two thousand four hundred dollars, due on March third.",
+   "tags": [
+    "N"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-34",
+   "lang": "en",
+   "voice": "Rishi",
+   "speak_text": "Upgrade to Node twenty two and bump TypeScript to five point four.",
+   "reference": "Upgrade to Node twenty two and bump TypeScript to five point four.",
+   "tags": [
+    "N"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-35",
+   "lang": "en",
+   "voice": "Karen",
+   "speak_text": "Ping me on Slack or Zoom after the standup at nine fifteen.",
+   "reference": "Ping me on Slack or Zoom after the standup at nine fifteen.",
+   "tags": [
+    "N"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-36",
+   "lang": "en",
+   "voice": "Daniel",
+   "speak_text": "Our conversion rate went up twelve percent, from three point one to three point five.",
+   "reference": "Our conversion rate went up twelve percent, from three point one to three point five.",
+   "tags": [
+    "N"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-37",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "Do not merge this branch until legal signs off.",
+   "reference": "Do not merge this branch until legal signs off.",
+   "tags": [
+    "M"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-38",
+   "lang": "en",
+   "voice": "Moira",
+   "speak_text": "Maybe we could, you know, try a smaller rollout first.",
+   "reference": "Maybe we could, you know, try a smaller rollout first.",
+   "tags": [
+    "M",
+    "F"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-39",
+   "lang": "en",
+   "voice": "Rishi",
+   "speak_text": "Please don't reply all, just reply to me.",
+   "reference": "Please don't reply all, just reply to me.",
+   "tags": [
+    "M",
+    "K"
+   ],
+   "terms": []
+  },
+  {
+   "id": "ea-40",
+   "lang": "en",
+   "voice": "Samantha",
+   "speak_text": "Um, write me a short email to the landlord, uh, asking if we can move in a week early, but keep it polite.",
+   "reference": "Um, write me a short email to the landlord, uh, asking if we can move in a week early, but keep it polite.",
+   "tags": [
+    "M",
+    "F"
+   ],
+   "terms": []
+  }
+ ]
+}

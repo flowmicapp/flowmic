@@ -291,6 +291,10 @@ Future<bool> emitMobileReconnectRouted(PttSession s, String token) =>
           s._reconnectAckAudioSeq =
               (audioSeq is int && audioSeq >= -1) ? audioSeq : null;
         }
+        // NR-174-D6 — a long recording that outlived the link is either put
+        // back on the wire (the relay still holds it) or ended honestly (it
+        // does not). Before the ring replay, which runs after this ack.
+        s._onContinuousLinkBack(serverSessionAlive: s._reconnectAckAudioSeq != null);
         // 🔴 Phone-follows-PC — THE PRODUCTION CALLER of [planNodeHop].
         // Deliberately last, and deliberately not awaited: everything above is
         // this ack's own business and must not wait on a network question.

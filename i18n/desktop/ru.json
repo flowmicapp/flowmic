@@ -285,6 +285,7 @@
     "injectFailReason.INJECT_FOCUS_LOST": "'Фокус ввода не найден'",
     "injectFailReason.INJECT_IMAGE_UNSUPPORTED": "'Это окно не принимает изображения'",
     "injectFailReason.INJECT_NO_ACCESSIBILITY": "'У FlowMic нет разрешения «Универсальный доступ» · Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ'",
+    "injectFailReason.INJECT_TARGET_ELEVATED": "'Окно на переднем плане запущено от имени администратора; Windows заблокировала ввод'",
     "injectFailReason.INJECT_NO_TEXT_TARGET": "'В активном окне нет места для ввода'",
     "injectFailReason.INJECT_SECURE_INPUT_ACTIVE": "'Система в режиме защищённого ввода (поле пароля / экран блокировки)'",
     "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT": "'Фокус был на собственном окне FlowMic'",

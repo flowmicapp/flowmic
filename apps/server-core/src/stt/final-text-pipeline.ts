@@ -48,6 +48,7 @@ export function makeFinalTextPipeline(replacer: DictionaryReplacer): FinalTextTr
     return normalizeFinalText(replaced, {   // ② normalizer (F-2249)
       language: ctx.language,
       ensureTerminalPunctuation: !ctx.isSegment,
+      ...(replacer.canonicals !== undefined ? { keepTerms: replacer.canonicals } : {}),
     });
   };
 }

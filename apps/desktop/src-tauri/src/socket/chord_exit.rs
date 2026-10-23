@@ -22,9 +22,10 @@ pub(super) enum ChordExit {
     /// Events may already have reached the target; do not claim known refusal.
     SubmissionUncertain(String),
     /// The OS would discard a synthetic keystroke right now (macOS: no
-    /// Accessibility grant, or secure event input is on). Nothing was posted and
-    /// the foreground was NOT taken. Carries the preflight's error code so the
-    /// log names WHICH of the two conditions held.
+    /// Accessibility grant, or secure event input is on; Windows: the target runs
+    /// above our integrity, `INJECT_TARGET_ELEVATED` from `uipi::uipi_preflight`).
+    /// Nothing was posted and the foreground was NOT taken. Carries the refusing
+    /// gate's error code so the log names WHICH condition held.
     OsWillNotDeliver(String),
     /// A target existed but could not be brought to the foreground, so the keys
     /// would have landed in whatever window IS foreground. Not sent, on purpose.

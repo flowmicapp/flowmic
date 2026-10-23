@@ -21,7 +21,8 @@
 part of 'main.dart';
 
 extension _PageBuilders on _FlowMicAppState {
-  SettingsPage _buildSettings() => SettingsPage(
+  SettingsPage _buildSettings(SettingsNotesAction notesAction) => SettingsPage(
+    notesAction: notesAction,
     scenario: _settingsRoot.scenario,
     prefs: _settingsRoot.prefs,
     backup: _settingsRoot.backup,
@@ -65,9 +66,24 @@ extension _PageBuilders on _FlowMicAppState {
       isCloudInstance: _connections.activePairingIsCloudInstance,
       // 🔴 Card CR-9 — the continuous entry's numbers, and whether it appears.
       cloudSummary: _cloudSummary,
-      onOpenSettings: () => Navigator.of(
-        _navKey.currentContext!,
-      ).push<void>(MaterialPageRoute<void>(builder: (_) => _buildSettings())),
+      // FM-002 — inside a Notes session Settings offers 「Exit Notes」 and pops
+      // with `leave`; this host performs it by popping the chat route, i.e.
+      // the chat page's own back path (its PopScope runs the same
+      // disposition as header ←). Inside a PC session there is no Notes action
+      // to offer from here, so the button is not built.
+      onOpenSettings: () async {
+        final NavigatorState nav = Navigator.of(_navKey.currentContext!);
+        final Object? picked = await nav.push<Object?>(
+          MaterialPageRoute<Object?>(
+            builder: (_) => _buildSettings(
+              _connections.activePairingIsCloudInstance
+                  ? SettingsNotesAction.leave
+                  : SettingsNotesAction.none,
+            ),
+          ),
+        );
+        if (picked == SettingsNotesAction.leave) await nav.maybePop();
+      },
       // REQ-12-02 (owner 2026-08-12) — the transcription page's one-tap clear.
       //
       // 🔴 SAME sheet, SAME inventory instance, SAME store as Settings → Data →

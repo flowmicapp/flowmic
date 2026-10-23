@@ -211,7 +211,14 @@ class PendingRecoveryStore implements PendingRecoverySource {
           out.add(PendingRecoveryItem(
             id: s.recordingId,
             legacy: false,
-            state: PendingRecoveryState.unreadable,
+            // NR-214 — or nothing is left because the live rows reach the end
+            // (a killed recording whose words all landed): transcribed, its
+            // receipt never came. Delete only, as for unreadable.
+            state: m.owedRanges.isEmpty &&
+                    (m.liveCoveredBytes ?? 0) >= s.verifiedEnd &&
+                    !s.claimAheadOfObserved
+                ? PendingRecoveryState.settledUnverified
+                : PendingRecoveryState.unreadable,
             durationMs: _unreadableMs(s, m),
             recordedAtMs: recordedAtMsFromId(s.recordingId),
           ));

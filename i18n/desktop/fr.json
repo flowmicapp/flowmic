@@ -285,6 +285,7 @@
     "injectFailReason.INJECT_FOCUS_LOST": "'Aucun focus de saisie trouvé'",
     "injectFailReason.INJECT_IMAGE_UNSUPPORTED": "\"Cette fenêtre n'accepte pas les images\"",
     "injectFailReason.INJECT_NO_ACCESSIBILITY": "\"FlowMic n'a pas l'autorisation Accessibilité · Réglages Système ▸ Confidentialité et sécurité ▸ Accessibilité\"",
+    "injectFailReason.INJECT_TARGET_ELEVATED": "\"La fenêtre au premier plan s'exécute en tant qu'administrateur ; Windows a bloqué la saisie\"",
     "injectFailReason.INJECT_NO_TEXT_TARGET": "'Aucun endroit modifiable dans la fenêtre active'",
     "injectFailReason.INJECT_SECURE_INPUT_ACTIVE": "'Le système est en mode saisie sécurisée (champ de mot de passe / écran de verrouillage)'",
     "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT": "'Le focus était sur la fenêtre de FlowMic'",

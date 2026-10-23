@@ -26,6 +26,7 @@ import '../ptt/ptt_session.dart';
 import '../settings/app_strings.dart';
 import '../signaling/album_away.dart';
 import 'banner_queue.dart';
+import 'continuous_away_notice.dart';
 import 'mic_permission_banner.dart';
 
 /// Map the live chat state onto the banner queue.
@@ -139,6 +140,9 @@ BannerQueue _liveSources({
   // from here does not exist as far as the user is concerned.
   continuousCapWarning: controller.session.capTimer.warningTicket != 0,
   onDismissContinuousCapWarning: controller.session.capTimer.dismissWarning,
+  // NR-213 — THE PRODUCTION READER of `ContinuousAway.noticeTicket`.
+  continuousAwayReturn: continuousAwayNotice(controller.session.continuous.away, strings),
+  onDismissContinuousAwayReturn: controller.dismissContinuousAwayNotice,
   // GA-03: a PTT press that produced no transcript at all
   // (15 s net / terminal stt:error) — never silent.
   sttStalled: controller.sttStalled,

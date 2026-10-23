@@ -1,0 +1,377 @@
+{
+ "_comment": "Card POL-3 review (book 08 §3 correction, 2026-10-14): the row-seam rule, pinned on ALL FOUR copies. pc_space = what the PC types after `left` (apps/desktop/src-tauri/src/inject/delivery_spacing.rs should_append_delivery_space, the reference; read by its cargo test). joiner = the display joiner (pc_space plus two display-only rules: '\n' after 。！？ and nothing before leading whitespace), read by apps/server-core/test/pol3-unit-join-shared.test.ts, apps/desktop/src/capsule/seam-join-parity.test.ts and apps/mobile/test/unit_join_shared_fixture_test.dart. Change a case here and all four must still pass.",
+ "cases": [
+  {
+   "left": "你好。",
+   "right": "再见",
+   "joiner": "\n",
+   "pc_space": false
+  },
+  {
+   "left": "真的！",
+   "right": "好",
+   "joiner": "\n",
+   "pc_space": false
+  },
+  {
+   "left": "是吗？",
+   "right": "是",
+   "joiner": "\n",
+   "pc_space": false
+  },
+  {
+   "left": "hello！",
+   "right": "next",
+   "joiner": "\n",
+   "pc_space": true
+  },
+  {
+   "left": "第一，",
+   "right": "第二",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "东京：",
+   "right": "大阪",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "苹果、",
+   "right": "梨",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "然后；",
+   "right": "再",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "hello，",
+   "right": "world",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "hello",
+   "right": "world",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "Done.",
+   "right": "Next",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "what?",
+   "right": "yes",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "...",
+   "right": "next",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "hello",
+   "right": " world",
+   "joiner": "",
+   "pc_space": true
+  },
+  {
+   "left": "hello",
+   "right": "\nworld",
+   "joiner": "",
+   "pc_space": true
+  },
+  {
+   "left": "x ",
+   "right": "y",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "Ελλάδα",
+   "right": " χθες",
+   "joiner": "",
+   "pc_space": true
+  },
+  {
+   "left": "数字1",
+   "right": "下",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "数字１",
+   "right": "下",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "année 2026",
+   "right": "est",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "你好",
+   "right": "world",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "安倍",
+   "right": "经济学",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "中文.",
+   "right": "next",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "hello中",
+   "right": "x",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "我们用",
+   "right": "Redis",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "we use Redis",
+   "right": "来缓存",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "Grüße",
+   "right": "aus",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "café",
+   "right": "noir",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "está",
+   "right": "bien",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "Grüß",
+   "right": "Gott",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "привет",
+   "right": "мир",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "καλημέρα",
+   "right": "κόσμε",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "café",
+   "right": "noir",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "你好́",
+   "right": "x",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "Helló.",
+   "right": "x",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "안녕하세요",
+   "right": "저는",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "회의는",
+   "right": "3시에",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "안녕하세요.",
+   "right": "다음",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "ですね",
+   "right": "それ",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "カメラ",
+   "right": "を",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "コーヒー",
+   "right": "を飲みます",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "ｶﾅ",
+   "right": "x",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "ภาษาไทย",
+   "right": "ดี",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "ລາວ",
+   "right": "x",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "ខ្មែរ",
+   "right": "x",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "မြန်မာ",
+   "right": "x",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "ꀀ.",
+   "right": "x",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "ㄅ.",
+   "right": "x",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "migrate to",
+   "right": ".NET 8",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "open the",
+   "right": ".env",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "word—",
+   "right": "next",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "你好—",
+   "right": "next",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "Hello 😀",
+   "right": "next",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "笑😀",
+   "right": "next",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "😀",
+   "right": "x",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "abc",
+   "right": "，def",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "hello",
+   "right": ", world",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "hello",
+   "right": "(aside)",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "café",
+   "right": "?",
+   "joiner": " ",
+   "pc_space": true
+  },
+  {
+   "left": "！",
+   "right": "x",
+   "joiner": "\n",
+   "pc_space": false
+  },
+  {
+   "left": "",
+   "right": "x",
+   "joiner": "",
+   "pc_space": false
+  },
+  {
+   "left": "x",
+   "right": "",
+   "joiner": "",
+   "pc_space": true
+  }
+ ]
+}

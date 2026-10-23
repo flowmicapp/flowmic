@@ -305,6 +305,7 @@ Widget _dockBandRouted(
 ) => ComposeBand(
   part: part,
   buffer: s.controller.buffer,
+  recordOnly: s.controller.destination.isRecordOnly, // NR-225
   strings: strings,
   // 🔴 NR-4 (e): 「was this draft spoken or typed」 — READ from the one author
   // (`_sheetSrcVoice`, which the sheet header already reads) and handed down.

@@ -98,6 +98,9 @@ Future<void> outboxSettle(
     return;
   }
   outboxCancelWatchdog(box, item.requestId);
+  // NR-286 rule 7 — an answer arrived, whatever it says: the no-answer streak
+  // and its pending retry are over.
+  outboxClearNoAnswerRetry(box, item.requestId);
   if (ok) {
     final OutboxItem delivered =
         item.copyWith(state: OutboxDeliveryState.delivered);
@@ -217,6 +220,7 @@ Future<void> outboxSettle(
       createdAt: item.createdAt,
       attemptAt: settleAt,
       userRequested: false,
+      deferPromised: item.deferPromisedAt != null,
     ));
     if (transientVerdictEarnsAnotherAttempt(
       code: code,
@@ -291,10 +295,20 @@ Future<void> outboxSettle(
     // A retryable failure: 「not right now」. Back to queued — owner ruled 「no
     // matter how long it takes, everything must be delivered — unless the
     // connection never comes back」.
+    //
+    // 🔴 NR-279 — THIS is the transition that puts 「the computer will not type
+    // it in on its own」 on the row: the same `inject:result` is applied to the
+    // row (`onInjectResultRouted` → `applyInjectResult`) and to this item, and
+    // the HTTP image leg reaches here through `settleQueued(code:
+    // 'INJECT_PC_OFFLINE')`. So the promise is recorded here, once, and every
+    // later automatic attempt reads it (`outboxInjectOrigin` ⇒ `deferred`).
+    // Write-once is enforced by `copyWith` (an existing stamp wins).
+    final bool promises = verdictRecordsDeferPromise(ok: ok, code: code);
     await box._persistItem(
       item.copyWith(
         state: OutboxDeliveryState.queued,
         lastRefusalNote: code ?? 'INJECT_FAILED',
+        deferPromisedAt: promises ? DateTime.now().toUtc() : null,
       ),
       op: 'settle_requeued',
     );
@@ -315,6 +329,8 @@ Future<void> outboxSettle(
       'code': code,
       'attempts': item.attempts,
       'hold_out_ms': retryAfterMs,
+      // NR-279 — 「why did the next automatic attempt go out deferred」.
+      'defer_promised': promises || item.deferPromisedAt != null,
     });
   }
   await box.refreshDerivedForSettle();
@@ -366,6 +382,10 @@ void outboxArmItemWatchdog(DeliveryOutbox box, OutboxItem item) {
       'attempts': current.attempts,
       'budget_ms': box._inflightTimeout.inMilliseconds,
     });
+    // 🔴 NR-286 — 「owner ruled that those keep trying」 (above) used to have no
+    // mechanism while the link stayed up: the only drain trigger was the
+    // link-up edge. Schedule the retry (doc 15 §2.6-a).
+    outboxArmNoAnswerRetry(box, item.requestId);
     await box.refreshDerivedForSettle();
     box._host.onOutboxChanged();
   });

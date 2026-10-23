@@ -11,13 +11,13 @@
    is what ships when the device locale matches no .lproj, and iOS reads THIS
    file when the locale is English. Both must say the same thing. */
 
-"NSMicrophoneUsageDescription" = "FlowMic uses the microphone to turn what you say into text on your PC.";
+"NSMicrophoneUsageDescription" = "FlowMic uses the microphone to turn what you say into text. The text is typed into your computer or saved as a note on your phone.";
 
-"NSCameraUsageDescription" = "FlowMic uses the camera to scan the pairing QR code shown on your PC.";
+"NSCameraUsageDescription" = "FlowMic uses the camera to scan the pairing QR code on your computer and the sign-in QR code on the FlowMic website.";
 
-"NSPhotoLibraryUsageDescription" = "FlowMic reads the photo you pick so it can send that picture to your PC.";
+"NSPhotoLibraryUsageDescription" = "FlowMic reads only the photo you pick to send it to your computer or save it on your phone.";
 
 /* Local network: the LAN channel dials the PC directly on the same network.
    Saying so plainly is the point — this is the one permission whose purpose a
    user has no other way to guess. */
-"NSLocalNetworkUsageDescription" = "FlowMic connects directly to your PC over the local network, so what you say reaches it without going through the internet.";
+"NSLocalNetworkUsageDescription" = "FlowMic connects directly to your computer over the local network, so what you say reaches it without going through the internet.";

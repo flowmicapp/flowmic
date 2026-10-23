@@ -165,7 +165,7 @@
 //   apps/server-core/src/engine/stt-factory.ts  resolvePolishDep()
 //     — resolves through the SAME resolveLlmConfigWithSource() the compose turn
 //       uses, and never reads `mode` at all
-//   apps/server-core/src/engine/stt-session.ts:250
+//   apps/server-core/src/engine/stt-session.ts  SttSessionBridge.wireEvents() o.on('final')
 //     `if (this.deps.polish && !isSegment && this.polishDelivery() === 'sync')`
 //     【CORRECTED 2026-08-19 — this header quoted the guard's first two clauses
 //     as the whole condition. A third was added when the DETACHED (replace-late)
@@ -175,6 +175,17 @@
 //     test/polish-delivery-census.test.ts), and BOTH modes keep `!isSegment` — so
 //     the line below about interim text is still exact. Quoted in full anyway,
 //     because a two-thirds quotation reads like a complete one.】
+//     【CORRECTED 2026-10-14 (cards SEG-1 / SEG-1b) — 「BOTH modes keep
+//     `!isSegment`」 above is no longer true. In the shipped `'sync'` mode a
+//     soft-segment final that carries words is now polished too
+//     (stt-session.ts `polishSegmentFinal`, gated by
+//     stt-session-polish.ts `segmentKeepsPreSeg1Contract`, which excludes only
+//     continuous recordings and recovery legs), so on a press cut at a pause
+//     the text before EACH cut goes to the LLM, not only the terminal final.
+//     Only the unshipped `'detached'` mode still keeps `!isSegment`. The copy
+//     stays true: a soft-segment final is FINAL text (engine-committed, never
+//     revised), so 「the closing transcript is sent; provisional words are
+//     never sent」 still holds — interim text never leaves for the LLM.】
 // ⚠️ compose/mode.ts `modeUsesLlm()` USED to read like the guard that would have
 // made the old title true; it had ZERO production call sites — a tested constant
 // is not a runtime gate — and was DELETED on 2026-08-19 for exactly that reason
@@ -182,7 +193,8 @@
 // ⚠️ delivery:'none' ("record only" 仅记录) does NOT gate it either, so an utterance the user
 // deliberately kept off the PC still leaves for the vendor. That is the clause
 // this copy is most at risk of under-stating, so it is said outright.
-// Interim text is never sent; only the terminal final.
+// Interim text is never sent; only final text (the terminal final, and since
+// SEG-1 each soft-segment final — see the 2026-10-14 correction above).
 //
 // 🔴 STAGE 3 IS WRITTEN TO BE TRUE AT BOTH VALUES OF THE POLISH SWITCH, and this
 // shard carries ONE deliberate divergence from the desktop twin. The old copy

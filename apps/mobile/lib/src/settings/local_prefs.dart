@@ -47,6 +47,12 @@ const String kFavoritesKey = 'flowmic.compose.favorites';
 const String kTranslateTargetKey = 'flowmic.pref.translate_target';
 const String kTranslateTargetDefault = 'en';
 
+/// NR-213 — device-local, never synced or exported (article_away_gaps.dart).
+/// Holds positions and durations only, never words — so it sits in the
+/// `flowmic.pref.*` family rather than among the places a row can live
+/// (nr137_row_store_registry_test.dart).
+const String kArticleAwayGapsKey = 'flowmic.pref.article_away_gaps.v1';
+
 /// CR-12-F: whether the 「+」 panel's send bar last had 「with times」 on.
 /// DEVICE-LOCAL for the same reason as the two keys above — a habit of this
 /// phone, read and written only by the panel's chip, which always draws the
@@ -100,6 +106,11 @@ abstract class LocalPrefs {
   /// CR-12-F: the send bar's 「with times」 chip. False when never chosen.
   Future<bool> sendWithTimes();
   Future<void> setSendWithTimes(bool on);
+
+  /// NR-213 — the long recordings' away gaps (`ArticleAwayGapStore`), one JSON
+  /// blob. Empty when never written.
+  Future<String> articleAwayGapsJson();
+  Future<void> setArticleAwayGapsJson(String json);
 }
 
 /// Parse a stored wire name back to the enum. Anything unrecognised (or absent)
@@ -147,6 +158,15 @@ class InMemoryLocalPrefs implements LocalPrefs {
 
   @override
   Future<void> setSendWithTimes(bool on) async => _sendWithTimes = on;
+
+  String _articleAwayGapsJson = '';
+
+  @override
+  Future<String> articleAwayGapsJson() async => _articleAwayGapsJson;
+
+  @override
+  Future<void> setArticleAwayGapsJson(String json) async =>
+      _articleAwayGapsJson = json;
 }
 
 class SharedPrefsLocalPrefs implements LocalPrefs {
@@ -197,5 +217,14 @@ class SharedPrefsLocalPrefs implements LocalPrefs {
   @override
   Future<void> setSendWithTimes(bool on) async {
     await _prefs.setBool(kSelectionSendWithTimesKey, on);
+  }
+
+  @override
+  Future<String> articleAwayGapsJson() async =>
+      _prefs.getString(kArticleAwayGapsKey) ?? '';
+
+  @override
+  Future<void> setArticleAwayGapsJson(String json) async {
+    await _prefs.setString(kArticleAwayGapsKey, json);
   }
 }

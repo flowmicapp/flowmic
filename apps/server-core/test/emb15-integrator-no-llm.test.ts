@@ -154,7 +154,9 @@ describe('EMB-15 - no language model for embedded rooms', () => {
 
   it("integrator room + the VISITOR APP's own polish and refine prefs ON: still no LLM leg", () => {
     const r = rig('integrator'); // host has nothing switched on
-    startAndStop(r, { prefs: { 'stt.polish': { enabled: true }, 'stt.refine': { enabled: true } } });
+    // delivery:'none' — card POL-8 already keeps refine off every PC-path press, so only a
+    // Notes press leaves the EMB-15 gate as the one thing between the switch and the model.
+    startAndStop(r, { delivery: 'none', prefs: { 'stt.polish': { enabled: true }, 'stt.refine': { enabled: true } } });
     expect(llmSpy.calls).toBe(0);
     expect(r.guard.asked).toEqual(['stt']);
     expect(lastBridge()['polish']).toBeUndefined();
@@ -197,14 +199,16 @@ describe('EMB-15 - no language model for embedded rooms', () => {
 
   it('integrator room + HOST refine ON: no refine second pass', () => {
     const r = rig('integrator', { hostRefine: true });
-    startAndStop(r);
+    startAndStop(r, { delivery: 'none' }); // Notes: POL-8 would mask the EMB-15 gate on a PC-path press
     expect(llmSpy.calls).toBe(0);
     expect(lastBridge()['refine']).toBeUndefined();
   });
 
   it('POSITIVE CONTROL - a normal room with the same switches ON still polishes and refines', () => {
     const r = rig(null, { hostPolish: true, hostRefine: true });
-    startAndStop(r);
+    // delivery:'none' — card POL-8 (pol8-refine-not-on-pc-path.test.ts) never arms
+    // refine on a PC-path press, so the refine half of this control is a Notes press.
+    startAndStop(r, { delivery: 'none' });
     expect(r.seen[0]?.integratorRoom).toBeUndefined();
     expect(llmSpy.calls).toBeGreaterThanOrEqual(2); // one resolve for polish, one for refine
     expect(r.guard.asked).toEqual(['stt', 'llm', 'llm']);

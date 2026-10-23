@@ -128,7 +128,8 @@ extension PttSessionResume on PttSession {
   /// path the connections list drives when the user taps a remembered PC (Option
   /// B: startup does NOT auto-connect; a tap does). Fail-loud: a bad endpoint or a
   /// rejected token returns false, and [lastReconnectRefusal] says WHY in the
-  /// server's own words. ⚠️ Only an `AUTH_TOKEN_INVALID` reject purges the local
+  /// server's own words — or, when nobody answered by name, what the dial itself
+  /// measured (NR-279, `unreachedDialCode`). ⚠️ Only an `AUTH_TOKEN_INVALID` reject purges the local
   /// session inside the reconnect flow — a hold-out (`PAIR_RELEASED` / `PC_BUSY`)
   /// deliberately keeps the token, so the caller must not treat the two alike.
   Future<bool> resumePairing(MobileSession session) async {
@@ -173,7 +174,27 @@ extension PttSessionResume on PttSession {
       // PC unpaired ⇒ the handshake itself is refused, there is no ack to read,
       // and the answer is on lastConnectError (see [handshakeRefusal]).
       // Previously this just returned false, so the UI said 「unknown error」.
-      lastReconnectRefusal = handshakeRefusal(transport);
+      //
+      // 🔴 NR-279 (A3) — and when nobody refused us by name, say what the dial
+      // MEASURED (which addresses, unreachable / connection failed) instead of
+      // null, which read 「Pairing failed」 for a pairing that was never
+      // attempted. Not for the cloud-instance row: `cloudError` would delegate
+      // this code to 「Could not reach the computer」, and that row has none.
+      final ReconnectRefusal? named = handshakeRefusal(transport);
+      final String? unreached = named != null || session.channel == 'saas'
+          ? null
+          : unreachedDialCode(
+              lastConnectError: transport.lastConnectError,
+              attempts: choice.attempts,
+              dialed: dial,
+              lanRow: rememberedRowIsLan(
+                endpoint: session.endpoint,
+                lanTlsFp: session.lanTlsFp,
+                endpointCandidates: session.endpointCandidates,
+              ),
+            );
+      lastReconnectRefusal =
+          named ?? (unreached == null ? null : ReconnectRefusal(code: unreached));
       return false;
     }
     // The row is keyed on the PC's instance id, not on its address, so this

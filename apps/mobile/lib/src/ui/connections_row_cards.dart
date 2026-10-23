@@ -457,3 +457,36 @@ List<Widget> _nodeBadgeForRow(_ConnectionsPageState page, MobileSession p) {
     NodeBadge(label: label),
   ];
 }
+
+/// FM-002 — the settings gear. Settings pops with a [SettingsNotesAction]
+/// (settings_page.dart) when its Notes button is tapped; this page is the one
+/// that can act on `enter`, because the entry it must run is this page's own.
+///
+/// The held pairing link is retried AFTER the entry, not before: the entry may
+/// open the sign-in sheet or the chat page, and `_enterChat`'s tail already
+/// retries on its way back. `retryHeld` with nothing held is a no-op.
+Future<void> _openSettingsRouted(_ConnectionsPageState page) async {
+  final Object? picked = await Navigator.of(page.context).push<Object?>(
+    MaterialPageRoute<Object?>(builder: (_) => page.widget.settingsPageBuilder()),
+  );
+  if (!page.mounted) return;
+  if (picked == SettingsNotesAction.enter) await _enterNotesRouted(page);
+  if (page.mounted) _retryHeldPairLinkRouted(page);
+}
+
+/// FM-002 — the home Notes card's entry, reached from Settings.
+///
+/// The SAME two handlers the device list wires to its Notes card, chosen the
+/// same way `_body` chooses which card is on screen (GA-33): a remembered
+/// cloud row ⇒ that row's tap (`_connect`, which sends a signed-out phone to
+/// the sign-in sheet); otherwise the dashed card's tap (`_openCloud`, sign-in
+/// first, then the cloud session). Both cards take no tap while a connect is
+/// in flight, and neither does this.
+Future<void> _enterNotesRouted(_ConnectionsPageState page) async {
+  final ConnectionsController c = page.widget.connections;
+  if (c.busy) return;
+  for (final MobileSession p in c.pairings) {
+    if (p.channel == kCloudChannel) return page._connect(p);
+  }
+  return page._openCloud();
+}

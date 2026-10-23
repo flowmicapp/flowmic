@@ -285,6 +285,7 @@
     "injectFailReason.INJECT_FOCUS_LOST": "'找不到輸入焦點'",
     "injectFailReason.INJECT_IMAGE_UNSUPPORTED": "'這個視窗接不了圖片'",
     "injectFailReason.INJECT_NO_ACCESSIBILITY": "'還沒給 FlowMic「輔助使用」權限 · 系統設定 ▸ 隱私權與安全性 ▸ 輔助使用'",
+    "injectFailReason.INJECT_TARGET_ELEVATED": "'目前的視窗正以系統管理員身分執行，Windows 阻擋了輸入'",
     "injectFailReason.INJECT_NO_TEXT_TARGET": "'目前視窗沒有可以輸入的位置'",
     "injectFailReason.INJECT_SECURE_INPUT_ACTIVE": "'系統正處於安全輸入狀態（密碼欄位 / 鎖定畫面）'",
     "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT": "'焦點在 FlowMic 自己的視窗'",

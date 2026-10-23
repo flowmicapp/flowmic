@@ -278,6 +278,16 @@
       "params": []
     },
     {
+      "key": "articleTailOwedPausedForRecording",
+      "leaf": "_lfArticleTailOwedPausedForRecording",
+      "params": []
+    },
+    {
+      "key": "articleTailOwedOffline",
+      "leaf": "_lfArticleTailOwedOffline",
+      "params": []
+    },
+    {
       "key": "articleBusyFinishing",
       "leaf": "_lfArticleBusyFinishing",
       "params": []
@@ -333,6 +343,13 @@
       "key": "articleBadge",
       "leaf": "_lfArticleBadge",
       "params": []
+    },
+    {
+      "key": "articleAwayGap",
+      "leaf": "_lfArticleAwayGap",
+      "params": [
+        "clock"
+      ]
     },
     {
       "key": "articleNoTitle",
@@ -663,6 +680,11 @@
       "params": []
     },
     {
+      "key": "cloudError_AUTH_TOKEN_UNVERIFIABLE",
+      "leaf": "_lfCloudError_AUTH_TOKEN_UNVERIFIABLE",
+      "params": []
+    },
+    {
       "key": "cloudError_NOT_LOGGED_IN",
       "leaf": "_lfCloudError_NOT_LOGGED_IN",
       "params": []
@@ -854,6 +876,27 @@
       ]
     },
     {
+      "key": "continuousAwayResumed",
+      "leaf": "_lfContinuousAwayResumed",
+      "params": [
+        "clock"
+      ]
+    },
+    {
+      "key": "continuousAwayResumedNearCap",
+      "leaf": "_lfContinuousAwayResumedNearCap",
+      "params": [
+        "clock"
+      ]
+    },
+    {
+      "key": "continuousAwayStoppedAtCap",
+      "leaf": "_lfContinuousAwayStoppedAtCap",
+      "params": [
+        "clock"
+      ]
+    },
+    {
       "key": "continuousEntryCap",
       "leaf": "_lfContinuousEntryCap",
       "params": [
@@ -964,6 +1007,11 @@
       ]
     },
     {
+      "key": "continuousSheetLeavePauses",
+      "leaf": "_lfContinuousSheetLeavePauses",
+      "params": []
+    },
+    {
       "key": "continuousSheetNoCancel",
       "leaf": "_lfContinuousSheetNoCancel",
       "params": []
@@ -982,6 +1030,13 @@
       "key": "continuousStop",
       "leaf": "_lfContinuousStop",
       "params": []
+    },
+    {
+      "key": "controlKeyRefusedElevated",
+      "leaf": "_lfControlKeyRefusedElevated",
+      "params": [
+        "key"
+      ]
     },
     {
       "key": "controlKeyRefusedFailed",
@@ -1995,6 +2050,11 @@
       "params": []
     },
     {
+      "key": "imageInjectVerdictNote_INJECT_TARGET_ELEVATED",
+      "leaf": "_lfImageInjectVerdictNote_INJECT_TARGET_ELEVATED",
+      "params": []
+    },
+    {
       "key": "imageNoPcTarget",
       "leaf": "_lfImageNoPcTarget",
       "params": []
@@ -2347,6 +2407,11 @@
     {
       "key": "injectVerdictNote_INJECT_DISPLAY_UNAVAILABLE",
       "leaf": "_lfInjectVerdictNote_INJECT_DISPLAY_UNAVAILABLE",
+      "params": []
+    },
+    {
+      "key": "injectVerdictNote_INJECT_TARGET_ELEVATED",
+      "leaf": "_lfInjectVerdictNote_INJECT_TARGET_ELEVATED",
       "params": []
     },
     {
@@ -3238,6 +3303,36 @@
     {
       "key": "polishModelRejectedHint",
       "leaf": "_lfPolishModelRejectedHint",
+      "params": []
+    },
+    {
+      "key": "polishSkippedShort",
+      "leaf": "_lfPolishSkippedShort",
+      "params": []
+    },
+    {
+      "key": "polishNotAppliedShort",
+      "leaf": "_lfPolishNotAppliedShort",
+      "params": []
+    },
+    {
+      "key": "polishTimedOutShort",
+      "leaf": "_lfPolishTimedOutShort",
+      "params": []
+    },
+    {
+      "key": "polishUnavailableShort",
+      "leaf": "_lfPolishUnavailableShort",
+      "params": []
+    },
+    {
+      "key": "polishNoModelShort",
+      "leaf": "_lfPolishNoModelShort",
+      "params": []
+    },
+    {
+      "key": "polishModelRejectedShort",
+      "leaf": "_lfPolishModelRejectedShort",
       "params": []
     },
     {
@@ -4149,6 +4244,11 @@
     {
       "key": "statusInjected",
       "leaf": "_lfStatusInjected",
+      "params": []
+    },
+    {
+      "key": "statusNoAnswerYet",
+      "leaf": "_lfStatusNoAnswerYet",
       "params": []
     },
     {

@@ -162,6 +162,7 @@ class _Host implements ManualDeliveryHost, OutboxDrainHost {
     store: newTestOutboxStore(),
     blobs: newTestOutboxBlobs(),
     host: this,
+    retryLinkUp: () => false,
   );
 
   late final ComposeGate compose;

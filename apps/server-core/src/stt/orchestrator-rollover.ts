@@ -21,6 +21,7 @@
 // guard, on purpose — see that handler's doc comment).
 
 import type { EngineSubscriber } from './orchestrator-types';
+import type { IdleHangupTrigger } from './engine-idle-hangup';
 import type { FinalResult } from './engines/base';
 import type { AudioSession } from './audio/session';
 import type { EngineSessionReconnectLadder, SpawnAttempt } from './engine-session';
@@ -28,11 +29,13 @@ import type { SoftSegmentCadence } from './segment-boundary';
 import type { FunasrSpanClosureFeeder } from './funasr-span-closure';
 import { seamText, endsAtSentenceBoundary, continuousSilenceCutAllowed } from './segment-boundary';
 import { foldConfirmedWithDraft } from './text-merge';
+import type { LegFacts } from './leg-facts';
 import type { SegmentPauseAccount } from './segment-pause';
 import { isFunasrFlushFamily, feedVadClosureSilence, type FlushOutcome } from './flush-final';
 import { raceSpawnTimeout } from './spawn-timeout';
 import { recordClosingDialFailure } from './owed-voice-verdict';
 import { logCutIfFlushed, type LastFlushFacts, type CutPointFacts } from './cut-log';
+import { seamOpenLogField, type OpenSeamCarry } from './seam-artifact';
 import { PCM_BYTES_PER_MS } from './tuning-env';
 
 /**
@@ -44,6 +47,7 @@ import { PCM_BYTES_PER_MS } from './tuning-env';
  */
 export interface RolloverHost {
   engine: EngineSubscriber | null;
+  readonly legFacts: Pick<LegFacts, 'draftJoin'>; // card SEAM-1
   terminated: boolean;
   terminalizing: boolean;
   rolloverWork: Promise<void> | null;
@@ -113,6 +117,8 @@ export interface RolloverHost {
   retiringFloorSeq: number | null;
   /** card RC-J — an overdue cut's point, set only for the instant its rollover starts (like {@link cutFloorSeq}). */
   readonly cutPoint: CutPointFacts | null;
+  /** card IDLE-1 — what fired this hang-up ('silence' | 'wall'), for the `stt.cut` line only. */
+  idleTrigger(): IdleHangupTrigger;
   /** card RC-E — `OrchestratorOptions.continuous`; read by {@link flushAndCloseLegForSilence}. */
   readonly continuous: boolean;
   /** card RC-E — the facts a row final carries out of the class, for the hang-up's row cut
@@ -120,6 +126,9 @@ export interface RolloverHost {
   accumEmittedByFinal: boolean;
   sessionProducedText: boolean;
   readonly pauseAccount: SegmentPauseAccount;
+  /** card SEAM-2 — see `FlushEmitHost.seamCarry` (orchestrator-flush.ts). */
+  readonly seamCarry: OpenSeamCarry;
+  readonly legFinalsOnlyAtFlush: boolean;
   emit(event: string, payload: unknown): boolean;
 }
 
@@ -325,7 +334,8 @@ export async function flushAndCloseLegForSilence(host: RolloverHost): Promise<vo
   // terminal final settles the bank). The `stt.cut` line says which: reason 'pause' ⇒ a row ended here.
   const endsRow = host.continuous && !refused && !(host.flushErrored && result.text === '') && !host.terminalizing
     && continuousSilenceCutAllowed(boundaryMs - host.segmentStartMs, result.text);
-  logCutIfFlushed({ kind: 'hangup', reason: endsRow ? 'pause' : null, segment_idx: host.currentSegmentIdx, boundary_seq: boundary.seq, replayed_ms: null }, host.lastFlush, sinceMs); // card RC-6
+  logCutIfFlushed({ kind: 'hangup', idle_trigger: host.idleTrigger(), reason: endsRow ? 'pause' : null, segment_idx: host.currentSegmentIdx, boundary_seq: boundary.seq, replayed_ms: null,
+    ...(endsRow && !host.terminated ? seamOpenLogField(result.text, 'pause', host.legFinalsOnlyAtFlush, result.language) : {}) }, host.lastFlush, sinceMs); // card RC-6; SEAM-2 seam_open, only when the row is emitted below
   if (host.terminated) { host.retiringFloorSeq = null; return; } // RC-A: no leg will be replayed
   if (refused) host.noteFlushRefused(timedOut); // NR-50: `result.text` is '' by refusal — say so before banking it
   if (endsRow) endRowAtSilence(host, result, boundaryMs);
@@ -346,8 +356,10 @@ export async function flushAndCloseLegForSilence(host: RolloverHost): Promise<vo
 function endRowAtSilence(host: RolloverHost, r: FinalResult, boundaryMs: number): void {
   host.accumEmittedByFinal = true; if (r.text !== '') host.sessionProducedText = true;
   const pauseBeforeMs = host.pauseAccount.pauseBeforeMs();
+  // card SEAM-2 review P5: this cut is measured (`seam_open` on its `stt.cut` line), not repaired, until measured.
+  const text = host.seamCarry.untouchedRow(r.text, 'pause', host.legFinalsOnlyAtFlush, r.language);
   host.emit('final', {
-    text: seamText(r.text, 'pause'), confidence: r.confidence, language: r.language,
+    text, confidence: r.confidence, language: r.language,
     segment_idx: host.currentSegmentIdx, is_segment: true, duration_ms: boundaryMs - host.segmentStartMs,
     ...(pauseBeforeMs !== null ? { pause_before_ms: pauseBeforeMs } : {}),
   });
@@ -416,7 +428,7 @@ async function rolloverSegment(host: RolloverHost, deliver: boolean): Promise<vo
 
 /** The rollover itself; `rolloverSegment` above only wraps it with the RC-6 line. `cut.replayed_ms` is filled
  *  where the next leg is handed its replay. */
-async function rolloverSegmentBody(host: RolloverHost, deliver: boolean, cut: { replayed_ms: number | null }): Promise<void> {
+async function rolloverSegmentBody(host: RolloverHost, deliver: boolean, cut: { replayed_ms: number | null; seam_open?: boolean }): Promise<void> {
   if (host.terminated || host.terminalizing || !host.engine) return;
   // F-2152: chunks fed during the flush round-trip aren't in segment N's final;
   // re-arm the gate to this PRE-flush boundary so the seam carries.
@@ -462,6 +474,7 @@ async function rolloverSegmentBody(host: RolloverHost, deliver: boolean, cut: { 
     if (host.terminated || host.terminalizing || !host.engine) return;
   }
   const emitted = await host.flushAndEmitFinal(true, boundaryMs - host.segmentStartMs);
+  if (emitted) Object.assign(cut, host.seamCarry.logField()); // card SEAM-2 — `seam_open` for this cut's `stt.cut` line, absent when the rule did not apply
   if (host.terminated) return;
   // W2.5-B: both fence checks spend the index the same way ("once it's sent
   // out, spend that number"). CRITERION, so nobody burns an afternoon testing
@@ -514,7 +527,7 @@ async function rolloverSegmentBody(host: RolloverHost, deliver: boolean, cut: { 
 async function payClosingSeam(host: RolloverHost, boundary: FlushBoundary, rowDelivered: boolean): Promise<void> {
   if (host.terminated || !(host.unheardVoice || host.engineFedBytes > boundary.fedBytes)) return;
   if (rowDelivered) host.offlineAccum = '';
-  else host.offlineAccum = foldConfirmedWithDraft(host.offlineAccum, host.onlineDraft);
+  else host.offlineAccum = foldConfirmedWithDraft(host.offlineAccum, host.onlineDraft, host.legFacts.draftJoin); // card SEAM-1
   host.onlineDraft = '';
   if (host.engine) await host.closeEngine();
   if (host.terminated) return;

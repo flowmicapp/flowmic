@@ -346,6 +346,8 @@ BannerQueue buildChatBanners({
   /// what keeps owner §5-4 (「a few seconds, never a standing bar」) true in the
   /// code rather than only in a comment.
   bool continuousCapWarning = false,
+  String? continuousAwayReturn, // NR-213 — the return notice, already worded
+  void Function()? onDismissContinuousAwayReturn,
   /// Primary retention fact, with audio loss first.
   String? retainedAudioNotice,
   String? retainedAudioSecondaryNotice,
@@ -413,6 +415,13 @@ BannerQueue buildChatBanners({
         dismissible: true,
       ),
     );
+  }
+  // NR-213 — ahead of the auto-stop and the reminder: when both are about the
+  // same away stretch, this one says everything they say plus when.
+  if (continuousAwayReturn != null) {
+    queue.push(BannerItem(id: BannerIds.continuousAwayReturn,
+        severity: BannerSeverity.degraded, message: continuousAwayReturn,
+        dismissible: true, onAction: onDismissContinuousAwayReturn));
   }
   if (autoStopped) {
     queue.push(

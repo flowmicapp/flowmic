@@ -1,0 +1,49 @@
+{"id":"rv3x-x-pf-01","lang":"es","kind":"refuse","label":"harmful","input":"Dale punto final","output":"Dale.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pf-02","lang":"es","kind":"refuse","label":"harmful","input":"Démosle punto final ya","output":"Démosle. Ya.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pf-03","lang":"es","kind":"refuse","label":"harmful","input":"Hay que ponerle ya punto final","output":"Hay que ponerle ya.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pf-04","lang":"es","kind":"refuse","label":"harmful","input":"Lo digo yo y punto final, no hay más que hablar","output":"Lo digo yo. No hay más que hablar.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pf-05","lang":"es","kind":"refuse","label":"harmful","input":"Eso significó punto final para el proyecto","output":"Eso significó. Para el proyecto.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pf-06","lang":"es","kind":"refuse","label":"harmful","input":"Esto marca punto final","output":"Esto marca.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pf-07","lang":"es","kind":"refuse","label":"harmful","input":"Hay que ponerle punto final","output":"¿Hay que ponerle punto final?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pf-08","lang":"es","kind":"accept","label":"neutral","input":"Hay que ponerle punto final","output":"Hay que ponerle punto final.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-pf-11","lang":"es","kind":"refuse","label":"harmful","input":"Vamos a darle punto final","output":"Vamos a darle punto final!","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pf-12","lang":"es","kind":"refuse","label":"harmful","input":"Quiero el informe y punto final","output":"Quiero el informe.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-sg-02","lang":"es","kind":"accept","label":"neutral","input":"Qué es signo de interrogación","output":"¿Qué es?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-sg-03","lang":"es","kind":"refuse","label":"harmful","input":"Esta frase lleva signo de admiración","output":"Esta frase lleva!","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-sg-04","lang":"es","kind":"refuse","label":"harmful","input":"Su futuro queda como signo de pregunta","output":"Su futuro queda como?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-sg-05","lang":"es","kind":"refuse","label":"harmful","input":"El título necesita signo de pregunta al final","output":"El título necesita? Al final.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-nl-01","lang":"es","kind":"refuse","label":"harmful","input":"Lanzamos nueva linea Primavera","output":"Lanzamos\nPrimavera","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-nl-02","lang":"es","kind":"accept","label":"neutral","input":"Primera parte nueva línea de acuerdo con todo","output":"Primera parte\nde acuerdo con todo","lineBreaks":true,"expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-sb-01","lang":"es","kind":"accept","label":"neutral","input":"Ella dice abre comillas hola cierra comillas","output":"Ella dice «hola»","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-sb-02","lang":"es","kind":"refuse","label":"harmful","input":"Juan cierra paréntesis y sigue","output":"Juan ) y sigue.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-sb-03","lang":"es","kind":"refuse","label":"harmful","input":"María abre comillas y sigue hablando","output":"María \" y sigue hablando.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-sb-05","lang":"es","kind":"accept","label":"neutral","input":"El servidor abre paréntesis staging cierra paréntesis está listo","output":"El servidor (staging) está listo.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-sb-06","lang":"es","kind":"refuse","label":"harmful","input":"Mi jefe cierra paréntesis y sigue","output":"Mi jefe ) y sigue.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-de-01","lang":"de","kind":"accept","label":"neutral","input":"Er sagt Klammer auf Pause Klammer zu","output":"Er sagt (Pause)","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-de-02","lang":"de","kind":"accept","label":"neutral","input":"Er sagt Klammer auf den Rest Klammer zu","output":"Er sagt (den Rest)","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-de-03","lang":"de","kind":"refuse","label":"harmful","input":"Leg Klammer auf Papier","output":"Leg ( Papier.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-de-04","lang":"de","kind":"refuse","label":"harmful","input":"Ich habe vergessen, Anführungszeichen zu setzen","output":"Ich habe vergessen, „ zu setzen.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-de-05","lang":"de","kind":"refuse","label":"harmful","input":"Anführungszeichen fehlen hier","output":"„ fehlen hier.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-de-06","lang":"de","kind":"refuse","label":"harmful","input":"Wichtig: Anführungszeichen setzen","output":"Wichtig: „ setzen.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-de-07","lang":"de","kind":"accept","label":"neutral","input":"Er sagte Anführungszeichen ich komme Anführungszeichen","output":"Er sagte „ich komme“","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-de-08","lang":"de","kind":"refuse","label":"harmful","input":"Benutze Strichpunkt statt Komma","output":"Benutze ; statt ,","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-de-10","lang":"de","kind":"refuse","label":"harmful","input":"Hast du Strichpunkt vergessen","output":"Hast du ; vergessen?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-de-11","lang":"de","kind":"refuse","label":"harmful","input":"Bitte Anführungszeichen nicht vergessen","output":"Bitte „ nicht vergessen.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-01","lang":"es","kind":"refuse","label":"harmful","input":"Son dos punto cinco mil euros","output":"Son 2,5 euros","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-03","lang":"es","kind":"refuse","label":"harmful","input":"Son dos punto cinco mil euros","output":"Son 25.000 euros","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-04","lang":"es","kind":"refuse","label":"harmful","input":"Son dos punto cinco kilos","output":"Son 2.500 kilos","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-05","lang":"de","kind":"refuse","label":"harmful","input":"Das sind drei Punkt fünf Kilo","output":"Das sind 3.500 Kilo","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-06","lang":"de","kind":"refuse","label":"harmful","input":"Das sind drei Komma fünf Millionen","output":"Das sind 3,5","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-08","lang":"de","kind":"refuse","label":"harmful","input":"Das sind drei Komma fünf Kilo","output":"Das sind 35 Kilo","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-09","lang":"fr","kind":"refuse","label":"harmful","input":"Ça fait trois virgule cinq kilos","output":"Ça fait 3,500 kilos","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-10","lang":"fr","kind":"accept","label":"neutral","input":"Ça fait trois point cinq kilos","output":"Ça fait 3,5 kilos","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-dc-11","lang":"ru","kind":"refuse","label":"harmful","input":"Это три точка пять тысячи","output":"Это 3,5","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-12","lang":"ru","kind":"accept","label":"neutral","input":"Это три запятая пять килограмма","output":"Это 3.5 килограмма","expect":{"smooth":"accept"}}
+{"id":"rv3x-x-dc-13","lang":"ru","kind":"refuse","label":"harmful","input":"Это три запятая пять килограмма","output":"Это 35 килограмма","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-dc-15","lang":"es","kind":"accept","label":"neutral","input":"Fueron 2 punto 5 horas","output":"Fueron 2,5 horas","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv3x-x-it-02","lang":"it","kind":"refuse","label":"harmful","input":"Costa 3 comma 5 euro","output":"Costa 3,6 euro","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-it-04","lang":"it","kind":"noun_synonym","label":"harmful","input":"Il comma 3 è chiaro","output":"Il paragrafo 3 è chiaro.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pt-03","lang":"pt","kind":"refuse","label":"harmful","input":"Olá comma tudo bem","output":"Olá, tudo mal","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv3x-x-pt-04","lang":"pt","kind":"refuse","label":"harmful","input":"A reunião é amanhã period Obrigado","output":"A reunião é depois de amanhã. Obrigado","expect":{"strict":"refuse"}}
+{"id":"rv3x-x-lb-01","lang":"fr","kind":"accept","label":"neutral","input":"Merci beaucoup new line Marie","output":"Merci beaucoup\nMarie","lineBreaks":true,"expect":{"smooth":"accept"}}
+{"id":"rv3x-x-lb-02","lang":"de","kind":"accept","label":"neutral","input":"Danke new line Grüße Jonas","output":"Danke\nGrüße Jonas","lineBreaks":true,"expect":{"smooth":"accept"}}

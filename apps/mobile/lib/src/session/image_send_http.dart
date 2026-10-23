@@ -145,14 +145,23 @@ Future<ImageSendFailure?> imageSendViaHttp(
       c._host.deliveryNotify();
       return null;
     case ImageUploadStatus.pcOffline:
+      // "Not right now" (「现在不行」) ⇒ back to `queued`, not refused. It
+      // waits for the PC.
+      //
+      // 🔴 NR-279 S4a — THE QUEUE ITEM FIRST, THE ROW SECOND. This code is in
+      // `kDeferPromiseCodes`: the row note it selects promises the computer
+      // will not type the picture in on its own, and `settle` records that
+      // promise on the item (`deferPromisedAt`). Written the other way round, a
+      // kill between the two left a row making the promise over an item that
+      // did not know it (`verdictRecordsDeferPromise`'s doc,
+      // outbox_inject_origin.dart). Pinned by
+      // test/outbox_defer_promise_order_test.dart.
+      await settleQueued(ok: false, code: 'INJECT_PC_OFFLINE');
       c._host.store.applyInjectResult(
         correlationId: entry.id,
         ok: false,
         failureReason: 'INJECT_PC_OFFLINE',
       );
-      // "Not right now" (「现在不行」) ⇒ back to `queued`, not refused. It
-      // waits for the PC.
-      await settleQueued(ok: false, code: 'INJECT_PC_OFFLINE');
       return c._raise(ImageSendFailure.pcOffline, covers: covers);
     case ImageUploadStatus.noAnswer:
       c._host.store.applyInjectResult(

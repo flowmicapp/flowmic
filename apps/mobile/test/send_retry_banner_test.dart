@@ -184,6 +184,8 @@ class _Rig {
     controller.delivery.dispose();
     debugCancelBannerAutoHideTimers(controller);
     session.debugStopIdlePresencePoll();
+    // NR-286: the queue's first-attempt guard is a FOURTH timer family.
+    controller.outbox.debugCancelNoAnswerRetries();
   }
 
   /// Teardown must run through [addTearDown], NEVER as an `await` at the end of

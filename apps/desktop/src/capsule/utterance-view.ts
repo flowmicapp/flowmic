@@ -78,20 +78,15 @@
  *  is visible and recoverable, dropping one is neither. */
 const SETTLES_PER_SEGMENT_MODES = new Set(['realtime']);
 
-/** Ported VERBATIM from apps/mobile/lib/src/stt/segment_buffer.dart
- *  `_joinerBetween`. Any edit here is a parity break, and the fixture says so. */
-export function joinerBetween(left: string, right: string): string {
-  if (left === '' || right === '') return '';
-  const last = left[left.length - 1]!;
-  if ('。！？'.includes(last)) return '\n';
-  if ('，；、：'.includes(last)) return '';
-  if (last.charCodeAt(0) < 0x80) {
-    const firstR = right[0]!;
-    if (firstR === ' ' || firstR === '\n') return '';
-    return ' ';
-  }
-  return '';
-}
+/** The row-seam rule. It used to be "ported VERBATIM" from the phone's
+ *  `_joinerBetween`; since the book 08 §3 correction (2026-10-14) all four copies
+ *  (the Rust typing rule as reference, the phone, the relay and this one) follow
+ *  ./seam-join.ts and are pinned by verify/fixtures/seam-join-cases.json
+ *  (./seam-join-parity.test.ts). Re-exported under the name the capsule and its
+ *  tests import. */
+import { joinerBetween } from './seam-join';
+
+export { joinerBetween };
 
 function joinSlots(texts: Map<number, string>, keys: number[]): string {
   let out = '';

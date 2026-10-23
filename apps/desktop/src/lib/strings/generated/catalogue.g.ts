@@ -6456,12 +6456,13 @@ const REASON_EN: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'This window does not accept images',
   INJECT_SECURE_INPUT_ACTIVE: 'The system is in secure input mode (password field / lock screen)',
   INJECT_NO_ACCESSIBILITY: 'FlowMic has no Accessibility permission · System Settings ▸ Privacy & Security ▸ Accessibility',
+  INJECT_TARGET_ELEVATED: 'The window in front runs as administrator; Windows blocked the input',
   INJECT_WAYLAND_UNSUPPORTED: 'Cannot type into other windows',
   INJECT_DISPLAY_UNAVAILABLE: 'Cannot type in this display environment',
   INJECT_SUBMISSION_UNCERTAIN: 'Part of the text may already be typed.',
 };
 
-// zh-CN (中文) — 13/13 translated;
+// zh-CN (中文) — 14/14 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_ZH_CN: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6475,12 +6476,13 @@ const REASON_ZH_CN: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: '当前目标窗口不支持接收图片',
   INJECT_SECURE_INPUT_ACTIVE: '系统处于安全输入状态（密码框或锁屏）',
   INJECT_NO_ACCESSIBILITY: '未授予 FlowMic「辅助功能」权限（系统设置 ▸ 隐私与安全性 ▸ 辅助功能）',
+  INJECT_TARGET_ELEVATED: '当前窗口正以管理员身份运行，Windows 阻止了输入',
   INJECT_WAYLAND_UNSUPPORTED: 'Wayland 环境下无法向其他窗口输入',
   INJECT_DISPLAY_UNAVAILABLE: '当前显示环境下无法输入',
   INJECT_SUBMISSION_UNCERTAIN: '部分文本可能已输入。',
 };
 
-// zh-TW (繁體中文) — 13/13 translated;
+// zh-TW (繁體中文) — 14/14 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_ZH_TW: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6494,12 +6496,13 @@ const REASON_ZH_TW: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: '這個視窗接不了圖片',
   INJECT_SECURE_INPUT_ACTIVE: '系統正處於安全輸入狀態（密碼欄位 / 鎖定畫面）',
   INJECT_NO_ACCESSIBILITY: '還沒給 FlowMic「輔助使用」權限 · 系統設定 ▸ 隱私權與安全性 ▸ 輔助使用',
+  INJECT_TARGET_ELEVATED: '目前的視窗正以系統管理員身分執行，Windows 阻擋了輸入',
   INJECT_WAYLAND_UNSUPPORTED: 'Wayland 不支援輸入至其他視窗',
   INJECT_DISPLAY_UNAVAILABLE: '無法在此顯示環境輸入',
   INJECT_SUBMISSION_UNCERTAIN: '部分文字可能已輸入。',
 };
 
-// fr (Français) — 13/13 translated;
+// fr (Français) — 14/14 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_FR: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6513,12 +6516,13 @@ const REASON_FR: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: "Cette fenêtre n'accepte pas les images",
   INJECT_SECURE_INPUT_ACTIVE: 'Le système est en mode saisie sécurisée (champ de mot de passe / écran de verrouillage)',
   INJECT_NO_ACCESSIBILITY: "FlowMic n'a pas l'autorisation Accessibilité · Réglages Système ▸ Confidentialité et sécurité ▸ Accessibilité",
+  INJECT_TARGET_ELEVATED: "La fenêtre au premier plan s'exécute en tant qu'administrateur ; Windows a bloqué la saisie",
   INJECT_WAYLAND_UNSUPPORTED: 'Saisie indisponible sous Wayland',
   INJECT_DISPLAY_UNAVAILABLE: 'Affichage indisponible pour la saisie',
   INJECT_SUBMISSION_UNCERTAIN: 'La saisie est peut-être partielle.',
 };
 
-// es (Español) — 13/13 translated;
+// es (Español) — 14/14 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_ES: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6532,12 +6536,13 @@ const REASON_ES: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'Esta ventana no acepta imágenes',
   INJECT_SECURE_INPUT_ACTIVE: 'El sistema está en modo de entrada segura (campo de contraseña / pantalla de bloqueo)',
   INJECT_NO_ACCESSIBILITY: 'FlowMic no tiene el permiso de Accesibilidad · Ajustes del Sistema ▸ Privacidad y seguridad ▸ Accesibilidad',
+  INJECT_TARGET_ELEVATED: 'La ventana en primer plano se ejecuta como administrador; Windows bloqueó la entrada',
   INJECT_WAYLAND_UNSUPPORTED: 'Escritura no disponible en Wayland',
   INJECT_DISPLAY_UNAVAILABLE: 'Escritura no disponible en este entorno gráfico',
   INJECT_SUBMISSION_UNCERTAIN: 'La inserción puede ser parcial.',
 };
 
-// de (Deutsch) — 13/13 translated;
+// de (Deutsch) — 14/14 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_DE: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6551,12 +6556,13 @@ const REASON_DE: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'Dieses Fenster nimmt keine Bilder an',
   INJECT_SECURE_INPUT_ACTIVE: 'Das System ist im sicheren Eingabemodus (Passwortfeld / Sperrbildschirm)',
   INJECT_NO_ACCESSIBILITY: 'FlowMic hat keine Bedienungshilfen-Berechtigung · Systemeinstellungen ▸ Datenschutz & Sicherheit ▸ Bedienungshilfen',
+  INJECT_TARGET_ELEVATED: 'Das Fenster im Vordergrund wird als Administrator ausgeführt; Windows hat die Eingabe blockiert',
   INJECT_WAYLAND_UNSUPPORTED: 'Texteingabe unter Wayland nicht verfügbar.',
   INJECT_DISPLAY_UNAVAILABLE: 'Texteingabe in dieser Umgebung nicht möglich',
   INJECT_SUBMISSION_UNCERTAIN: 'Eventuell nur teilweise eingegeben.',
 };
 
-// ja (日本語) — 13/13 translated;
+// ja (日本語) — 14/14 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_JA: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6570,12 +6576,13 @@ const REASON_JA: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'このウィンドウは画像を受け取れません',
   INJECT_SECURE_INPUT_ACTIVE: 'システムがセキュア入力状態です（パスワード欄 / ロック画面）',
   INJECT_NO_ACCESSIBILITY: 'FlowMic に「アクセシビリティ」の許可がありません · システム設定 ▸ プライバシーとセキュリティ ▸ アクセシビリティ',
+  INJECT_TARGET_ELEVATED: '最前面のウィンドウが管理者として実行されているため、Windowsが入力をブロックしました',
   INJECT_WAYLAND_UNSUPPORTED: '他ウィンドウへの入力に対応していません',
   INJECT_DISPLAY_UNAVAILABLE: 'ディスプレイが利用できません',
   INJECT_SUBMISSION_UNCERTAIN: '一部のみ入力された可能性があります。',
 };
 
-// ko (한국어) — 13/13 translated;
+// ko (한국어) — 14/14 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_KO: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6589,12 +6596,13 @@ const REASON_KO: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: '이 창은 이미지를 받을 수 없습니다',
   INJECT_SECURE_INPUT_ACTIVE: '시스템이 보안 입력 상태입니다 (암호 입력란 / 잠금 화면)',
   INJECT_NO_ACCESSIBILITY: 'FlowMic에 「손쉬운 사용」 권한이 없습니다 · 시스템 설정 ▸ 개인정보 보호 및 보안 ▸ 손쉬운 사용',
+  INJECT_TARGET_ELEVATED: '맨 앞의 창이 관리자 권한으로 실행 중이어서 Windows가 입력을 차단했습니다',
   INJECT_WAYLAND_UNSUPPORTED: 'Wayland에서는 다른 창 입력이 지원되지 않습니다.',
   INJECT_DISPLAY_UNAVAILABLE: '현재 디스플레이 환경에서는 입력할 수 없습니다.',
   INJECT_SUBMISSION_UNCERTAIN: '텍스트가 일부만 입력되었을 수 있습니다.',
 };
 
-// ru (Русский) — 13/13 translated;
+// ru (Русский) — 14/14 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const REASON_RU: Record<PcInjectionCode, string> = {
   ...REASON_EN,
@@ -6608,6 +6616,7 @@ const REASON_RU: Record<PcInjectionCode, string> = {
   INJECT_IMAGE_UNSUPPORTED: 'Это окно не принимает изображения',
   INJECT_SECURE_INPUT_ACTIVE: 'Система в режиме защищённого ввода (поле пароля / экран блокировки)',
   INJECT_NO_ACCESSIBILITY: 'У FlowMic нет разрешения «Универсальный доступ» · Системные настройки ▸ Конфиденциальность и безопасность ▸ Универсальный доступ',
+  INJECT_TARGET_ELEVATED: 'Окно на переднем плане запущено от имени администратора; Windows заблокировала ввод',
   INJECT_WAYLAND_UNSUPPORTED: 'Ввод в другие окна недоступен в Wayland',
   INJECT_DISPLAY_UNAVAILABLE: 'Ввод недоступен в этой графической среде',
   INJECT_SUBMISSION_UNCERTAIN: 'Возможно, текст введён не полностью.',

@@ -193,13 +193,19 @@ export interface ShutdownSteps {
    *  and same argument as `outboxDrainer`: optional because only a replica has
    *  one, and「absent」means there is none, never「skip it」. */
   replicaPuller?: { stop(): void };
+  /** REVOKE-PUSH (node/revocation-hint.ts on a writer, node/revocation-follower.ts
+   *  on a replica). Optional for the same reason as the two above. Stopped
+   *  BEFORE the pull timer (a follower can start a pull of its own) and before
+   *  the HTTP drain (a writer holds replicas' long-polls open, and an unreleased
+   *  one would make every restart wait out SHUTDOWN_GRACE_MS). */
+  revocation?: { stop(): void };
 }
 
 /** THE ordered stop sequence. One list, one order, one owner. */
 export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> {
   const {
     retention, statusProbes, latencyReader, serviceRefunds, closeSocket, audioRegistry, httpServer, db,
-    outboxDrainer, replicaPuller, growthReaper, forwardLedgerPrune, recoveryPrune, anonCleanup,
+    outboxDrainer, replicaPuller, revocation, growthReaper, forwardLedgerPrune, recoveryPrune, anonCleanup,
   } = steps;
   return async (): Promise<void> => {
     // *** billing *** Book 22 §4.10 item 4 (MAIN extension 2026-10-01): mark the relay as shutting down BEFORE
@@ -241,6 +247,9 @@ export function makeShutdownSequence(steps: ShutdownSteps): () => Promise<void> 
     // queue is durable by construction: whatever is still owed is on disk and
     // the next boot offers it again. Durability is what makes not flushing the
     // correct answer rather than the lazy one.
+    if (revocation) {
+      await announceShutdownStep('revocation.stop', () => revocation.stop());
+    }
     if (outboxDrainer) {
       await announceShutdownStep('outboxDrainer.stop', () => outboxDrainer.stop());
     }

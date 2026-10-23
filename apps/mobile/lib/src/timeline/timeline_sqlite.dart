@@ -297,9 +297,11 @@ Future<TimelineStorageOpen> openTimelinePersistence({
         // Auxiliary receipts do not alter any table the previous v8 build reads.
         // Install on every open without stamping a downgrade-incompatible v9.
         // NR-137 round 8: the unresolved-row ledger is the same kind of table.
+        // NR-279: one nullable outbox column, same reason (see its installer).
         onOpen: (Database d) async {
           await installTimelineFallbackReceiptsSchema(d);
           await installTimelineUnresolvedSchema(d);
+          await installOutboxDeferPromiseColumn(d);
         },
       ),
     );

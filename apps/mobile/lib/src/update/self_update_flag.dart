@@ -246,6 +246,11 @@ const bool kSelfUpdateEnabled = _selfUpdateBoolForm || _selfUpdateRawForm == '1'
 // than a debt written down plainly. The debt lives in the Makefile target's
 // header; the day the mac line stages IPAs through a script, give it the
 // apk-self-update-marker shape (feature string + control string).
+//
+// ⚠️ IN-PLACE NOTE (2026-10-20, NR-297): an IPA byte gate now exists, but for a
+// different question — `scripts/ios-store-billing-gate.mjs` (last line of
+// `release-ios`) refuses an IPA carrying the in-app billing link. It does not
+// look at this define; the debt above is still open as written.
 
 /// The notify-only switch's define name. The iOS packaging command =
 /// `make -C apps/mobile release-ios`

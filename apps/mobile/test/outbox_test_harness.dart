@@ -122,6 +122,7 @@ DeliveryOutbox _outbox(
   store: store ?? InMemoryOutboxStore(),
   blobs: blobs ?? InMemoryOutboxBlobStore(),
   host: host,
+  retryLinkUp: () => false,
   capacity: capacity,
   inflightTimeout: inflight,
 );

@@ -14,10 +14,25 @@
 // The mobile-side mirror of the protocol ScenarioCard. Kept STRUCTURED (four
 // typed arrays) on purpose — there is deliberately no free-text field beyond the
 // per-term ≤40-char labels. Every transform enforces the SAME caps the server
-// zod schema enforces (FlowMicScenarioLimits, generated from the SSOT), so a
-// card assembled here always survives the server round-trip; the compose
+// zod schema enforces (FlowMicScenarioLimits, generated from the SSOT); the
+// compose
 // pipeline (WP-R1-4) then renders it as a delimited "background data, not
 // instructions" block. toJson() is exactly the ScenarioCardSchema shape.
+//
+// 2026-10-16 (FM-001): the transforms are not the only way a card is built.
+// [ScenarioCard.fromJson] is a LENIENT parse and enforces no cap, and the card
+// rides every `audio:start` / `compose:start` (phone_prefs_payload.dart), where
+// the server refuses an over-limit bundle — so one bad card silently refuses
+// every recording. Each path that feeds the live card therefore answers for
+// the caps itself, and a card reaching the wire survives the round-trip only
+// because all of them do:
+//   · the transforms below — capped on every edit;
+//   · the settings restore (portable/settings_backup.dart `restoreFrom`) —
+//     REFUSES the whole file when [fitsWireSchema] is false, before writing;
+//   · the device-local load (scenario_card_controller.dart `load`) and the
+//     export snapshot (settings_backup.dart `snapshot`) — run
+//     [normalizedToLimits].
+// A new caller of [fromJson] that feeds the live card must pick one of those.
 //
 // 2026-09-04 (profession/domain ids): `professions` and `domains` hold STABLE
 // IDS now, not the label that happened to be on screen when the chip was
@@ -235,6 +250,80 @@ class ScenarioCard {
     return _copy(professions: p, domains: d);
   }
 
+  // ── schema caps for cards that did NOT come through a transform ─────────
+  /// True when [toWireJson] satisfies every cap ScenarioCardSchema enforces
+  /// (packages/protocol/src/scenario.ts): array lengths, every label 1..40
+  /// chars (terms and aliases after trimming), ≤8 aliases per term. Checks
+  /// the WIRE projection, since that is what the server parses: professions
+  /// and domains are measured as the canonical names they are sent as.
+  /// Duplicates are not a schema violation and are not checked here.
+  bool get fitsWireSchema {
+    bool label(String s) => s.isNotEmpty && s.length <= FlowMicScenarioLimits.maxLabelLen;
+    bool trimmedLabel(String s) => label(s.trim());
+    final List<String> p = ScenarioAxis.professions.toCanonical(professions);
+    final List<String> d = ScenarioAxis.domains.toCanonical(domains);
+    return p.length <= FlowMicScenarioLimits.maxProfessions &&
+        d.length <= FlowMicScenarioLimits.maxDomains &&
+        packs.length <= FlowMicScenarioLimits.maxPacks &&
+        terms.length <= FlowMicScenarioLimits.maxTerms &&
+        p.every(label) &&
+        d.every(label) &&
+        packs.every(label) &&
+        terms.every((ScenarioTerm t) =>
+            trimmedLabel(t.term) &&
+            t.aliases.length <= FlowMicScenarioLimits.maxAliasesPerTerm &&
+            t.aliases.every(trimmedLabel));
+  }
+
+  /// Bring a card already on this device back inside the schema caps:
+  /// drop entries whose (trimmed) label is empty or over the length cap, drop
+  /// such aliases and aliases equal to their term, dedupe, then keep the first
+  /// N of each array up to its cap. The result always [fitsWireSchema] for a
+  /// card whose professions/domains are ids (run [migratedToIds] first).
+  ///
+  /// IDEMPOTENT, and returns `this` when nothing changed, so `!=` answers
+  /// 「did this load change anything」 exactly like [migratedToIds].
+  ///
+  /// 🔴 Normalizing is for data ALREADY on the phone (a card written before
+  /// restore validated, FM-001): the user has no file to fix, and refusing to
+  /// load would leave every recording refused. A user-supplied backup FILE is
+  /// refused instead (settings_backup.dart `restoreFrom`): quietly restoring
+  /// sixty of a hundred and one terms is a choice the user did not make, and
+  /// they still hold the file to correct.
+  ScenarioCard normalizedToLimits() {
+    bool label(String s) => s.isNotEmpty && s.length <= FlowMicScenarioLimits.maxLabelLen;
+    List<String> capped(List<String> raw, int cap) {
+      final List<String> out = <String>[];
+      for (final String v in raw) {
+        if (out.length >= cap) break;
+        if (label(v) && !out.contains(v)) out.add(v);
+      }
+      return out;
+    }
+
+    final List<ScenarioTerm> t = <ScenarioTerm>[];
+    final Set<String> seen = <String>{};
+    for (final ScenarioTerm entry in terms) {
+      if (t.length >= FlowMicScenarioLimits.maxTerms) break;
+      final String name = entry.term.trim();
+      if (!label(name) || !seen.add(name)) continue;
+      final List<String> aliases = <String>[];
+      for (final String raw in entry.aliases) {
+        if (aliases.length >= FlowMicScenarioLimits.maxAliasesPerTerm) break;
+        final String a = raw.trim();
+        if (label(a) && a != name && !aliases.contains(a)) aliases.add(a);
+      }
+      t.add(ScenarioTerm(name, aliases: aliases));
+    }
+    final ScenarioCard next = ScenarioCard(
+      professions: capped(professions, FlowMicScenarioLimits.maxProfessions),
+      domains: capped(domains, FlowMicScenarioLimits.maxDomains),
+      packs: capped(packs, FlowMicScenarioLimits.maxPacks),
+      terms: t,
+    );
+    return next == this ? this : next;
+  }
+
   // ── (de)serialization — exactly ScenarioCardSchema ──────────────────────
   /// THE STORED shape: ids in `professions` / `domains`. This is what the
   /// device-local cache and the settings backup file hold.
@@ -262,6 +351,9 @@ class ScenarioCard {
   /// Defensive load from the local cache. A malformed blob degrades to the empty
   /// card rather than throwing (a corrupt local cache must never wedge the
   /// settings screen). Every term shape the schema has ever allowed loads.
+  ///
+  /// ⚠️ Enforces NO cap: callers that feed the live card must refuse
+  /// ([fitsWireSchema]) or normalize ([normalizedToLimits]) — see the header.
   factory ScenarioCard.fromJson(Object? json) {
     if (json is! Map) return ScenarioCard.empty;
     List<String> strs(String key) {

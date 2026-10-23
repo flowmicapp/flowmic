@@ -231,4 +231,31 @@ mixin ContinuousRecordingStrings on AppStringsLeaves {
   /// day the lead is retuned, and nothing would go red.
   String continuousCapWarning(Object? minutes) =>
       _lfContinuousCapWarning(minutes);
+
+  /// NR-213 (owner 2026-10-10 ruling 2, plan A) — the start sheet's line that
+  /// leaving FlowMic pauses the recording. True by construction: the only
+  /// background edge (`AppLifecycleBridge`, `paused`) parks the recorder
+  /// (`PttSession.pauseCapture`), and there is no background capture.
+  /// ⚠️ It also says a LONG absence may end the recording (review F2): Android
+  /// 16 cuts a backgrounded app's network after 3-4 s and the relay keeps the
+  /// session 30 s, so a longer absence ends it at the reconnect
+  /// (`PttSession._onContinuousLinkBack`, serverSessionAlive: false).
+  String get continuousSheetLeavePauses => _lfContinuousSheetLeavePauses;
+
+  /// NR-213 — the return notice, EVENT-type (`chat_transient_banner_timers.dart`).
+  /// [clock] is how long nothing was recorded (`ContinuousAwayReturn
+  /// .notRecordedMs`, through `formatEntryDuration`).
+  String continuousAwayResumed(Object? clock) => _lfContinuousAwayResumed(clock);
+
+  /// NR-213 (D5) — the same return, when the one-minute reminder came due
+  /// while the user was away and was never seen.
+  String continuousAwayResumedNearCap(Object? clock) =>
+      _lfContinuousAwayResumedNearCap(clock);
+
+  /// NR-213 (D5) — the ceiling stopped the recording while the user was away.
+  String continuousAwayStoppedAtCap(Object? clock) =>
+      _lfContinuousAwayStoppedAtCap(clock);
+
+  /// NR-213 (D3) — the marker drawn in the article where the user left.
+  String articleAwayGap(Object? clock) => _lfArticleAwayGap(clock);
 }

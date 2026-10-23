@@ -647,3 +647,99 @@ fn the_receipt_exists_on_a_path_that_mints_no_row() {
     let run = run_control_key("escape", &None, &fsm);
     assert!(run.row.is_none() && run.receipt != KeyReceipt::Ok);
 }
+
+// ── NR-267-F1: control keys and the UIPI verdict ─────────────────────────────
+//
+// The text and image paths judge UIPI before Stage 1 (`uipi_tests.rs`); these pin
+// that the two control:key paths do too, through `run_control_key_with` so the
+// foreground switch and the key poster are recorders, never the real Win32 acts.
+
+thread_local! {
+    static FG_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static CHORD_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn recording_foreground(_h: u64) -> bool {
+    FG_CALLS.with(|c| c.set(c.get() + 1));
+    true
+}
+
+fn recording_chords(_seq: &[inject::KeyChord], _h: u64) -> Result<(), inject::FlowKeyError> {
+    CHORD_CALLS.with(|c| c.set(c.get() + 1));
+    Ok(())
+}
+
+fn take_os_calls() -> (usize, usize) {
+    (FG_CALLS.with(|c| c.replace(0)), CHORD_CALLS.with(|c| c.replace(0)))
+}
+
+fn uipi_facts(sender: u32, target: inject::uipi::IntegrityReading) -> inject::uipi::UipiFacts {
+    inject::uipi::UipiFacts {
+        sender: inject::uipi::IntegrityReading::Rid(sender),
+        sender_ui_access: Some(false),
+        target,
+        target_pid: 42,
+    }
+}
+
+/// 🔴 The audited defect: Enter into an elevated window used to raise it, post
+/// the keys UIPI then dropped, and answer `ok:true`. Now: no foreground, no key,
+/// the text path's own code on the wire, and the row says the OS refused.
+#[test]
+fn a_control_key_into_an_elevated_window_takes_no_foreground_and_sends_nothing() {
+    use crate::socket::control_row::build_key_receipt;
+    use inject::uipi::{take_seen, with_test_facts, IntegrityReading::Rid};
+    let (allow, fsm, _, _) = locked_env();
+    let _ = (take_seen(), take_os_calls());
+    let run = {
+        let _g = with_test_facts(uipi_facts(0x2000, Rid(0x3000)));
+        run_control_key_with("enter", &allow, &fsm, recording_foreground, recording_chords)
+    };
+    assert_eq!(take_seen(), vec![BOGUS_HWND], "judged on the locked window");
+    assert_eq!(take_os_calls(), (0, 0), "no foreground switch, no chord");
+    assert_eq!(run.row, Some(ControlOutcome::OsRefused));
+    assert_eq!(run.receipt, KeyReceipt::NamedRefusal(error_codes::INJECT_TARGET_ELEVATED));
+    let frame = build_key_receipt("enter", Some("r1"), run.receipt);
+    assert_eq!(frame["ok"], false);
+    assert_eq!(frame["error_code"], error_codes::INJECT_TARGET_ELEVATED);
+}
+
+/// Positive control for the test above: equal integrity, and an unreadable
+/// target (MAIN kept 「unknown ⇒ proceed」), still raise the window and send.
+#[test]
+fn a_control_key_at_equal_or_unknown_integrity_still_sends() {
+    use inject::uipi::{take_seen, with_test_facts, IntegrityReading::{Rid, Unknown}};
+    let (allow, fsm, _, _) = locked_env();
+    for target in [Rid(0x2000), Unknown("open_process_denied")] {
+        let _ = (take_seen(), take_os_calls());
+        let _g = with_test_facts(uipi_facts(0x2000, target));
+        let run = run_control_key_with("enter", &allow, &fsm, recording_foreground, recording_chords);
+        assert_eq!(take_seen(), vec![BOGUS_HWND], "{target:?}: the verdict was consulted");
+        assert_eq!(take_os_calls(), (1, 1), "{target:?}: raised and sent");
+        assert_eq!(run.row, Some(ControlOutcome::Sent));
+        assert_eq!(run.receipt, KeyReceipt::Ok);
+    }
+}
+
+/// 🔴 Punctuation is typed through `inject_text`, which already refused — but the
+/// receipt collapsed that refusal into the generic `failed`. It now carries the
+/// refusal's own code; the positive control types the glyph and answers ok.
+#[test]
+fn a_punctuation_key_refused_by_uipi_carries_the_named_code_not_a_plain_failure() {
+    use inject::{delivery_test_sink::recording, uipi::{take_seen, with_test_facts, IntegrityReading::Rid}};
+    let (allow, fsm, _, _) = locked_env();
+    let _ = take_seen();
+    let mut runs = Vec::new();
+    let payloads = recording(|| {
+        {
+            let _g = with_test_facts(uipi_facts(0x2000, Rid(0x3000)));
+            runs.push(run_control_key("punct_period", &allow, &fsm));
+        }
+        runs.push(run_control_key("punct_period", &allow, &fsm));
+    });
+    assert_eq!(runs[0].receipt, KeyReceipt::NamedRefusal(error_codes::INJECT_TARGET_ELEVATED));
+    assert!(runs[0].row.is_none(), "punctuation still mints no row");
+    assert_eq!(runs[1].receipt, KeyReceipt::Ok);
+    assert_eq!(payloads, ["。"], "only the positive control typed anything");
+    assert_eq!(take_seen().len(), 2);
+}

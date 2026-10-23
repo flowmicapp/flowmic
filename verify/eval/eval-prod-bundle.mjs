@@ -169,6 +169,7 @@ async function loadProductionPrompts() {
       // because `strict` resolves to it by identity and other assertions depend
       // on that being true.
       `export { POLISH_SYSTEM_PROMPT, POLISH_SMOOTH_SYSTEM_PROMPT, polishSystemPrompt } from '${src('stt/stt-polish')}';`,
+      `export { pieceRequest, pieceSystemPrompt, PIECE_CONTEXT_RULE } from '${src('stt/stt-polish-piece')}';`, // card INC-1e
       `export { normalizeFinalText } from '${src('stt/final-text-normalizer')}';`,
       `export { checkMeaningPreserved } from '${src('stt/stt-polish-guard')}';`,
       `export { mergeOnlineDraft, mergeOverlap, overlapLen, foldConfirmedWithDraft } from '${src('stt/text-merge')}';`,

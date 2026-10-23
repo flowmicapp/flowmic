@@ -104,6 +104,10 @@ export const GUARD_RULE_MIN_CATCHES = {
   // is the rule-axis half of moving the family out of GUARD_KNOWN_UNFLOORED;
   // a new rule with no floor is the FB-5b anti-pattern on this axis.
   cjk_latin_glued: 4,
+  // ML-1, 2026-10-13: new rule (organize / draft_polish came back in another
+  // language with the same script). Measured 3 on this corpus, 0 false
+  // rejects on golden_good; floor at the measured value.
+  language_changed: 3,
 };
 
 /**

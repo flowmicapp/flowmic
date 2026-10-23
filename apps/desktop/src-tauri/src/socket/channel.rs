@@ -235,6 +235,10 @@ impl CloudReadiness {
     }
 }
 
+// Card E-D: `is_dialable` / `shown` (the local expiry no longer blocks dialing).
+#[path = "channel_dial.rs"]
+mod channel_dial;
+
 /// The cloud channel's persisted state. DPAPI-wrapped as a whole (the `jwt` field
 /// is the user's account bearer — it MUST NOT hit the disk in the clear), exactly
 /// like the pairing credential file.

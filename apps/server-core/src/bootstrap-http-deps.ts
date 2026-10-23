@@ -57,6 +57,7 @@ import type { HttpDeps } from './http/router';
 import { makeResolveUserId } from './http/account-auth';
 import type { NodeRuntime } from './node/node-runtime';
 import { makeForwardReceiver } from './node/forward-receiver';
+import { makeForwardedPresenceApplier } from './node/forwarded-write';
 import type { ForwardLedger } from './node/forward-ledger';
 import { makePcIdentityApplier, type PcIdentityClock } from './node/pc-identity-forward';
 import { resolveTokenRows } from './node/token-rows';
@@ -381,6 +382,7 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
                     ? { snapshotSecret: w.nodeRuntime.nodeConfig.snapshotSecret }
                     : {}),
                   ...(w.nodeRuntime.snapshot ? { snapshot: w.nodeRuntime.snapshot } : {}),
+                  ...(w.nodeRuntime.opsSnapshot ? { opsSnapshot: w.nodeRuntime.opsSnapshot } : {}),
                   remainingSttMs: (userId: string) => w.quota.remainingSttMs(userId),
                   // 2026-08-31 — mint a pairing code for a PC that is registered
                   // HERE but connected to a replica. The SAME registry call the
@@ -410,6 +412,7 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
                   // not have, so the route can answer 404 and the replica can
                   // tell 「no such token」 apart from 「I could not ask」.
                   resolveToken: (token: string) => resolveTokenRows(db, token),
+                  ...(w.nodeRuntime.revocationHint ? { revocationHint: w.nodeRuntime.revocationHint } : {}), // REVOKE-PUSH (node/revocation-hint.ts)
                   // WP-6 — the generic handoff (node/forward-sync.ts). Same
                   // `registry`/`db.settings`/`releaseSuppression` instances the
                   // socket handlers use, for the same reason `registry` above
@@ -434,10 +437,8 @@ export function composeHttpDeps(w: HttpDepsWiring): HttpDeps {
                       // month boundary.
                       usage: w.nodeRuntime.replayUsage?.tracker ?? w.nodeRuntime.usageTracker,
                       setHomeNode: (pc_id, home_node) => db.pcs.setHomeNode(pc_id, home_node),
-                      setPresence: (pc_id, is_online, last_seen_at) => {
-                        db.pcs.setOnline(pc_id, is_online);
-                        db.pcs.touchLastSeen(pc_id, new Date(last_seen_at).toISOString());
-                      },
+                      // REPL-TIER 1a — monotonic, because presence skips the ledger (forward-receiver.ts).
+                      setPresence: makeForwardedPresenceApplier(db.pcs),
                       // NR-131 — the SAME clock the writer's pc handler notes direct declarations on;
                       // non-null here for the reason `w.forwardLedger` is (writer-gated branch).
                       setPcIdentity: makePcIdentityApplier({ pcs: db.pcs, clock: w.nodeRuntime.pcIdentityClock as PcIdentityClock, log }),

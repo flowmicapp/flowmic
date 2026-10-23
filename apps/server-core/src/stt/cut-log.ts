@@ -32,18 +32,27 @@
 //   x_right_word_leg     word starts at or after `leg_seam_ms` (this leg's own audio),
 //                        'previous' when it starts inside the re-heard head; the right one
 //                        is null for a word-end cut (there is no word after X yet)
+//   seam_open            card SEAM-2 — a row cut ('pause' / 'word_gap', or a hang-up that ended a row)
+//                        on an engine that closes its final at end-of-stream, that emitted its row:
+//                        true when the row ended on the vendor's 「not finished」 mark, not after a
+//                        dictated command (the cut landed mid-phrase) — whether or not it was stripped
+//                        (`seam-artifact.ts` `repairRowEnd` `open`). ABSENT otherwise — never false for 「not asked」
 //
 // Owned by `orchestrator-rollover.ts` / `orchestrator-terminal.ts` (the retiring
 // sites); `orchestrator-core.ts flushFinal` records the flush facts it reads.
 
 import { log } from '../log';
 import type { SegmentCutReason } from './segment-boundary';
+import type { IdleHangupTrigger } from './engine-idle-hangup';
 
 export type SttCutKind = 'segment' | 'hangup' | 'stop';
 
 export interface SttCutRecord {
   kind: SttCutKind;
   backlog_ms?: number | null;
+  /** card IDLE-1 — kind 'hangup' only: 'silence' (the received audio was quiet for the
+   *  threshold) or 'wall' (the backstop: no audio handed to the vendor, e.g. a stall). */
+  idle_trigger?: IdleHangupTrigger;
   reason: SegmentCutReason | null;
   segment_idx: number;
   boundary_seq: number;
@@ -56,6 +65,7 @@ export interface SttCutRecord {
   leg_seam_ms: number | null;
   x_left_word_leg: CutWordLeg | null;
   x_right_word_leg: CutWordLeg | null;
+  seam_open?: boolean;
 }
 
 /** card RC-J — which leg's audio a word at the cut point sits in (see the field list above). */
@@ -90,7 +100,7 @@ export function flushFields(f: LastFlushFacts | null, sinceMs: number): Pick<Stt
 }
 
 /** Log a retirement whose flush ran since `sinceMs`; a retirement that bailed before flushing retired no leg and logs nothing. */
-export function logCutIfFlushed(head: Pick<SttCutRecord, 'kind' | 'reason' | 'segment_idx' | 'boundary_seq' | 'replayed_ms'> & { x?: CutPointFacts | null }, f: LastFlushFacts | null, sinceMs: number): void {
+export function logCutIfFlushed(head: Pick<SttCutRecord, 'kind' | 'idle_trigger' | 'reason' | 'segment_idx' | 'boundary_seq' | 'replayed_ms' | 'seam_open'> & { x?: CutPointFacts | null }, f: LastFlushFacts | null, sinceMs: number): void {
   const flush = flushFields(f, sinceMs);
   const { x, ...rest } = head;
   if (flush !== null) logCut({ ...rest, ...(head.kind === 'stop' ? { backlog_ms: f?.backlogMs == null ? null : Math.round(f.backlogMs) } : {}), ...(x ?? NO_CUT_POINT), ...flush }); // card RC-J: the cut point, null unless an overdue cut

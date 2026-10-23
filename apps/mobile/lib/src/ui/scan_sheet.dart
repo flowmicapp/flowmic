@@ -28,6 +28,7 @@ import '../permission/camera_permission.dart';
 import '../settings/app_strings.dart';
 import 'scan_permission_pane.dart';
 import 'scanner_camera_lifecycle.dart';
+import 'sheet_error_banner.dart';
 import 'tokens.dart';
 
 /// Present a full-width scan sheet. [onScan] receives each decoded value and
@@ -212,24 +213,7 @@ class _ScanSheetState extends State<_ScanSheet>
     );
   }
 
-  Widget _banner(String message) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-    decoration: BoxDecoration(
-      color: FlowMicColors.redSoft,
-      border: Border.all(color: const Color(0x4DF87171)),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Row(
-      children: <Widget>[
-        const Icon(Icons.error_outline, size: 14, color: Color(0xFFFCA5A5)),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            message,
-            style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 12),
-          ),
-        ),
-      ],
-    ),
-  );
+  // FM-003 — was a copy painting a dark-theme red-300 on redSoft (1.49:1 in
+  // the light theme); the one shared strip resolves its ink per theme.
+  Widget _banner(String message) => SheetErrorBanner(message);
 }

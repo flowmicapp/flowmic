@@ -285,6 +285,7 @@
     "injectFailReason.INJECT_FOCUS_LOST": "'입력 포커스를 찾을 수 없습니다'",
     "injectFailReason.INJECT_IMAGE_UNSUPPORTED": "'이 창은 이미지를 받을 수 없습니다'",
     "injectFailReason.INJECT_NO_ACCESSIBILITY": "'FlowMic에 「손쉬운 사용」 권한이 없습니다 · 시스템 설정 ▸ 개인정보 보호 및 보안 ▸ 손쉬운 사용'",
+    "injectFailReason.INJECT_TARGET_ELEVATED": "'맨 앞의 창이 관리자 권한으로 실행 중이어서 Windows가 입력을 차단했습니다'",
     "injectFailReason.INJECT_NO_TEXT_TARGET": "'포커스된 창에 입력할 수 있는 곳이 없습니다'",
     "injectFailReason.INJECT_SECURE_INPUT_ACTIVE": "'시스템이 보안 입력 상태입니다 (암호 입력란 / 잠금 화면)'",
     "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT": "'포커스가 FlowMic 자체 창에 있었습니다'",

@@ -30,6 +30,7 @@ import 'package:flowmic/src/settings/local_prefs.dart';
 import 'package:flowmic/src/settings/prefs_controller.dart';
 import 'package:flowmic/src/settings/scenario_card.dart';
 import 'package:flowmic/src/settings/scenario_card_controller.dart';
+import 'package:flowmic/src/settings/scenario_taxonomy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -383,5 +384,128 @@ void main() {
     final ScenarioCard back = await SharedPrefsScenarioCardCache(h.prefs).load();
     expect(back.professions, <String>['software-dev', 'law']);
     expect(back.domains, <String>['data-ml']);
+  });
+
+  // ── FM-001: an over-limit card refuses the WHOLE file ──────────────────────
+  // A tester restored a hand-edited backup with 101 terms × 47 chars; the app
+  // said 「Settings restored」 and every later audio:start / compose:start
+  // carried a card the server's ScenarioCardSchema refuses. Each case below
+  // breaks exactly ONE cap and also carries keys that WOULD be written (spoken
+  // language, locale), so 「refused」 has to mean nothing landed, not just a
+  // sentence on screen (the cross-end case's reverse control, same shape).
+  //
+  // ── REVERSE CONTROL (executed 2026-10-16) ─────────────────────────────────
+  // Break: make `_scenarioCardRestorable` in settings_backup.dart return true.
+  // OBSERVED: every case in this group went red on the refusal expectation
+  // (Expected: SettingsRestoreRefusal.notASettingsFile, Actual: <null>).
+  group('FM-001 over-limit scenario card', () {
+    Map<String, Object?> fileWith(Map<String, Object?> card) => <String, Object?>{
+      'flowmic_settings': 1,
+      'exported_at': '2026-10-16T00:00:00.000Z',
+      'source': <String, Object?>{'app': 'flowmic', 'end': 'mobile'},
+      'prefs': <String, Object?>{
+        FlowMicSettingsKeys.scenarioCard: card,
+        'spoken_lang': 'ja',
+      },
+      'local': <String, Object?>{'locale': 'ja', 'theme': 'light'},
+    };
+    Map<String, Object?> card({
+      List<String> professions = const <String>[],
+      List<Object> terms = const <Object>[],
+    }) => <String, Object?>{
+      'professions': professions,
+      'domains': <String>[],
+      'packs': <String>[],
+      'terms': terms,
+    };
+
+    final Map<String, Map<String, Object?>> cases = <String, Map<String, Object?>>{
+      '101 terms × 47 chars (the tester\'s file)': card(
+        terms: <Object>[for (int i = 0; i < 101; i++) '${i.toString().padLeft(3, '0')}${'x' * 44}'],
+      ),
+      '101 short terms': card(terms: <Object>[for (int i = 0; i < 101; i++) 't$i']),
+      'one 41-char term': card(terms: <Object>['ok', 'y' * 41]),
+      'one term with 9 aliases': card(terms: <Object>[
+        <String, Object?>{
+          'term': 'FlowMic',
+          'aliases': <String>[for (int i = 0; i < 9; i++) 'alias $i'],
+        },
+      ]),
+      'one 41-char alias': card(terms: <Object>[
+        <String, Object?>{'term': 'FlowMic', 'aliases': <String>['z' * 41]},
+      ]),
+      'nine professions': card(professions: ScenarioAxis.professions.ids),
+    };
+
+    test('precondition: the taxonomy has more professions than the cap, so the '
+        'nine-professions case is reachable through ids', () {
+      expect(ScenarioAxis.professions.ids.length,
+          greaterThan(FlowMicScenarioLimits.maxProfessions));
+    });
+
+    for (final MapEntry<String, Map<String, Object?>> c in cases.entries) {
+      test('${c.key} ⇒ refused as not a settings backup; nothing written; '
+          'the previous card intact', () async {
+        final _Harness h = await _Harness.create(_populated());
+        addTearDown(h.dispose);
+        final Map<String, Object?> before = h.snapshotOfStore();
+        final ScenarioCard cardBefore = await SharedPrefsScenarioCardCache(h.prefs).load();
+
+        final SettingsRestoreOutcome res =
+            await h.backup.restoreFrom(jsonEncode(fileWith(c.value)));
+
+        expect(res.refusal, SettingsRestoreRefusal.notASettingsFile);
+        expect(res.ok, isFalse);
+        expect(h.imported, 0, reason: 'a refusal is not an import');
+        expect(h.snapshotOfStore(), before, reason: 'no key may be written');
+        expect(h.prefs.getString(SettingsBackup.unknownKeysKey), isNull,
+            reason: 'the refused file is not parked in the unknown-key keep');
+        expect(await SharedPrefsScenarioCardCache(h.prefs).load(), cardBefore);
+      });
+    }
+
+    // Reverse control (2026-10-16): drop `.normalizedToLimits()` from
+    // `snapshot` ⇒ red on the length expectation (Expected: length 100,
+    // Actual: the 102-entry list).
+    test('a poisoned store exports a card that this app\'s own restore accepts', () async {
+      final _Harness h = await _Harness.create(<String, Object>{
+        SharedPrefsScenarioCardCache.cacheKey: jsonEncode(
+          card(terms: <Object>[for (int i = 0; i < 101; i++) 't$i', 'y' * 41]),
+        ),
+      });
+      addTearDown(h.dispose);
+      final Map<String, Object?> doc = await h.backup.snapshot();
+      final List<Object?> terms = ((doc['prefs']! as Map)[FlowMicSettingsKeys.scenarioCard]
+          as Map)['terms']! as List<Object?>;
+      expect(terms, hasLength(FlowMicScenarioLimits.maxTerms));
+      expect(terms, isNot(contains('y' * 41)));
+      expect((await h.backup.restoreFrom(jsonEncode(doc))).ok, isTrue);
+    });
+
+    test('positive control: the same file at exactly every cap restores', () async {
+      final _Harness h = await _Harness.create(_populated());
+      addTearDown(h.dispose);
+      final Map<String, Object?> atCap = card(
+        professions: ScenarioAxis.professions.ids
+            .take(FlowMicScenarioLimits.maxProfessions)
+            .toList(),
+        terms: <Object>[
+          <String, Object?>{
+            'term': 'w' * FlowMicScenarioLimits.maxLabelLen,
+            'aliases': <String>[
+              for (int i = 0; i < FlowMicScenarioLimits.maxAliasesPerTerm; i++) 'alias $i',
+            ],
+          },
+          for (int i = 1; i < FlowMicScenarioLimits.maxTerms; i++) 't$i',
+        ],
+      );
+      final SettingsRestoreOutcome res = await h.backup.restoreFrom(jsonEncode(fileWith(atCap)));
+      expect(res.ok, isTrue);
+      final ScenarioCard back = await SharedPrefsScenarioCardCache(h.prefs).load();
+      expect(back.terms, hasLength(FlowMicScenarioLimits.maxTerms));
+      expect(back.professions, hasLength(FlowMicScenarioLimits.maxProfessions));
+      expect(back.fitsWireSchema, isTrue);
+      expect(h.prefs.getString(AppSettingsController.kSpokenLangKey), 'ja');
+    });
   });
 }

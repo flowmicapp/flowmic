@@ -92,6 +92,11 @@ export const RESOLVE_TOKEN_TIMEOUT_MS = 3_000;
  *  about the other's number. */
 export const FORWARD_SYNC_TIMEOUT_MS = 3_000;
 
+/** REVOKE-PUSH — how much longer than the writer's own hold the revocation
+ *  long-poll's transport budget is. Two cross-ocean round trips of headroom and
+ *  then some; a timeout past it means the writer is not answering. */
+export const REVOCATION_HINT_SLACK_MS = 10_000;
+
 /** The result of a generic replica→writer handoff. See `WriterClient.forwardSync`. */
 export type ForwardSyncOutcome =
   | { status: 'ok'; result: unknown }
@@ -162,6 +167,18 @@ export interface WriterClient {
    * could double-apply a write whose first attempt actually landed.
    */
   forwardSync(verb: string, payload: Record<string, unknown>): Promise<ForwardSyncOutcome>;
+  /**
+   * REVOKE-PUSH — long-poll the writer's revocation hint (node/revocation-hint.ts,
+   * GET /api/node/revocation-hint). Resolves with the writer's `(boot, gen)` as
+   * soon as it differs from `seen`, or after about `waitMs` with whatever it is.
+   * Throws WriterUnreachable on transport failure, on a non-2xx (an older writer
+   * answers 404 — the follower backs off) and on a body it cannot use.
+   */
+  waitRevocationHint(
+    seen: { boot: string; gen: number } | null,
+    waitMs: number,
+    signal?: AbortSignal,
+  ): Promise<{ boot: string; gen: number }>;
   /** The writer's whole database, gzipped. Its own timeout, an order of
    *  magnitude longer than the others: this transfers a file across an ocean
    *  (154 ms RTT NY↔Tokyo, measured), and giving it the 8-second budget meant
@@ -344,6 +361,44 @@ export function makeWriterClient(opts: WriterClientOptions): WriterClient {
       // would misread any of them as「the writer answered 200 with nothing」.
       if (!('result' in parsed)) throw new WriterUnreachable('writer answered 200 with no usable result');
       return { status: 'ok', result: parsed.result };
+    },
+
+    async waitRevocationHint(seen, waitMs, signal): Promise<{ boot: string; gen: number }> {
+      const qs = new URLSearchParams({ wait_ms: String(Math.max(0, Math.floor(waitMs))) });
+      if (seen) {
+        qs.set('boot', seen.boot);
+        qs.set('gen', String(seen.gen));
+      }
+      // The writer holds the request up to `waitMs`; the budget is that plus
+      // REVOCATION_HINT_SLACK_MS so a held answer is never cut off by our own
+      // timer and misread as an outage. Not through `call`: like fetchSnapshot,
+      // it needs its own signal — here so a stopping follower can let go.
+      const budget = AbortSignal.timeout(waitMs + REVOCATION_HINT_SLACK_MS);
+      let res: Response;
+      try {
+        res = await doFetch(`${base}/api/node/revocation-hint?${qs.toString()}`, {
+          method: 'GET',
+          signal: signal ? AbortSignal.any([budget, signal]) : budget,
+          headers: {
+            'x-flowmic-node-secret': opts.sharedSecret,
+            'x-flowmic-node-id': opts.nodeId,
+          },
+        });
+      } catch (err) {
+        throw new WriterUnreachable(err instanceof Error ? err.message : String(err));
+      }
+      if (!res.ok) throw new WriterUnreachable(`HTTP ${res.status}`);
+      let parsed: { boot?: unknown; gen?: unknown };
+      try {
+        parsed = (await res.json()) as { boot?: unknown; gen?: unknown };
+      } catch (err) {
+        throw new WriterUnreachable(`unreadable response: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (typeof parsed.boot !== 'string' || !parsed.boot
+        || typeof parsed.gen !== 'number' || !Number.isInteger(parsed.gen) || parsed.gen < 0) {
+        throw new WriterUnreachable('writer answered 200 with no usable revocation hint');
+      }
+      return { boot: parsed.boot, gen: parsed.gen };
     },
 
     async authoritativeRead<T>(path: string): Promise<T> {

@@ -93,6 +93,33 @@ export function isLocalModelEngine(engineId: string): boolean {
  * `idleHangupMs` for why the orchestrator must be told, not left to infer.
  */
 export const DEFAULT_ENGINE_IDLE_HANGUP_MS = 3_000;
+// ⚠️ 更正（IDLE-1，2026-10-14）：「the voice may be absent」 above now means SILENCE
+// IN THE RECEIVED AUDIO (gate-refused chunks, by their audio duration), no longer
+// wall-clock time without audio (`engine-idle-hangup.ts` `noteChunk`). And 3 s is
+// now the LONG-RECORDING value only (RC-E's 「≥3 s of silence ends a row」 hangs off
+// it, as does the `ge_3s` closure bucket in `vad-gate.ts`); a held press uses
+// {@link PRESS_ENGINE_IDLE_HANGUP_MS}. The one writer that chooses is
+// `engine-factory.ts`, from `audio:start.continuous`.
+
+/**
+ * card IDLE-1 — the hang-up threshold while a press is held (push-to-talk, i.e.
+ * every session that is not a long recording). Owner decision 2026-10-14
+ * (`docs/decisions/2026-10-14-owner-long-recording-unpolished-no-mark.md`,
+ * appendix 「句中空闲挂断」): production stats put 6 s / 10 s at +0.5% / +0.9%
+ * connection time, which removed the cost premise the 3 s was chosen on.
+ */
+export const PRESS_ENGINE_IDLE_HANGUP_MS = 10_000;
+
+/**
+ * card IDLE-1 — wall-clock backstop: a leg that has been handed no audio for this
+ * long is hung up (same silent, flush-first path) even though no silence was
+ * RECEIVED — the uplink stalled, or the phone sent `audio:pause`. Below the
+ * vendor's own idle close (Soniox 22.2 s measured, `soniox.ts` flush doc
+ * 「22-second idle close」) so that close never reaches the reconnect ladder as a
+ * drop; above {@link PRESS_ENGINE_IDLE_HANGUP_MS}, because gate-refused silence is
+ * not handed to the vendor either and the backstop must not pre-empt it.
+ */
+export const ENGINE_IDLE_WALL_BACKSTOP_MS = 15_000;
 
 /** Each call returns a FRESH (unopened) engine — new session per soft-segment
  *  (06 §2.2, reset STT context). */
@@ -117,6 +144,10 @@ export interface OrchestratorOptions {
    *  closed run's tail (`segment-boundary.ts` `continuousSilenceCutAllowed`, book 06 §2 RC-E block).
    *  Same one production writer as above. Absent ⇒ push-to-talk rows, byte for byte. */
   continuous?: boolean;
+  /** card SEAM-2 (review F2) — `false` for a RECOVERY LEG (`SttStartArgs.recoveryLeg`, written by `engine-factory.ts`):
+   *  its rows and its terminal final keep today's text, as on a long recording (`continuous`), the same pair the
+   *  bridge's `segmentKeepsPreSeg1Contract` reads. Absent ⇒ the SEAM-2 seam repair runs (`seam-artifact.ts`). */
+  seamRepair?: false;
   replayWindowMs?: number;
   /** caps on engine.open() (5_000 ms) / engine.flush() (3_000 ms). */
   engineSpawnTimeoutMs?: number;
@@ -129,7 +160,9 @@ export interface OrchestratorOptions {
   shouldFeedEngine?: (c: { seq: number; ts_ms: number; payload: Buffer }) => boolean;
   /**
    * Card RT-2 — connection lifetime follows the voice. After this many ms with no
-   * audio handed to the engine, the leg is flushed and hung up; the next chunk
+   * audio handed to the engine, the leg is flushed and hung up (⚠️ 更正 IDLE-1,
+   * 2026-10-14: ms of gate-refused audio RECEIVED, not of clock — see
+   * {@link DEFAULT_ENGINE_IDLE_HANGUP_MS}); the next chunk
    * the VAD gate accepts dials a fresh one. `0` / absent = never hang up.
    *
    * 🔴 ABSENT IS THE DEFAULT, and that is the decision, not an oversight. The
@@ -146,6 +179,9 @@ export interface OrchestratorOptions {
    * it says so in a field of its own.
    */
   idleHangupMs?: number;
+  /** card IDLE-1 — see {@link ENGINE_IDLE_WALL_BACKSTOP_MS}, the default whenever
+   *  `idleHangupMs` is set (never below it). Exposed for tests; production never sets it. */
+  idleWallBackstopMs?: number;
   now?: () => number;
   setTimeoutFn?: (fn: () => void, ms: number) => unknown;
   clearTimeoutFn?: (handle: unknown) => void;

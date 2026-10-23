@@ -58,6 +58,7 @@ import 'data_flow_disclosure_entry.dart';
 import 'guide/instance_guide_sheet.dart';
 import 'login_sheet.dart';
 import 'quota_rules_entry.dart';
+import 'settings_page.dart' show SettingsNotesAction;
 import 'rename_alias_dialog.dart';
 import 'tokens.dart';
 
@@ -561,9 +562,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
           // that keeps a fourth competitor off this row has to be able to name
           // each tap cell. It was the only one without a key.
           key: const ValueKey<String>('connections.settings'),
-          onTap: () => Navigator.of(context).push<void>(
-            MaterialPageRoute<void>(builder: (_) => widget.settingsPageBuilder()),
-          ).whenComplete(() => _retryHeldPairLinkRouted(this)),
+          onTap: () => _openSettingsRouted(this), // FM-002: acts on its pop result
           borderRadius: BorderRadius.circular(10),
           // The update dot — same 7×7, same color, same zero-width overlay as
           // the chat header's (chat_header.dart), keyed apart so a test can

@@ -93,6 +93,7 @@ use crate::inject::image;
 // which is the whole reason they are not private to either file.
 use crate::inject::preflight::{self_window_stage0, synthetic_input_preflight};
 use crate::inject::self_focus::{current_verdict, SelfFocusProbe};
+use crate::inject::uipi::uipi_preflight;
 use crate::inject::target_probe::{
     focused_input_state, image_refusal_for, refusal_for, TargetProbe,
 };
@@ -347,7 +348,8 @@ fn inject_text_with_checks(
 
     // ── Stage 0a (MAC-05): will the OS deliver a synthetic keystroke at all? ──
     //
-    // Windows has no verdict here. macOS checks Accessibility / Secure Input;
+    // Windows has no machine-wide verdict here (its per-window UIPI check is
+    // Stage 0b below). macOS checks Accessibility / Secure Input;
     // Linux checks the selected display backend. Wire text supplies the verdict
     // it read before spacing; raw/control-key callers read it at this stage.
     //
@@ -371,6 +373,19 @@ fn inject_text_with_checks(
         None => None,
     };
     let self_window = self_target.is_some();
+
+    // ── Stage 0b (UIPI): will Windows deliver input into THIS window? ──
+    // Judged on the window the frame is about to be typed into, BEFORE Stage 1,
+    // so a refusal takes no foreground and touches no clipboard. Not asked for our
+    // own window (one process, one integrity). Refuses `TargetAbove` as
+    // INJECT_TARGET_ELEVATED (mode cached); `Unknown` and `Deliverable` proceed —
+    // see `uipi::refusal_for`, pinned by `uipi_tests.rs`
+    // `the_hook_refuses_a_higher_target_by_name_as_cached`.
+    if let (None, Some(hwnd)) = (self_target, locked_hwnd.filter(|h| *h != 0)) {
+        if let Some(refused) = uipi_preflight(hwnd) {
+            return refused;
+        }
+    }
 
     // ── Stage 1: focus ────────────────────────────────────────────────
     //
@@ -646,6 +661,12 @@ pub fn inject_image_with_probe(
     // cheaper), and so a refusal still costs the user no foreground switch.
     if let Some(refused) = synthetic_input_preflight() {
         return refused;
+    }
+    // ── Stage 0b (UIPI): same hook as the text path — Ctrl+V is a SendInput too.
+    if let Some(hwnd) = locked_hwnd.filter(|h| *h != 0) {
+        if let Some(refused) = uipi_preflight(hwnd) {
+            return refused;
+        }
     }
 
     // ── Stage 1: focus ────────────────────────────────────────────────

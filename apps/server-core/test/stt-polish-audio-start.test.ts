@@ -184,6 +184,10 @@ describe('M6 — the llm_tokens valve gates the polish pass (and never the recor
     expect(open.llm.source).toBe('user'); // M4: the dep carries 「who supplied it」
     expect(open.llm.cfg).toEqual(PLAIN_LLM);
     expect(open.deps.protectedTerms).toEqual(['FlowMic']);
+    // NR-245: the focused-app category reaches the guard's known terms.
+    expect(open.deps.appCategory).toBeUndefined();
+    const coding = resolvePolishDep({ settings: db.settings, quota: recordingGuard() }, 'u1', ['FlowMic'], 'en', 'coding');
+    expect(coding.armed && coding.deps.appCategory).toBe('coding');
   });
 
   it('resolvePolishDep RETHROWS anything that is not QUOTA_EXCEEDED (no silent swallow)', () => {
@@ -701,6 +705,31 @@ describe('polish diagnostics carry the session language', () => {
     const wired = src
       .split('\n')
       .filter((l) => l.includes('resolvePolishDep(') && l.includes('args.sourceLang'));
+    expect(wired.length).toBe(1);
+  });
+});
+
+// ML-2 (MAIN 2026-10-14): layout commands become line breaks only when the
+// utterance is never delivered to a PC. The fact comes from audio:start's
+// `delivery` at one site in engine/stt-factory.ts.
+describe('polish line breaks follow the delivery', () => {
+  const PLAIN_LLM = { protocol: 'openai-compatible', endpoint: 'http://x/v1', api_key: 'EMPTY', model: 'm' } as const;
+
+  it('resolvePolishDep carries the flag; absent stays absent', () => {
+    const db = freshDb();
+    db.settings.write('u1', 'stt.polish', { enabled: true });
+    db.settings.write('u1', 'llm.config', PLAIN_LLM);
+    const notes = resolvePolishDep({ settings: db.settings, quota: recordingGuard() }, 'u1', [], 'en', undefined, true);
+    const pc = resolvePolishDep({ settings: db.settings, quota: recordingGuard() }, 'u1', [], 'en', undefined, false);
+    const none = resolvePolishDep({ settings: db.settings, quota: recordingGuard() }, 'u1', [], 'en');
+    expect(notes.armed && notes.deps.lineBreaks).toBe(true);
+    expect(pc.armed && pc.deps.lineBreaks).toBe(false);
+    expect(none.armed && 'lineBreaks' in none.deps).toBe(false);
+  });
+
+  it('production derives it from delivery at the one arming site', () => {
+    const src = readFileSync(new URL('../src/engine/stt-factory.ts', import.meta.url), 'utf8');
+    const wired = src.split('\n').filter((l) => l.includes('resolvePolishDep(') && l.includes("args.delivery === 'none'"));
     expect(wired.length).toBe(1);
   });
 });

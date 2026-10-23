@@ -1,0 +1,129 @@
+{"id":"adv1-001","category":"arabic-scale","label":"harmful","input":"预算是3万","output":"预算是3千","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-002","category":"arabic-scale","label":"harmful","input":"预算是3万","output":"预算是3","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-003","category":"arabic-scale","label":"harmful","input":"We raised 3 million last year","output":"We raised 3 billion last year","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-004","category":"arabic-scale","label":"harmful","input":"We raised 3 million last year","output":"We raised 3 last year","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-005","category":"arabic-decimal","label":"harmful","input":"日活1.5万","output":"日活15万","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-006","category":"arabic-decimal","label":"harmful","input":"The timeout is 1.5 seconds","output":"The timeout is 15 seconds","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-007","category":"arabic-decimal","label":"harmful","input":"It costs $3.50 per seat","output":"It costs $350 per seat","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-008","category":"arabic-regroup","label":"harmful","input":"Room 12, floor 3","output":"Room 1, floor 23","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-009","category":"arabic-regroup","label":"harmful","input":"Ship version 2.1 on the 3rd","output":"Ship version 21 on the 3rd","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-010","category":"arabic-regroup","label":"harmful","input":"The deadline is 12/3","output":"The deadline is 1/23","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-011","category":"arabic-regroup","label":"neutral","input":"显卡是409048G","output":"显卡是4090 48G","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv1-012","category":"arabic-regroup","label":"neutral","input":"价格是1,000块","output":"价格是1000块","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv1-013","category":"han-estimate","label":"harmful","input":"大概三四个人","output":"大概34个人","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-014","category":"han-estimate","label":"harmful","input":"一两天就好","output":"12天就好","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-015","category":"han-estimate","label":"harmful","input":"再等五六分钟","output":"再等56分钟","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-016","category":"han-estimate","label":"harmful","input":"还有七八个bug","output":"还有78个bug","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-017","category":"en-words","label":"harmful","input":"it takes two three days","output":"it takes five days","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-018","category":"en-words","label":"harmful","input":"go to room two two","output":"go to room 2","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-019","category":"en-words","label":"harmful","input":"fifteen people came","output":"fifty people came","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-020","category":"en-words","label":"neutral","input":"the twenty twenty-six roadmap","output":"the 2026 roadmap","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-021","category":"yi-word","label":"harmful","input":"这些问题我们一直在跟","output":"这些问题我们有时在跟","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-022","category":"yi-word","label":"harmful","input":"我们一起去现场","output":"我们分别去现场","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-023","category":"yi-word","label":"harmful","input":"还有一些接口没对接","output":"还有很多接口没对接","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-024","category":"yi-word","label":"harmful","input":"一共三个人","output":"大约三个人","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-025","category":"yi-word","label":"harmful","input":"这是唯一的办法","output":"这是主要的办法","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-026","category":"yi-word","label":"harmful","input":"我一下午都在开会","output":"我都在开会","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-027","category":"yi-word","label":"harmful","input":"这个方案十分重要","output":"这个方案有点重要","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-028","category":"yi-word","label":"harmful","input":"下午三点十分开会","output":"下午三点开会","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-029","category":"yi-word","label":"harmful","input":"等我十分钟","output":"等我一会儿","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-030","category":"yi-word","label":"harmful","input":"营收增长了百分之五十","output":"营收增长了五十","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-031","category":"yi-word","label":"neutral","input":"我一直觉得这个方案一般","output":"我觉得这个方案一般","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-032","category":"yi-word","label":"neutral","input":"你看一看这个文件","output":"你看看这个文件","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv1-033","category":"repeat","label":"harmful","input":"然后还有一个一个的接口需要对接","output":"然后还有一个接口需要对接","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-034","category":"repeat","label":"harmful","input":"我们要五个五个地分组","output":"我们要五个分组","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-035","category":"repeat","label":"harmful","input":"请大家一个一个进来","output":"请大家一个进来","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-036","category":"repeat","label":"neutral","input":"然后还有一个一个的接口需要对接","output":"然后还有一个个接口需要对接","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv1-037","category":"qianwan","label":"harmful","input":"预算三千万","output":"预算三百万","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-038","category":"qianwan","label":"harmful","input":"千万别忘了带钥匙","output":"别忘了带钥匙","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-039","category":"qianwan","label":"harmful","input":"用户有上千万","output":"用户有上百万","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-040","category":"qianwan","label":"harmful","input":"千万级的数据","output":"百万级的数据","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-041","category":"qianwan","label":"harmful","input":"这个项目投了几千万","output":"这个项目投了几百万","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-042","category":"yidian","label":"harmful","input":"一点开会","output":"两点开会","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-043","category":"yidian","label":"harmful","input":"明天早上一点出发","output":"明天早上出发","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-044","category":"yidian","label":"harmful","input":"今晚一点上线","output":"今晚上线","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-045","category":"yidian","label":"harmful","input":"最晚一点到","output":"最晚到","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-046","category":"yidian","label":"neutral","input":"快一点","output":"快点","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv1-047","category":"yidian","label":"neutral","input":"晚一点再说","output":"晚点再说","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv1-048","category":"zh-mask","label":"harmful","input":"这是非法的","output":"这是合法的","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-049","category":"zh-mask","label":"harmful","input":"他从未来过这里","output":"他来过这里","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-050","category":"zh-mask","label":"harmful","input":"这里无数据","output":"这里有数据","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-051","category":"zh-mask","label":"harmful","input":"我们得出发了","output":"我们出发了","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-052","category":"zh-mask","label":"harmful","input":"你得到公司一趟","output":"你到公司一趟","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-053","category":"zh-mask","label":"harmful","input":"我会计算一下成本","output":"我计算一下成本","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-054","category":"zh-mask","label":"harmful","input":"他会面对很多问题","output":"他面对很多问题","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-055","category":"zh-mask","label":"harmful","input":"我们会谈到这个问题","output":"我们谈到这个问题","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-056","category":"zh-mask","label":"harmful","input":"你得分清楚这两个","output":"你分清楚这两个","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-057","category":"zh-mask","label":"harmful","input":"他能量化这个指标吗","output":"他量化这个指标吗","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-058","category":"zh-mask","label":"neutral","input":"那个会议我们需要再开一下","output":"会议需要再开一下","expect":{"strict":"refuse","smooth":"accept"},"known_hole":false}
+{"id":"adv1-059","category":"zh-modal","label":"harmful","input":"我会去","output":"我去","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-060","category":"zh-modal","label":"harmful","input":"一定要去","output":"不要去","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-061","category":"zh-modal","label":"harmful","input":"你可以提交","output":"你必须提交","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-062","category":"zh-modal","label":"harmful","input":"你应该提交","output":"你可以提交","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-063","category":"zh-modal","label":"harmful","input":"我们可以下周发","output":"我们下周发","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-064","category":"zh-neg","label":"harmful","input":"这个不是很好","output":"这个很不好","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-065","category":"zh-quant","label":"harmful","input":"所有用户都要升级","output":"一些用户都要升级","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-066","category":"zh-quant","label":"harmful","input":"每个人都要来","output":"有的人都要来","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-067","category":"zh-quant","label":"harmful","input":"大家都同意","output":"大家同意","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-068","category":"en-modal","label":"harmful","input":"You may submit it today","output":"You must submit it today","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-069","category":"en-modal","label":"harmful","input":"We should ship it","output":"We will ship it","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-070","category":"en-neg","label":"harmful","input":"I dont think so","output":"I do think so","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-071","category":"en-neg","label":"neutral","input":"I dont think so","output":"I don't think so.","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv1-072","category":"en-neg","label":"harmful","input":"We cant ship this","output":"We can ship this","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-073","category":"en-neg","label":"neutral","input":"I wont do it","output":"I won't do it","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv1-074","category":"en-quant","label":"harmful","input":"All files were deleted","output":"Some files were deleted","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-075","category":"en-quant","label":"harmful","input":"We usually deploy on Fridays","output":"We always deploy on Fridays","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-076","category":"en-plural","label":"harmful","input":"Delete the files in the cache folder","output":"Delete the file in the cache folder","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-077","category":"self-corr","label":"neutral","input":"两点不对是三点","output":"三点，不是两点","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-078","category":"self-corr","label":"neutral","input":"会议改到2点，不对，是3点","output":"会议改到3点","expect":{"strict":"refuse","smooth":"accept"},"known_hole":false}
+{"id":"adv1-079","category":"self-corr","label":"neutral","input":"Send it to Mark, sorry, I mean Martin","output":"Send it to Martin","expect":{"strict":"refuse","smooth":"accept"},"known_hole":false}
+{"id":"adv1-080","category":"self-corr","label":"neutral","input":"会议定在三点，嗯，两点吧","output":"会议定在两点","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-081","category":"self-corr","label":"harmful","input":"三个苹果五个梨","output":"三个梨五个苹果","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-082","category":"long-drop","label":"harmful","input":"那个，我们这个项目现在的进度呢，嗯，然后前端页面基本做完了，就是说接口那边还在联调，然后那个顺便把设计稿发给小李过目，嗯，测试那边下周开始，然后那个文档也在写，就是说大家辛苦一下。","output":"我们这个项目现在的进度：前端页面基本做完了，接口那边还在联调，测试那边下周开始，文档也在写，大家辛苦一下。","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-083","category":"long-drop","label":"neutral","input":"那个，我们这个项目现在的进度呢，嗯，然后前端页面基本做完了，就是说接口那边还在联调，然后那个顺便把设计稿发给小李过目，嗯，测试那边下周开始，然后那个文档也在写，就是说大家辛苦一下。","output":"我们这个项目现在的进度：前端页面基本做完了，接口那边还在联调，顺便把设计稿发给小李过目，测试那边下周开始，文档也在写，大家辛苦一下。","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-084","category":"long-drop","label":"neutral","input":"嗯，那个，今天的会主要说三件事啊，然后第一个是那个支付页面的改版，就是说王总那边希望月底上线，然后第二个是那个推送服务迁移到新的集群，嗯，第三个就是那个客服系统的工单导出，然后大家有问题随时找我。","output":"今天的会主要说三件事：第一个是支付页面的改版，王总那边希望月底上线；第二个是推送服务迁移到新的集群；第三个是客服系统的工单导出。大家有问题随时找我。","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-085","category":"long-drop","label":"harmful","input":"嗯，那个，今天的会主要说三件事啊，然后第一个是那个支付页面的改版，就是说王总那边希望月底上线，然后第二个是那个推送服务迁移到新的集群，嗯，第三个就是那个客服系统的工单导出，然后大家有问题随时找我。","output":"今天的会主要说三件事：第一个是支付页面的改版；第二个是推送服务迁移到新的集群；第三个是客服系统的工单导出。大家有问题随时找我。","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-086","category":"long-drop","label":"harmful","input":"嗯，那个，今天的会主要说三件事啊，然后第一个是那个支付页面的改版，就是说王总那边希望月底上线，然后第二个是那个推送服务迁移到新的集群，嗯，第三个就是那个客服系统的工单导出，然后大家有问题随时找我。","output":"今天的会主要说三件事：第一个是支付页面的改版，王总那边希望月底上线；第二个是推送服务迁移；第三个是客服系统的工单导出。大家有问题随时找我。","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-087","category":"long-drop","label":"harmful","input":"So um basically what we need to do is, uh, move the session store over to Redis, and then, you know, update the auth flow and also the billing webhook before Friday, because, um, the demo is on Monday.","output":"We need to move the session store to Redis and update the auth flow before Friday, because the demo is on Monday.","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-088","category":"long-drop","label":"harmful","input":"然后那个我们这边的话就是想把那个登录页面的那个验证码换成那个滑块的那种，然后那个就是说注册页面也一起改掉，嗯，然后那个预计下周三上线。","output":"我们想把登录页面的验证码换成滑块的那种，预计下周三上线。","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-089","category":"mixed-drop","label":"harmful","input":"把这个PR merge到main分支，然后deploy到staging","output":"把这个PR merge到main分支","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv1-090","category":"mixed-drop","label":"harmful","input":"把合同发给张伟和李明","output":"把合同发给张伟","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-001","category":"yixia","label":"harmful","input":"我一下午都在开会","output":"我下午都在开会","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-002","category":"yixia","label":"neutral","input":"他一下子来了三十个人","output":"他来了三十个人","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv2-003","category":"yidianer","label":"harmful","input":"还差一点点就做完了","output":"还差就做完了","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-004","category":"yidianer","label":"harmful","input":"我有一点儿不舒服","output":"我不舒服","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-005","category":"shifen","label":"harmful","input":"差十分三点开会","output":"三点开会","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-006","category":"shifen","label":"harmful","input":"下午三点十分开会","output":"下午三点开会","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-007","category":"shifen","label":"harmful","input":"十分钟后开会","output":"一会儿后开会","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-008","category":"liang","label":"harmful","input":"这是两码事","output":"这是一码事","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-009","category":"liang","label":"harmful","input":"我买了辆二手车","output":"我买了辆新车","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-010","category":"estimate","label":"harmful","input":"三五个人就够了","output":"35个人就够了","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-011","category":"estimate","label":"harmful","input":"三五个人就够了","output":"五个人就够了","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-012","category":"estimate","label":"harmful","input":"来了十几个人","output":"来了十个人","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-013","category":"estimate","label":"harmful","input":"大概二十多个","output":"大概二十个","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-014","category":"mixed","label":"harmful","input":"预算3千5","output":"预算3千","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-015","category":"mixed","label":"neutral","input":"预算3千5","output":"预算3500","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-016","category":"mixed","label":"neutral","input":"日活1万2","output":"日活1.2万","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-017","category":"en-few","label":"neutral","input":"give me a couple of days","output":"give me two days","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-018","category":"en-few","label":"harmful","input":"a dozen files failed","output":"a few files failed","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-019","category":"en-few","label":"harmful","input":"it failed twice","output":"it failed once","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-020","category":"ordinal","label":"harmful","input":"第一步先备份","output":"第二步先备份","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-021","category":"ordinal","label":"harmful","input":"take the first exit","output":"take the second exit","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-022","category":"date","label":"harmful","input":"10月13日开会","output":"10月31日开会","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-023","category":"date","label":"neutral","input":"十月十三号开会","output":"10月13日开会","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv2-024","category":"regroup","label":"harmful","input":"房间12，3楼","output":"房间1，23楼","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-025","category":"regroup","label":"harmful","input":"pages 12 3 and 4","output":"pages 1 23 and 4","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-026","category":"regroup","label":"harmful","input":"v1.2.3 is out","output":"v1.23 is out","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-027","category":"time","label":"neutral","input":"3:30开会","output":"3点半开会","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv2-028","category":"time","label":"neutral","input":"三点半开会","output":"3:30开会","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv2-029","category":"time","label":"harmful","input":"3点半开会","output":"3点开会","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-030","category":"half","label":"harmful","input":"开了一个半小时","output":"开了一个小时","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-031","category":"half","label":"harmful","input":"it took one and a half hours","output":"it took one hour","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-032","category":"percent","label":"harmful","input":"增长了百分之五","output":"增长了5","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-033","category":"percent","label":"harmful","input":"增长了5%","output":"增长了5","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-034","category":"sign","label":"harmful","input":"气温是-5度","output":"气温是5度","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-035","category":"sign","label":"harmful","input":"零下5度","output":"5度","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-036","category":"k","label":"harmful","input":"月薪5k","output":"月薪5","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-037","category":"frac","label":"harmful","input":"三分之一的用户","output":"三分之二的用户","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}
+{"id":"adv2-038","category":"yi-word","label":"neutral","input":"一直在跟进","output":"一直跟进","expect":{"strict":"accept","smooth":"accept"},"known_hole":false}
+{"id":"adv2-039","category":"yi-word","label":"harmful","input":"这是唯一的办法","output":"这是主要的办法","expect":{"strict":"refuse","smooth":"refuse"},"known_hole":false}

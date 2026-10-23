@@ -141,6 +141,7 @@ class TimelineEntry {
     this.failureReason,
     this.cachedByVerdict = false,
     this.lastResentAt,
+    this.firstHandedOffAt,
     this.articleId,
     this.articleOffsetMs,
     this.pauseBeforeMs,
@@ -551,6 +552,23 @@ class TimelineEntry {
   /// row that has been re-sent once has been re-sent, forever.
   final DateTime? lastResentAt;
 
+  /// 🔴 POL-M1 / R12 (15 册主文 §4 R12; 15-MESSAGE-STATES.md §2.0-c 「冻结规则」) —
+  /// WHEN this row was FIRST handed to any delivery path, or null on a row that
+  /// never was. Non-null ⇒ the row is FROZEN: no machine rewrite may touch its
+  /// text ever again, so history keeps showing exactly the words that went out.
+  /// Stamped at the handoff, not at the receipt: a queued item already holds
+  /// its text (`OutboxItem.text`), and a lost receipt is not a lost delivery.
+  /// Write-once: its ONE writer is `TimelineStore.markHandedOff`, and
+  /// [copyWith] cannot clear it. A person's edit is not a machine rewrite and is
+  /// not gated by it. DEVICE-LOCAL (payload key `first_handed_off_at`, no
+  /// migration); exported in FPR `source_ext` (16 册 §4.2 2026-10-14 补注).
+  /// ⚠️ Null on rows from before POL-M1 even if they were delivered: absence
+  /// means 「not recorded」, never 「never delivered」.
+  final DateTime? firstHandedOffAt;
+
+  /// Whether a machine rewrite must leave this row alone (see [firstHandedOffAt]).
+  bool get isHandedOff => firstHandedOffAt != null;
+
   /// The row is waiting for a delivery truth that has not arrived yet (⏳
   /// 投递中 / "in delivery").
   ///
@@ -630,6 +648,7 @@ class TimelineEntry {
     String? failureReason,
     bool? cachedByVerdict,
     DateTime? lastResentAt,
+    DateTime? firstHandedOffAt,
     int? articleOffsetMs,
   }) => TimelineEntry(
     id: id,
@@ -685,6 +704,8 @@ class TimelineEntry {
     // been resent") is not a fact that
     // un-happens. TimelineStore.markReinjecting is its ONLY writer.
     lastResentAt: lastResentAt ?? this.lastResentAt,
+    // Null cannot clear: a handoff that happened does not un-happen (R12).
+    firstHandedOffAt: firstHandedOffAt ?? this.firstHandedOffAt,
   );
 
   final DateTime createdAt;

@@ -146,12 +146,16 @@ extension _ChatFlowScroll on _ChatFlowPageState {
                 // answer") from 「还没发出去」("hasn't been sent out yet"), which
                 // is why it used to say delivering for both.
                 queued: controller.queuedEntryIds.contains(entry.id),
+                // NR-279 — queued OR inflight; selects `noAnswerYet` only.
+                owed: controller.owedEntryIds.contains(entry.id),
                 // 🔴 owner two-segment model / R8: the picture's resend affordance exists
                 // IFF its compressed copy is still on disk. Same read, one
                 // source — the queue is the only thing that knows.
                 canResendImage:
                     controller.resendableImageEntryIds.contains(entry.id),
                 polishSkippedLabel: badges[entry.id]?.label(strings),
+                polishSkippedShortLabel: badges[entry.id]?.shortLabel(strings),
+                polishNeedsAction: badges[entry.id]?.needsUserFix ?? false,
                 // F-5 exact match — the same text the panel would send.
                 isFavorite: controller.favorites.contains(entry.displayText),
                 // 🔴 Card FB-7 — under multi-select mode, three gestures are

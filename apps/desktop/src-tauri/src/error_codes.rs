@@ -145,9 +145,12 @@ pub const INJECT_SELF_WINDOW_NO_INPUT: &str = "INJECT_SELF_WINDOW_NO_INPUT";
 // Both are produced by ONE function — `inject/preflight.rs`
 // `synthetic_input_verdict` — and reach the wire through
 // `inject/pipeline.rs`'s `synthetic_input_preflight()` on the text path AND the
-// image path. `control:key` takes the same gate but has no result frame in the
-// protocol, so there they only reach the forensic line
-// (`socket/inject_ops.rs` `ChordExit::OsWillNotDeliver`).
+// image path. `control:key` takes the same gate and DOES answer on the wire: the
+// `control:key-result` receipt (MP-14) carries the code as `error_code` with
+// `reason:'failed'` (`socket/inject_ops_control.rs` `run_control_key_with` →
+// `KeyReceipt::NamedRefusal`, built by `socket/control_row.rs` `build_key_receipt`).
+// The chord path's later re-check of the same gate writes the forensic line
+// (`ChordExit::OsWillNotDeliver`) and answers with the generic `failed` receipt.
 //
 // 🔴 BOTH ARE `InjectMode::Cached`, i.e. NOT failures. The delivery SUCCEEDED —
 // the frame is in this process and `row_transit::mint_row` mints its row from the
@@ -189,6 +192,16 @@ pub const INJECT_SECURE_INPUT_ACTIVE: &str = "INJECT_SECURE_INPUT_ACTIVE";
 /// the 0.2.53 release. This one is 23.
 pub const INJECT_NO_ACCESSIBILITY: &str = "INJECT_NO_ACCESSIBILITY";
 
+/// 🔴 Windows: the target window's process runs at a HIGHER mandatory integrity
+/// level than FlowMic (typically an app started "as administrator" while FlowMic
+/// runs normally), and User Interface Privilege Isolation drops both the typing
+/// and the paste path without any API reporting an error (measured 2026-10-16,
+/// `docs/strategy/2026-10-16-msix-sendinput-spike.md` §3.2). Emitted only by
+/// [`refusal_for`](crate::inject::uipi::refusal_for), before Stage 1.
+/// `mode: Cached`, `pc-injection`, NOT transient (see that function's doc).
+/// 22 characters — under the phone's 28-character raw-code cap (CLAUDE.md D-33).
+pub const INJECT_TARGET_ELEVATED: &str = "INJECT_TARGET_ELEVATED";
+
 /// Every error code this crate emits **on `inject:result` or `compose:error`** —
 /// used by the cross-source guard test below, which checks each one is declared in
 /// the protocol SSOT.
@@ -221,6 +234,7 @@ pub const DESKTOP_ERROR_CODES: &[&str] = &[
     INJECT_SELF_WINDOW_NO_INPUT,
     INJECT_SECURE_INPUT_ACTIVE,
     INJECT_NO_ACCESSIBILITY,
+    INJECT_TARGET_ELEVATED,
     CONTROL_UNKNOWN_KIND,
 ];
 

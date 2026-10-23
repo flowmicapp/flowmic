@@ -231,7 +231,10 @@ void main() {
             'tail=${r.session.articles.owedTailPendingFor(r.articleId!)} '
             'tier=${r.controller.backfill.journalLeg?.currentTier}',
       );
-      _status(t, 'recoveryPending', _strings.articleTailOwedWaiting);
+      // NR-214 — the wait is named: the link is down, so the line says the
+      // rest comes when the phone is back online (`BackfillWait.offline`).
+      _status(t, 'recoveryPending', _strings.articleTailOwedOffline);
+      expect(find.text(_strings.articleTailOwedWaiting), findsNothing);
       expect(
         find.byKey(const Key('article.completion.finishing')),
         findsNothing,

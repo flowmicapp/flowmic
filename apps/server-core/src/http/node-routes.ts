@@ -14,6 +14,7 @@
 //   POST /api/node/forward — a replica handing the writer the writes it owes
 //   GET  /api/node/quota    — the ONE read a replica may not answer itself
 //   GET  /api/node/snapshot — the writer's database, for the replication pull
+//   GET  /api/node/ops-snapshot — the ops console's SLIM snapshot (node-routes-ops-snapshot.ts)
 //   POST /api/node/mint-code — the ONE write a replica may ask for SYNCHRONOUSLY
 //   POST /api/node/resolve-token — the ONE row read a replica may not answer itself
 //   POST /api/node/forward-sync — the GENERIC form of the above two, for every
@@ -59,6 +60,10 @@ import { nodeIdForHost, requestHost, type NodeHostMap } from '../node/node-ident
 import type { TokenResolution } from '../node/token-rows';
 import { handleForwardSyncRoute } from './node-routes-forward-sync';
 import { handleResolveTokenRoute } from './node-routes-resolve-token';
+import { makeOpsSnapshotRoute } from './node-routes-ops-snapshot';
+import type { OpsSnapshotOutcome } from '../node/ops-snapshot';
+import { handleRevocationHintRoute } from './node-routes-revocation-hint';
+import type { RevocationHint } from '../node/revocation-hint';
 import { applyWebCors, handleWebCorsPreflight } from './web-cors';
 
 /** What a node calls itself. Matches the subdomain: `srvny`, `srvjp`. */
@@ -166,6 +171,10 @@ export interface NodeRoutesDeps {
    *  production). Absent on a replica, which is what stops a replica re-serving
    *  the database it holds. */
   snapshot?: () => Promise<Buffer>;
+  /** Writer only. The ops console's slim snapshot (node/ops-snapshot.ts) —
+   *  opened by [snapshotSecret] ALONE, never by [sharedSecret]; the route file
+   *  holds the four gates and their order. Absent on a replica (501). */
+  opsSnapshot?: (ifNoneMatch?: string) => Promise<OpsSnapshotOutcome>;
   /** Writer only. The ONE authoritative read a replica is allowed to make, and
    *  deliberately not a general account API: one number, one question. */
   remainingSttMs?: (userId: string) => number;
@@ -250,6 +259,10 @@ export interface NodeRoutesDeps {
    * problem (those throw and become a 500, same split `receiveForward` draws).
    */
   forwardSync?: (verb: string, payload: unknown) => { ok: true; result: unknown } | { ok: false; error: string };
+  /** Writer only. REVOKE-PUSH — the long-poll a replica holds open to hear
+   *  that something revocable changed (node/revocation-hint.ts; design
+   *  2026-10-11-replication-tiering-design.md §11). */
+  revocationHint?: Pick<RevocationHint, 'waitForChange'>;
 }
 
 const JSON_HEADERS = {
@@ -376,6 +389,8 @@ export function makeNodeRoutes(
   deps: NodeRoutesDeps,
 ): (req: IncomingMessage, res: ServerResponse) => boolean {
   let cache: CachedList | null = null;
+  // One instance per router, so its 60 s limit is one clock for the process.
+  const opsSnapshotRoute = makeOpsSnapshotRoute(deps, { secretMatches, sendJson });
 
   const nodeList = (): NodeEntry[] => {
     if (!deps.nodeListPath) return [];
@@ -661,6 +676,12 @@ export function makeNodeRoutes(
       return true;
     }
 
+    // ── GET /api/node/ops-snapshot ── node-routes-ops-snapshot.ts ───────────
+    if (path === '/api/node/ops-snapshot') {
+      opsSnapshotRoute(req, res);
+      return true;
+    }
+
     // ── POST /api/node/mint-code ────────────────────────────────────────────
     //
     // 「Mint a pairing code for this PC, because I cannot.」 The one write a
@@ -744,6 +765,12 @@ export function makeNodeRoutes(
     // inlined like /mint-code and /resolve-token above; see that file's header.
     if (path === '/api/node/forward-sync') {
       handleForwardSyncRoute(req, res, deps, { readJsonBody, secretMatches, sendJson });
+      return true;
+    }
+
+    // ── GET /api/node/revocation-hint ── REVOKE-PUSH long-poll; see that file.
+    if (path === '/api/node/revocation-hint') {
+      handleRevocationHintRoute(req, res, url, deps, { secretMatches, sendJson });
       return true;
     }
 

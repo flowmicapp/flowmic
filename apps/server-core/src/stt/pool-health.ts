@@ -28,9 +28,12 @@
 //   lets the engine's own error channel speak. `http/probe-routes.ts` has the
 //   same gap and is another lane's file — REPORTED, not edited here.
 //
-// ⚠️ Cost: the probe sends NO audio, and Soniox bills by audio duration, so an
-// open-and-close costs no transcription minutes. Do not "improve" this by
-// pushing sample audio — that would make health checks a billed activity.
+// ⚠️ Cost: the probe sends NO audio, but Soniox bills the open STREAM's
+// duration, not the audio sent — so each open-and-close is billed for about the
+// settle window (measured 2026-10-11 from Soniox `GET /v1/usage-logs`: 0.88-0.95 s
+// per probe, zero output tokens; see status/managed-stt-health.ts 「THE PROBE IS
+// BILLED」). This line used to say the opposite. Pushing sample audio would still
+// add recognised audio on top of that, so do not do it.
 
 import type { SttEngine, SttEngineConfig } from './engines/base';
 import { SttEngineError } from './engines/base';

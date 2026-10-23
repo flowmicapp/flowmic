@@ -180,6 +180,9 @@ async function startRelay(cfg, runDir) {
     FLOWMIC_MANAGED_STT_MODEL: cfg.soniox.FLOWMIC_MANAGED_STT_MODEL ?? 'stt-rt-v5',
     FLOWMIC_MANAGED_STT_API_KEY: cfg.soniox.FLOWMIC_MANAGED_STT_API_KEY,
     FLOWMIC_USAGE_EVENTS_ENABLED: '1',
+    // No status probes from a bench: each one holds a billed vendor stream on this key
+    // (apps/server-core/src/status/status-probes.ts `STATUS_PROBES_ENV`).
+    FLOWMIC_STATUS_PROBES: '0',
     // The vendor adapter lives in a private package this tree builds but does not link
     // into server-core's node_modules; the live drill points at it the same way.
     FLOWMIC_STT_CLOUD_MODULE: cfg.cloudModule,

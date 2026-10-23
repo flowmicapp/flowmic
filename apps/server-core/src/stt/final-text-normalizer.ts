@@ -17,10 +17,15 @@
 // soft-segment finals get trim + disfluency + whitespace grooming but are NEVER
 // force-closed with a sentence terminator (06 §2.2 soft segmentation).
 
+import { stripEnglishFillers } from './final-text-en-fillers';
+
 export interface FinalTextNormalizeOptions {
   language?: string;
   /** True only for the terminal utterance final (`is_segment=false`). */
   ensureTerminalPunctuation?: boolean;
+  /** ML-2 review: the user's dictionary terms; the English filler strip never
+   *  removes one (a term "Um" or "UH-60" stays). */
+  keepTerms?: readonly string[];
 }
 
 const HAS_CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
@@ -28,9 +33,15 @@ const HAS_CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=
 // provable no-op today. Kept verbatim from the legacy source rather than
 // "improved" — porting takes priority over rewriting.
 const HAN = /\p{Script=Han}/u;
+// Card SEAM-2 review C2: 「—」 is deliberately NOT here. A Soniox terminal final loses its closing dash in the
+// orchestrator (`seam-artifact.ts` `dropTerminalDash`), so this appends the stop; other engines keep today's text.
 const TERMINAL_PUNCT = /[。！？.!?…]$/u;
 const PAUSE_PUNCT = /[，,、；;：:]$/u;
 const CLOSERS = new Set(['"', "'", '”', '’', ')', '）', ']', '】', '}', '》', '」', '』']);
+
+function isEnglish(language?: string): boolean {
+  return /^en(?:$|[-_])/iu.test(language?.trim() ?? '');
+}
 
 function hasCjk(text: string): boolean {
   return HAS_CJK.test(text);
@@ -241,6 +252,9 @@ export function normalizeFinalText(
   if (typeof text !== 'string' || text.length === 0) return text;
   let out = compactWhitespace(text);
   if (hasCjk(out) || HAN.test(out)) out = stripDisfluencies(out);
+  // EN-1 (card ML-2): um / uh / erm / er / hmm, English sessions only
+  // (final-text-en-fillers.ts; "er" is German for "he").
+  else if (isEnglish(opts.language)) out = stripEnglishFillers(out, opts.keepTerms ?? []);
   out = compactWhitespace(out);
   if (opts.ensureTerminalPunctuation === true) {
     out = withTerminalPunctuation(out, opts.language);

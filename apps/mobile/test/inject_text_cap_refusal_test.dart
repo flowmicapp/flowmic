@@ -415,6 +415,7 @@ void main() {
       await h.controller.sendPlusSelection(
         text: 'x' * (kInjectTextMaxChars + 1),
         images: pics,
+        sourceRows: const <TimelineEntry>[],
       );
 
       expect(h.textLengthsOfSource('manual'), isEmpty);
@@ -439,6 +440,7 @@ void main() {
       await h.controller.sendPlusSelection(
         text: '第一句\n第二句',
         images: pics,
+        sourceRows: const <TimelineEntry>[],
       );
 
       expect(h.framesOfSource('manual'), hasLength(1));

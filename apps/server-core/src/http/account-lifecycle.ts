@@ -88,6 +88,10 @@ export const USER_CASCADING_TABLES = [
   'mobile_pairings',
   'paddle_subscriptions',
   'pc_devices',
+  // NR-224 (2026-10-10, book 22 §4.12): which stretches of each recording's audio this account already paid for.
+  // No content — a recording id, sample ranges and milliseconds — but a per-recording trace ABOUT the person, so it
+  // goes with the account like the claims it sits beside (`usage_effects` below).
+  'recording_coverage',
   // Card PR-2 (2026-09-06): the recovery operation registry. It records, per
   // account, WHICH recording and WHICH sample range a recovery attempt named —
   // a per-utterance trace, and therefore the same argument `usage_events` below
@@ -319,7 +323,8 @@ export interface AccountExportStores {
    *  days and hold no content, but they are records ABOUT this account, so 「see what we hold about you」 includes
    *  them (this function's contract below). */
   recoveryOps: Pick<RecoveryOperationsRepo, 'listByUser'>;
-  usageEffects: Pick<UsageEffectLedger, 'listByUser'>;
+  /** NR-224 — and the per-recording coverage those charges left (`listCoverageByUser`). */
+  usageEffects: Pick<UsageEffectLedger, 'listByUser' | 'listCoverageByUser'>;
 }
 
 export interface AccountExport {
@@ -347,6 +352,12 @@ export interface AccountExport {
   metering_claims: {
     operation_id: string; kind: string; billed_at: string; billed_ms: number | null; replays: number;
     recording_id: string | null; job_id: string | null; range_start_sample: number | null; range_end_sample: number | null;
+  }[];
+  /** NR-224 (book 22 §4.12) — for each recording, which stretches of its audio have been paid for and how much, so a
+   *  later re-send of the same audio is not charged again. */
+  metering_coverage: {
+    recording_id: string; credits: number; credited_operations: string[]; first_billed_at: string; last_billed_at: string;
+    paid: { start_sample: number; end_sample: number; paid_ms: number; by: 'live' | 'recovery' }[];
   }[];
   /** 🔴 What is deliberately NOT in this file, and why. An export that silently
    *  drops fields is indistinguishable from an account that never had them. */
@@ -453,6 +464,14 @@ export function buildAccountExport(user: UserRecord, stores: AccountExportStores
       job_id: c.job_id,
       range_start_sample: c.range_start_sample,
       range_end_sample: c.range_end_sample,
+    })),
+    metering_coverage: stores.usageEffects.listCoverageByUser(user.id).map((c) => ({
+      recording_id: c.recording_id,
+      credits: c.credits,
+      credited_operations: c.credited_ops,
+      first_billed_at: new Date(c.created_at).toISOString(),
+      last_billed_at: new Date(c.updated_at).toISOString(),
+      paid: c.segments.map((g) => ({ start_sample: g.s, end_sample: g.e, paid_ms: g.ms, by: g.by === 'l' ? 'live' as const : 'recovery' as const })),
     })),
     omitted: {
       password_hash: 'never exported — it is a credential, not data about you',

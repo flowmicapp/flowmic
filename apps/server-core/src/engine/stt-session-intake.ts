@@ -40,6 +40,12 @@ export class FrameTally {
   get dropped(): number { return this._dropped; }
   private _dropped = 0;
 
+  /** NR-224 — PCM bytes of the frames judged `'fed'`: the audio this recording actually handed the pipeline, each
+   *  frame once. `'deduped'` frames (the ring replay) add nothing here although they count as fed above — their bytes
+   *  arrived the first time. The coverage store reads it as where this session's audio ends. */
+  get fedBytes(): number { return this._fedBytes; }
+  private _fedBytes = 0;
+
   /** The bridge itself refused the frame: a disposed session, an undecodable
    *  base64 payload, an empty one. AudioSession never saw it. */
   noteBridgeDrop(): void { this._dropped += 1; }
@@ -57,8 +63,9 @@ export class FrameTally {
    * the orchestrator stopped accepting was received and went nowhere, and the
    * phone must be able to tell that from "the server consumed all of my audio".
    */
-  note(verdict: ChunkIntake): void {
+  note(verdict: ChunkIntake, bytes = 0): void {
     if (verdict === 'refused') { this._dropped += 1; return; }
     this._fed += 1;
+    if (verdict === 'fed') this._fedBytes += bytes;
   }
 }

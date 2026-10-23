@@ -110,6 +110,7 @@ DeliveryOutbox newTestOutbox({RecordingDrainHost? host}) => DeliveryOutbox(
   store: newTestOutboxStore(),
   blobs: newTestOutboxBlobs(),
   host: host ?? RecordingDrainHost(),
+  retryLinkUp: () => false,
 );
 
 /// 窗口C2 — the ONE DELETER over in-memory doubles.
@@ -165,7 +166,7 @@ PttSession newTestSession({
   TokenStorage? tokenStorage,
   SttStream? sttStream,
   ReconnectCoordinator? reconnect,
-  void Function()? onAuthExpired,
+  void Function(String? refusedJwt)? onAuthExpired,
   SocketTransport Function()? retireTransport,
   MicPermissionFlow? micPermission,
   /// D2LAN-B4 — TOFU's first look. Defaults to "this address has no TLS identity on file"

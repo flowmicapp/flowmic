@@ -10,8 +10,10 @@
 // Surrogate pairs (U+10000+) are sent as two consecutive UTF-16 code units in
 // a single `SendInput` call so the receiving app reassembles them.
 //
-// ONE THING DOES NOT TRAVEL THAT WAY: a line break. It is a real Enter
-// keystroke, not a character — see the long note on `type_text` (defect NL-1).
+// ONE THING DOES NOT TRAVEL THAT WAY: a line break. It is a real keystroke,
+// not a character — see the long note on `type_text` (defect NL-1) — and since
+// NR-253 (2026-10-14) it is Shift+Enter unless the caller names plain Enter,
+// because in a chat box a plain Enter SENDS the message.
 //
 // All Win32 calls are funneled through three `Box<dyn Fn>` seams so unit tests
 // swap fakes in without touching the OS (the whole pipeline is headless-
@@ -75,13 +77,48 @@ pub enum InjectError {
 /// return the number the OS accepted. 0 maps to `AppRejected`.
 type Sender = Box<dyn Fn(&[u16]) -> Result<usize, InjectError> + Send + Sync>;
 
-/// Enter callback: press RETURN once (down+up). Returns the number of
-/// keystrokes the OS accepted — 1 on success, 0 maps to `AppRejected`.
+/// Which keystroke one line break becomes on the typed path (NR-253).
+///
+/// `ShiftEnter` is the default and `Enter` the exception, for the same reason
+/// the clipboard is the default road (`text_route::route_text`): the two wrong
+/// answers are not equally bad. A plain Enter in a chat or AI input box SENDS
+/// the half-typed message — irreversible, and seen by other people.
+///
+/// ⚠️ Shift+Enter is NOT harmless everywhere, and the cost is stated, not
+/// assumed (corrected 2026-10-14 after review; only the Notepad row is
+/// measured, the rest are the apps' documented key bindings):
+///   · Windows 11 Notepad: stores U+000B, a soft break — hence its plain-Enter
+///     entry. Its AI prompt box runs in the same process, so it gets plain
+///     Enter too, which submits that prompt.
+///   · Jupyter, Colab, VS Code notebooks: RUNS the cell and leaves the next
+///     cell in command mode, where the following letters act as commands
+///     (insert/delete cell, change cell type).
+///   · VS Code with the Python extension, in a .py editor: runs the line in a
+///     Python terminal.
+///   · Excel: commits the cell and moves up one cell; the rest of the text
+///     then overwrites that cell.
+/// The decision stands because the typed path reaches those apps only after a
+/// paste has already failed (or for ASCII into a console), while the chat send
+/// it prevents cannot be undone. Who gets plain Enter is decided in ONE place,
+/// `text_route::line_break_key_for`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineBreakKey {
+    /// VK_RETURN alone. Only for targets measured to need it.
+    Enter,
+    /// VK_SHIFT held across VK_RETURN: a new line, not a send, in the chat
+    /// inputs measured (Chromium textarea and contenteditable with an
+    /// Enter-to-send handler, 2026-10-14).
+    ShiftEnter,
+}
+
+/// Line-break callback: press the given line-break keystroke once. Returns the
+/// number of line breaks the OS accepted — 1 on success, 0 maps to
+/// `AppRejected`.
 ///
 /// Deliberately a second seam rather than a payload for `Sender`: a line break
 /// does not travel as a Unicode code unit at all (see `type_text`), so it is a
 /// different kind of event, not a different character.
-type Enterer = Box<dyn Fn() -> Result<usize, InjectError> + Send + Sync>;
+type Enterer = Box<dyn Fn(LineBreakKey) -> Result<usize, InjectError> + Send + Sync>;
 
 /// Primary text-injection client. `new()` wires the real Win32 path;
 /// `with_fakes()` swaps both seams for unit tests.
@@ -102,13 +139,13 @@ impl SendInputClient {
     pub fn new() -> Self {
         Self {
             sender: Box::new(real_send_unicode),
-            enter: Box::new(real_send_enter),
+            enter: Box::new(real_send_line_break),
         }
     }
 
     pub fn with_fakes(
         sender: impl Fn(&[u16]) -> Result<usize, InjectError> + Send + Sync + 'static,
-        enter: impl Fn() -> Result<usize, InjectError> + Send + Sync + 'static,
+        enter: impl Fn(LineBreakKey) -> Result<usize, InjectError> + Send + Sync + 'static,
     ) -> Self {
         Self {
             sender: Box::new(sender),
@@ -117,8 +154,15 @@ impl SendInputClient {
     }
 
     /// UTF-16 encode `text` and forward to the sender, TRANSLATING EVERY LINE
-    /// BREAK INTO A REAL ENTER KEYSTROKE. Returns the number of keystroke units
-    /// the OS accepted. Empty input returns Ok(0).
+    /// BREAK INTO ONE `line_break` KEYSTROKE. Returns the number of keystroke
+    /// units the OS accepted. Empty input returns Ok(0).
+    ///
+    /// ── NR-253 (2026-10-14): WHICH KEYSTROKE ───────────────────────────────
+    /// NL-1 below made every break a plain Enter. That is right for Notepad and
+    /// wrong for every input where Enter means "send": a multi-line utterance
+    /// typed into a chat box goes out as several messages, the first one cut
+    /// off mid-thought. The caller now names the keystroke ([`LineBreakKey`]);
+    /// the one production caller asks `text_route::line_break_key_for`.
     ///
     /// ── WHY A LINE BREAK IS NOT A UNICODE UNIT (defect NL-1) ─────────────────
     /// `KEYEVENTF_UNICODE` hands the target whatever WCHAR sits in `wScan` as a
@@ -137,22 +181,22 @@ impl SendInputClient {
     /// document. Nobody could see it from either end — "no silent failures", on the
     /// 「把没做成的事说成做成了」 ("reporting a thing that was not done as done") side.
     ///
-    /// So '\n', '\r\n' and a lone '\r' each become exactly ONE Enter keystroke,
-    /// and the text around them is sent as before.
+    /// So '\n', '\r\n' and a lone '\r' each become exactly ONE line-break
+    /// keystroke, and the text around them is sent as before.
     ///
-    /// VK_RETURN key-down/key-up rather than a CR (U+000D) UNICODE unit: the
+    /// VK_RETURN key events rather than a CR (U+000D) UNICODE unit: the
     /// keystroke is the same event the user's own Enter key produces, so a
     /// target that decides line breaks from the key event rather than from the
     /// resulting WM_CHAR still sees what it waits for. Choosing the CR unit
     /// would fix Notepad while leaving that class of target broken in a way this
     /// path cannot observe — the exact shape of the defect being fixed here.
     ///
-    /// ⚠️ THE COUNT: one Enter counts as one unit, so `"a\r\nb"` returns 3 and
+    /// ⚠️ THE COUNT: one line break counts as one unit, so `"a\r\nb"` returns 3 and
     /// not the 4 UTF-16 units the string measures. The number says what was
     /// sent, not what the string was. The one caller is fine with that:
     /// `sendinput_outcome::map_sendinput_outcome` binds it as `Ok(_queued)`
     /// and never reads it.
-    pub fn type_text(&self, text: &str) -> Result<usize, InjectError> {
+    pub fn type_text(&self, text: &str, line_break: LineBreakKey) -> Result<usize, InjectError> {
         if text.is_empty() {
             return Ok(0);
         }
@@ -169,13 +213,22 @@ impl SendInputClient {
             if brk > 0 {
                 accepted += self.send_units(&rest[..brk])?;
             }
-            accepted += self.press_enter()?;
+            accepted += self.press_line_break(line_break)?;
             // "\r\n" is ONE line break, not two. `\r` and `\n` are ASCII, so
             // both slice offsets are on char boundaries.
             let consumed = if rest[brk..].starts_with("\r\n") { 2 } else { 1 };
             rest = &rest[brk + consumed..];
         }
         Ok(accepted)
+    }
+
+    /// [`type_text`](Self::type_text) with the line-break keystroke chosen for
+    /// `app_id` by `text_route::line_break_key_for` (NR-253). THE production
+    /// entry (`text_dispatch.rs::run_sendinput`) and the real-window probe
+    /// (`examples/line_break_probe.rs`) both call this, so the choice lives in
+    /// one place that a fake-seam test can see.
+    pub fn type_text_for_app(&self, text: &str, app_id: Option<&str>) -> Result<usize, InjectError> {
+        self.type_text(text, crate::inject::text_route::line_break_key_for(app_id))
     }
 
     /// One run of non-newline text. Never called with an empty slice.
@@ -189,10 +242,10 @@ impl SendInputClient {
         Ok(written)
     }
 
-    /// One line break. A refused Enter fails the whole call rather than being
-    /// skipped — silently dropping it is the defect this function exists for.
-    fn press_enter(&self) -> Result<usize, InjectError> {
-        let pressed = (self.enter)()?;
+    /// One line break. A refused keystroke fails the whole call rather than
+    /// being skipped — silently dropping it is the defect this function exists for.
+    fn press_line_break(&self, key: LineBreakKey) -> Result<usize, InjectError> {
+        let pressed = (self.enter)(key)?;
         if pressed == 0 {
             return Err(InjectError::AppRejected);
         }
@@ -224,14 +277,14 @@ impl Default for SendInputClient {
 /// `flow_key.rs`'s chord sender compared `sent` against the batch length. Three
 /// SendInput call sites disagreeing about what "sent" means is this repo's #1
 /// bug shape (a value answers two questions) — this function is now the single
-/// answer, called from `real_send_unicode`, `real_send_vk_pairs` below and
+/// answer, called from `real_send_unicode`, `real_send_line_break` below (formerly `real_send_vk_pairs`) and
 /// `clipboard_confirm.rs`'s `send_ctrl_v`.
 ///
 /// ⚠️ CORRECTED IN PLACE (2026-09-02, B2-Z): the Mac-side run (commit
 /// 7d9a775c) reported `cargo clippy --lib --features app -- -D warnings`
 /// flagging this function dead code on macOS — true in a plain build there,
 /// because every production caller named above (`real_send_unicode`,
-/// `real_send_vk_pairs`, `flow_key.rs::send_chords`, `clipboard_confirm.rs`'s
+/// `real_send_line_break`, `flow_key.rs::send_chords`, `clipboard_confirm.rs`'s
 /// `send_ctrl_v`) is Windows-only. `#[cfg(any(test,
 /// target_os = "windows"))]` keeps it reachable for the real Windows build
 /// and for `sendinput_fully_sent_tests` below on every platform, without
@@ -345,77 +398,144 @@ fn real_send_unicode(units: &[u16]) -> Result<usize, InjectError> {
     Ok(units.len())
 }
 
-/// Send `count` down+up pairs of a VIRTUAL KEY.
+/// The key events ONE line break becomes, in order: `(virtual key, key_up)`.
 ///
-/// This is the other half of the module and the opposite of `real_send_unicode`
-/// above: `wVk` carries the key and `KEYEVENTF_UNICODE` is absent, which is what
-/// makes the OS treat it as a real keypress instead of a character. Both callers
-/// need exactly that — BACKSPACE cannot be expressed as a character at all, and
-/// a line break (NL-1) must not be, because the character form of it is what
-/// edit controls silently drop.
+/// Pure so the plan is provable without a desktop (this module's rule — see
+/// the header). Both keys travel as VIRTUAL keys with `KEYEVENTF_UNICODE`
+/// absent, which is what makes the OS treat them as real keypresses rather
+/// than characters: the character form of a line break is what edit controls
+/// silently drop (NL-1), and Shift has no character form at all.
+///
+/// Shift goes down before Return and comes up after it, in the SAME
+/// `SendInput` batch, so no other keyboard input can be inserted between them
+/// and see Shift held (`SendInput` inserts one batch serially — its documented
+/// contract, and the reason this is one call and not four).
+#[cfg(any(test, target_os = "windows"))]
+pub(crate) fn line_break_plan(key: LineBreakKey) -> &'static [(u16, bool)] {
+    const VK_SHIFT: u16 = 0x10; // WinUser.h
+    const VK_RETURN: u16 = 0x0D; // WinUser.h
+    match key {
+        LineBreakKey::Enter => &[(VK_RETURN, false), (VK_RETURN, true)],
+        LineBreakKey::ShiftEnter => &[
+            (VK_SHIFT, false),
+            (VK_RETURN, false),
+            (VK_RETURN, true),
+            (VK_SHIFT, true),
+        ],
+    }
+}
+
+/// One line break (NL-1; which keystroke is NR-253's) — sends
+/// [`line_break_plan`] as one `SendInput` batch and answers 1 on success.
 #[cfg(target_os = "windows")]
-fn real_send_vk_pairs(
-    vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY,
-    count: usize,
-) -> Result<usize, InjectError> {
+fn real_send_line_break(key: LineBreakKey) -> Result<usize, InjectError> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+        VIRTUAL_KEY,
     };
 
-    if count == 0 {
-        return Ok(0);
-    }
-
-    let mut inputs: Vec<INPUT> = Vec::with_capacity(count * 2);
-    for _ in 0..count {
-        let down = INPUT {
+    let inputs: Vec<INPUT> = line_break_plan(key)
+        .iter()
+        .map(|&(vk, key_up)| INPUT {
             r#type: INPUT_KEYBOARD,
             Anonymous: INPUT_0 {
                 ki: KEYBDINPUT {
-                    wVk: vk,
+                    wVk: VIRTUAL_KEY(vk),
                     wScan: 0,
-                    dwFlags: KEYBD_EVENT_FLAGS(0),
+                    dwFlags: if key_up {
+                        KEYEVENTF_KEYUP
+                    } else {
+                        KEYBD_EVENT_FLAGS(0)
+                    },
                     time: 0,
                     dwExtraInfo: 0,
                 },
             },
-        };
-        let up = INPUT {
+        })
+        .collect();
+
+    // SAFETY: SendInput reads `cbSize` bytes from each INPUT in the slice;
+    // `inputs` is a properly-sized Vec<INPUT> and the size_of cast is exact.
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+
+    // D3: same rule as `real_send_unicode` above — a partial send is a failure.
+    // For Shift+Enter it matters twice over: a batch cut after the Shift-down
+    // leaves Shift logically held for whatever the user types next (and our own
+    // next Ctrl+V would arrive as Ctrl+Shift+V), so the keys the cut batch left
+    // down are released before the failure is reported.
+    if !sendinput_fully_sent(sent, inputs.len()) {
+        // Read the error BEFORE the release call, which can overwrite it.
+        let err = unsafe { windows::Win32::Foundation::GetLastError() };
+        release_keys_left_down("line break", line_break_plan(key), sent);
+        if err.0 == 0 {
+            return Err(InjectError::AppRejected);
+        }
+        return Err(InjectError::Win32(err.0));
+    }
+    Ok(1)
+}
+
+/// Which keys a `plan` batch leaves logically DOWN when the OS inserted only
+/// its first `sent` events, in press order. `SendInput` inserts a batch
+/// serially and stops at the first event it refuses, so a partial batch is
+/// always a prefix. Shift+Enter: 1 → [Shift], 2 → [Shift, Return],
+/// 3 → [Shift]; 0 and 4 → [].
+#[cfg(any(test, target_os = "windows"))]
+pub(crate) fn keys_left_down(plan: &[(u16, bool)], sent: usize) -> Vec<u16> {
+    let mut down: Vec<u16> = Vec::new();
+    for &(vk, key_up) in plan.iter().take(sent) {
+        if key_up {
+            down.retain(|&d| d != vk);
+        } else if !down.contains(&vk) {
+            down.push(vk);
+        }
+    }
+    down
+}
+
+/// After a PARTIAL `plan` batch, send key-ups (reverse press order) for every
+/// key it left down — a cut Ctrl+V or Shift+Enter must not leave the user's
+/// keyboard with a modifier logically held. Best effort: the caller still
+/// reports its own failure; this only writes what the release did to the
+/// forensic log, because a release that also failed is something only that
+/// log can tell anyone. Callers: `real_send_line_break` above and
+/// `clipboard_confirm.rs`'s `send_ctrl_v`.
+#[cfg(target_os = "windows")]
+pub(crate) fn release_keys_left_down(what: &str, plan: &[(u16, bool)], sent: u32) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
+    };
+    let down = keys_left_down(plan, sent as usize);
+    if down.is_empty() {
+        return;
+    }
+    let ups: Vec<INPUT> = down
+        .iter()
+        .rev()
+        .map(|&vk| INPUT {
             r#type: INPUT_KEYBOARD,
             Anonymous: INPUT_0 {
                 ki: KEYBDINPUT {
-                    wVk: vk,
+                    wVk: VIRTUAL_KEY(vk),
                     wScan: 0,
                     dwFlags: KEYEVENTF_KEYUP,
                     time: 0,
                     dwExtraInfo: 0,
                 },
             },
-        };
-        inputs.push(down);
-        inputs.push(up);
-    }
-
-    // SAFETY: SendInput reads `cbSize` bytes from each INPUT in the slice;
-    // `inputs` is a properly-sized Vec<INPUT> and the size_of cast is exact.
-    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
-
-    // D3: same rule as `real_send_unicode` above — a partial send is a failure,
-    // not `count`'s worth of backspaces reported when fewer actually landed.
-    if !sendinput_fully_sent(sent, inputs.len()) {
-        let err = unsafe { windows::Win32::Foundation::GetLastError() };
-        if err.0 == 0 {
-            return Err(InjectError::AppRejected);
-        }
-        return Err(InjectError::Win32(err.0));
-    }
-    Ok(count)
-}
-
-/// One RETURN keystroke — the line-break half of NL-1.
-#[cfg(target_os = "windows")]
-fn real_send_enter() -> Result<usize, InjectError> {
-    real_send_vk_pairs(windows::Win32::UI::Input::KeyboardAndMouse::VK_RETURN, 1)
+        })
+        .collect();
+    // SAFETY: as above — a properly-sized slice of INPUT and its exact size.
+    let released = unsafe { SendInput(&ups, std::mem::size_of::<INPUT>() as i32) };
+    crate::forensic::record(
+        "inject",
+        &format!(
+            "{what}: SendInput queued {sent}/{} events; released keys left down {down:#x?}: \
+             {released}/{} key-up(s) queued",
+            plan.len(),
+            ups.len()
+        ),
+    );
 }
 
 /// 🔴 macOS DELIBERATELY HAS NO STAGE-2 TYPING PATH IN V1, and this error is how
@@ -444,11 +564,11 @@ fn real_send_unicode(_units: &[u16]) -> Result<usize, InjectError> {
 
 
 #[cfg(not(target_os = "windows"))]
-fn real_send_enter() -> Result<usize, InjectError> {
+fn real_send_line_break(_key: LineBreakKey) -> Result<usize, InjectError> {
     Err(InjectError::Unsupported(
-        "Stage-2 RETURN keystroke (line breaks in typed text). Same deferral as the typing path \
-         above — and unlike the backspace, nothing is lost by it: the clipboard main path carries \
-         the text's own line breaks, so macOS never needs one synthesised",
+        "Stage-2 line-break keystroke (line breaks in typed text). Same deferral as the typing \
+         path above — and unlike the backspace, nothing is lost by it: the clipboard main path \
+         carries the text's own line breaks, so macOS never needs one synthesised",
     ))
 }
 
@@ -476,203 +596,5 @@ fn real_send_backspaces(_count: usize) -> Result<usize, InjectError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{Arc, Mutex};
-
-    /// One thing the client asked the OS to do. All three seams write into a
-    /// SINGLE log on purpose: the line-break work (NL-1) is as much about ORDER
-    /// as about content — 「a」Enter「b」 and 「a」「b」Enter are both "one Enter and
-    /// two batches", and only one of them is two lines in the right order.
-    ///
-    /// 🔴 WHAT THE TESTS BELOW DO NOT PROVE. Every seam here is a fake, so each
-    /// assertion is about what we hand to Win32 and nothing else. That a
-    /// VK_RETURN pair actually produces a line break in a real edit control is a
-    /// claim about Windows, and no headless test can make it — it belongs to the
-    /// device line. What is proven here is the half that was actually broken:
-    /// that a '\n' no longer leaves as a character.
-    #[derive(Debug, PartialEq, Eq)]
-    enum Op {
-        Units(Vec<u16>),
-        Enter,
-    }
-
-    fn utf16(s: &str) -> Vec<u16> {
-        s.encode_utf16().collect()
-    }
-
-    /// A client that records every call, in order, and accepts all of them.
-    fn recording_client() -> (SendInputClient, Arc<Mutex<Vec<Op>>>) {
-        let log = Arc::new(Mutex::new(Vec::new()));
-        let (t, e) = (log.clone(), log.clone());
-        let client = SendInputClient::with_fakes(
-            move |units| {
-                t.lock().unwrap().push(Op::Units(units.to_vec()));
-                Ok(units.len())
-            },
-            move || {
-                e.lock().unwrap().push(Op::Enter);
-                Ok(1)
-            },
-        );
-        (client, log)
-    }
-
-    #[test]
-    fn empty_text_is_a_noop_returning_zero() {
-        let (client, log) = recording_client();
-        assert_eq!(client.type_text("").unwrap(), 0);
-        assert!(log.lock().unwrap().is_empty(), "no OS call for empty input");
-    }
-
-    #[test]
-    fn ascii_encodes_one_unit_per_char() {
-        let (client, log) = recording_client();
-        let n = client.type_text("hi").unwrap();
-        assert_eq!(n, 2);
-        assert_eq!(*log.lock().unwrap(), vec![Op::Units(utf16("hi"))]);
-    }
-
-    #[test]
-    fn cjk_is_one_unit_per_bmp_char() {
-        let (client, log) = recording_client();
-        let n = client.type_text("你好").unwrap();
-        assert_eq!(n, 2, "each CJK BMP char is one UTF-16 unit");
-        assert_eq!(*log.lock().unwrap(), vec![Op::Units(vec![0x4F60, 0x597D])]);
-    }
-
-    #[test]
-    fn emoji_is_a_surrogate_pair_of_two_units() {
-        let (client, log) = recording_client();
-        // U+1F600 → high+low surrogate, two consecutive units in one batch.
-        let n = client.type_text("😀").unwrap();
-        assert_eq!(n, 2, "an astral-plane emoji is two UTF-16 units");
-        assert_eq!(*log.lock().unwrap(), vec![Op::Units(vec![0xD83D, 0xDE00])]);
-    }
-
-    #[test]
-    fn sender_returning_zero_maps_to_app_rejected() {
-        let client = SendInputClient::with_fakes(|_| Ok(0), || Ok(0));
-        assert!(matches!(client.type_text("x"), Err(InjectError::AppRejected)));
-    }
-
-    // ── NL-1: line breaks leave as keystrokes, never as characters ────────────
-
-    #[test]
-    fn a_newline_becomes_an_enter_keystroke_and_never_a_raw_lf_unit() {
-        let (client, log) = recording_client();
-        client.type_text("a\nb").unwrap();
-        let log = log.lock().unwrap();
-        assert_eq!(
-            *log,
-            vec![Op::Units(utf16("a")), Op::Enter, Op::Units(utf16("b"))]
-        );
-        // The defect itself: a 0x000A reaching the UNICODE path IS the loss —
-        // Windows accepts the event, counts it, and the edit control drops it.
-        for op in log.iter() {
-            if let Op::Units(units) = op {
-                assert!(
-                    !units.contains(&0x000A),
-                    "a bare LF unit is exactly what gets silently eaten: {units:?}"
-                );
-                assert!(
-                    !units.contains(&0x000D),
-                    "CR is not sent as a character either: {units:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn crlf_is_one_enter_not_two() {
-        let (client, log) = recording_client();
-        client.type_text("a\r\nb").unwrap();
-        assert_eq!(
-            *log.lock().unwrap(),
-            vec![Op::Units(utf16("a")), Op::Enter, Op::Units(utf16("b"))],
-            "a CRLF pair is one line break; two Enters would open a blank line"
-        );
-    }
-
-    #[test]
-    fn a_lone_cr_is_also_one_enter() {
-        let (client, log) = recording_client();
-        client.type_text("a\rb").unwrap();
-        assert_eq!(
-            *log.lock().unwrap(),
-            vec![Op::Units(utf16("a")), Op::Enter, Op::Units(utf16("b"))]
-        );
-    }
-
-    #[test]
-    fn the_returned_count_still_counts_every_newline() {
-        // The shape from the real-device report: three items joined by two '\n'
-        // — 32 text chars + 2 breaks = 34, which is what BOTH ends already
-        // account for. This fix must not make that number move, or a correct
-        // accounting would start looking like a partial send.
-        let (client, _) = recording_client();
-        let text = "aaaaaaaaaaa\nbbbbbbbbbb\nccccccccccc";
-        assert_eq!(text.chars().count(), 34, "the report's 34-char utterance");
-        assert_eq!(client.type_text(text).unwrap(), 34);
-    }
-
-    #[test]
-    fn a_crlf_pair_counts_as_the_one_keystroke_it_becomes() {
-        // 4 UTF-16 units in the string, 3 keystroke units on the wire. The count
-        // reports what was SENT; nothing compares it to the text length
-        // (`map_sendinput_outcome` ignores the value), so this is a truthful
-        // number rather than a regression.
-        let (client, _) = recording_client();
-        assert_eq!("a\r\nb".encode_utf16().count(), 4);
-        assert_eq!(client.type_text("a\r\nb").unwrap(), 3);
-    }
-
-    #[test]
-    fn text_and_breaks_keep_their_order_including_the_edges() {
-        let (client, log) = recording_client();
-        client.type_text("\n你好\n\n😀").unwrap();
-        assert_eq!(
-            *log.lock().unwrap(),
-            vec![
-                Op::Enter,
-                Op::Units(vec![0x4F60, 0x597D]),
-                Op::Enter,
-                Op::Enter,
-                Op::Units(vec![0xD83D, 0xDE00]),
-            ],
-            "leading, doubled and interior breaks all keep their place, and no \
-             empty batch is emitted around them"
-        );
-    }
-
-    #[test]
-    fn a_trailing_newline_sends_its_enter_and_no_empty_batch() {
-        // An empty batch would be handed to the real sender as an empty slice,
-        // which answers Ok(0) — indistinguishable from the app refusing us.
-        let (client, log) = recording_client();
-        assert_eq!(client.type_text("hi\n").unwrap(), 3);
-        assert_eq!(
-            *log.lock().unwrap(),
-            vec![Op::Units(utf16("hi")), Op::Enter]
-        );
-    }
-
-    #[test]
-    fn a_newline_only_utterance_is_one_enter_and_nothing_else() {
-        let (client, log) = recording_client();
-        assert_eq!(client.type_text("\n").unwrap(), 1);
-        assert_eq!(*log.lock().unwrap(), vec![Op::Enter]);
-    }
-
-    #[test]
-    fn an_enter_the_app_refuses_is_a_rejection_not_a_silent_skip() {
-        // "No silent failures": if the keystroke is refused we must say so, not carry on
-        // and report a success whose line break never happened.
-        let client = SendInputClient::with_fakes(|u| Ok(u.len()), || Ok(0));
-        assert!(matches!(
-            client.type_text("a\nb"),
-            Err(InjectError::AppRejected)
-        ));
-    }
-
-}
+#[path = "sendinput_tests.rs"]
+mod tests;

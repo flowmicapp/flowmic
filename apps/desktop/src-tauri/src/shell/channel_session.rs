@@ -45,6 +45,7 @@
 // sites (`sidecar_ctl::drop_socket`) needed no edit — the same technique the
 // `tray` split used for `shell::setup_tray`.
 
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -59,8 +60,26 @@ use super::{cloud, SocketState};
 /// The bridge sink used to reach every window (identical to lib.rs run()'s).
 fn build_sink(app: &AppHandle) -> socket::BridgeSink {
     let handle = app.clone();
+    // Card E-D: the cloud status DTO depends on whether the relay accepted the
+    // key on the live session (`shell/cloud.rs` `dto` → `CloudReadiness::shown`).
+    // Nothing else re-sends that DTO when the session registers, so a cloud
+    // CONNECTION frame whose `registered` differs from the last one seen
+    // re-emits it. 0 = unseen, 1 = false, 2 = true.
+    let last_cloud_registered = Arc::new(AtomicU8::new(0));
     Arc::new(move |channel: &str, payload: Value| {
+        let cloud_registered = (channel == socket::bridge::channel::CONNECTION
+            && payload.get("channel").and_then(Value::as_str) == Some(Channel::Cloud.tag()))
+        .then(|| payload.get("registered").and_then(Value::as_bool).unwrap_or(false));
         let _ = handle.emit(channel, payload);
+        if let Some(registered) = cloud_registered {
+            let now = if registered { 2 } else { 1 };
+            if last_cloud_registered.swap(now, Ordering::SeqCst) != now {
+                // Off this (pump) thread: `emit_state` takes the cloud-config and
+                // socket-slot locks, and the pump must never wait on either.
+                let app = handle.clone();
+                std::thread::spawn(move || cloud::emit_state(&app));
+            }
+        }
     })
 }
 
@@ -70,6 +89,15 @@ fn build_sink(app: &AppHandle) -> socket::BridgeSink {
 /// channel, and since GA-28 the LAN channel is right there, still working.
 pub fn drop_socket(app: &AppHandle) {
     set_socket(app, Channel::Cloud, None);
+}
+
+/// Card E-D — whether the relay has accepted this PC on `channel`'s live
+/// session (`DesktopSocket::is_registered`, the handshake ack). `false` when
+/// the slot is empty.
+pub(super) fn is_registered_on(app: &AppHandle, channel: Channel) -> bool {
+    let s: State<SocketState> = app.state();
+    let g = s.lock().unwrap_or_else(|p| p.into_inner());
+    g.slot(channel).is_some_and(|sock| sock.is_registered())
 }
 
 /// Whether `channel` currently holds a live session.

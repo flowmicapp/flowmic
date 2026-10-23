@@ -432,6 +432,12 @@ mixin ImageStrings on AppStringsLeaves {
         return _lfImageInjectVerdictNote_INJECT_SECURE_INPUT_ACTIVE;
       case 'INJECT_NO_ACCESSIBILITY':
         return _lfImageInjectVerdictNote_INJECT_NO_ACCESSIBILITY;
+      // Windows (2026-10-16): the picture path takes the same pre-Stage-1 refusal
+      // (`inject/pipeline.rs` calls `uipi_preflight` on the image path too). The
+      // text sentence speaks of typing; a picture is pasted, and this row has no
+      // paste-again entry on either end — the picture sentence says so.
+      case 'INJECT_TARGET_ELEVATED':
+        return _lfImageInjectVerdictNote_INJECT_TARGET_ELEVATED;
       default:
         return null;
     }

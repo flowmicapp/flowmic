@@ -10,9 +10,12 @@
 //       · `inactive` — 「a system dialog, another view… It will also be inactive
 //         when the notification window shade is down, or the application switcher
 //         is visible」 ⇒ the microphone-permission dialog (card U2's
-//         `Permission.microphone.request()`), the shade and the app switcher are
-//         ALL inactive. Counting them collapses the PC capsule for a dialog the
-//         user opened one second ago — the flicker this card exists to prevent.
+//         `Permission.microphone.request()`) and the shade are inactive.
+//         ⚠️ NR-213 / D2: the 「application switcher」 half is true on iOS ONLY.
+//         Android recents STOPS the Activity ⇒ `paused` (measured, see the D2
+//         test below) — it is a background there, and pauses a long recording.
+//         Counting `inactive` collapses the PC capsule for a dialog the user
+//         opened one second ago — the flicker this card exists to prevent.
 //       · `hidden` — 「a transition to this state is synthesized before the
 //         [paused] state is entered when coming from [inactive], AND before the
 //         [inactive] state is entered when coming from [paused]」 ⇒ it fires on
@@ -107,14 +110,68 @@ void main() {
       expect(fg, 0);
     });
 
-    testWidgets('the notification shade / app switcher / control centre are inert',
+    testWidgets(
+        '🔴 D2 — Android recents IS a background (measured), even a 7-second peek',
         (WidgetTester tester) async {
-      // Same shape as the dialog, listed separately because these are the three
-      // the SDK names by hand and they are the ones users hit constantly.
-      final (int bg, int fg) = await run(tester, <AppLifecycleState>[
-        AppLifecycleState.inactive, // shade down
+      // NR-213 / D2. What stood here fed a hand-made `inactive` labelled
+      // 「app switcher」 and asserted nothing happened — always green, because
+      // Android never sends that edge for recents (D-13: a negative assertion
+      // nobody could prove wrong). MEASURED instead (TB335ZC, Android 16,
+      // docs/strategy/2026-10-10-long-recording-app-switch-review.md §2 ② and
+      // §7): opening recents puts the Activity in STOPPED ⇒ the engine walks
+      // inactive → hidden → paused, and a long recording paused there for 7 s.
+      // This is the sequence the platform sends; a bridge that tried to make a
+      // short recents peek 「not count」 (a debounce, a minimum absence) would
+      // leave the phone recording-while-invisible logic out of step with the
+      // recorder, and is what this test now goes red on.
+      int background = 0;
+      int foreground = 0;
+      await tester.pumpWidget(
+        AppLifecycleBridge(
+          onBackground: () {
+            background += 1;
+            return Future<void>.value();
+          },
+          onForeground: () {
+            foreground += 1;
+            return Future<void>.value();
+          },
+          child: const SizedBox(),
+        ),
+      );
+      for (final AppLifecycleState s in <AppLifecycleState>[
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(s);
+        await tester.pump();
+      }
+      expect(background, 1, reason: 'recents opened ⇒ paused ⇒ one background');
+      await tester.pump(const Duration(seconds: 7)); // the measured peek
+      for (final AppLifecycleState s in <AppLifecycleState>[
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
         AppLifecycleState.resumed,
-        AppLifecycleState.inactive, // app switcher
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(s);
+        await tester.pump();
+      }
+      expect(background, 1);
+      expect(foreground, 1, reason: 'back from recents ⇒ one foreground');
+    });
+
+    testWidgets('the shade, a dialog, the iOS app switcher / control centre are inert',
+        (WidgetTester tester) async {
+      // These DO arrive as `inactive` only: the notification shade and a
+      // system dialog on Android (measured, review §2: no state change), and
+      // on iOS the app switcher / control centre / notification centre, where
+      // the SDK doc's sentence is true (review §2 ⑬). ⚠️ The Android recents
+      // view is NOT in this list — see the test above.
+      final (int bg, int fg) = await run(tester, <AppLifecycleState>[
+        AppLifecycleState.inactive, // shade down (Android) / centre (iOS)
+        AppLifecycleState.resumed,
+        AppLifecycleState.inactive, // app switcher (iOS only)
         AppLifecycleState.resumed,
         AppLifecycleState.inactive, // control centre (iOS)
         AppLifecycleState.resumed,

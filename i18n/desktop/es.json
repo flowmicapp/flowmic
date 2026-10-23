@@ -285,6 +285,7 @@
     "injectFailReason.INJECT_FOCUS_LOST": "'No se encontró el foco de entrada'",
     "injectFailReason.INJECT_IMAGE_UNSUPPORTED": "'Esta ventana no acepta imágenes'",
     "injectFailReason.INJECT_NO_ACCESSIBILITY": "'FlowMic no tiene el permiso de Accesibilidad · Ajustes del Sistema ▸ Privacidad y seguridad ▸ Accesibilidad'",
+    "injectFailReason.INJECT_TARGET_ELEVATED": "'La ventana en primer plano se ejecuta como administrador; Windows bloqueó la entrada'",
     "injectFailReason.INJECT_NO_TEXT_TARGET": "'La ventana enfocada no tiene ningún punto editable'",
     "injectFailReason.INJECT_SECURE_INPUT_ACTIVE": "'El sistema está en modo de entrada segura (campo de contraseña / pantalla de bloqueo)'",
     "injectFailReason.INJECT_SELF_WINDOW_NO_INPUT": "'El foco estaba en la propia ventana de FlowMic'",

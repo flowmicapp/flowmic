@@ -18,7 +18,7 @@ import { flushErrorVerdict } from './flush-error-verdict';
 import type { AudioSession } from './audio/session';
 import {
   DEFAULT_SOFT_SEGMENT_MS, DEFAULT_SOFT_SEGMENT_GRACE_MS, DEFAULT_REPLAY_WINDOW_MS,
-  DEFAULT_ENGINE_SPAWN_TIMEOUT_MS, DEFAULT_ENGINE_FLUSH_TIMEOUT_MS,
+  DEFAULT_ENGINE_SPAWN_TIMEOUT_MS, DEFAULT_ENGINE_FLUSH_TIMEOUT_MS, ENGINE_IDLE_WALL_BACKSTOP_MS,
   type OrchestratorOptions, type StartInput, type SttEngineFactory,
   type EngineSubscriber, type EngineHandlers,
 } from './orchestrator-types';
@@ -27,7 +27,7 @@ import { FunasrSpanClosureFeeder } from './funasr-span-closure';
 import { recheckQuotaOnLegBirth } from './quota-recheck';
 import { retentionFloorSeq, answeredFloorSeq, unfedGraceMsFor } from './replay-debt'; import { HeardAudioLedger } from './heard-audio'; import { gateOpenPreroll, type GatePrerollHost } from './gate-preroll'; // RC-L / RC-Q / RC-T
 import { EngineSessionReconnectLadder, DEFAULT_BACKOFF_MS, DEFAULT_MAX_RETRIES, engineReconnectWorstCaseMs, type EngineSessionHooks, type SpawnAttempt } from './engine-session';
-import { EngineIdleHangup, type IdleHangupHooks } from './engine-idle-hangup';
+import { EngineIdleHangup, type IdleHangupHooks, type IdleHangupTrigger } from './engine-idle-hangup';
 import { raceSpawnTimeout } from './spawn-timeout'; import { openLeg, type SpawnOpenHost } from './orchestrator-spawn';
 import { SttConfigMissingError } from './engine-router';
 import { foldInterim, foldConfirmedWithDraft, bankDraftAcrossLegs } from './text-merge';
@@ -41,7 +41,7 @@ import { silentEmptyFinalError, vendorNoAudioIsOurSilence } from './empty-final-
 import { coldOpenErrorVerdict } from './cold-open-verdict';
 import { segmentDurationMs as segmentDurationAccountMs } from './segment-duration-account';
 import { SegmentPauseAccount } from './segment-pause'; import { cutPointFacts, type LastFlushFacts, type CutPointFacts } from './cut-log'; // one line: a mobile test cites a coordinate below
-import { LegFacts } from './leg-facts'; import { ClosedRunTail } from './pause-cut-boundary'; import { OverdueCut, OVERDUE_HOLD_GRACE_MS, type OverdueCandidate } from './overdue-cut'; // one line: a test cites a coordinate below (coordinate-anchors)
+import { LegFacts } from './leg-facts'; import { ClosedRunTail } from './pause-cut-boundary'; import { OverdueCut, OVERDUE_HOLD_GRACE_MS, type OverdueCandidate } from './overdue-cut'; import { OpenSeamCarry } from './seam-artifact'; // one line: a test cites a coordinate below (coordinate-anchors)
 
 export * from './orchestrator-types';
 
@@ -190,7 +190,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     this.engineSpawnTimeoutMs = options.engineSpawnTimeoutMs ?? DEFAULT_ENGINE_SPAWN_TIMEOUT_MS;
     this.unfedGraceMs = unfedGraceMsFor(options.continuous === true, engineReconnectWorstCaseMs(options.reconnectBackoffMs ?? DEFAULT_BACKOFF_MS, options.maxRetries ?? DEFAULT_MAX_RETRIES, this.engineSpawnTimeoutMs)); // NR-96: the ladder's real worst case; RC-L: a long recording's is 180 s
     this.engineFlushTimeoutMs = options.engineFlushTimeoutMs ?? DEFAULT_ENGINE_FLUSH_TIMEOUT_MS; this.engineFlushTimeoutExplicit = options.engineFlushTimeoutMs !== undefined;
-    this.now = options.now ?? Date.now; this.continuous = options.continuous === true; // RC-E (one line: a mobile test cites a coordinate below)
+    this.now = options.now ?? Date.now; this.continuous = options.continuous === true; this.seamRepair = !this.continuous && options.seamRepair !== false; // RC-E; SEAM-2 F2 (one line: a mobile test cites a coordinate below)
     this.shouldFeedEngine = options.shouldFeedEngine ?? ((): boolean => true);
     this._setTimeout = options.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms));
     this._clearTimeout = options.clearTimeoutFn ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
@@ -217,7 +217,9 @@ export class SttEngineOrchestrator extends EventEmitter {
     };
     // card RT-2: opt-IN (0 = never) — see OrchestratorOptions.idleHangupMs for why
     // the orchestrator is TOLD rather than left to infer it from the VAD gate.
-    this.idle = new EngineIdleHangup(idleHooks, options.idleHangupMs ?? 0, this._setTimeout, this._clearTimeout);
+    const idleMs = options.idleHangupMs ?? 0; // card IDLE-1: the backstop exists only where a hang-up does
+    this.idle = new EngineIdleHangup(idleHooks, idleMs, this._setTimeout, this._clearTimeout,
+      idleMs > 0 ? Math.max(idleMs, options.idleWallBackstopMs ?? ENGINE_IDLE_WALL_BACKSTOP_MS) : 0);
   }
 
   async start(input: StartInput): Promise<void> {
@@ -374,6 +376,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     if (feed) gateOpenPreroll(this as unknown as GatePrerollHost); // card RC-T — the gate just opened: the closed run's last ≤400 ms first (`gate-preroll.ts`)
     this.closedRunTail.note(feed, c.seq, c.payload.length / PCM_BYTES_PER_MS);
     if (cut || this.cutDeferred) this.cutRow(cut && this.cadence.lastCutReason === 'overdue' ? overdue : null, deferredFloor);
+    this.idle.noteChunk(feed, c.payload.length / PCM_BYTES_PER_MS); // card IDLE-1: silence is counted in RECEIVED audio, off the same gate reading
     if (!feed) return intake;
     // card fix-022 / G-23: the gate just said this audio is worth sending, so this
     // is the ONE site that can record "the user really did speak" — and it is the same
@@ -446,6 +449,9 @@ export class SttEngineOrchestrator extends EventEmitter {
   /** card RT-2 hook — moved VERBATIM to `orchestrator-rollover.ts`; wrapper
    *  keeps the name `flushAndCloseLegForSilence` reachable (referenced by
    *  name in `empty-final-verdicts.ts`). */
+  /** card IDLE-1 — RolloverHost hook (the `stt.cut` hang-up line). */
+  private idleTrigger(): IdleHangupTrigger { return this.idle.lastTrigger; }
+
   private async flushAndCloseLegForSilence(): Promise<void> {
     return flushAndCloseLegForSilence(this.asRolloverHost());
   }
@@ -515,7 +521,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     // Never orphan a live engine on a stray double-spawn. card RC-1: an OPENING leg closed here rejects as
     // SupersededLegError (catch below), so the attempt it belonged to counts no rung — cancelled, not failed.
     if (this.engine) await this.closeEngine();
-    const banked = bankDraftAcrossLegs(this.legInterimShape, this.offlineAccum, this.onlineDraft);
+    const banked = bankDraftAcrossLegs(this.legInterimShape, this.offlineAccum, this.onlineDraft, this.legFacts.draftJoin); // SEAM-1: legFacts still describes the DEAD leg here
     if (banked !== null) { this.offlineAccum = banked; this.onlineDraft = ''; }
     const engine = this.engineFactory() as EngineSubscriber;
     if (attempt) attempt.leg = engine; // card RC-1 — so a timeout or refusal can name this leg, not 「the current one」
@@ -529,8 +535,9 @@ export class SttEngineOrchestrator extends EventEmitter {
         this.onlineDraft = foldInterim(engine.interimShape, this.onlineDraft, e.text);
         this.accumEmittedByFinal = false; // card RT3-B: content no final has carried
         this.emit('interim', {
-          text: this.offlineAccum + this.onlineDraft,
+          text: this.legFacts.draftJoin(this.offlineAccum, this.onlineDraft), // card SEAM-1
           confidence: e.confidence, language: e.language, segment_idx: this.currentSegmentIdx,
+          stable_text: this.legFacts.seam > 0 ? this.offlineAccum : this.legFacts.draftJoin(this.offlineAccum, this.legFacts.finalizedText), // card INC-1f: committed text only; the bridge never puts it on the wire
           ...(engine === this.engine ? this.receivedEnd.wireField(engineBacklogMs(engine, this.legFedBytes)) : {}), // card RC-2
         });
       },
@@ -569,7 +576,7 @@ export class SttEngineOrchestrator extends EventEmitter {
     // code). Arming at the call sites would have covered three of them and left
     // a reconnected session unable to ever hang up again — a hole with no symptom
     // except a bill. The rule is "a leg exists ⇒ the countdown runs".
-    this.idle.arm();
+    this.idle.legBorn(); // card IDLE-1: was `arm()`; a new leg also starts the silence count from zero
     // 🔴 card CR-Q — here for the same reason `idle.arm()` is: a leg is being
     // born, so we are about to spend money again. Cheap on every path, and the
     // whole account (floor, failure direction, log line) is in quota-recheck.ts.
@@ -610,7 +617,7 @@ export class SttEngineOrchestrator extends EventEmitter {
   private flushFinal(askEngine = true, withholdOnTimeout = false): Promise<FlushOutcome> {
     const startedMs = this.now(), leg = this.engine, backlogMs = engineBacklogMs(this.engine, this.legFedBytes); // card RC-6; leg: card RC-L — the flush facts the `stt.cut` line reads (cut-log.ts), recorded at the ONE flush chokepoint
     this.lastFlushCapMs = this.flushCapMs(); // card RC-2: the cap actually raced, for the refusal's message
-    return raceFlushFinal({ engine: askEngine ? this.engine : null, getOfflineText: () => foldConfirmedWithDraft(this.offlineAccum, this.onlineDraft), language: this.startInput?.language ?? '', timeoutMs: this.lastFlushCapMs, setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout, onFlushSent: () => this.flushSentHook?.(backlogMs), withholdOnTimeout })
+    return raceFlushFinal({ engine: askEngine ? this.engine : null, getOfflineText: () => foldConfirmedWithDraft(this.offlineAccum, this.onlineDraft, this.legFacts.draftJoin), language: this.startInput?.language ?? '', timeoutMs: this.lastFlushCapMs, setTimeoutFn: this._setTimeout, clearTimeoutFn: this._clearTimeout, onFlushSent: () => this.flushSentHook?.(backlogMs), withholdOnTimeout })
       .then((o) => { this.lastFlush = { backlogMs, startedMs, endedMs: this.now(), timedOut: o.timedOut, lastWordMs: typeof o.result.last_word_ms === 'number' ? o.result.last_word_ms : null, legFedMs: this.legFedBytes / PCM_BYTES_PER_MS }; if (askEngine && leg !== null && !o.engineFinal) this.noteLegUnanswered(leg); return o; }); // RC-L
   }
 
@@ -677,6 +684,8 @@ export class SttEngineOrchestrator extends EventEmitter {
   /** card RC-D — the last-born leg's `finalsOnlyAtFlush`, kept past its death like {@link legInterimShape}: while hung up
    *  there is no leg, and the bank a hang-up left (terminator kept) must not fire the sentence arm at `due` either. */
   private legFinalsOnlyAtFlush = false;
+  private readonly seamCarry = new OpenSeamCarry(); // card SEAM-2 — the one holder of 「the last row ended open」 (seam-artifact.ts)
+  private readonly seamRepair: boolean; // card SEAM-2 F2 — false on a long recording or a recovery leg: today's text, byte for byte
   /** card RC-J — `RolloverHost.cutPoint`: set only for the instant an overdue cut starts its rollover. */
   private cutPoint: CutPointFacts | null = null;
   /** card RC-E — `OrchestratorOptions.continuous` (assigned in the constructor, beside `now`). */

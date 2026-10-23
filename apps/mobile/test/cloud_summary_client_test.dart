@@ -473,10 +473,27 @@ void main() {
       expect((await read()).refusal, CloudSummaryRefusal.accountRestricted);
     });
 
-    test('401 is authExpired without reading the body', () async {
+    // Card E-M / P-1 (docs/rebuild/18 §2.6): a 401 is 「sign in again」 ONLY
+    // when its body names one of the two dead-credential codes. This test used
+    // to read 「401 is authExpired without reading the body」 — which also told
+    // a user whose request simply carried no bearer (our own bug) to sign in.
+    test('401 AUTH_TOKEN_EXPIRED / AUTH_TOKEN_INVALID are authExpired', () async {
       status = 401;
       body = jsonEncode(<String, Object?>{'error': 'AUTH_TOKEN_EXPIRED'});
       expect((await read()).refusal, CloudSummaryRefusal.authExpired);
+      body = jsonEncode(<String, Object?>{'error': 'AUTH_TOKEN_INVALID'});
+      expect((await read()).refusal, CloudSummaryRefusal.authExpired);
+    });
+
+    test('🔴 a bare 401 and 401 AUTH_ACCOUNT_REQUIRED stay nameless — 「try '
+        'later」, never 「sign in again」', () async {
+      status = 401;
+      body = '';
+      expect((await read()).refusal, isNull);
+      body = jsonEncode(<String, Object?>{'error': 'AUTH_ACCOUNT_REQUIRED'});
+      expect((await read()).refusal, isNull);
+      body = jsonEncode(<String, Object?>{'error': 'AUTH_TOKEN_UNVERIFIABLE'});
+      expect((await read()).refusal, isNull);
     });
 
     test('🔴 an UNNAMED 4xx and a 5xx stay nameless', () async {
@@ -501,6 +518,37 @@ void main() {
       expect(got.summary, isNotNull);
       expect(got.refusal, isNull);
     });
+  });
+
+  // Card E-M (book 18 §2.6) — 「sign in again」 is about the credential that
+  // was REFUSED. If the user signed in again while the read was in the air,
+  // the refusal is about a credential that is no longer stored, and must not
+  // land on the card of the account signed in now.
+  test('🔴 a refusal of a credential that is no longer the stored one does '
+      'not land', () async {
+    final InMemoryAccountStore store = InMemoryAccountStore(_signedIn);
+    final LoginController login =
+        newTestLogin(transport: FakeSocketTransport(), accountStore: store);
+    await login.hydrate();
+    final CloudSummaryController c = CloudSummaryController(
+      login: login,
+      saasEndpoint: 'http://127.0.0.1:1',
+      fetcher: (Uri url, String bearer, Duration budget) async {
+        // Signed in again, as somebody else, mid-flight.
+        await store.write(
+          const CloudAccount(jwt: 'jwt-newer', email: 'other@example.com'),
+        );
+        await login.hydrate();
+        return const CloudSummaryRead(refusal: CloudSummaryRefusal.authExpired);
+      },
+    );
+    c.refresh();
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    expect(login.jwt, 'jwt-newer'); // positive control: the swap happened
+    expect(c.refusal, isNull);
+    c.dispose();
+    login.dispose();
   });
 
   test('🔴 the controller drops a refusal when the account signs out', () async {

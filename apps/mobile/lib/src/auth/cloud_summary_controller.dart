@@ -152,6 +152,11 @@ class CloudSummaryController extends ChangeNotifier {
       _inFlight = false;
     }
     if (_disposed) return;
+    // Card E-M (book 18 §2.6) — an answer about a credential that is no longer
+    // the stored one (signed out, or signed in again, while it was in the air)
+    // says nothing about the account on this card now: neither its numbers nor
+    // its 「sign in again」 belong here.
+    if (_login.jwt != bearer) return;
     // The reason is settled BEFORE the early return below: a refusal is exactly
     // the case where there are no numbers, so folding it in after 「a miss
     // changes nothing」 would mean it never landed at all.

@@ -4,6 +4,24 @@ import 'pending_recovery.dart';
 import 'recovery_gate.dart';
 
 /// Card RC-G — one piece's share of [BackfillProgress].
+/// NR-214 — what an article's owed audio is waiting for while it waits
+/// (`ArticleCompletion.recoveryPending`). One reader decides it
+/// ([BackfillRunner.waitReason]); the article's status line only picks the
+/// sentence (`article_recovery_presentation.dart`).
+enum BackfillWait {
+  /// Online and nothing recording: the next sweep or due retry takes it.
+  due,
+
+  /// The microphone is in use: a recovery yields to live speech
+  /// (`PttSession.yieldRecoveryForLive`) and resumes when the session is at
+  /// rest (`chat_utterance_owner.dart` `_resumeHeldRecovery`, and the
+  /// recording-ended edge in `chat_outbox_host.dart`).
+  recording,
+
+  /// No link: the link-up edge sweeps (`chat_outbox_host.dart`).
+  offline,
+}
+
 @immutable
 class ArticleBackfill {
   const ArticleBackfill({

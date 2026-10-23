@@ -32,10 +32,14 @@ import {
 import { makePoolManagedDefault } from './pool-routing';
 import { isStreamingEngine } from './streaming-engines';
 import { buildHotwords, type SttDictionaryEntry } from './hotwords';
-import { buildSonioxContext } from './terminology-context';
+import { assembleSonioxContext, dictationContextTerms, type SonioxContextAssembly, type SonioxDefaultTerms } from './terminology-context';
+import { terminologyDestinationFor } from './terminology-destination';
+import { CODING_DEFAULT_TERMS_CAP, categoryDefaultTerms } from './coding-terms';
+import type { AppCategory } from '../compose/app-category';
+import { log } from '../log';
 import { resolveSttFaultStallMs, withSttFaultStall } from './fault-stall';
 import { SttEngineOrchestrator } from './orchestrator-core';
-import { DEFAULT_ENGINE_IDLE_HANGUP_MS, spawnTimeoutForEngine, type OrchestratorOptions } from './orchestrator-types';
+import { DEFAULT_ENGINE_IDLE_HANGUP_MS, PRESS_ENGINE_IDLE_HANGUP_MS, spawnTimeoutForEngine, type OrchestratorOptions } from './orchestrator-types';
 import type { AudioSession } from './audio/session';
 import type { VadGate } from './vad-gate';
 import { catalogCanServe } from './sherpa/model-catalog';
@@ -283,7 +287,7 @@ export function loadHotwords(settings: SettingsRepo, userId: string): string | u
  *  biasing API is an owner call, not a tidy-up. */
 function withHotwords(inner: EngineFactory, hotwords: string | undefined): EngineFactory {
   if (hotwords === undefined) return inner;
-  return (id, cfg) => inner(id, id === 'funasr' ? { ...cfg, hotwords } : cfg);
+  return (id, cfg) => inner(id, terminologyDestinationFor(id) === 'hotwords' ? { ...cfg, hotwords } : cfg);
 }
 
 /**
@@ -299,16 +303,52 @@ function withHotwords(inner: EngineFactory, hotwords: string | undefined): Engin
  * that adding one is a decision somebody makes rather than something that
  * happens to it.
  */
-function withSonioxContext(inner: EngineFactory, context: string | undefined): EngineFactory {
-  if (context === undefined) return inner;
-  return (id, cfg) => inner(id, id === 'soniox' ? { ...cfg, context } : cfg);
+function withSonioxContext(inner: EngineFactory, assembly: SonioxContextAssembly): EngineFactory {
+  return (id, cfg) => {
+    if (terminologyDestinationFor(id) !== 'context') return inner(id, cfg);
+    // card CTX-1 — the forensic answer to "what was this Soniox leg told":
+    // which list(s) and how big, NEVER the terms (they are the user's words).
+    // Once per spawned leg (start / soft segment / reconnect), the same cadence
+    // as `stt.pool selected a route`. `none` is logged too: "nothing was sent"
+    // is the production default and must be distinguishable from "not logged".
+    log.info('stt.soniox context', {
+      source: assembly.source,
+      user_terms: assembly.userTerms,
+      default_terms: assembly.defaultTerms,
+      dictation_terms: assembly.dictationTerms,
+      chars: assembly.chars,
+    });
+    const { context } = assembly;
+    return inner(id, context === undefined ? cfg : { ...cfg, context });
+  };
 }
 
-/** The canonical terms for this user, as the recognizer-facing `context` string.
- *  Reads the SAME resolver as loadHotwords so the two destinations can never
- *  disagree about which terms the user configured. */
-export function loadSonioxContext(settings: SettingsRepo, userId: string): string | undefined {
-  return buildSonioxContext(resolveReplacementRules(settings, userId).map((r) => r.canonical));
+/** Card CTX-1 — the category default list for the recognizer, or undefined.
+ *  Only `coding` has one; email/chat/unknown get exactly the pre-CTX-1 frame. */
+export function sonioxDefaultTermsFor(category: AppCategory | undefined): SonioxDefaultTerms | undefined {
+  const terms = categoryDefaultTerms(category);
+  return terms.length > 0
+    ? { category: 'coding', terms, cap: CODING_DEFAULT_TERMS_CAP }
+    : undefined;
+}
+
+/** The recognizer-facing `context` for this session: the user's canonical terms
+ *  first (the SAME resolver as loadHotwords, so the two destinations never
+ *  disagree about which terms the user configured), then — card CTX-1 — the
+ *  category default when the target PC's focused app maps to one. */
+export function assembleSessionSonioxContext(
+  settings: SettingsRepo, userId: string, category?: AppCategory, language?: string,
+): SonioxContextAssembly {
+  return assembleSonioxContext(
+    resolveReplacementRules(settings, userId).map((r) => r.canonical),
+    sonioxDefaultTermsFor(category),
+    dictationContextTerms(language), // card ML-2: Japanese sessions only
+  );
+}
+
+/** The canonical terms for this user, as the recognizer-facing `context` string. */
+export function loadSonioxContext(settings: SettingsRepo, userId: string, category?: AppCategory): string | undefined {
+  return assembleSessionSonioxContext(settings, userId, category).context;
 }
 
 /**
@@ -420,7 +460,17 @@ export function makeSttOrchestratorFactory(
    *  card). `stt.routings` deliberately stays on `deps.settings`: the engine
    *  routing is the PC's / the account's configuration, not the phone's. Absent
    *  ⇒ the database repo for everything (old callers, tests, old phones). */
-  overrides?: { settings?: SettingsRepo; /** card RC-1 — `audio:start.continuous === true` (book 04). */ continuous?: boolean },
+  overrides?: {
+    settings?: SettingsRepo;
+    /** card RC-1 — `audio:start.continuous === true` (book 04). */
+    continuous?: boolean;
+    /** card SEAM-2 (review F2) — `SttStartArgs.recoveryLeg`: no seam repair on a recovery leg. */
+    recoveryLeg?: boolean;
+    /** card CTX-1 — the target PC's focused-app category at audio:start
+     *  (`appCategoryFor(RoomStore.getFocusProcess(room))`, written by
+     *  engine/stt-factory.ts). Absent ⇒ no default terms, today's frame. */
+    appCategory?: AppCategory;
+  },
 ) => BuiltOrchestrator {
   const engineFactory = deps.engineFactory ?? defaultEngineFactory;
   // 🔴 A6-3 WIRING (2026-08-02, L2). The managed default is now resolved BY THE
@@ -460,7 +510,7 @@ export function makeSttOrchestratorFactory(
     // recording's stall deadline, and it must not sit between the terminology
     // decorators and the engine they configure. Identity when faultStallMs is 0.
     const factory = withSttFaultStall(
-      withSonioxContext(withHotwords(engineFactory, hotwords), loadSonioxContext(terminology, userId)),
+      withSonioxContext(withHotwords(engineFactory, hotwords), assembleSessionSonioxContext(terminology, userId, overrides?.appCategory, language)),
       faultStallMs,
     );
     const router = makeEngineRouter({ managedDefault });
@@ -486,7 +536,9 @@ export function makeSttOrchestratorFactory(
     // 🔴 card RT-2 — `gated` is ALSO the answer to "is this leg billed by the
     // second", and both consequences hang off it here rather than being
     // re-derived downstream: feed only while the gate is open, AND hang the leg
-    // up once the voice has been absent for `DEFAULT_ENGINE_IDLE_HANGUP_MS`.
+    // up once the voice has been absent for `DEFAULT_ENGINE_IDLE_HANGUP_MS`
+    // (⚠️ 更正 IDLE-1, 2026-10-14: that is the long-recording value; a press gets
+    // `PRESS_ENGINE_IDLE_HANGUP_MS`, and 「absent」 is silence RECEIVED, not clock).
     // The orchestrator is TOLD, never left to infer it from the presence of
     // `shouldFeedEngine` — see that option's doc for why that inference is the
     // repo's #1 shape (one value answering two questions).
@@ -504,10 +556,12 @@ export function makeSttOrchestratorFactory(
       ...(((ms) => (ms === undefined ? {} : { engineSpawnTimeoutMs: ms }))(
         spawnTimeoutForEngine(selected.routing.engine_id))),
       ...(deps.orchestratorOptions ?? {}),
-      ...(gated ? { shouldFeedEngine: (): boolean => vad!.admitChunk, idleHangupMs: DEFAULT_ENGINE_IDLE_HANGUP_MS } : {}),
+      // card IDLE-1: a held press waits 10 s of silence, a long recording keeps 3 s (RC-E ends a row on it) — orchestrator-types.ts
+      ...(gated ? { shouldFeedEngine: (): boolean => vad!.admitChunk, idleHangupMs: overrides?.continuous === true ? DEFAULT_ENGINE_IDLE_HANGUP_MS : PRESS_ENGINE_IDLE_HANGUP_MS } : {}),
       // card RC-1 — the long-recording ladder; the ONE production writer of this option. Strictly `true`:
       // anything else is push-to-talk, which is what an old phone (no field) must get.
       ...(overrides?.continuous === true ? { reconnectUnbounded: true, continuous: true } : {}), // RC-E: `continuous` too
+      ...(overrides?.recoveryLeg === true ? { seamRepair: false as const } : {}), // card SEAM-2 F2 (a long recording is gated by `continuous`)
     };
     const orchestrator = new SttEngineOrchestrator(
       session,

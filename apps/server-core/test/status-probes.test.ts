@@ -26,8 +26,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   STATUS_PROBE_INTERVAL_MS,
+  STATUS_PROBES_ENV,
   STATUS_STALE_FACTOR,
   makeStatusProbes,
+  statusProbesEnabled,
 } from '../src/status/status-probes';
 import { probeManagedSttLiveness } from '../src/status/managed-stt-health';
 import { STATUS_ROUTE_PATH, tryHandleStatusRoutes } from '../src/http/status-routes';
@@ -376,6 +378,52 @@ describe('§6 the timer is armed, disarmable, and does not hold the process', ()
     await vi.waitFor(() => expect(rounds).toBe(1));
     runner.stop();
     runner.stop();                // idempotent
+  });
+
+  // Audit 2026-10-11: every process that runs this timer with a managed key holds a billed provider stream once a
+  // minute. FLOWMIC_STATUS_PROBES=0 lets a non-production relay opt out; unset keeps production exactly as it was.
+  it('FLOWMIC_STATUS_PROBES=0 never arms the timer and dials nothing; unset and 1 run as before', async () => {
+    const dials = { off: 0, unset: 0, one: 0 };
+    const off = makeStatusProbes({
+      env: { [STATUS_PROBES_ENV]: '0' },
+      probeStt: () => { dials.off += 1; return Promise.resolve(UP); },
+      probeLlm: () => { dials.off += 1; return Promise.resolve(UP); },
+    });
+    const unset = makeStatusProbes({ env: {}, probeStt: () => { dials.unset += 1; return Promise.resolve(UP); }, probeLlm: () => Promise.resolve(UP) });
+    const one = makeStatusProbes({
+      env: { [STATUS_PROBES_ENV]: '1' },
+      probeStt: () => { dials.one += 1; return Promise.resolve(UP); },
+      probeLlm: () => Promise.resolve(UP),
+    });
+    off.start(); unset.start(); one.start();
+    // Positive controls first: the probe seam is live, so a zero below is the switch and not a blind probe.
+    await vi.waitFor(() => { expect(dials.unset).toBe(1); expect(dials.one).toBe(1); });
+    expect(dials.off).toBe(0);
+    // A relay that chose not to measure says so: never measured, no timestamp.
+    expect(off.snapshot()).toEqual({ managed_stt: { status: 'unknown', checked_at: null }, managed_llm: { status: 'unknown', checked_at: null } });
+    off.stop(); unset.stop(); one.stop();
+  });
+
+  it('production passes no env: the switch is read from process.env', async () => {
+    let dials = 0;
+    vi.stubEnv(STATUS_PROBES_ENV, '0');
+    try {
+      const runner = makeStatusProbes({ probeStt: () => { dials += 1; return Promise.resolve(UP); }, probeLlm: () => Promise.resolve(UP) });
+      runner.start();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(dials).toBe(0); // start() armed nothing and kicked nothing
+      await runner.runOnce(); // positive control: the seam is live, so the zero above is the switch
+      expect(dials).toBe(1);
+      runner.stop();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(statusProbesEnabled({})).toBe(true);
+    expect(statusProbesEnabled({ [STATUS_PROBES_ENV]: '0' })).toBe(false);
+  });
+
+  it('a value that is neither 1 nor 0 fails construction rather than guessing', () => {
+    expect(() => makeStatusProbes({ env: { [STATUS_PROBES_ENV]: 'false' } })).toThrow(/FLOWMIC_STATUS_PROBES/);
   });
 
   it('the interval and the staleness factor are the named constants', () => {

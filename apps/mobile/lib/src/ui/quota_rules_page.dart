@@ -29,6 +29,17 @@
 //     「somebody else's page」 off the wire, and a page that guessed would be
 //     wrong for one of them on every open.
 //
+// 🔴 NR-297: A STORE BUILD DOES NOT BUILD THE LINK CARD AT ALL. The billing
+// page shows prices and a checkout outside the store, and Play / App Store
+// rules forbid steering a store user there. The card is not hidden, it is never
+// constructed: the condition reads the build-time const (store_channel_flag.dart)
+// so the AOT compiler drops `_BillingLink` and the URL string with it, and the
+// byte gates (scripts/store-channel-gate.mjs, scripts/ios-store-billing-gate.mjs)
+// refuse a store artifact that still carries `/console/billing`. No sentence
+// replaces it: the five rules above stand on their own, and a line saying 「go
+// elsewhere to pay」 would be the same steering in words. The account-deletion
+// link (`cloud_signout_row.dart`) is a different page and is untouched.
+//
 // 🔴 FAIL LOUDLY ON THE LINK. `launchUrl` returning false or throwing is not a
 // no-op: the user is told and a copy control becomes reachable. Same shape,
 // same strings, as `data_flow_disclosure_page.dart` — one wording for one
@@ -41,6 +52,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../settings/app_settings.dart';
 import '../settings/app_strings.dart';
 import '../support/legal_urls.dart' show kBillingPageUrl;
+import '../support/store_channel_flag.dart' show kStoreChannelBuild;
 import 'data_flow_disclosure_page.dart' show DisclosureUrlLauncher;
 import 'tokens.dart';
 
@@ -56,6 +68,7 @@ class QuotaRulesPage extends StatelessWidget {
     super.key,
     required this.appSettings,
     this.urlLauncher = _launchBillingUrl,
+    this.storeChannel = kStoreChannelBuild,
   });
 
   /// Listened to, not read once: the UI language is an explicit setting and
@@ -64,6 +77,12 @@ class QuotaRulesPage extends StatelessWidget {
 
   /// Test seam. Production leaves the default.
   final DisclosureUrlLauncher urlLauncher;
+
+  /// Whether this page is drawn as in a store build (no billing link). Test
+  /// seam; production leaves the default, which IS the build-time const. The
+  /// seam can only take the link away, never put it into a store build: the
+  /// condition below reads [kStoreChannelBuild] itself first.
+  final bool storeChannel;
 
   @override
   Widget build(BuildContext context) {
@@ -121,17 +140,23 @@ class QuotaRulesPage extends StatelessWidget {
                       height: 1.6,
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  _card(<Widget>[
-                    _BillingLink(
-                      label: s.quotaRulesConsoleLink,
-                      openLabel: s.discOpenInBrowser,
-                      copyLabel: s.discCopyLink,
-                      copiedToast: s.discLinkCopied,
-                      openFailed: s.discOpenFailed,
-                      urlLauncher: urlLauncher,
-                    ),
-                  ]),
+                  // The const is read directly, not only through the field:
+                  // with it const-true this branch is dead at compile time,
+                  // so its removal from a store binary does not depend on
+                  // the optimiser proving what the field holds.
+                  if (!kStoreChannelBuild && !storeChannel) ...<Widget>[
+                    const SizedBox(height: 14),
+                    _card(<Widget>[
+                      _BillingLink(
+                        label: s.quotaRulesConsoleLink,
+                        openLabel: s.discOpenInBrowser,
+                        copyLabel: s.discCopyLink,
+                        copiedToast: s.discLinkCopied,
+                        openFailed: s.discOpenFailed,
+                        urlLauncher: urlLauncher,
+                      ),
+                    ]),
+                  ],
                 ],
               ),
             ),

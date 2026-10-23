@@ -40,12 +40,14 @@ import '../session/engine_reconnect_state.dart'
     show EngineReconnectFace; // NR-96-B
 import '../settings/app_strings.dart';
 import '../signaling/wire_payloads.dart' show Delivery, FlowMode;
+import '../timeline/article_away_gaps.dart';
 import '../timeline/article_paragraphs.dart';
 import '../timeline/entry_metrics.dart';
 import '../timeline/search_hits.dart' show matchRanges;
 import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart' show articleMembersOf;
 import 'chat_message_tile.dart' show LiveDraftTile, entryMetricsLine;
+import 'continuous_away_notice.dart';
 import 'live_health_copy.dart';
 import 'article_recovery_presentation.dart';
 import 'search_highlight.dart';
@@ -161,6 +163,7 @@ class ArticlePage extends StatelessWidget {
     this.focusRowId,
     this.highlight,
     this.recoveryStatus,
+    this.awayGaps = const <ArticleAwayGap>[],
   }) : _live = null;
 
   /// Card CR-12-C — the same page while the recording is still running. Only
@@ -174,6 +177,7 @@ class ArticlePage extends StatelessWidget {
     this.highlight,
     this.pendingBackfillMs = 0,
     this.pendingBackfillFromOutage = false,
+    this.awayGaps = const <ArticleAwayGap>[],
   }) : _live = live,
        recoveryStatus = null;
 
@@ -205,6 +209,11 @@ class ArticlePage extends StatelessWidget {
 
   /// Null on the read-back form.
   final _ArticleLiveFace? _live;
+
+  /// NR-213 (D3) — where this recording paused because the user left the app
+  /// (`ArticleAwayGapStore.gapsOf`). Each is drawn as a marker between two
+  /// paragraphs; see article_away_gaps.dart for how exact its place is.
+  final List<ArticleAwayGap> awayGaps;
   final Widget? recoveryStatus;
 
   /// Card CR-12-G — the member row a search matched. The paragraph holding it
@@ -251,8 +260,18 @@ class ArticlePage extends StatelessWidget {
     final String title = head.outputText.isEmpty
         ? strings.articleNoTitle
         : head.outputText;
-    final List<ArticleParagraph> paragraphs =
-        _live?.paragraphs ?? paragraphsOf(rows);
+    final laid = paragraphsWithAwayGaps(
+      rows,
+      awayGaps,
+      open: _live?.openTail ?? false,
+    );
+    final List<ArticleParagraph> paragraphs = laid.paragraphs;
+    int gapNo = 0;
+    List<Widget> gapsAt(int k) => <Widget>[
+      for (final ArticleAwayGap g
+          in laid.gapsBefore[k] ?? const <ArticleAwayGap>[])
+        _awayGap(gapNo++, g),
+    ];
     final int? focus = _focusIndex(paragraphs);
     return Scaffold(
       backgroundColor: FlowMicColors.canvas,
@@ -278,10 +297,13 @@ class ArticlePage extends StatelessWidget {
               _header(context),
               if (pendingBackfillMs > 0) _pending(),
               const SizedBox(height: 8),
-              for (int k = 0; k < paragraphs.length; k++)
+              for (int k = 0; k < paragraphs.length; k++) ...<Widget>[
+                ...gapsAt(k),
                 k == focus
                     ? _ScrollIntoViewOnce(child: _paragraph(k, paragraphs[k]))
                     : _paragraph(k, paragraphs[k]),
+              ],
+              ...gapsAt(paragraphs.length),
               ?_live?.draft,
               if (rows.isEmpty && _live == null)
                 Padding(
@@ -421,6 +443,32 @@ class ArticlePage extends StatelessWidget {
       ),
     );
   }
+
+  /// NR-213 (D3) — 「this much was not recorded here: the user had left」.
+  /// Wraps rather than truncates: the duration is the point of the line.
+  Widget _awayGap(int i, ArticleAwayGap g) => Container(
+    key: Key('article.awayGap.$i'),
+    padding: const EdgeInsets.symmetric(vertical: 9),
+    decoration: BoxDecoration(
+      border: Border(bottom: BorderSide(color: FlowMicColors.line)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(top: 1, right: 6),
+          child: Icon(Icons.pause_circle_outline, size: 14, color: FlowMicColors.t3),
+        ),
+        Expanded(
+          child: Text(
+            strings.articleAwayGap(formatEntryDuration(g.awayMs)),
+            key: Key('article.awayGap.$i.text'),
+            style: TextStyle(color: FlowMicColors.t3, fontSize: 12, height: 1.4),
+          ),
+        ),
+      ],
+    ),
+  );
 
   /// The paragraph's words. With no [highlight], or none of it in this
   /// paragraph, the plain `Text` it always was.

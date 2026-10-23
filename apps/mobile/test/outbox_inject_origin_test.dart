@@ -16,11 +16,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 final DateTime kSpoke = DateTime.utc(2026, 8, 2, 10, 0, 0);
 
-InjectOrigin at(Duration after, {bool userRequested = false}) =>
+InjectOrigin at(
+  Duration after, {
+  bool userRequested = false,
+  bool deferPromised = false,
+}) =>
     outboxInjectOrigin((
       createdAt: kSpoke,
       attemptAt: kSpoke.add(after),
       userRequested: userRequested,
+      deferPromised: deferPromised,
     ));
 
 void main() {
@@ -74,6 +79,28 @@ void main() {
 
     test('did not tap ⇒ the same sentence is deferred (positive/negative control: proves "tapped" is what is doing the work)', () {
       expect(at(const Duration(days: 7)), InjectOrigin.deferred);
+    });
+  });
+
+  group('🔴 NR-279 — the row already promised 「will not type it in on its own」', () {
+    test('inside the live window ⇒ deferred anyway (the window does not overrule the promise)', () {
+      expect(at(const Duration(seconds: 20), deferPromised: true),
+          InjectOrigin.deferred);
+      // Positive control: the same instant without the promise is live, so the
+      // promise is what flips it, not the age.
+      expect(at(const Duration(seconds: 20)), InjectOrigin.live);
+    });
+
+    test('a user press still wins (owner: a manual action is unconditionally expected)', () {
+      expect(
+        at(const Duration(seconds: 20), userRequested: true, deferPromised: true),
+        InjectOrigin.live,
+      );
+    });
+
+    test('negative age does not reopen the window for a promised item', () {
+      expect(at(const Duration(seconds: -5), deferPromised: true),
+          InjectOrigin.deferred);
     });
   });
 

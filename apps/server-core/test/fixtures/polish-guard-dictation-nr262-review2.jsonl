@@ -1,0 +1,116 @@
+{"id":"rv2-kp-en-not-quote-split","lang":"en","kind":"refuse","label":"harmful","input":"We will not quote the old price","output":"We will not. Quote the old price.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-en-quote-q-end","lang":"en","kind":"refuse","label":"harmful","input":"Tell me what you quote","output":"Tell me what you quote?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-en-dash-q","lang":"en","kind":"refuse","label":"harmful","input":"I will dash home now","output":"I will dash? Home now.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-en-quote-comma-attach","lang":"en","kind":"accept","label":"neutral","input":"They quote prices nobody else can beat","output":"They quote, prices nobody else can beat.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-kp-en-quote-semicolon","lang":"en","kind":"refuse","label":"harmful","input":"Do not quote me on that","output":"Do not quote; me on that.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-zh-quote-q-end","lang":"zh","kind":"refuse","label":"harmful","input":"你们已经发了 quote","output":"你们已经发了 quote？","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-ja-quote-q-end","lang":"ja","kind":"refuse","label":"harmful","input":"これが最新の quote","output":"これが最新の quote？","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-ko-quote-q-end","lang":"ko","kind":"refuse","label":"harmful","input":"이게 최종 quote","output":"이게 최종 quote?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-fr-ferme-q","lang":"fr","kind":"refuse","label":"harmful","input":"Ferme la parenthèse maintenant","output":"Ferme la parenthèse ? Maintenant.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-de-klammer-q","lang":"de","kind":"refuse","label":"harmful","input":"Mach Klammer auf und schreib weiter","output":"Mach Klammer auf? Und schreib weiter.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-es-pf-q","lang":"es","kind":"refuse","label":"harmful","input":"Vamos a dar punto final","output":"Vamos a dar punto final?","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-en-kept-plus-numchange","lang":"en","kind":"refuse","label":"harmful","input":"They quote 30 dollars","output":"They quote, 40 dollars.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-kp-en-kept-plus-neg","lang":"en","kind":"refuse","label":"harmful","input":"They quote prices daily","output":"They never quote, prices daily.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-it-colon-cmd","lang":"it","kind":"known_false_refusal:homograph_command","label":"harmful","input":"La lista colon pane e latte","output":"La lista: pane e latte.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-es-colon-cmd","lang":"es","kind":"known_false_refusal:homograph_command","label":"harmful","input":"Necesito tres cosas colon pan leche y huevos","output":"Necesito tres cosas: pan, leche y huevos.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-fr-colon-cmd","lang":"fr","kind":"known_false_refusal:homograph_command","label":"harmful","input":"Voici la liste colon du pain et du lait","output":"Voici la liste : du pain et du lait.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-de-quote-cmd","lang":"de","kind":"known_false_refusal:homograph_command","label":"harmful","input":"Er sagte quote ich komme unquote","output":"Er sagte „ich komme“.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-it-quote-drop","lang":"it","kind":"refuse","label":"harmful","input":"Abbiamo venduto le quote ai soci","output":"Abbiamo venduto ai soci.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-it-colon-drop","lang":"it","kind":"refuse","label":"harmful","input":"Ha un problema al colon da anni","output":"Ha un problema da anni.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-es-colon-drop","lang":"es","kind":"refuse","label":"harmful","input":"Tiene una inflamación de colon desde marzo","output":"Tiene una inflamación desde marzo.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-fr-colon-swap","lang":"fr","kind":"refuse","label":"harmful","input":"Le colon a construit sa maison","output":"Le voisin a construit sa maison.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-it-legal-ok","lang":"it","kind":"accept","label":"neutral","input":"Vedi articolo 5 comma 3","output":"Vedi articolo 5, comma 3.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-hg-it-legal-and","lang":"it","kind":"refuse","label":"harmful","input":"Vedi articolo 5 comma 3","output":"Vedi articolo 5 e 3.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-it-legal-drop","lang":"it","kind":"refuse","label":"harmful","input":"Vedi articolo 5 comma 3","output":"Vedi articolo 5 3.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-it-legal-num","lang":"it","kind":"refuse","label":"harmful","input":"Vedi articolo 5 comma 3","output":"Vedi articolo 5 comma 4.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-hg-de-quote-num","lang":"de","kind":"refuse","label":"harmful","input":"Die Quote stieg von 3 auf 5 Prozent","output":"Die Quote stieg von 3 auf 6 Prozent.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-fr-ratio-ok","lang":"fr","kind":"accept","label":"neutral","input":"Un ratio de 3 colon 1","output":"Un ratio de 3:1","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-num-fr-ratio-decimal","lang":"fr","kind":"refuse","label":"harmful","input":"Un ratio de 3 colon 1","output":"Un ratio de 3,1","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-fr-ratio-swap","lang":"fr","kind":"refuse","label":"harmful","input":"Un ratio de 3 colon 1","output":"Un ratio de 1:3","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-es-score-ok","lang":"es","kind":"accept","label":"neutral","input":"Ganamos 3 colon 1","output":"Ganamos 3:1","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-num-es-score-dash","lang":"es","kind":"known_false_refusal:score_dash","label":"harmful","input":"Ganamos 3 colon 1","output":"Ganamos 3-1","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-es-score-change","lang":"es","kind":"refuse","label":"harmful","input":"Ganamos 3 colon 1","output":"Ganamos 3:2","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-it-time-ok","lang":"it","kind":"accept","label":"neutral","input":"Ci vediamo alle 4 colon 30","output":"Ci vediamo alle 4:30","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-num-it-time-change","lang":"it","kind":"refuse","label":"harmful","input":"Ci vediamo alle 4 colon 30","output":"Ci vediamo alle 4:45","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-en-ratio-decimal","lang":"en","kind":"refuse","label":"harmful","input":"Mix them 3 colon 5","output":"Mix them 3,5","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-de-dec-change-words","lang":"de","kind":"refuse","label":"harmful","input":"Das sind drei Komma fünf Prozent","output":"Das sind drei Komma sechs Prozent.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-de-dec-ok-digits","lang":"de","kind":"accept","label":"neutral","input":"Das sind drei Komma fünf Prozent","output":"Das sind 3,5 Prozent.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-num-de-dec-change-digits","lang":"de","kind":"refuse","label":"harmful","input":"Das sind drei Komma fünf Prozent","output":"Das sind 3,6 Prozent.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-de-dec-to-int","lang":"de","kind":"refuse","label":"harmful","input":"Das sind drei Komma fünf Prozent","output":"Das sind 35 Prozent.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-de-dec-to-punkt","lang":"de","kind":"accept","label":"neutral","input":"Das sind drei Komma fünf Prozent","output":"Das sind drei Punkt fünf Prozent.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-num-fr-dec-change-words","lang":"fr","kind":"refuse","label":"harmful","input":"Il fait trois virgule cinq degrés","output":"Il fait trois virgule six degrés.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-fr-dec-ok","lang":"fr","kind":"accept","label":"neutral","input":"Il fait trois virgule cinq degrés","output":"Il fait 3,5 degrés.","expect":{"smooth":"accept"}}
+{"id":"rv2-num-fr-dec-change-digits","lang":"fr","kind":"refuse","label":"harmful","input":"Il fait trois virgule cinq degrés","output":"Il fait 3,6 degrés.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-fr-dec-to-list","lang":"fr","kind":"refuse","label":"harmful","input":"Il fait trois virgule cinq degrés","output":"Il fait trois, cinq degrés.","expect":{"strict":"refuse"}}
+{"id":"rv2-num-es-dec-change-words","lang":"es","kind":"refuse","label":"harmful","input":"Son tres coma cinco kilos","output":"Son tres coma seis kilos.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-es-dec-change-digit","lang":"es","kind":"refuse","label":"harmful","input":"Son 3 coma 5 kilos","output":"Son 3 coma 6 kilos.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-es-dec-ok","lang":"es","kind":"accept","label":"neutral","input":"Son tres coma cinco kilos","output":"Son 3,5 kilos.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-num-en-point-change","lang":"en","kind":"refuse","label":"harmful","input":"The rate is 3 point 5 percent","output":"The rate is 3 point 6 percent.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-en-version-ok","lang":"en","kind":"accept","label":"neutral","input":"Install version 2 period 1","output":"Install version 2.1","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-num-en-version-change","lang":"en","kind":"refuse","label":"harmful","input":"Install version 2 period 1","output":"Install version 2.2","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-en-version-drop","lang":"en","kind":"refuse","label":"harmful","input":"Install version 2 period 1","output":"Install version 2 1","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-zh-period-change","lang":"zh","kind":"refuse","label":"harmful","input":"利率是 3 period 5","output":"利率是 3.6","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-num-zh-period-ok","lang":"zh","kind":"accept","label":"neutral","input":"利率是 3 period 5","output":"利率是 3.5","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-num-de-punkt-section","lang":"de","kind":"refuse","label":"harmful","input":"Siehe Abschnitt 3 Punkt 5","output":"Siehe Abschnitt 3.6","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-fold-es-linea-kept","lang":"es","kind":"accept","label":"neutral","input":"Hola nueva línea adiós","output":"Hola nueva linea adiós.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fold-de-punkt-case","lang":"de","kind":"accept","label":"neutral","input":"Ich komme morgen Punkt","output":"Ich komme morgen punkt","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fold-en-semicolon-hyphen","lang":"en","kind":"known_false_refusal:semicolon_spelling","label":"harmful","input":"Add a semicolon here","output":"Add a semi-colon here.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-fold-fr-pv-kept","lang":"fr","kind":"accept","label":"neutral","input":"Mets un point-virgule ici","output":"Mets un point virgule ici.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fold-es-pf-case","lang":"es","kind":"accept","label":"neutral","input":"Esto es el Punto Final del viaje","output":"Esto es el punto final del viaje.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fold-en-bracket-paren","lang":"en","kind":"refuse","label":"harmful","input":"Type open bracket here","output":"Type open parenthesis here.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-fold-fr-a-la-ligne","lang":"fr","kind":"refuse","label":"harmful","input":"Il a la ligne fixe","output":"Il à la ligne fixe.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-fold-es-paren-accent","lang":"es","kind":"accept","label":"neutral","input":"Abre paréntesis nota cierra paréntesis","output":"(nota)","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fold-es-abre-cierra","lang":"es","kind":"refuse","label":"harmful","input":"Abre paréntesis nota cierra paréntesis","output":"Cierra paréntesis nota abre paréntesis","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-cjk-zh-conv-han-strict","lang":"zh","kind":"refuse","label":"harmful","input":"明天 comma 我们去北京开会","output":"后天，我们去上海开会","expect":{"strict":"refuse"}}
+{"id":"rv2-cjk-ctl-zh-han-strict","lang":"zh","kind":"refuse","label":"harmful","input":"明天我们去北京开会","output":"后天我们去上海开会","expect":{"strict":"refuse"}}
+{"id":"rv2-cjk-zh-conv-han-1","lang":"zh","kind":"refuse","label":"harmful","input":"我们去北京 comma 下周开会","output":"我们去上海，下周开会","expect":{"strict":"refuse"}}
+{"id":"rv2-cjk-zh-neg","lang":"zh","kind":"refuse","label":"harmful","input":"我同意这个方案 period 下周开始","output":"我不同意这个方案。下周开始","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-cjk-zh-qm-drop","lang":"zh","kind":"refuse","label":"harmful","input":"你明天来吗 question mark","output":"你明天来吗","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-cjk-zh-quote-translate","lang":"zh","kind":"refuse","label":"harmful","input":"这个 quote 明天给我","output":"这个报价明天给我","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-cjk-zh-period-translate","lang":"zh","kind":"refuse","label":"harmful","input":"这个 period 的数据不对","output":"这个期间的数据不对","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-cjk-zh-dash-han","lang":"zh","kind":"refuse","label":"harmful","input":"北京 dash 上海的航班","output":"北京-广州的航班","expect":{"strict":"refuse"}}
+{"id":"rv2-cjk-ja-comma-ok","lang":"ja","kind":"accept","label":"neutral","input":"明日は無理です comma ごめんなさい","output":"明日は無理です、ごめんなさい","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-cjk-ja-comma-han","lang":"ja","kind":"refuse","label":"harmful","input":"明日は無理です comma ごめんなさい","output":"明日は大丈夫です、ごめんなさい","expect":{"strict":"refuse"}}
+{"id":"rv2-cjk-ctl-ja-han","lang":"ja","kind":"refuse","label":"harmful","input":"明日は無理です ごめんなさい","output":"明日は大丈夫です ごめんなさい","expect":{"strict":"refuse"}}
+{"id":"rv2-cjk-ja-hatena-register","lang":"ja","kind":"refuse","label":"harmful","input":"明日来ますか クエスチョンマーク","output":"明日来るか？","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-cjk-ja-hatena-kept-register","lang":"ja","kind":"refuse","label":"harmful","input":"明日来ますか ハテナ","output":"明日来るか ハテナ","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-cjk-ko-period-neg","lang":"ko","kind":"refuse","label":"harmful","input":"내일 갈게요 period","output":"내일 안 갈게요.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-cjk-ko-period-word","lang":"ko","kind":"refuse","label":"harmful","input":"서울에서 만나요 period 내일 봐요","output":"부산에서 만나요. 내일 봐요","expect":{"strict":"refuse"}}
+{"id":"rv2-cjk-ru-comma-word","lang":"ru","kind":"refuse","label":"harmful","input":"Я приду завтра comma в офис","output":"Я приду послезавтра, в офис","expect":{"strict":"refuse"}}
+{"id":"rv2-bl-es-pusimos-pf","lang":"es","kind":"refuse","label":"harmful","input":"Ya pusimos punto final a esta discusión","output":"Ya pusimos. A esta discusión.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-es-puso-pf-fin","lang":"es","kind":"refuse","label":"harmful","input":"El juez puso punto final al caso","output":"El juez puso. Al caso.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-es-ponemos-pf","lang":"es","kind":"refuse","label":"harmful","input":"Hoy ponemos punto final a la temporada","output":"Hoy ponemos. A la temporada.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-en-skip-next-line","lang":"en","kind":"refuse","label":"harmful","input":"Skip next line please","output":"Skip\nplease","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-en-comment-next-line","lang":"en","kind":"refuse","label":"harmful","input":"Comment out next line and run it","output":"Comment out\nand run it","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-en-read-next-line","lang":"en","kind":"refuse","label":"harmful","input":"Read next line aloud","output":"Read\naloud","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-en-print-newline","lang":"en","kind":"refuse","label":"harmful","input":"Print newline after each row","output":"Print\nafter each row","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-en-skip-next-line-undef","lang":"en","kind":"refuse","label":"harmful","input":"Skip next line please","output":"Skip\nplease","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-de-in-anf-convert","lang":"de","kind":"refuse","label":"harmful","input":"Schreib den Titel in Anführungszeichen","output":"Schreib den Titel in „“.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-de-in-anf-apply","lang":"de","kind":"refuse","label":"harmful","input":"Schreib den Titel in Anführungszeichen","output":"Schreib den „Titel“.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-de-anf-to-klammern","lang":"de","kind":"refuse","label":"harmful","input":"Schreib den Titel in Anführungszeichen","output":"Schreib den Titel in Klammern.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-fr-pour-fermer","lang":"fr","kind":"refuse","label":"harmful","input":"Pour fermer la parenthèse revenons au budget","output":"Pour), revenons au budget.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-en-send-end-quote","lang":"en","kind":"refuse","label":"harmful","input":"Send end quote by Friday","output":"Send \" by Friday.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-fr-en-working-on-qm","lang":"en","kind":"accept","label":"neutral","input":"What are you working on question mark","output":"What are you working on?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-en-so-on-period","lang":"en","kind":"accept","label":"neutral","input":"Bring pens paper and so on period","output":"Bring pens, paper and so on.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-en-come-on-comma","lang":"en","kind":"accept","label":"neutral","input":"Come on comma let us go","output":"Come on, let us go","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-en-talking-to-qm","lang":"en","kind":"accept","label":"neutral","input":"Who are you talking to question mark","output":"Who are you talking to?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-en-want-to-qm","lang":"en","kind":"accept","label":"neutral","input":"Do you want to question mark","output":"Do you want to?","expect":{"smooth":"accept"}}
+{"id":"rv2-fr-en-look-at-qm","lang":"en","kind":"accept","label":"neutral","input":"What are you looking at question mark","output":"What are you looking at?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-en-turn-on-period","lang":"en","kind":"accept","label":"neutral","input":"Leave the light on period","output":"Leave the light on.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-allez-vous-q","lang":"fr","kind":"accept","label":"neutral","input":"Comment allez-vous point d'interrogation","output":"Comment allez-vous ?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-et-vous-q","lang":"fr","kind":"accept","label":"neutral","input":"Et vous point d'interrogation","output":"Et vous ?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-pensez-vous-q","lang":"fr","kind":"accept","label":"neutral","input":"Qu'en pensez-vous point d'interrogation","output":"Qu'en pensez-vous ?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-fait-on-q","lang":"fr","kind":"accept","label":"neutral","input":"Que fait-on point d'interrogation","output":"Que fait-on ?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-dit-il-q","lang":"fr","kind":"accept","label":"neutral","input":"Que dit-il point d'interrogation","output":"Que dit-il ?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-a-vous-virgule","lang":"fr","kind":"accept","label":"neutral","input":"Merci à vous virgule à bientôt","output":"Merci à vous, à bientôt","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-pour-nous-virgule","lang":"fr","kind":"accept","label":"neutral","input":"Je le fais pour nous virgule pas pour eux","output":"Je le fais pour nous, pas pour eux","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-pour-elle-point","lang":"fr","kind":"accept","label":"neutral","input":"C'est pour elle point","output":"C'est pour elle.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-ctl-fini-q","lang":"fr","kind":"accept","label":"neutral","input":"Avez-vous fini point d'interrogation","output":"Avez-vous fini ?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-et-vous-q-smooth-bad","lang":"fr","kind":"refuse","label":"harmful","input":"Et vous point d'interrogation","output":"Et vous.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-en-trailing-newline","lang":"en","kind":"refuse","label":"harmful","input":"Remove trailing newline from the string","output":"Remove trailing\nfrom the string","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-en-with-newline","lang":"en","kind":"refuse","label":"harmful","input":"End each row with newline","output":"End each row with\n","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-en-print-newline-kept","lang":"en","kind":"accept","label":"neutral","input":"Print newline after each row","output":"Print newline after each row.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-bl-es-pf-idiom-al","lang":"es","kind":"refuse","label":"harmful","input":"Pusieron punto final al acuerdo","output":"Pusieron. Al acuerdo.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv2-bl-es-pf-idiom-kept","lang":"es","kind":"accept","label":"neutral","input":"Pusieron punto final al acuerdo","output":"Pusieron punto final al acuerdo.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-imperative-guill","lang":"fr","kind":"accept","label":"neutral","input":"Il a dit ouvrez les guillemets bonjour fermez les guillemets","output":"Il a dit « bonjour »","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv2-fr-fr-elle-ferme-guill","lang":"fr","kind":"refuse","label":"harmful","input":"Elle ferme les guillemets trop tôt","output":"Elle » trop tôt","expect":{"strict":"refuse","smooth":"refuse"}}

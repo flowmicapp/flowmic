@@ -35,6 +35,7 @@
 // coincidence, not a pattern — and every entry would pin a long string in a
 // shared map for a hit that does not come.
 
+import type { AppCategory } from '../compose/app-category';
 import type { LlmConfig, LlmProtocol } from '@flowmic/protocol';
 import {
   streamerFor as defaultStreamerFor,
@@ -153,6 +154,9 @@ export interface RefineLlmDeps {
    *  own configuration; one that introduces it is the correction the terminology
    *  feature exists to produce. */
   protectedTerms?: readonly string[];
+  /** NR-245: the session's focused-app category, for the guard's known terms
+   *  only — see GuardOpts.appCategory. */
+  appCategory?: AppCategory;
   /** The rendered scenario block — professions / domains / preferred terminology
    *  with their aliases — built by the SAME `buildScenarioBlock` the compose and
    *  polish paths use, so the three cannot describe the speaker differently. */
@@ -314,6 +318,8 @@ export async function refineFinalText(
     const guard = checkMeaningPreserved(trimmed, cleaned, {
       strength: 'smooth',
       declaredTerms: protectedTerms,
+      ...(deps.appCategory !== undefined ? { appCategory: deps.appCategory } : {}),
+      ...(deps.language !== undefined ? { language: deps.language } : {}),
     });
     if (!guard.ok) {
       log.warn('stt.refine guard rejected — nothing delivered', {

@@ -100,6 +100,9 @@ Map<String, Object?> timelineEntryToJson(TimelineEntry e) =>
   // one `payload` JSON column, so it persists across a relaunch with no
   // migration and no projected column. Absent (null) on a row never re-sent.
   'last_resent_at': e.lastResentAt?.toUtc().toIso8601String(),
+  // POL-M1 / R12 — the freeze stamp. Always written (null on a row never handed
+  // off) so the FPR key accounting sees it; same `payload` column, no migration.
+  'first_handed_off_at': e.firstHandedOffAt?.toUtc().toIso8601String(),
   'created_at': e.createdAt.toUtc().toIso8601String(),
   'updated_at': e.updatedAt.toUtc().toIso8601String(),
 };
@@ -218,6 +221,9 @@ TimelineEntry? timelineEntryFromJson(Map<String, Object?> j) {
     // render a confident lie in the meta row. Null is the only right answer.
     lastResentAt: j['last_resent_at'] is String
         ? DateTime.tryParse(j['last_resent_at'] as String)?.toUtc()
+        : null,
+    firstHandedOffAt: j['first_handed_off_at'] is String
+        ? DateTime.tryParse(j['first_handed_off_at'] as String)?.toUtc()
         : null,
     createdAt: _date(j['created_at']),
     updatedAt: _date(j['updated_at']),

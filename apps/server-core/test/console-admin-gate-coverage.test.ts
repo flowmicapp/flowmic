@@ -415,7 +415,13 @@ describe('admin gate — route coverage is derived from the source, not from a l
     //     there precisely so a stray value on the wire cannot promote an
     //     account — the opposite of a gate that could be talked into opening.
     //
-    // 🔴 Neither may branch on it. If either file ever grows an `if (is_admin)`,
+    //   · `node/ops-snapshot.ts` (2026-10-11, OPS-DIRECT) — the bit appears only
+    //     as a NAME in the ops console's column allowlist: the slim snapshot
+    //     copies the column into a file the console reads (it shows the flag,
+    //     spec §4.5.3). The value is never read in JavaScript at all; SQLite
+    //     copies it file to file. Transport, like token-rows.ts, not a gate.
+    //
+    // 🔴 None may branch on it. If any of them ever grows an `if (is_admin)`,
     // this assertion will NOT catch it — it counts readers, not decisions. That
     // is the residual, and it is why both entries carry a reason here rather
     // than being quietly appended to the list.
@@ -433,6 +439,7 @@ describe('admin gate — route coverage is derived from the source, not from a l
       'db/repos/user.repo.ts',
       'db/schema.ts',
       'http/account-auth.ts',
+      'node/ops-snapshot.ts',
       'node/token-rows.ts',
     ]);
     // …and inside the gate module there is exactly ONE read: the decision itself.

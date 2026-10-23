@@ -63,6 +63,7 @@ extension PttSessionPair on PttSession {
     final String dial = choice.endpoint.isEmpty ? endpoint : choice.endpoint;
     try {
       await transport.connect(url: dial, jwt: jwt, pinFingerprint: pin);
+      _authHandler.presentedJwt = jwt; // card E-M — what an expiry here refuses
     } on Object catch (e) {
       // 🔴 D2LAN-B3 — A WRONG KEY IS NOT 「够不着」("unreachable"). Without this branch a
       // mismatch arrives as a `HandshakeException` and takes the same exit as a

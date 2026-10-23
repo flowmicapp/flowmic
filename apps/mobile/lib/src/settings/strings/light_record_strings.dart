@@ -36,6 +36,10 @@ mixin LightRecordStrings on AppStringsLeaves {
   String get articleFinishingStatus => _lfArticleFinishingStatus;
   String get articleDraftFinishing => _lfArticleDraftFinishing;
   String get articleTailOwedWaiting => _lfArticleTailOwedWaiting;
+  // NR-214 — the same wait, named (`BackfillWait`).
+  String get articleTailOwedPausedForRecording =>
+      _lfArticleTailOwedPausedForRecording;
+  String get articleTailOwedOffline => _lfArticleTailOwedOffline;
   String get articleBusyFinishing => _lfArticleBusyFinishing;
 
   /// Between opening the tab and the disk answering. Deliberately NOT 「暂无轻

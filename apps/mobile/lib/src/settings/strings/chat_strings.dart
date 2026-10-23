@@ -287,6 +287,19 @@ mixin ChatStrings on AppStringsLeaves {
   /// reason as above).
   String get statusFailed => _lfStatusFailed;
 
+  /// NR-280 (owner 2026-10-19 reopens ruling ⑩) — the pill of
+  /// `DeliveryFace.noAnswerYet`: the 20 s row watchdog gave up waiting for the
+  /// computer (`INJECT_NO_RESULT`) while the queue still owes the row. The
+  /// frame went out and may still land, so this is NOT [statusFailed]'s final
+  /// 「did not work」. It opens with each locale's own pending word, the same
+  /// family as [statusQueued] / [statusDelivering]. Nine languages from Gemini
+  /// (`_dispatch/agy-out/2026-10-19-0316-no-answer-yet-pill.json`), landed
+  /// verbatim. Contract: doc 15-RECEIPT-STATES §2.0.1-c append.
+  ///
+  /// ⚠️ It must stay true when the computer never comes back: an item for a
+  /// deleted pairing stays owed (`OutboxPendingView.owedEntryIds` doc).
+  String get statusNoAnswerYet => _lfStatusNoAnswerYet;
+
   /// 📤 Window B3-2b — THE DELIVERY IS ON DISK AND HAS NEVER BEEN ON THE WIRE.
   ///
   /// Split out of [statusDelivering], which it used to be rendered as. That was

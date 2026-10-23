@@ -268,6 +268,68 @@ const CONSOLE_TARGETS: &[&str] = &[
     "securecrt",
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WHICH KEYSTROKE A TYPED LINE BREAK BECOMES (NR-253, 2026-10-14)
+//
+// Only the TYPED path has this question. A paste carries the text's own line
+// breaks as characters and presses no Enter at all, and paste is the default
+// road (`route_text`), so this answers for the two places typing still runs:
+// the console exception (ASCII into a terminal) and the fallback after a
+// failed paste — which can land in ANY app, chat boxes included.
+//
+// Shift+Enter everywhere, plain Enter only for targets MEASURED to need it.
+// Not a table of chat apps: a chat table would have to name every chat and AI
+// input that exists or will exist (and an IDE's AI panel shares a process
+// with its editor), and its failure — a missing entry — sends someone's
+// half-finished message. An allow-list fails the other way: a missing entry
+// gives that app Shift+Enter, which is NOT always harmless (corrected after
+// review, 2026-10-14; the mechanisms are the apps' documented bindings, not
+// measured here): it RUNS the cell in Jupyter / Colab / VS Code notebooks and
+// leaves the next cell in command mode, where the following letters act as
+// commands; it runs the line in a Python terminal from a VS Code .py editor;
+// in Excel it commits the cell and moves up, and the rest of the text
+// overwrites that cell. Kept anyway: the typed path reaches those apps only
+// after a paste already failed (or for ASCII into a console), and a sent chat
+// message cannot be undone. Measured on this machine, 2026-10-14
+// (docs/strategy/2026-10-14-nr253-safe-line-breaks.md):
+//   · Chromium textarea / contenteditable with an Enter-to-send handler:
+//     Shift+Enter → a new line, nothing sent; plain Enter → sent (control).
+//   · conhost cmd: Shift+Enter runs the line exactly like Enter (no change).
+//   · conhost pwsh (PSReadLine): Shift+Enter continues the input, nothing
+//     runs until the user's own Enter — strictly safer than Enter.
+//   · Windows 11 Notepad: Shift+Enter stores U+000B (a soft break), plain
+//     Enter a real CR ⇒ the one entry below. Its AI prompt box runs in the
+//     same process, so it gets plain Enter too — which submits that prompt.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The line-break keystroke for typed text going to `app_id` (an executable
+/// basename without `.exe`, as for [`is_console_target`]). Unknown or absent
+/// target ⇒ Shift+Enter: we cannot tell whether Enter sends there, and that
+/// is the irreversible way to be wrong.
+pub fn line_break_key_for(app_id: Option<&str>) -> crate::inject::sendinput::LineBreakKey {
+    use crate::inject::sendinput::LineBreakKey;
+    let measured_plain = app_id.is_some_and(|id| {
+        PLAIN_ENTER_TARGETS
+            .iter()
+            .any(|known| id.eq_ignore_ascii_case(known))
+    });
+    if measured_plain {
+        LineBreakKey::Enter
+    } else {
+        LineBreakKey::ShiftEnter
+    }
+}
+
+/// Targets measured to need a plain Enter for a real line break, by
+/// executable basename (no `.exe`). Adding a row needs a measurement that
+/// Shift+Enter is wrong there AND a stated account of what plain Enter does in
+/// every input that app hosts (Notepad's own AI prompt box submits on Enter).
+const PLAIN_ENTER_TARGETS: &[&str] = &[
+    // Windows 11 Notepad (and classic notepad.exe — same basename). Measured
+    // 2026-10-14: Shift+Enter → U+000B in the document, Enter → CR.
+    "notepad",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +468,35 @@ mod route_tests {
             paste_reason("ls -la", Some("cmd"), true),
             PasteReason::TypingHardRejected,
         );
+    }
+
+    // ── NR-253: a typed line break must never be a send ──────────────────────
+
+    #[test]
+    fn chat_and_unknown_targets_get_shift_enter() {
+        use crate::inject::sendinput::LineBreakKey;
+        // Real process basenames of Enter-to-send inputs, plus an IDE whose AI
+        // panel shares the editor's process, plus "no idea where focus is".
+        let ids = [
+            "slack", "ms-teams", "Teams", "WeChat", "Weixin", "Discord", "chrome", "msedge",
+            "Code", "Cursor", "Telegram", "WindowsTerminal", "pwsh", "",
+        ];
+        for id in ids {
+            assert_eq!(line_break_key_for(Some(id)), LineBreakKey::ShiftEnter, "{id:?}");
+        }
+        assert_eq!(line_break_key_for(None), LineBreakKey::ShiftEnter);
+    }
+
+    #[test]
+    fn only_measured_targets_get_plain_enter() {
+        use crate::inject::sendinput::LineBreakKey;
+        // Case-insensitive: Windows 11 Notepad reports "Notepad".
+        for id in ["Notepad", "notepad", "NOTEPAD"] {
+            assert_eq!(line_break_key_for(Some(id)), LineBreakKey::Enter, "{id}");
+        }
+        // A prefix or substring is not the app.
+        assert_eq!(line_break_key_for(Some("notepad++")), LineBreakKey::ShiftEnter);
+        assert_eq!(line_break_key_for(Some("Notepads")), LineBreakKey::ShiftEnter);
     }
 
     #[test]

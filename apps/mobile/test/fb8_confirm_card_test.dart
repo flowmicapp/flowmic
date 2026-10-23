@@ -300,6 +300,7 @@ void main() {
     // not** fake: a façade button would not wind a spring.)
     await tester.pump(const Duration(seconds: 46));
     p.controller.session.debugStopIdlePresencePoll();
+    p.controller.outbox.debugCancelNoAnswerRetries(); // NR-286 guard timer
   });
 
   testWidgets('🔴 [丢弃] only discards the local draft, never touches the PC (it is not the remote ✕)', (

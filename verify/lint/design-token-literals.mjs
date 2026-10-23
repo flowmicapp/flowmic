@@ -111,9 +111,6 @@ export const ALLOWLIST = [
   'apps/desktop/src/main-window/components/PairingModal.vue|rgba(11, 16, 32, .42)',
   'apps/desktop/src/main-window/components/PairingModal.vue|#fff',
   // mobile — Material transparent / white / black + alpha overlays + gradients
-  'apps/mobile/lib/src/ui/add_pairing_sheet.dart|Color(0x4DF87171)',
-  'apps/mobile/lib/src/ui/add_pairing_sheet.dart|Color(0xFFFCA5A5)',
-  'apps/mobile/lib/src/ui/add_pairing_sheet.dart|Color(0xFFFCA5A5)',
   'apps/mobile/lib/src/ui/add_pairing_sheet.dart|Color(0xFF5B54E8)',
   'apps/mobile/lib/src/ui/add_pairing_sheet.dart|Color(0xFF7C74F2)',
   'apps/mobile/lib/src/ui/add_pairing_sheet.dart|Colors.white',
@@ -136,9 +133,6 @@ export const ALLOWLIST = [
   'apps/mobile/lib/src/ui/image_transfer_bar.dart|Color(0x4D818CF8)',
   'apps/mobile/lib/src/ui/image_transfer_bar.dart|Color(0x33818CF8)',
   'apps/mobile/lib/src/ui/login_sheet.dart|Colors.white',
-  'apps/mobile/lib/src/ui/login_sheet.dart|Color(0x4DF87171)',
-  'apps/mobile/lib/src/ui/login_sheet.dart|Color(0xFFFCA5A5)',
-  'apps/mobile/lib/src/ui/login_sheet.dart|Color(0xFFFCA5A5)',
   'apps/mobile/lib/src/ui/login_sheet.dart|Color(0xFF5B54E8)',
   'apps/mobile/lib/src/ui/login_sheet.dart|Color(0xFF7C74F2)',
   'apps/mobile/lib/src/ui/login_sheet.dart|Colors.white',
@@ -157,9 +151,6 @@ export const ALLOWLIST = [
   // inks) were pruned 2026-08-14 (WP8): the Plan A′ solid faces deleted the
   // glow and routed every ink through tokens (onPri / onBrandInk). Same
   // pruned-not-banked reasoning as ai_action_row above.
-  'apps/mobile/lib/src/ui/scan_sheet.dart|Color(0x4DF87171)',
-  'apps/mobile/lib/src/ui/scan_sheet.dart|Color(0xFFFCA5A5)',
-  'apps/mobile/lib/src/ui/scan_sheet.dart|Color(0xFFFCA5A5)',
   'apps/mobile/lib/src/ui/settings_page.dart|Color(0xFF4A4F63)',
   // settings_widgets.dart's `Color(0xFF2A2F42)` was pruned 2026-09-02 (B2-P,
   // findStale) — every ink in this file now reads `FlowMicColors.*`, verified

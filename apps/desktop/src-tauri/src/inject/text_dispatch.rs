@@ -174,7 +174,11 @@ pub(crate) fn type_or_paste_with(
 /// `sendinput_outcome.rs`.
 #[cfg(not(target_os = "linux"))]
 fn run_sendinput(text: &str, app_id: Option<&str>, store: &AppLearningStore) -> InjectOutcome {
-    let sent = SendInputClient::new().type_text(text);
+    // NR-253: a typed line break is Shift+Enter unless this target is measured
+    // to need plain Enter — this function also runs as the fallback after a
+    // failed paste, i.e. into chat boxes where a plain Enter sends. The choice is
+    // made inside `type_text_for_app`, where its tests can see it.
+    let sent = SendInputClient::new().type_text_for_app(text, app_id);
     crate::inject::sendinput_outcome::map_sendinput_outcome(sent, app_id, store)
 }
 

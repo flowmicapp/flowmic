@@ -42,6 +42,7 @@
 
 import type { UsageTracker, EngineUsageMeta, MeteredPrincipalRef } from '../billing/usage-tracker';
 import { claimBindingOf, type ClaimBinding } from '../db/repos/usage-effects.repo';
+import type { RecordingCoverageRef } from '../db/repos/recording-coverage.repo';
 import type { SttCharCounts } from '../engine/stt-session-deps';
 import type { UsageEventKind } from '../db/repos/usage-events.repo';
 import { CLIENT_VERSION_MAX_LENGTH, ClientOriginSchema, TargetCapsSchema, type TargetCaps } from '@flowmic/protocol';
@@ -69,6 +70,9 @@ export interface ForwardedStt {
   /** NR-138 round 6 (book 22 §4.11) — the recording / job / range of the metered frame. OPTIONAL like the id: an older
    *  replica sends none, and the writer's claim is then unbound (its replays are billed normally). */
   operation_binding?: ClaimBinding;
+  /** NR-224 (book 22 §4.12) — the recording audio the session covered, as the REPLICA measured it. OPTIONAL: an older
+   *  replica sends none and the writer meters as before; an older writer ignores it (this parser drops unknown keys). */
+  coverage?: RecordingCoverageRef;
   /**
    * card MP-6 — WHY these seconds land on `user_id`, and WHO SPOKE, as the
    * REPLICA's admission recorded it.
@@ -198,8 +202,21 @@ export type ForwardedWrite =
 export interface ForwardTargets {
   usage: UsageTracker;
   setHomeNode(pc_id: string, home_node: string): void;
+  /** 🔴 MUST be monotonic (ignore a fact older than the row): presence bypasses
+   *  the exactly-once ledger (forward-receiver.ts, REPL-TIER 1a), so the same or
+   *  an older record can arrive again. Production: `makeForwardedPresenceApplier`. */
   setPresence(pc_id: string, is_online: boolean, last_seen_at: number): void;
   setPcIdentity(w: ForwardedPcIdentity): void;
+}
+
+/** REPL-TIER 1a — the writer's `setPresence` target: one guarded statement, so
+ *  an older forwarded fact never overwrites a newer one. Wired in
+ *  bootstrap-http-deps.ts `receiveForward`. */
+export function makeForwardedPresenceApplier(
+  pcs: { setPresenceIfNewer(id: string, online: boolean, when: string): void },
+): ForwardTargets['setPresence'] {
+  return (pc_id, is_online, last_seen_at) =>
+    pcs.setPresenceIfNewer(pc_id, is_online, new Date(last_seen_at).toISOString());
 }
 
 /** Thrown when a body does not describe any forwardable write. The writer turns
@@ -266,6 +283,17 @@ function bindingFieldOf(b: Record<string, unknown>): { operation_binding?: Claim
   return binding === undefined ? {} : { operation_binding: binding };
 }
 
+/** NR-224 — the coverage, only when every field is well-formed; anything else is dropped (metered as before). */
+function coverageFieldOf(b: Record<string, unknown>): { coverage?: RecordingCoverageRef } {
+  const c = b.coverage as Record<string, unknown> | null | undefined;
+  if (typeof c !== 'object' || c === null) return {};
+  const { recording_id, start_sample, end_sample, attempt_kind } = c;
+  if (!isNonEmpty(recording_id) || !Number.isSafeInteger(start_sample) || !Number.isSafeInteger(end_sample)) return {};
+  if ((start_sample as number) < 0 || (end_sample as number) <= (start_sample as number)) return {};
+  if (attempt_kind !== 'live' && attempt_kind !== 'auto_retry' && attempt_kind !== 'user_retranscribe') return {};
+  return { coverage: { recording_id, start_sample: start_sample as number, end_sample: end_sample as number, attempt_kind } };
+}
+
 export function parseForwardedWrite(body: unknown): ForwardedWrite {
   const b = body as Record<string, unknown> | null;
   if (!b || typeof b !== 'object') throw new UnknownForwardedWrite(body);
@@ -282,6 +310,7 @@ export function parseForwardedWrite(body: unknown): ForwardedWrite {
         // string」 cannot become the same thing one layer down.
         ...(isNonEmpty(b.operation_id) ? { operation_id: b.operation_id } : {}),
         ...bindingFieldOf(b),
+        ...coverageFieldOf(b), // NR-224
         // card MP-6 — same spread-or-nothing, and the same reason: an older
         // replica sends nothing and the writer must store NULL rather than a
         // manufactured 'self'.
@@ -366,7 +395,7 @@ function parsePcIdentity(b: Record<string, unknown>): ForwardedPcIdentity {
 export function applyForwardedWrite(w: ForwardedWrite, t: ForwardTargets): void {
   switch (w.kind) {
     case 'usage.stt':
-      t.usage.recordSttUsage(w.user_id, w.engine, w.duration_ms, w.chars, w.principal ?? {}, w.operation_id, undefined, w.operation_binding);
+      t.usage.recordSttUsage(w.user_id, w.engine, w.duration_ms, w.chars, w.principal ?? {}, w.operation_id, undefined, w.operation_binding, undefined, w.coverage);
       return;
     case 'usage.llm':
       t.usage.recordLlmUsage(w.user_id, w.engine, w.tokens_in, w.tokens_out, w.principal ?? {}, w.operation_id, w.operation_binding);

@@ -132,6 +132,11 @@ const Set<String> kPcInjectionVerdictCodes = <String>{
   'INJECT_WAYLAND_UNSUPPORTED',
   'INJECT_DISPLAY_UNAVAILABLE',
   'INJECT_SUBMISSION_UNCERTAIN',
+  // Windows (2026-10-16): the window in front runs at a higher integrity level
+  // than FlowMic, so the PC refused before touching focus, clipboard or keyboard
+  // (`inject/uipi.rs` `refusal_for`, `mode: Cached`). Delivered, not injected.
+  // 🔴 Deliberately NOT in [kTransientInjectionVerdictCodes]: see the note there.
+  'INJECT_TARGET_ELEVATED',
 };
 
 // ── SECOND DIMENSION — 「will the cause of this refusal clear by itself?」 ────
@@ -183,6 +188,12 @@ const Set<String> kPcInjectionVerdictCodes = <String>{
 /// it automatically in the meantime is 「hitting the same wall on every
 /// reconnect」 — owner's own words for the thing to prevent — and it buys
 /// nothing, because nothing about waiting changes the answer.
+///
+/// ⚠️ `INJECT_TARGET_ELEVATED` (Windows: the window in front runs above FlowMic's
+/// integrity) IS DELIBERATELY NOT HERE EITHER (MAIN 2026-10-16). An elevated
+/// window does not lower itself, and an automatic re-send after the user moved to
+/// another window would type the sentence THERE — into a window they never spoke
+/// to. Pinned by `test/verdict_target_elevated_test.dart`.
 const Set<String> kTransientInjectionVerdictCodes = <String>{
   'INJECT_SECURE_INPUT_ACTIVE',
 };

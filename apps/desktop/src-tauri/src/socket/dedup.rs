@@ -236,8 +236,9 @@
 use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, VecDeque};
-#[path = "dedup_uncertain.rs"]
-mod uncertainty;
+#[path = "dedup_uncertain.rs"] mod uncertainty;
+#[path = "dedup_claim.rs"] pub(crate) mod claim; // NR-287: in-flight request_id claims
+#[path = "dedup_elevated.rs"] pub(crate) mod elevated; // NR-267-A: short-lived ELEVATED refusals
 use uncertainty::UncertainRecord;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
@@ -368,6 +369,9 @@ pub struct InjectDeduper {
     results: HashMap<String, CachedEntry>,
     /// Independently aged/capped partial submissions; successful LRU churn does not evict them.
     uncertain: BTreeMap<String, UncertainRecord>,
+    /// NR-267-A: `INJECT_TARGET_ELEVATED` refusals, replayed for one live window (dedup_elevated.rs).
+    elevated: elevated::ElevatedRefusals,
+    in_flight: claim::InFlight, // NR-287: ids whose pipeline is running now (dedup_claim.rs)
     /// INJ-1: (text hash, last-seen monotonic ms) of the most recent AUTO inject.
     last_auto: Option<(u64, u64)>,
     inj1_window_ms: u64,
@@ -390,6 +394,8 @@ impl InjectDeduper {
             order: VecDeque::new(),
             results: HashMap::new(),
             uncertain: BTreeMap::new(),
+            elevated: elevated::ElevatedRefusals::default(),
+            in_flight: claim::InFlight::default(),
             last_auto: None,
             inj1_window_ms,
             ledger_path: None,
@@ -784,7 +790,6 @@ fn merge_by_alternating(
 // visibility annotations, when this file crossed the 800-line cap (see
 // socket/typed_ledger.rs for the reasoning this section carries).
 use crate::socket::typed_ledger::{TypedLedgerEntry, TypedLedgerFile};
-
 
 #[cfg(test)]
 #[path = "dedup_tests.rs"]

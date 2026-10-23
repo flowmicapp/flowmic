@@ -38,6 +38,9 @@ class BannerIds {
   /// overwrite the other, and the two lead to opposite actions.
   static const String continuousCapWarning = 'continuous_cap_warning';
 
+  /// NR-213 — the user came back to a long recording they had left (EVENT).
+  static const String continuousAwayReturn = 'continuous_away_return';
+
   /// PROCESSING closed with no transcript — the 15 s local safety net fired or
   /// the engine reported a terminal stt:error (GA-03).
   static const String sttStall = 'stt_stall';

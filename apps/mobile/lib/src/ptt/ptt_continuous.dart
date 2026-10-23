@@ -186,11 +186,16 @@ extension PttSessionContinuous on PttSession {
       'article': articleId,
     });
     audio.retainedAudio?.beginSession(articleId);
-    continuous.begin();
+    continuous.begin(articleId: articleId, cap: cap);
     unawaited(screenWake.hold());
     capTimer.arm(
       cap: cap,
-      onWarning: onWarning,
+      // NR-213 (D5) — a reminder that came due while the user was away is
+      // carried by the return notice (continuous_away.dart).
+      onWarning: () {
+        continuous.away.noteWarning();
+        onWarning();
+      },
       onCap: () => unawaited(stopForContinuousCap()),
     );
     return articleId;
@@ -308,6 +313,7 @@ extension PttSessionContinuous on PttSession {
       return;
     }
     diag('audio.continuous.cap_reached', const <String, Object?>{});
+    continuous.away.noteCapStop(); // NR-213 — read by `endContinuous` below
     // `pttUp` runs `endContinuous()` on its first line, so the flag, the hold
     // and this very timer are all released by the call below. Nothing to undo
     // here afterwards.
@@ -359,6 +365,7 @@ extension PttSessionContinuous on PttSession {
     // recording, and a surviving timer would resume emitting keepalives for a
     // session that no longer exists the moment the socket returns.
     _stopHeartbeat();
+    continuous.away.noteCapStop(); // NR-213
     endContinuous();
     articles.attempts.liveSettled(); // follow-up: no stop reached the relay
     diag('audio.continuous.cap_reached_offline', <String, Object?>{

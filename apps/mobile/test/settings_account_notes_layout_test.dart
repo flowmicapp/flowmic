@@ -68,6 +68,7 @@ class _Rig {
 
   Widget widget() => MaterialApp(
         home: SettingsPage(
+          notesAction: SettingsNotesAction.enter,
           scenario: scenario,
           appSettings: appSettings,
           login: login,

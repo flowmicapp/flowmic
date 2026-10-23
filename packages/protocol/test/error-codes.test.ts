@@ -332,7 +332,13 @@ import { CLOUD_IMAGE_BYTES_MAX, CLOUD_IMAGE_QUOTA_MAX } from '../src/constants';
 // responsible approval (CLAUDE.md D-32). A stretch of the recording was captured
 // and no engine ever heard it; sent only to clients that declare
 // `stt.segment_not_transcribed`. Full argument at the entry in src/error-codes.ts.
-const EXPECTED_ERROR_CODE_COUNT = 85;
+// 85 → 86 (card lane/uipi-silent-inject, 2026-10-16): `INJECT_TARGET_ELEVATED`,
+// MAIN-ruled (first responsible, CLAUDE.md D-32), reversible by the owner. Windows
+// UIPI drops synthetic input into a higher-integrity window without any API error;
+// no registered code says that truthfully (design doc
+// docs/strategy/2026-10-16-uipi-silent-inject-design.md §3). `pc-injection`, cached,
+// not transient.
+const EXPECTED_ERROR_CODE_COUNT = 86;
 
 describe('error-code catalog guard', () => {
   it(`holds exactly ${EXPECTED_ERROR_CODE_COUNT} codes`, () => {

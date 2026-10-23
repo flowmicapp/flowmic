@@ -402,6 +402,7 @@ void main() {
       reason: '🔴 [丢弃] sent a control:key on the wire — discard ≠ clear-screen',
     );
     p.controller.session.debugStopIdlePresencePoll();
+    p.controller.outbox.debugCancelNoAnswerRetries(); // NR-286 guard timer
   });
 
   testWidgets('🔴 height ratios (PA-4 accept): a long draft fills ≥75% of the '

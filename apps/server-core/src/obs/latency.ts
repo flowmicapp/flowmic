@@ -151,6 +151,16 @@ export function markFlushSent(room: string, now: Now = defaultNow): void {
   leg.flushSentAt = now();
 }
 
+/** Card INC-1c — the terminal polished final's split, measured by the bridge on
+ *  its own clock (engine/stt-session-polish-timing.ts) and parked on the pending
+ *  leg; printed on `latency.segment` when the leg closes. Fields are additive:
+ *  a leg without polish never gets them (absent, never 0). First report wins. */
+export function markPolishTiming(room: string, t: Record<string, unknown>): void {
+  const leg = pending.get(room);
+  if (leg === undefined || leg.meta.polish_wait_ms !== undefined) return;
+  for (const [k, v] of Object.entries(t)) if (v !== undefined) leg.meta[k] = v;
+}
+
 export function markTerminalFinal(room: string, value: unknown, now: Now = defaultNow): void {
   const payload = value as { is_segment?: unknown; utterance_id?: unknown; duration_ms?: unknown };
   if (payload.is_segment !== true) markSttFinal(room, now, tcorr(payload.utterance_id), finiteMs(payload.duration_ms));
@@ -258,6 +268,8 @@ export function markInjectResult(room: string, entryId: string | null, now: Now 
 
   rememberClosed({
     stt_ms: stt,
+    polish_wait_ms: typeof leg.meta.polish_wait_ms === 'number' ? leg.meta.polish_wait_ms : null, // card INC-1c
+    engine_final_ms: typeof leg.meta.engine_final_ms === 'number' ? leg.meta.engine_final_ms : null,
     stt_to_flush_ms: toFlush,
     stt_from_flush_ms: fromFlush,
     phone_turnaround_ms: turnaround,
@@ -301,6 +313,8 @@ export const LATENCY_SUMMARY_INTERVAL_MS = 60_000;
 
 interface ClosedSegment {
   stt_ms: number | null;
+  polish_wait_ms: number | null;
+  engine_final_ms: number | null;
   stt_to_flush_ms: number | null;
   stt_from_flush_ms: number | null;
   phone_turnaround_ms: number | null;
@@ -360,6 +374,8 @@ export function emitLatencySummary(): void {
     window_ms: LATENCY_SUMMARY_INTERVAL_MS,
   };
   putPct(fields, 'stt_ms', numericOf(samples, 'stt_ms'));
+  putPct(fields, 'polish_wait_ms', numericOf(samples, 'polish_wait_ms')); // card INC-1c
+  putPct(fields, 'engine_final_ms', numericOf(samples, 'engine_final_ms'));
   putPct(fields, 'stt_to_flush_ms', numericOf(samples, 'stt_to_flush_ms'));
   putPct(fields, 'stt_from_flush_ms', numericOf(samples, 'stt_from_flush_ms'));
   putPct(fields, 'phone_turnaround_ms', numericOf(samples, 'phone_turnaround_ms'));

@@ -31,12 +31,13 @@ import 'package:clock/clock.dart' show clock;
 import 'package:flutter/foundation.dart';
 
 import '../audio/audio_capture.dart' show CapturedChunk;
+import '../audio/continuous_away.dart' show ContinuousAwayReturn;
 import '../audio/recovery_attempt_ledger.dart'
     show AttemptRoute, RecoveryAttemptLedger;
 import '../audio/retained_audio_manifest.dart' show AudioJournalFormat;
 import 'recovery_identity.dart' show RecoverySampleRange;
 import '../audio/retained_audio_spill.dart'
-    show LiveAudioAttempt, RetainedAudioSpill;
+    show LiveAudioAttempt, RetainedAudioOwedAfterStop, RetainedAudioSpill;
 import '../audio/retained_audio_store.dart' show RetainedAudioNotice;
 import '../destination/destination_controller.dart';
 import '../diag/diag_log.dart';
@@ -54,6 +55,8 @@ import '../signaling/wire_payloads.dart';
 import '../stt/segment_buffer.dart';
 import '../stt/stt_stream.dart';
 import '../stt/utterance_view.dart';
+import '../timeline/article_away_gaps.dart';
+import '../timeline/article_view.dart' show articleMembersIn;
 import '../timeline/entry_never_sent.dart';
 import '../timeline/timeline_entry.dart';
 import '../timeline/timeline_store.dart';
@@ -75,6 +78,7 @@ import 'outbox_blob_store.dart';
 import 'outbox_destination.dart';
 import 'outbox_failure_text.dart';
 import 'outbox_frame.dart';
+import 'outbox_inject_origin.dart' show verdictRecordsDeferPromise;
 import 'outbox_item.dart';
 import 'outbox_notice_gate.dart';
 import 'outbox_store.dart';
@@ -209,6 +213,7 @@ class ChatController extends ChangeNotifier
        _recoverySleep = recoverySleep,
        _recoveryRetryTimer = recoveryRetryTimer,
        favorites = FavoritesStore(prefs: localPrefs),
+       awayGaps = ArticleAwayGapStore(prefs: localPrefs), // NR-213
        composeGate =
            composeGate ??
            ComposeGate(transport: session.transport, phonePrefs: phonePrefs) {
@@ -228,6 +233,9 @@ class ChatController extends ChangeNotifier
 
   /// D-1c — the capture-ended edge; body in chat_link_watch.dart.
   void _onCaptureStopped() => _stopHeldLadderRouted(this);
+  // NR-213 — a class member so add/removeListener see ONE tear-off (an
+  // extension method's tear-off is not that); body in chat_ptt_lifecycle.dart.
+  void _onContinuousAwayReturn() => _continuousAwayReturned();
 
   /// The server just put this connection into the room ⇒ now, and only now,
   /// the queue can actually deliver. See F-1. Body: chat_outbox_host.dart.
@@ -295,6 +303,10 @@ class ChatController extends ChangeNotifier
   /// controller concern — the page only renders it. Hydrate with
   /// [FavoritesStore.load]; an un-hydrated store is simply empty.
   final FavoritesStore favorites;
+
+  /// NR-213 (D3) — where each long recording paused because the user left
+  /// the app; drawn by `ArticlePage`. Written by [_onContinuousAwayReturn].
+  final ArticleAwayGapStore awayGaps;
 
   /// The recording panel's numbers (⏱ / 📊 / 📍). See recording_telemetry.dart.
   late final RecordingTelemetry recording;

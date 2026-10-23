@@ -113,7 +113,7 @@ class _Host implements OutboxDrainHost {
 }
 
 DeliveryOutbox _outbox(_Host host, OutboxStore store, OutboxBlobStore blobs) =>
-    DeliveryOutbox(store: store, blobs: blobs, host: host);
+    DeliveryOutbox(store: store, blobs: blobs, host: host, retryLinkUp: () => false);
 
 Future<OutboxItem?> _enqueueImage(
   DeliveryOutbox box, {

@@ -364,7 +364,7 @@ export function foldInterim(shape: InterimShape | undefined, draft: string, next
  *
  *  The rule now: never discard confirmed text. Only the two containment cases
  *  replace, and both are lossless by definition. */
-export function foldConfirmedWithDraft(confirmed: string, draft: string): string {
+export function foldConfirmedWithDraft(confirmed: string, draft: string, join: (left: string, right: string) => string = concat): string {
   if (confirmed.length === 0) return draft;
   if (draft.length === 0) return confirmed;
   // Cumulative engines (Soniox sends the whole hypothesis every frame) produce a
@@ -375,8 +375,12 @@ export function foldConfirmedWithDraft(confirmed: string, draft: string): string
   // Disjoint spans. Concatenate — the same rule the live interim already uses
   // when it emits `offlineAccum + onlineDraft` (orchestrator-core.ts:320).
   // Those two lines disagreeing was the defect.
-  return confirmed + draft;
+  // card SEAM-1: [join] is `LegFacts.draftJoin` at every orchestrator call site — a leg-seam-aware
+  // join while the draft is a NEW leg's text meeting the bank, plain concatenation otherwise.
+  return join(confirmed, draft);
 }
+
+const concat = (left: string, right: string): string => left + right;
 
 /**
  * 🔴 REQ-14-01 (2026-08-14) — should a DEAD leg's draft be banked into the
@@ -424,9 +428,10 @@ export function bankDraftAcrossLegs(
   shape: InterimShape | undefined,
   confirmed: string,
   draft: string,
+  join?: (left: string, right: string) => string, // card SEAM-1 — see foldConfirmedWithDraft
 ): string | null {
   if (shape !== 'cumulative' || draft === '') return null;
-  return foldConfirmedWithDraft(confirmed, draft);
+  return foldConfirmedWithDraft(confirmed, draft, join);
 }
 
 /** Length of the longest common prefix of `a` and `b`. */

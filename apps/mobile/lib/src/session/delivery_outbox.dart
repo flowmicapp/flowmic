@@ -40,6 +40,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../diag/diag_log.dart';
 import '../signaling/wire_payloads.dart' show InjectOrigin;
 import 'outbox_blob_store.dart';
@@ -93,6 +95,10 @@ part 'delivery_outbox_attempt.dart';
 // and enforce the overflow cap. Same library, same rule as the four parts
 // above: nothing moved changed behaviour, and no caller had to be edited.
 part 'delivery_outbox_enqueue.dart';
+// NR-286 — the RETRY-WHILE-CONNECTED half: an item the 45 s watchdog put back
+// to `queued` is re-drained on a capped backoff while the link stays up (doc 15
+// §2.6-a). A part for the same 800-line reason as the five above.
+part 'delivery_outbox_retry.dart';
 
 class DeliveryOutbox {
   final void Function(String requestId)? onPersisted;
@@ -101,13 +107,17 @@ class DeliveryOutbox {
     required OutboxBlobStore blobs,
     required OutboxDrainHost host,
     this.onPersisted,
+    required bool Function() retryLinkUp,
     int capacity = kOutboxCapacity,
     Duration inflightTimeout = kOutboxInflightTimeout,
+    List<Duration> noAnswerBackoff = kOutboxNoAnswerRetryBackoff,
   }) : _store = store,
        _blobs = blobs,
        _host = host,
+       _retryLinkUp = retryLinkUp,
        _capacity = capacity,
-       _inflightTimeout = inflightTimeout;
+       _inflightTimeout = inflightTimeout,
+       _noAnswerBackoff = noAnswerBackoff;
 
   final OutboxStore _store;
   final OutboxBlobStore _blobs;
@@ -116,6 +126,27 @@ class DeliveryOutbox {
   final Duration _inflightTimeout;
 
   final Map<String, Timer> _watchdogs = <String, Timer>{};
+
+  /// 🔴 NR-286 (doc 15 §2.6-a rule 3) — 「is the link to the computer up RIGHT
+  /// NOW」, asked when a no-answer retry comes due. REQUIRED, no default: a
+  /// friendly `() => false` default would be the 「queue silently does not
+  /// retry」 façade this card removes (CLAUDE.md anti-façade ②). Production
+  /// passes `ChatController`'s socket-connected ∧ computer-not-known-away
+  /// (chat_controller_wiring.dart); a suite that does not exercise retries
+  /// says `() => false` out loud.
+  final bool Function() _retryLinkUp;
+
+  /// NR-286 rule 2 — the backoff table ([kOutboxNoAnswerRetryBackoff] in
+  /// production; injectable so a suite can run minutes in milliseconds).
+  final List<Duration> _noAnswerBackoff;
+
+  /// NR-286 — consecutive unanswered attempts per `requestId` (rule 2), and the
+  /// one pending retry timer per item (rule 6). In memory on purpose, like
+  /// [_holdOutUntil]: a process restart revives the item on boot and the next
+  /// link-up edge drains it, so nothing persisted is needed to keep the
+  /// promise; the worst a restart does is start the backoff over.
+  final Map<String, int> _noAnswerStreak = <String, int>{};
+  final Map<String, Timer> _retryTimers = <String, Timer>{};
 
   /// 🔴 Card F12/F1-d (2026-09-02) — a retryable refusal (never terminal:
   /// `isTerminalRefusalCode` says stop, this says merely "not yet") whose
@@ -235,8 +266,13 @@ class DeliveryOutbox {
   // original names so no call site moved with them.
   final Map<String, OutboxItem> _unpersisted = <String, OutboxItem>{};
 
-  Future<void> _persistItem(OutboxItem item, {required String op}) =>
-      outboxPersistItem(this, item, op: op);
+  Future<void> _persistItem(OutboxItem item, {required String op}) {
+    // NR-286 (doc 15 §2.6-a rule 7) — the ONE write door, so the one place a
+    // terminal item's retry timer and streak are dropped: settle, bytes gone
+    // and overflow all write their terminal state through here.
+    if (item.isTerminal) outboxClearNoAnswerRetry(this, item.requestId);
+    return outboxPersistItem(this, item, op: op);
+  }
 
   Future<List<OutboxItem>> _loadPendingMerged() => outboxLoadPendingMerged(this);
 
@@ -464,6 +500,17 @@ class DeliveryOutbox {
   /// them all alike — and it would stamp them alike in the dangerous direction.
   Future<OutboxDrainReport> drain({
     Set<String> userRequestedEntryIds = const <String>{},
+  }) =>
+      _drainGuarded(userRequestedEntryIds);
+
+  /// [drain], optionally narrowed to ONE item. 🔴 NR-286 S1 (doc 15 §2.6-a
+  /// rule 6): a no-answer retry passes [onlyRequestId] — it re-sends the item
+  /// that came due and nothing else. Unscoped, one item's timer re-sent every
+  /// `queued` item, including a spoken sentence whose live frame was still on
+  /// the wire (`_deliverDirect` enqueues, then emits beside the queue).
+  Future<OutboxDrainReport> _drainGuarded(
+    Set<String> userRequestedEntryIds, {
+    String? onlyRequestId,
   }) async {
     if (_draining) {
       // Card F2 - do not drop the request: fold the ids into the running
@@ -494,7 +541,10 @@ class DeliveryOutbox {
       // `report.held.containsKey(requestId)`) must read an answer about
       // itself; swapping in a merged pass's report here would be the very
       // conflation this card removes, just moved one level up.
-      final OutboxDrainReport report = await _drainOnePass(userRequestedEntryIds);
+      final OutboxDrainReport report = await _drainOnePass(
+        userRequestedEntryIds,
+        onlyRequestId: onlyRequestId,
+      );
       // Card F2 - a call that arrived while the pass above was running merged
       // its ids into [_pendingUserRequestedIds] instead of being told
       // `linkOk:false`; honour that merge with a follow-up pass NOW, while
@@ -513,16 +563,24 @@ class DeliveryOutbox {
       return report;
     } finally {
       _draining = false;
+      // NR-286 N4 — the next pass may log its own 「retry waited on a busy
+      // drain」 line (delivery_outbox_retry.dart).
+      _retryBusyLogged = false;
     }
   }
+
+  /// NR-286 N4 — one `drain_busy` retry diag per drain pass, not one per due
+  /// item every 2 s while a long pass runs.
+  bool _retryBusyLogged = false;
 
   /// One full attempt over everything currently `queued`, honouring
   /// [userRequestedEntryIds] per L8. Split out of [drain] so a merged
   /// follow-up pass (Card F2, above) can run it again without re-entering the
   /// `_draining` guard it is already holding.
   Future<OutboxDrainReport> _drainOnePass(
-    Set<String> userRequestedEntryIds,
-  ) async {
+    Set<String> userRequestedEntryIds, {
+    String? onlyRequestId,
+  }) async {
     final List<OutboxItem> pending = await _loadPendingMerged();
     final DateTime now = DateTime.now().toUtc();
     // Card F12/F1-d — a hold-out named BY THE SERVER (`_holdOutUntil`) skips an
@@ -534,6 +592,8 @@ class DeliveryOutbox {
     _holdOutUntil.removeWhere((String id, DateTime until) => !until.isAfter(now));
     final List<OutboxItem> queued = pending
         .where((OutboxItem i) => i.state == OutboxDeliveryState.queued)
+        .where((OutboxItem i) =>
+            onlyRequestId == null || i.requestId == onlyRequestId)
         .where((OutboxItem i) =>
             !_holdOutUntil.containsKey(i.requestId) ||
             i.coveredEntryIds.any(userRequestedEntryIds.contains))
@@ -580,7 +640,9 @@ class DeliveryOutbox {
         // the other N-1 judged as a backfill delivery inside the very press that produced them.
         userRequested: item.coveredEntryIds.any(userRequestedEntryIds.contains),
       );
-      if (outcome.held != null) {
+      if (outcome.skipped) {
+        continue; // NR-286 N2 — settled/moved while this pass waited.
+      } else if (outcome.held != null) {
         held[item.requestId] = outcome.held!;
       } else if (outcome.refusedCode != null) {
         refused[item.requestId] = outcome.refusedCode!;
@@ -650,6 +712,20 @@ class DeliveryOutbox {
     return _blobs.read(path);
   }
 
+  /// NR-286 — test escape hatch, the same family as
+  /// `debugCancelBannerAutoHideTimers` / `PttSession.debugStopIdlePresencePoll`:
+  /// a `testWidgets` body that leaves an enqueued delivery unanswered at its end
+  /// now leaves this queue's 45 s first-attempt guard pending, and the binding
+  /// checks for pending timers before `addTearDown` disposes anything. Cancels
+  /// the retry timers only; the items and every other timer are untouched.
+  @visibleForTesting
+  void debugCancelNoAnswerRetries() {
+    for (final Timer t in _retryTimers.values) {
+      t.cancel();
+    }
+    _retryTimers.clear();
+  }
+
   void dispose() {
     _disposed = true;
     _noticeGrace?.cancel();
@@ -658,5 +734,10 @@ class DeliveryOutbox {
       t.cancel();
     }
     _watchdogs.clear();
+    for (final Timer t in _retryTimers.values) {
+      t.cancel();
+    }
+    _retryTimers.clear();
+    _noAnswerStreak.clear();
   }
 }

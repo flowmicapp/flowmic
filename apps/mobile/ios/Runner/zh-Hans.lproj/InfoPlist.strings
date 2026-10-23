@@ -7,11 +7,11 @@
    （App Store 与 iOS 的本地化都认它），与 `AppLocale` 那套裸 ISO 639-1 码
    （`zh`/`en`/`ja`/`ko`）**是两个不同的问题**，不许因为「看起来不一致」去统一。 */
 
-"NSMicrophoneUsageDescription" = "FlowMic 使用麦克风，把你说的话变成文字送到电脑上。";
+"NSMicrophoneUsageDescription" = "FlowMic 使用麦克风把你说的话转成文字。文字会输入到你的电脑中，或作为轻记录保存在你的手机上。";
 
-"NSCameraUsageDescription" = "FlowMic 使用相机扫描电脑上显示的配对二维码。";
+"NSCameraUsageDescription" = "FlowMic 使用相机扫描电脑上显示的配对二维码，以及 FlowMic 网站上的登录二维码。";
 
-"NSPhotoLibraryUsageDescription" = "FlowMic 读取你选中的照片，把这张图片发送到电脑上。";
+"NSPhotoLibraryUsageDescription" = "FlowMic 仅读取你选中的照片，将其发送到你的电脑或保存在你的手机上。";
 
 /* 本地网络：局域网通道是手机直接拨号到同一网络里的电脑。 */
 "NSLocalNetworkUsageDescription" = "FlowMic 通过局域网直接连接你的电脑，让你说的话不经过互联网就送到电脑上。";

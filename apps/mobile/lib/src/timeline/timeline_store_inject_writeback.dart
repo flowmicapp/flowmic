@@ -187,6 +187,17 @@ bool timelineApplyInjectResult(
   // BEFORE
   // any answer can return. The latch therefore only ever catches a verdict
   // nobody is waiting for.
+  //
+  // ⚠️ Correction (NR-289, 2026-10-20; the paragraph above is kept verbatim) —
+  // 「every path that re-asks」 is true only of the USER's resends. Automatic
+  // drains re-send the SAME request_id without `markReinjecting` (the queue's
+  // retry timer, a transient verdict's requeue, a link-up drain), and the PC
+  // re-judges an id whose earlier run typed nothing (it records only
+  // `mode != Cached`: `socket/inject_ops.rs`). So a verdict 「nobody is waiting
+  // for」 can be the PC saying it DID type the words this time. For `injected`
+  // that changes nothing (a later answer can only repeat or contradict a
+  // witnessed delivery). For the no-input face below it does: see
+  // [laterTypingSupersedesNoInput].
   // ── Card IT-05 (2026-08-05, Book 15 §2.0.1-d) — the latch also covers the
   // 「delivered · not injected」 face ──────────────────────────────────────────────────
   //
@@ -213,6 +224,9 @@ bool timelineApplyInjectResult(
   // that is still `cached && cachedByVerdict` with a pc-injection code is, by
   // construction, a verdict nobody is waiting for — the same property that
   // makes the `injected` latch safe.
+  // ⚠️ (NR-289) 「by construction」 overstates it: automatic drains re-ask
+  // without `markReinjecting`; see the correction above and
+  // [laterTypingSupersedesNoInput] below.
   //
   // 🔴 DELIBERATELY NOT extended to `cachedByVerdict` in general: `pc-admission`
   // (`INJECT_NOT_PRIMARY`) and unrecognised codes are NOT terminal (owner
@@ -225,8 +239,39 @@ bool timelineApplyInjectResult(
       entry.status == EntryStatus.cached &&
       entry.cachedByVerdict &&
       isPcInjectionVerdictCode(entry.failureReason);
+  // ── 🔴 NR-289 (2026-10-20, Book 15 receipt states §2.0.1-d correction) — the
+  // latch above holds the no-input face against a CONTRADICTION, not against
+  // the PC later typing the same delivery ───────────────────────────────────
+  //
+  // The IT-05 justification (「every path that re-asks calls markReinjecting」)
+  // is false for automatic drains, which re-send the same request_id untouched.
+  // The PC does not remember an untyped (`mode: Cached`) run, so that second
+  // frame is judged again against whatever is in front and may be typed. Its
+  // `ok:true` used to be dropped here, leaving this row on 「delivered · not
+  // injected」 with the first reason forever while the PC's own row said
+  // injected — and a Resend from that face mints a NEW id, so the PC typed the
+  // sentence twice.
+  //
+  // ⇒ ONE direction opens: an `ok:true` for this row lifts a no-input verdict
+  // to `injected`. Every `ok:true` that reaches this function is PC-authored
+  // (all local settle sites pass `ok: false`), and 「this sentence was typed」
+  // cannot become false by arriving late. An `ok:false` stays latched (IT-05's
+  // reason, unchanged), and `injected` is still never downgraded.
+  //
+  // ⚠️ `INJECT_SUBMISSION_UNCERTAIN` is NOT lifted: the PC's own row refuses
+  // to let a later verdict overwrite it (`apps/desktop/src/lib/
+  // timeline-row-merge.ts` `mergeIntoOwnedRow`) and the PC answers every later
+  // frame for that id with the same code without running
+  // (`socket/dedup_claim.rs` header) — the two ends keep one answer.
+  // ⚠️ A deferred verdict (`INJECT_DEFERRED_NOT_AUTOINJECTED`) is `ok:false`,
+  // so it can never lift anything itself.
+  // Pinned by test/row_same_id_typed_after_cached_test.dart.
+  final bool laterTypingSupersedesNoInput =
+      ok &&
+      settledByPcInjectionVerdict &&
+      entry.failureReason != 'INJECT_SUBMISSION_UNCERTAIN';
   if (entry.status == EntryStatus.injected ||
-      settledByPcInjectionVerdict) {
+      (settledByPcInjectionVerdict && !laterTypingSupersedesNoInput)) {
     // ⚠️ SELF-EXPOSING, same shape as the queue's own terminal gate
     // (`outbox.settle_ignored_terminal`, delivery_outbox_settle.dart): 「why
     // didn't this row move with that last receipt」 has to be answerable from

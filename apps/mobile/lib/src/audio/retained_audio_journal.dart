@@ -549,6 +549,9 @@ class RetainedAudioJournal {
           a.attemptId == attemptId ? a.withWithdrawn(ids) : a,
       ]);
 
+  /// NR-214 — raise [RecordingManifest.liveCoveredBytes] (never lowers it).
+  void noteLiveCovered(int bytes) => _manifest = _manifest.copyWith(
+      liveCoveredBytes: bytes > (_manifest.liveCoveredBytes ?? 0) ? bytes : null);
   /// Card RC-1a (A6 R-3) — persist where the recovery queue stands, and when
   /// the next automatic attempt is due. Committed on the next [commit].
   void setRecoveryState(String state,

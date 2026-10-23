@@ -1,0 +1,545 @@
+{
+ "source": "POL-2 baseline A recorded rows (.local/eval-speech/pol2a-{pc,notes}-runs.jsonl), main @ ca63e25b relay, Soniox test key; deduplicated by (kind, last 24 chars of the cut row, first 24 chars of the next row); `n` = how many recorded seams share the entry; `kind` and `ref_head` (the reference word at the start of the next row) from scripts/eval/speech-quality/two-stage-scoring.mjs `seams` / `tokenize`. Corpus text is synthetic (scripts/eval/speech-quality/corpus-long.json).",
+ "seams": [
+  {
+   "id": "de-long-01",
+   "lang": "de",
+   "kind": "end",
+   "tail": "t am Dienstagnachmittag.",
+   "head": "Entschuldigung, ich mein",
+   "ref_head": "Entschuldigung",
+   "n": 4
+  },
+  {
+   "id": "de-long-02",
+   "lang": "de",
+   "kind": "end",
+   "tail": "es noch 2 Wochen regnen.",
+   "head": "Vielen Dank für Ihre Hil",
+   "ref_head": "Vielen",
+   "n": 4
+  },
+  {
+   "id": "de-long-03",
+   "lang": "de",
+   "kind": "end",
+   "tail": "bereit für die Änderung.",
+   "head": "Wir zahlen dazu hat, wie",
+   "ref_head": "Wer",
+   "n": 4
+  },
+  {
+   "id": "de-long-04",
+   "lang": "de",
+   "kind": "end",
+   "tail": "uartal beträgt 40.000 €.",
+   "head": "Nein, Entschuldigung, 14",
+   "ref_head": "Nein",
+   "n": 4
+  },
+  {
+   "id": "de-long-05",
+   "lang": "de",
+   "kind": "end",
+   "tail": "nen getrennten Speicher.",
+   "head": "Sagt mir Bescheid, falls",
+   "ref_head": "Sagt",
+   "n": 4
+  },
+  {
+   "id": "de-long-06",
+   "lang": "de",
+   "kind": "end",
+   "tail": "en am 17. abends zurück.",
+   "head": "Wer besondere Wünsche be",
+   "ref_head": "Wer",
+   "n": 4
+  },
+  {
+   "id": "en-long-01",
+   "lang": "en",
+   "kind": "end",
+   "tail": "d for Tuesday afternoon.",
+   "head": "Sorry, I mean Thursday a",
+   "ref_head": "Sorry",
+   "n": 4
+  },
+  {
+   "id": "en-long-02",
+   "lang": "en",
+   "kind": "end",
+   "tail": "eads to the living room.",
+   "head": "Thank you very much for ",
+   "ref_head": "Thank",
+   "n": 4
+  },
+  {
+   "id": "en-long-03",
+   "lang": "en",
+   "kind": "end",
+   "tail": "e that change on Friday.",
+   "head": "If anyone has numbers on",
+   "ref_head": "If",
+   "n": 4
+  },
+  {
+   "id": "en-long-04",
+   "lang": "en",
+   "kind": "end",
+   "tail": "arter is 40,000 dollars.",
+   "head": "No, sorry, 14,000, 40,00",
+   "ref_head": "No",
+   "n": 4
+  },
+  {
+   "id": "en-long-05",
+   "lang": "en",
+   "kind": "end",
+   "tail": "le episode on their own.",
+   "head": "Let me know if this is t",
+   "ref_head": "Let",
+   "n": 4
+  },
+  {
+   "id": "en-long-06",
+   "lang": "en",
+   "kind": "end",
+   "tail": "the 17th in the evening.",
+   "head": "If you have any dietary ",
+   "ref_head": "If",
+   "n": 4
+  },
+  {
+   "id": "ja-long-01",
+   "lang": "ja",
+   "kind": "end",
+   "tail": "にも使う予定で、レビューは火曜日の午後3時です。",
+   "head": "すみません、水曜日の午後3時でした。火曜日はみん",
+   "ref_head": "す",
+   "n": 4
+  },
+  {
+   "id": "ja-long-02",
+   "lang": "ja",
+   "kind": "end",
+   "tail": "回足りなかった切り戻しの手順も追加されています。",
+   "head": "レビューの前に一度読んでおいてください。",
+   "ref_head": "レ",
+   "n": 4
+  },
+  {
+   "id": "ja-long-03",
+   "lang": "ja",
+   "kind": "end",
+   "tail": "。この2つの職種の今四半期の予算は40万円です。",
+   "head": "いえ、失礼しました、1,400,000円です。4",
+   "ref_head": "い",
+   "n": 3
+  },
+  {
+   "id": "ja-long-03",
+   "lang": "ja",
+   "kind": "end",
+   "tail": "。この2つの職種の今四半期の予算は40万円です。",
+   "head": "いえ、失礼しました。1,400,000円です。4",
+   "ref_head": "い",
+   "n": 1
+  },
+  {
+   "id": "ja-long-04",
+   "lang": "ja",
+   "kind": "end",
+   "tail": "以上痛まないうちに対応していただけると幸いです。",
+   "head": "とて数をおかけしますが、どうぞよろしくお願いいた",
+   "ref_head": "お",
+   "n": 4
+  },
+  {
+   "id": "ja-long-05",
+   "lang": "ja",
+   "kind": "end",
+   "tail": "ァイルも定期的に手元に保存しているとのことです。",
+   "head": "最後にリスナーへの質問で締めたいと思います。",
+   "ref_head": "最",
+   "n": 4
+  },
+  {
+   "id": "ja-long-06",
+   "lang": "ja",
+   "kind": "end",
+   "tail": "しいと言っています。17日の夜に東京に戻ります。",
+   "head": "食事の制限がある人は、金曜日までに小林さんに直接",
+   "ref_head": "食",
+   "n": 4
+  },
+  {
+   "id": "zh-long-01",
+   "lang": "zh",
+   "kind": "end",
+   "tail": "同样的方法用在库存服务上，评审定在周二下午3点。",
+   "head": "不对，是周三下午3点，周二大家都要去客户那边开会",
+   "ref_head": "不",
+   "n": 4
+  },
+  {
+   "id": "zh-long-02",
+   "lang": "zh",
+   "kind": "end",
+   "tail": "家在评审之前先看一遍，有问题直接在文档里提出来。",
+   "head": "评审时间我会单独发通知，谢谢大家。",
+   "ref_head": "评",
+   "n": 4
+  },
+  {
+   "id": "zh-long-03",
+   "lang": "zh",
+   "kind": "end",
+   "tail": "的五分之一了。这两个岗位这个季度的预算是4万元。",
+   "head": "不好意思，说错了，是14000元，4万是全年的数",
+   "ref_head": "不",
+   "n": 4
+  },
+  {
+   "id": "zh-long-04",
+   "lang": "zh",
+   "kind": "end",
+   "tail": "发现天花板旁边的墙皮开始起泡，感觉问题越来越——",
+   "head": "请问这周能不能安排人来看一下？我周三和周五在家办",
+   "ref_head": "请",
+   "n": 1
+  },
+  {
+   "id": "zh-long-04",
+   "lang": "zh",
+   "kind": "end",
+   "tail": "快处理一下，免得冰江花园这边的房子损坏得更厉害。",
+   "head": "麻烦您了，谢谢，祝您生活愉快。",
+   "ref_head": "麻",
+   "n": 4
+  },
+  {
+   "id": "zh-long-05",
+   "lang": "zh",
+   "kind": "end",
+   "tail": "们现在也会定期把飞格玛里的文件导出一份放到本地。",
+   "head": "最后留一个问题给听众：如果明天必须砍掉一个工具，",
+   "ref_head": "最",
+   "n": 3
+  },
+  {
+   "id": "zh-long-05",
+   "lang": "zh",
+   "kind": "end",
+   "tail": "在也会定期把Figma里的文件导出一份放到本地。",
+   "head": "最后留一个问题给听众：如果明天必须砍掉一个工具，",
+   "ref_head": "最",
+   "n": 1
+  },
+  {
+   "id": "zh-long-06",
+   "lang": "zh",
+   "kind": "end",
+   "tail": "问题，让大家一起想办法。我们17号晚上返回北京。",
+   "head": "如果有饮食方面的特殊要求，周五之前直接告诉小吴。",
+   "ref_head": "如",
+   "n": 4
+  },
+  {
+   "id": "de-long-01",
+   "lang": "de",
+   "kind": "mid",
+   "tail": "chung und schreibt eure—",
+   "head": "Kommentare direkt hinein",
+   "ref_head": "Kommentare",
+   "n": 4
+  },
+  {
+   "id": "de-long-02",
+   "lang": "de",
+   "kind": "mid",
+   "tail": " dass das Problem immer,",
+   "head": "Schlimmer wird. Könnten ",
+   "ref_head": "schlimmer",
+   "n": 1
+  },
+  {
+   "id": "de-long-02",
+   "lang": "de",
+   "kind": "mid",
+   "tail": " dass das Problem immer.",
+   "head": "Schlimmer wird. Könnten ",
+   "ref_head": "schlimmer",
+   "n": 2
+  },
+  {
+   "id": "de-long-02",
+   "lang": "de",
+   "kind": "mid",
+   "tail": "dass das Problem immer,.",
+   "head": "Schlimmer wird. Könnten ",
+   "ref_head": "schlimmer",
+   "n": 1
+  },
+  {
+   "id": "de-long-03",
+   "lang": "de",
+   "kind": "mid",
+   "tail": "fast alle kamen aus dem.",
+   "head": "Bestellvorgang: Die Lösu",
+   "ref_head": "Bestellvorgang",
+   "n": 4
+  },
+  {
+   "id": "de-long-04",
+   "lang": "de",
+   "kind": "mid",
+   "tail": "age lang, bevor wir sie—",
+   "head": "Für alle freigeben, die ",
+   "ref_head": "für",
+   "n": 3
+  },
+  {
+   "id": "de-long-04",
+   "lang": "de",
+   "kind": "mid",
+   "tail": "age lang, bevor wir sie—",
+   "head": "Für alle freigegeben, di",
+   "ref_head": "für",
+   "n": 1
+  },
+  {
+   "id": "de-long-05",
+   "lang": "de",
+   "kind": "mid",
+   "tail": "es einen Moment, in dem.",
+   "head": "Etwas im schlechtesten A",
+   "ref_head": "etwas",
+   "n": 3
+  },
+  {
+   "id": "de-long-06",
+   "lang": "de",
+   "kind": "mid",
+   "tail": "ei, und am Nachmittag...",
+   "head": "Fahren wir mit dem Boot ",
+   "ref_head": "fahren",
+   "n": 4
+  },
+  {
+   "id": "en-long-01",
+   "lang": "en",
+   "kind": "mid",
+   "tail": "e review and leave your—",
+   "head": "Comments directly in it,",
+   "ref_head": "comments",
+   "n": 4
+  },
+  {
+   "id": "en-long-02",
+   "lang": "en",
+   "kind": "mid",
+   "tail": " the problem is getting—",
+   "head": "Worse rather than better",
+   "ref_head": "worse",
+   "n": 3
+  },
+  {
+   "id": "en-long-03",
+   "lang": "en",
+   "kind": "mid",
+   "tail": " came from the checkout.",
+   "head": "Slow. The figs itself is",
+   "ref_head": "flow",
+   "n": 2
+  },
+  {
+   "id": "en-long-03",
+   "lang": "en",
+   "kind": "mid",
+   "tail": " came from the checkout.",
+   "head": "Slow. The fix itself is ",
+   "ref_head": "flow",
+   "n": 2
+  },
+  {
+   "id": "en-long-04",
+   "lang": "en",
+   "kind": "mid",
+   "tail": "ting is on the 12th, at—",
+   "head": "The usual time, and Alex",
+   "ref_head": "the",
+   "n": 4
+  },
+  {
+   "id": "en-long-05",
+   "lang": "en",
+   "kind": "mid",
+   "tail": "ng a client launch, and—",
+   "head": "She told me she would ta",
+   "ref_head": "she",
+   "n": 4
+  },
+  {
+   "id": "en-long-06",
+   "lang": "en",
+   "kind": "mid",
+   "tail": "and in the afternoon we—",
+   "head": "Take a boat along the ri",
+   "ref_head": "take",
+   "n": 4
+  },
+  {
+   "id": "ja-long-01",
+   "lang": "ja",
+   "kind": "mid",
+   "tail": "望があって、毎朝8時までに前の日の在庫の集計を—",
+   "head": "受け取りたいそうです。この件の工数はまだ見積もっ",
+   "ref_head": "受",
+   "n": 4
+  },
+  {
+   "id": "ja-long-02",
+   "lang": "ja",
+   "kind": "mid",
+   "tail": "でいるので、まず読み込みと書き込みを分けてから—",
+   "head": "2段階で写す予定です。最初は読み込みの部分だけを",
+   "ref_head": "二",
+   "n": 1
+  },
+  {
+   "id": "ja-long-02",
+   "lang": "ja",
+   "kind": "mid",
+   "tail": "でいるので、まず読み込みと書き込みを分けてから—",
+   "head": "2段階で移す予定です。最初は読み込みの部分だけを",
+   "ref_head": "二",
+   "n": 3
+  },
+  {
+   "id": "ja-long-03",
+   "lang": "ja",
+   "kind": "mid",
+   "tail": "見てから全員に広げます。次の計画会議は12日の。",
+   "head": "いつもの時間で、佐藤さんが招待を送ります。",
+   "ref_head": "い",
+   "n": 4
+  },
+  {
+   "id": "ja-long-04",
+   "lang": "ja",
+   "kind": "mid",
+   "tail": "、天井の近くの壁紙が膨らみ始めていて、だんだん…",
+   "head": "ひどくなっているように感じます。今週中にどなたか",
+   "ref_head": "ひ",
+   "n": 1
+  },
+  {
+   "id": "ja-long-04",
+   "lang": "ja",
+   "kind": "mid",
+   "tail": "井の近くの壁紙が膨らみ始めていて、だんだん...",
+   "head": "ひどくなっているように感じます。今週中にどなたか",
+   "ref_head": "ひ",
+   "n": 3
+  },
+  {
+   "id": "ja-long-05",
+   "lang": "ja",
+   "kind": "mid",
+   "tail": "まくいかなかった話も聞きたいと思っていて、実は—",
+   "head": "お客さんの発表会の最中にサービスが止まったことが",
+   "ref_head": "お",
+   "n": 4
+  },
+  {
+   "id": "ja-long-06",
+   "lang": "ja",
+   "kind": "mid",
+   "tail": "らいました。2日目の午前中は自由行動で、午後は。",
+   "head": "船で川の向こう側の古い町並みに行きます。全部で2",
+   "ref_head": "船",
+   "n": 4
+  },
+  {
+   "id": "zh-long-01",
+   "lang": "zh",
+   "kind": "mid",
+   "tail": "有评估工作量，我想等库存服务的改动上线以后再——",
+   "head": "统一安排，大家有意见的话可以直接在文档里留言。",
+   "ref_head": "统",
+   "n": 4
+  },
+  {
+   "id": "zh-long-02",
+   "lang": "zh",
+   "kind": "mid",
+   "tail": "险比支付服务大。我们打算先把读和写拆开，然后——",
+   "head": "再分两步签过去，第一步只签读的部分，放到Kube",
+   "ref_head": "再",
+   "n": 1
+  },
+  {
+   "id": "zh-long-02",
+   "lang": "zh",
+   "kind": "mid",
+   "tail": "险比支付服务大。我们打算先把读和写拆开，然后——",
+   "head": "再分两步签过去。第一步只签读的部分，放到库博内提",
+   "ref_head": "再",
+   "n": 1
+  },
+  {
+   "id": "zh-long-02",
+   "lang": "zh",
+   "kind": "mid",
+   "tail": "险比支付服务大。我们打算先把读和写拆开，然后——",
+   "head": "再分两步签过去，第一步只签读的部分，放到库博内提",
+   "ref_head": "再",
+   "n": 2
+  },
+  {
+   "id": "zh-long-03",
+   "lang": "zh",
+   "kind": "mid",
+   "tail": "没问题再全量发布。下次规划会定在12号，还是——",
+   "head": "老时间，小陈会发会议邀请。",
+   "ref_head": "老",
+   "n": 4
+  },
+  {
+   "id": "zh-long-04",
+   "lang": "zh",
+   "kind": "mid",
+   "tail": "发现天花板旁边的墙皮开始起泡，感觉问题越来越——",
+   "head": "严重了，请问这周能不能安排人来看一下？我周三和周",
+   "ref_head": "严",
+   "n": 3
+  },
+  {
+   "id": "zh-long-05",
+   "lang": "zh",
+   "kind": "mid",
+   "tail": "她们在一次客户发布会上就遇到过服务中断，而且——",
+   "head": "她答应在节目里讲讲这件事。第二个话题是价格，很多",
+   "ref_head": "她",
+   "n": 3
+  },
+  {
+   "id": "zh-long-05",
+   "lang": "zh",
+   "kind": "mid",
+   "tail": "她们在一次客户发布会上就遇到过服务中断，而且——",
+   "head": "她答应在节目里讲讲这件事。第二个话题是价格。很多",
+   "ref_head": "她",
+   "n": 1
+  },
+  {
+   "id": "zh-long-06",
+   "lang": "zh",
+   "kind": "mid",
+   "tail": "，也有素食的选择。第二天上午自由活动，下午我们。",
+   "head": "坐船去江对岸的老街，整个行程大概2个小时。最后有",
+   "ref_head": "坐",
+   "n": 4
+  }
+ ]
+}

@@ -215,7 +215,19 @@ class ComposeBand extends StatefulWidget {
     this.origin,
     this.leading = const <Widget>[],
     this.part = ComposeBandPart.stacked,
+    this.recordOnly = false,
   });
+
+  /// NR-225 — the destination is record-only (light record): there is no PC
+  /// focus, so the four remote keys are ABSENT, whatever the face. The face
+  /// alone cannot say it: offline, the composer's mapping answers `disabled`
+  /// before it ever reaches `noted` (`_pttVisualRouted`), and the key group
+  /// came back on the notes screen. Same MODE-level source as the tablet
+  /// column count (`_dockTwoColumnRouted`).
+  final bool recordOnly;
+
+  /// The key group is drawn (REQ-14-01 + NR-225).
+  bool get _pcKeys => !recordOnly && composePcKeysVisible(visual);
 
   /// The authoritative buffer text (ChatController.buffer).
   final String buffer;
@@ -330,7 +342,7 @@ class _ComposeBandState extends State<ComposeBand> {
           _bufferRow(),
           // REQ-14-01: light-record / noted has no PC focus — the key group
           // is absent, not dimmed. The gap only exists when the group does.
-          if (composePcKeysVisible(widget.visual)) ...<Widget>[
+          if (widget._pcKeys) ...<Widget>[
             const SizedBox(height: kDockRowGap),
             _pcKeyGroup(),
           ],
@@ -427,7 +439,7 @@ class _ComposeBandState extends State<ComposeBand> {
     // (width × mode) decision that already excludes record-only — the one
     // mode this check exists for — so a skeleton is only ever requested where
     // the idle dock would draw the column.)
-    if (!inertSkeleton && !composePcKeysVisible(widget.visual)) {
+    if (!inertSkeleton && !widget._pcKeys) {
       return const SizedBox(width: double.infinity, height: 0);
     }
     final bool noted = widget.visual == PttVisual.noted;

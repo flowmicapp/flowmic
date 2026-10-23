@@ -9,7 +9,7 @@
 // stubbed any one of the three would be measuring what this file believes the
 // other two do. So: the production `VadGate` class with its production defaults
 // (adaptive, -45 dBFS ceiling, 300 ms hangover), fed synthesized PCM in the production order
-// (`vad.process` BEFORE `pushChunk`, as `engine/stt-session.ts:592` does), wired
+// (`vad.process` BEFORE `pushChunk`, as `engine/stt-session.ts` `pushChunk` does), wired
 // exactly as `engine-factory.ts:507` wires it for a managed streaming leg
 // (`shouldFeedEngine: () => vad.admitChunk`, `idleHangupMs: DEFAULT_ENGINE_IDLE_HANGUP_MS`).
 //
@@ -193,7 +193,7 @@ async function record(
   const play = async (buf: Buffer): Promise<void> => {
     for (let o = 0; o < buf.length; o += CHUNK_BYTES) {
       const c = buf.subarray(o, o + CHUNK_BYTES);
-      vad.process(c);                                    // stt-session.ts:630 order
+      vad.process(c);                                    // stt-session.ts pushChunk order
       orch.pushChunk({ seq: seq++, ts_ms: clock.now, payload: c });
       await clock.advance(CHUNK_MS);
     }

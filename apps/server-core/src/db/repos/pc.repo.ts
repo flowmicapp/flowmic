@@ -185,6 +185,20 @@ export interface PcRepo {
    *  activity, not a state transition — setOnline would rewrite a flag this
    *  event knows nothing about. */
   touchLastSeen(id: string, when: string): void;
+  /**
+   * REPL-TIER 1a (docs/strategy/2026-10-11-replication-tiering-design.md §5) —
+   * apply a FORWARDED presence fact on the writer, only if it is not older than
+   * what the row already holds. One statement, so it needs no transaction.
+   *
+   * 🔴 THE GUARD IS WHAT MAKES THE LEDGER BYPASS SAFE. Presence no longer goes
+   * through the exactly-once ledger (`node/forward-receiver.ts`), so a retried
+   * or late record can arrive after a newer one. Without the guard, an
+   * (online, t1) re-delivered after (offline, t2) would put a gone PC back
+   * online. `when` and the stored value are both `toISOString()` spellings,
+   * so string order is time order (same spelling `setOnline` writes).
+   * An unknown id updates 0 rows, which is what the ledger path did too.
+   */
+  setPresenceIfNewer(id: string, online: boolean, when: string): void;
   setDeviceName(id: string, name: string): void;
   setShortCode(id: string, code: string): void;
   setToken(id: string, token: string): void;
@@ -349,6 +363,9 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
   const adoptInstanceStmt = db.prepare('UPDATE OR IGNORE pc_devices SET client_instance_id=? WHERE id=?');
   const setOnlineStmt = db.prepare('UPDATE pc_devices SET is_online=?, last_seen_at=? WHERE id=?');
   const touchSeenStmt = db.prepare('UPDATE pc_devices SET last_seen_at=? WHERE id=?');
+  const presenceIfNewerStmt = db.prepare(
+    'UPDATE pc_devices SET is_online=?, last_seen_at=? WHERE id=? AND (last_seen_at IS NULL OR last_seen_at <= ?)',
+  );
   const setNameStmt = db.prepare('UPDATE pc_devices SET device_name=? WHERE id=?');
   const setCodeStmt = db.prepare('UPDATE pc_devices SET short_code=? WHERE id=?');
   const setTokenStmt = db.prepare('UPDATE pc_devices SET device_token=? WHERE id=?');
@@ -468,6 +485,9 @@ export function makePcRepo(db: DatabaseSync): PcRepo {
     },
     touchLastSeen(id, when): void {
       touchSeenStmt.run(when, id);
+    },
+    setPresenceIfNewer(id, online, when): void {
+      presenceIfNewerStmt.run(online ? 1 : 0, when, id, when);
     },
     setDeviceName(id, name): void {
       setNameStmt.run(name, id);

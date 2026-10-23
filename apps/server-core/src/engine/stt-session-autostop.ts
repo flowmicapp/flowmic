@@ -9,7 +9,8 @@
 // already at 792 lines when this family was written. The code moved VERBATIM,
 // comments with it; read the seam as "this family happened to move as one
 // block", not as "auto-stop policy is now a layer". The one caller is
-// `stt-session.ts` `onAutoStopped`.
+// `stt-session-auto-stopped.ts` `onAutoStopped` (moved out of `stt-session.ts`
+// under the same cap, card INC-1f).
 
 import type { EventPayload } from '@flowmic/protocol';
 import type { HardLimitOrigin } from '../stt/audio/session';

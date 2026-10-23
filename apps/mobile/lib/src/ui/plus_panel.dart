@@ -41,6 +41,7 @@ import '../timeline/timeline_entry.dart';
 import 'confirm_dialog.dart';
 import 'plus_panel_notes_tab.dart';
 import 'plus_panel_selection.dart';
+import 'plus_panel_send_bar.dart';
 import 'plus_panel_with_times_chip.dart';
 import 'tokens.dart';
 
@@ -376,10 +377,11 @@ class _PlusPanelState extends State<PlusPanel> {
       withTimes: _withTimes && sel.hasTimedRecording,
     );
     final List<TimelineEntry> images = sel.images;
+    final List<TimelineEntry> sourceRows = sel.textSourceRows;
     // Read BEFORE the pop (the same rule `_ImageTile` states for its original-image (原图) tick):
     // after this widget is gone its State is disposed and the selection with it.
     Navigator.of(context).pop();
-    await send(text: text, images: images);
+    await send(text: text, images: images, sourceRows: sourceRows);
   }
 
   @override
@@ -499,66 +501,54 @@ class _PlusPanelState extends State<PlusPanel> {
     return Padding(
       key: const ValueKey<String>('plus.selection.bar'),
       padding: const EdgeInsets.only(top: 10),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  strings.selectionCount(sel.length),
-                  style: TextStyle(color: FlowMicColors.t2, fontSize: 12.5),
-                ),
-                if (withImages) ...<Widget>[
-                  const SizedBox(height: 2),
-                  Text(
-                    strings.plusSelectionImagesSeparate,
-                    key: const ValueKey<String>('plus.selection.imagesNote'),
-                    style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          // CR-12-F — beside the send button, and only while a recording is
-          // ticked: with none ticked it could change nothing (design §10.2).
-          if (sel.hasTimedRecording) ...<Widget>[
-            const SizedBox(width: 10),
-            SendWithTimesChip(
-              on: _withTimes,
-              label: strings.selectionSendWithTimes,
-              onTap: _toggleWithTimes,
-            ),
-            const SizedBox(width: 8),
-          ] else
-            const SizedBox(width: 10),
-          InkWell(
-            key: const ValueKey<String>('plus.selection.send'),
-            onTap: () => unawaited(_sendSelection()),
-            borderRadius: BorderRadius.circular(9),
-            child: Container(
-              height: 32,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: FlowMicColors.brandSoft,
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(
-                  color: FlowMicColors.brand.withValues(alpha: 0.4),
-                ),
+      // One row when it fits; wrapped rows when the text size or the
+      // language makes it too wide (plus_panel_send_bar.dart).
+      child: PlusSendBarLayout(
+        count: Text(
+          strings.selectionCount(sel.length),
+          style: TextStyle(color: FlowMicColors.t2, fontSize: 12.5),
+        ),
+        note: withImages
+            ? Text(
+                strings.plusSelectionImagesSeparate,
+                key: const ValueKey<String>('plus.selection.imagesNote'),
+                style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
+              )
+            : null,
+        // CR-12-F — beside the send button, and only while a recording is
+        // ticked: with none ticked it could change nothing (design §10.2).
+        chip: sel.hasTimedRecording
+            ? SendWithTimesChip(
+                on: _withTimes,
+                label: strings.selectionSendWithTimes,
+                onTap: _toggleWithTimes,
+              )
+            : null,
+        send: InkWell(
+          key: const ValueKey<String>('plus.selection.send'),
+          onTap: () => unawaited(_sendSelection()),
+          borderRadius: BorderRadius.circular(9),
+          child: Container(
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: FlowMicColors.brandSoft,
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(
+                color: FlowMicColors.brand.withValues(alpha: 0.4),
               ),
-              child: Text(
-                strings.plusSelectionSend,
-                style: TextStyle(
-                  color: FlowMicColors.brand,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
+            ),
+            child: Text(
+              strings.plusSelectionSend,
+              style: TextStyle(
+                color: FlowMicColors.brand,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }

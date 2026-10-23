@@ -51,8 +51,15 @@ part of 'manual_delivery.dart';
 /// the same scenario.)
 Future<ComposeSendFailure?> runReInject(
   ManualDelivery d,
-  TimelineEntry entry,
+  TimelineEntry snapshot,
 ) async {
+  // 🔴 POL-M1 / R12 (review P3) — EVERY field below is read off the row as it
+  // stands now, not off the caller's snapshot: a translate/organize product or
+  // a machine rewrite may have landed after the caller captured it, and the
+  // frame must carry what the row shows (text, `source_text`, mode, duration).
+  // A row deleted since falls back to the snapshot only so the guards below can
+  // refuse it exactly as before (the row-gone guard returns before any send).
+  final TimelineEntry entry = d._host.store.findById(snapshot.id) ?? snapshot;
   // Red line: a cloud-instance record (origin:'cloud') never injects and never
   // joins room sync — there is no PC focus target. The context menu still
   // offers backfill delivery for uniformity, but it is structurally inert for cloud.
@@ -107,11 +114,17 @@ Future<ComposeSendFailure?> runReInject(
   // `text:''`, the PC answered ok:true, and the row settled ✓ injected with
   // nothing typed anywhere. A fabricated success (red line F2) must not be one
   // future refactor away.
+  //
+  // 🔴 POL-M1 / R12 — [entry] is the LIVE row (see the top of this function),
+  // so a rewrite that landed after the caller captured its snapshot is what
+  // goes out (POL design §12.3 R2). Frozen below in the same breath.
   final String text = entry.displayText;
   if (text.trim().isEmpty) {
     diag('reinject.empty_text', <String, Object?>{'entry_id': entry.id});
     return null;
   }
+  // POL-M1 / R12 — frozen before the first `await` (the enqueue below).
+  d._host.store.markHandedOff(<String>[entry.id]);
   // Back to ⏳ while the PC's verdict is outstanding; delivery stays immutable.
   d._host.store.markReinjecting(entry.id);
   // ── RV-72/RV-29 prerequisite: backfill delivery now mints its OWN `request_id` ──────────────────

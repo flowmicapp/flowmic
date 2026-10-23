@@ -81,6 +81,30 @@ export function makeForwardReceiver(deps: ForwardReceiverDeps) {
         deps.onRejected?.(id, err instanceof Error ? err.message : String(err), fromNode);
         continue;
       }
+      // REPL-TIER 1a (docs/strategy/2026-10-11-replication-tiering-design.md
+      // §5) — presence does NOT enter the exactly-once ledger. It was 97% of the
+      // ledger's rows (one per PC every 5 s), and every one of them crossed the
+      // ocean in each 30 s snapshot. Presence is a last-writer-wins fact, not a
+      // charge, so idempotence comes from the target instead: `setPresence` is
+      // monotonic (pc.repo.ts `setPresenceIfNewer`), so a retry or a late
+      // record cannot move the row backwards.
+      //
+      // 🔴 THE TEST IS THE PARSED BODY KIND, NEVER THE ENVELOPE `rec.kind`. The
+      // envelope is unvalidated sender metadata; branching on it would let a
+      // `usage.stt` body labelled 'presence' skip the ledger and bill twice.
+      // ⚠️ What is given up: presence has no `duplicate` outcome any more, so
+      // its retry rate is no longer visible. The four other kinds keep it.
+      // No `pinClock`: presence is not metered.
+      if (write.kind === 'pc.presence') {
+        try {
+          applyForwardedWrite(write, deps.targets);
+          outcomes[id] = 'accepted';
+        } catch (err) {
+          // Same contract as below: left out of `outcomes` so the replica retries.
+          deps.onFailed?.(id, err instanceof Error ? err.message : String(err), fromNode);
+        }
+        continue;
+      }
       try {
         outcomes[id] = deps.ledger.once(
           {

@@ -209,6 +209,7 @@ class OutboxItem {
     this.attempts = 0,
     this.lastAttemptAt,
     this.lastRefusalNote,
+    this.deferPromisedAt,
   });
 
   /// 🔴 Gate 1 — MINTED AT ENQUEUE, PERSISTED, AND NEVER RE-MINTED.
@@ -362,6 +363,31 @@ class OutboxItem {
   /// the queue") — it never becomes a status.
   final String? lastRefusalNote;
 
+  /// 🔴 NR-279 — WHEN this item first received a verdict in
+  /// `kDeferPromiseCodes` (outbox_inject_origin.dart), i.e. the moment its row
+  /// started telling the user 「the computer will not type it in on its own」.
+  ///
+  /// WRITE-ONCE, NEVER CLEARED: [copyWith] keeps an existing value over a new
+  /// one, and nothing passes null to erase it. A promise made to the user does
+  /// not expire because a later attempt went out — that later attempt is exactly
+  /// what it governs (`outboxInjectOrigin` ⇒ `deferred`).
+  ///
+  /// A separate field and not [lastRefusalNote]: that one is overwritten by
+  /// every attempt (`clearRefusalNote`) and by the 45 s watchdog
+  /// (`INJECT_NO_RESULT`), so it cannot remember anything.
+  ///
+  /// Null on every row written before 0.3.116 (no column) ⇒ old behaviour.
+  ///
+  /// ⚠️ CORRECTION IN PLACE (NR-279 review S4b, 2026-10-19) — 「NEVER CLEARED」
+  /// above is too wide, kept verbatim. The fact now means exactly 「this row
+  /// currently promises no auto-typing」, and a user's own Resend / ➤ takes the
+  /// promise off the row (it goes back to waiting). So the ONE clearer is the
+  /// user-requested attempt in `_attempt` (delivery_outbox_attempt.dart,
+  /// `clearDeferPromise: userRequested`); a repeat of the verdict stamps it again
+  /// through `outboxSettle`. Contract: doc 15-INJECTION-PERMISSION §2.5e-3, the
+  /// S4 append. Pinned by test/outbox_defer_promise_test.dart (S4b cases).
+  final DateTime? deferPromisedAt;
+
   bool get isTerminal =>
       state == OutboxDeliveryState.delivered ||
       state == OutboxDeliveryState.refused;
@@ -404,6 +430,9 @@ class OutboxItem {
     // passes is a capability the next reader will assume is live.
     bool clearRefusedCode = false,
     bool clearRefusalNote = false,
+    DateTime? deferPromisedAt,
+    // NR-279 S4b — only the user's own live attempt passes this (see the field).
+    bool clearDeferPromise = false,
   }) {
     final OutboxItem next = OutboxItem(
       requestId: requestId,
@@ -432,6 +461,11 @@ class OutboxItem {
       lastAttemptAt: lastAttemptAt ?? this.lastAttemptAt,
       lastRefusalNote:
           clearRefusalNote ? null : (lastRefusalNote ?? this.lastRefusalNote),
+      // Write-once: the existing value wins (see the field's doc) — unless the
+      // user's own live attempt clears it (S4b).
+      deferPromisedAt: clearDeferPromise
+          ? null
+          : (this.deferPromisedAt ?? deferPromisedAt),
     );
     next._assertRefusalInvariant();
     return next;
@@ -476,6 +510,7 @@ class OutboxItem {
     'attempts': attempts,
     'last_attempt_at': lastAttemptAt?.toUtc().millisecondsSinceEpoch,
     'last_refusal_note': lastRefusalNote,
+    'defer_promised_at': deferPromisedAt?.toUtc().millisecondsSinceEpoch,
   };
 
   /// Decode one row. Returns null for a row that will not parse — the caller
@@ -534,6 +569,13 @@ class OutboxItem {
             )
           : null,
       lastRefusalNote: _str(j['last_refusal_note']),
+      // NR-279 — a row from before the column existed reads null: old behaviour.
+      deferPromisedAt: j['defer_promised_at'] is int
+          ? DateTime.fromMillisecondsSinceEpoch(
+              j['defer_promised_at']! as int,
+              isUtc: true,
+            )
+          : null,
     );
   }
 

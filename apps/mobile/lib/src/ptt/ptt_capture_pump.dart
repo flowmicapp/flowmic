@@ -42,6 +42,10 @@ extension PttSessionCapturePump on PttSession {
   /// neither existed.
   Future<void> pauseCapture({String reason = 'background'}) async {
     if (audio.currentState == RecorderState.recording) {
+      if (continuous.isActive) {
+        articles.livePaused(); // D6-CATCHUP-DUP
+        continuous.away.left(); // NR-213
+      }
       await audio.pause(reason: reason);
       _stopHeartbeat();
     }
@@ -53,8 +57,13 @@ extension PttSessionCapturePump on PttSession {
   /// a pause the PC acted on must always get its matching resume, including when
   /// there was never a capture to restore.
   Future<void> resumeCapture() async {
+    // NR-213 — FIRST, and whatever the recorder is doing: the ceiling may have
+    // ended the recording while the user was away, and this return is the
+    // first moment they can be told (continuous_away.dart).
+    continuous.away.returned();
     final bool hadPausedCapture = audio.currentState == RecorderState.paused;
     if (hadPausedCapture) await audio.resume();
+    if (hadPausedCapture) articles.liveResumed(); // D6-CATCHUP-DUP
     _safeEmit(FlowMicEvents.audioResume, const <String, Object?>{});
     if (hadPausedCapture) _startHeartbeat();
   }
@@ -232,13 +241,13 @@ extension PttSessionCapturePump on PttSession {
   /// reports the relay's wall time for the whole segment (server-core
   /// `orchestrator-rollover.ts` `boundaryMs = host.now()`), outage included,
   /// which is why that method trims it (`ArticleScribe.liveRowSpan`).
-  void _accountOutageForArticle({bool recordingEnding = false}) {
+  void _accountOutageForArticle({bool recordingEnding = false, bool sessionLost = false}) {
     final String? id = articles.articleId;
     final RetainedAudioSpill? spill = audio.retainedAudio;
     if (id == null || spill == null) return;
     if (spill.sessionKey != id) return;
     if (recordingEnding) {
-      _accountOwedTail(id, spill);
+      _accountOwedTail(id, spill, sessionLost: sessionLost);
       return;
     }
     final int bytes = spill.sessionRetainedBytes;
@@ -252,13 +261,25 @@ extension PttSessionCapturePump on PttSession {
   }
 
   /// Card RC-3 — see [_accountOutageForArticle]'s `recordingEnding` half.
-  void _accountOwedTail(String id, RetainedAudioSpill spill) {
+  void _accountOwedTail(String id, RetainedAudioSpill spill, {bool sessionLost = false}) {
     if (!continuous.isActive || !spill.retainFromFirstFrame) return;
     final bool linkDown = !spill.uplinkUp;
     final bool engineDown = engineReconnect.engineDown;
-    if (!linkDown && !engineDown) return;
-    final int? prefixMs = articles.accountedMs;
-    if (prefixMs == null) return;
+    // NR-174-D6 — [sessionLost]: the link is back but the relay no longer holds
+    // this recording (its grace expired while the app was away), so nothing on
+    // the wire will answer the audio after the last answered position either.
+    if (!linkDown && !engineDown && !sessionLost) return;
+    // D6-CATCHUP-DUP - ONCE PER RECORDING. The no-relay stop measures here and
+    // then runs `endContinuous()`, which measures again (ptt_continuous.dart);
+    // by then `stopForLinkLoss` has marked the uplink down, so the second pass
+    // got past the gate above and wrote the tail a second time: `oweTail` laid
+    // its pieces around the first write, found none, and replaced the pieces
+    // `settleTailPieces` concludes with an empty list (diag
+    // `owed_tail_accounted` twice, `link_down=false` then `link_down=true`).
+    if (articles.owedTailPendingFor(id)) return;
+    final int? clockMs = articles.accountedMs;
+    if (clockMs == null) return;
+    int prefixMs = _settledPrefixMs(id, clockMs);
     // 🔴 CARD RC-P — FROM WHERE THE RELAY ANSWERED, NOT FROM THE LAST ROW.
     // ⚠️ 更正（RC-P，2026-09-24）：原为 the owed tail starting at the settled
     // prefix and the clock pushed to the recording's end right here. S6
@@ -273,19 +294,62 @@ extension PttSessionCapturePump on PttSession {
     // prefix and the recovered tail right after it.
     final int? answered = engineOutage.answeredBytes(id);
     final int answeredMs = answered == null ? prefixMs : pcmBytesToMs(answered);
-    final int startMs = answeredMs > prefixMs ? answeredMs : prefixMs;
-    final int owedMs = pcmBytesToMs(spill.recordingCapturedBytes) - startMs;
-    // Nothing past the last live row (or the rows' reported lengths ran past
-    // the bytes): there is no tail, and a prefix at or beyond the end would
-    // leave the recording with an empty range that nothing ever settles.
-    if (owedMs <= 0) return;
-    articles.holdOwedTail(
-      id,
-      pcmMsToBytes(owedMs),
-      recordingId: spill.liveAttempt?.recordingId,
-      prefixBytes: pcmMsToBytes(prefixMs),
-      startBytes: pcmMsToBytes(startMs),
-    );
+    int startMs = answeredMs > prefixMs ? answeredMs : prefixMs;
+    final int capturedMs = pcmBytesToMs(spill.recordingCapturedBytes);
+    int owedMs = capturedMs - startMs;
+    // Nothing past the last live row: there is no tail, and a prefix at or
+    // beyond the end would leave the recording with an empty range that
+    // nothing ever settles.
+    // ⚠️ Correction (D6-CATCHUP-DUP, 2026-10-10): was `if (owedMs <= 0) return;`,
+    // measured from the ANSWERED position. Answered is not settled: when the
+    // relay had answered everything and its session then died, the words from
+    // the prefix on were a draft no final will ever carry, and that return
+    // left the manifest with no owed range - which the recovery reads as
+    // "the whole recording" (retained_audio_journal_scan.dart `_Owed.of`,
+    // "Nothing was ever recorded as owed"). Only a prefix at the end means no
+    // tail.
+    // NR-224 (c): ... and say so on the manifest. Returning without a word
+    // left it with no owed range, which the recovery reads as the whole
+    // recording (`RetainedAudioOwedAfterStop.noTailOwed` says why).
+    // NR-214 review F1: the clock may be trusted up to [kMinOwedHoleMs] past
+    // what was SENT at the last final, so a prefix at the end is not proof
+    // that every captured byte is on a row. Only when nothing was captured
+    // past where that final can be shown to end (its answered position, else
+    // its sent position) is there no tail; otherwise the tail is owed from
+    // there (a few words may come back twice, none are written off).
+    final ({int sentBytes, int? answeredBytes})? lastFinal =
+        engineOutage.lastFinalOf(id);
+    final int? shownBytes =
+        lastFinal == null ? null : lastFinal.answeredBytes ?? lastFinal.sentBytes;
+    if (capturedMs - prefixMs <= 0 &&
+        shownBytes != null &&
+        spill.recordingCapturedBytes > shownBytes) {
+      prefixMs = pcmBytesToMs(shownBytes);
+      startMs = answeredMs > prefixMs && answeredMs < capturedMs
+          ? answeredMs
+          : prefixMs;
+      owedMs = capturedMs - startMs;
+    }
+    if (capturedMs - prefixMs <= 0) {
+      final String? recording = spill.liveAttempt?.recordingId;
+      if (recording != null) unawaited(spill.noTailOwed(recording));
+      diag('audio.continuous.no_tail_owed', <String, Object?>{
+        'article': id,
+        'prefix_ms': prefixMs,
+        'captured_ms': capturedMs,
+        'session_lost': sessionLost,
+      });
+      return;
+    }
+    if (owedMs > 0) {
+      articles.holdOwedTail(
+        id,
+        pcmMsToBytes(owedMs),
+        recordingId: spill.liveAttempt?.recordingId,
+        prefixBytes: pcmMsToBytes(prefixMs),
+        startBytes: pcmMsToBytes(startMs),
+      );
+    }
     // RC-K — no placement on the manifest: it is known only once the draft row
     // is placed. Until then the recovery falls back to the range's own start
     // (`_attempt`'s `persistedStartMs`), and after a relaunch it stays there.
@@ -305,7 +369,49 @@ extension PttSessionCapturePump on PttSession {
       'owed_ms': owedMs,
       'link_down': linkDown,
       'engine_down': engineDown,
+      'session_lost': sessionLost,
     });
+  }
+
+  /// D6-CATCHUP-DUP - the settled prefix as a CAPTURE position, in ms.
+  ///
+  /// [clockMs] is the article clock: the sum of the live rows' `duration_ms`.
+  /// That is the relay's WALL time per row (server-core
+  /// `orchestrator-rollover.ts`: `duration_ms: boundaryMs - host.segmentStartMs`
+  /// with `boundaryMs = host.now()`), and the relay keeps that clock running
+  /// while the phone is paused and sends nothing (`audio.handler.ts`: a paused
+  /// session drops chunks, its orchestrator stays open). So the clock can run
+  /// ahead of the PCM, and the owed range is cut on the PCM.
+  /// 【measured 2026-10-10, HUAWEI / Android 10】 a long recording with Home and
+  /// Recents trips: the first row read 1:10 for 4 words and the live rows ran
+  /// to 11:07 of an 8-minute recording, so the clock was past every captured
+  /// byte, no owed range was written, and the catch-up fed the whole recording
+  /// again and appended it after the live rows.
+  ///
+  /// When the clock claims more than had been SENT when the last live final
+  /// landed (beyond [kMinOwedHoleMs]), it is provably ahead; the prefix is then where that final can be
+  /// shown to end ([EngineOutageStretch.lastFinalOf]): the answered position
+  /// at that moment (a lower bound - a few words may come back twice, none are
+  /// lost), or the sent position when the relay never reported one.
+  int _settledPrefixMs(String id, int clockMs) {
+    final ({int sentBytes, int? answeredBytes})? last =
+        engineOutage.lastFinalOf(id);
+    // Within the two-clock tolerance (the frame still in the capturer, the
+    // relay's boundary read on its own clock) the clock is trusted as before.
+    if (last == null ||
+        pcmMsToBytes(clockMs) <= last.sentBytes + pcmMsToBytes(kMinOwedHoleMs)) {
+      return clockMs;
+    }
+    final int bytes = last.answeredBytes ?? last.sentBytes;
+    diag('audio.continuous.prefix_clock_ahead', <String, Object?>{
+      'article': id,
+      'clock_ms': clockMs,
+      'final_sent_ms': pcmBytesToMs(last.sentBytes),
+      'final_answered_ms': last.answeredBytes == null
+          ? null
+          : pcmBytesToMs(last.answeredBytes!),
+    });
+    return pcmBytesToMs(bytes);
   }
 
   /// Card RC-3b — THE ENGINE CAME BACK MID-RECORDING: HOW MUCH DID NOBODY HEAR?

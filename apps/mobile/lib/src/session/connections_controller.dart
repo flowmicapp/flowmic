@@ -597,11 +597,11 @@ class ConnectionsController extends ChangeNotifier
       // (`encodeHoldOut`). Read here, synchronously after the awaited call, which
       // is the only moment it is about THIS attempt.
       //
-      // Null when we never got an ack (timeout / dead endpoint / empty token):
-      // `pairError(null)` gives a generic, honest "failed — try again" sentence
-      // (no fabricated cause, see its default arm) and that IS the honest answer
-      // — 「我们没问到」("we didn't get an answer") must not borrow a sentence from
-      // 「服务器说了 X」("the server said X").
+      // NR-279: a dead endpoint now carries what the dial measured (ptt_resume
+      // `unreachedDialCode` ⇒ 「could not reach」), never a server code. Null
+      // only when that is unknown or the cloud row: `pairError(null)` stays the
+      // generic sentence — 「我们没问到」("we didn't get an answer") must not
+      // borrow a sentence from 「服务器说了 X」("the server said X").
       final ReconnectRefusal? refusal = session.lastReconnectRefusal;
       final String? code = refusal == null
           ? null
@@ -676,7 +676,9 @@ class ConnectionsController extends ChangeNotifier
       // A stale/expired bearer: clear it and drive back to login (fail-loud).
       if (err == LoginErrorCodes.tokenExpired ||
           err == LoginErrorCodes.tokenInvalid) {
-        login.handleAuthExpired(code: err!);
+        // Card E-M — the refused bearer is the one this attempt presented; a
+        // sign-in that replaced it meanwhile is not signed out by it.
+        login.handleAuthExpired(code: err!, refusedJwt: jwt);
       }
       _lastError = err;
       notifyListeners();

@@ -541,12 +541,22 @@ class _Owed {
   static _Owed of(RecordingManifest m, int end) {
     final List<OwedRange> owed =
         m.owedRanges.where((OwedRange r) => r.isOwed).toList();
+    final int frame = m.format.bytesPerFrame;
     if (m.owedRanges.isEmpty) {
+      // NR-214 — no stop measured a tail (the app was killed mid-recording):
+      // owe from where the live rows reach, never the rows again. Shaped like
+      // the whole-recording answer below (no stretch, so no placement: the
+      // rows go after the live ones), only starting later.
+      final int? covered = m.liveCoveredBytes;
+      if (covered != null && covered > 0) {
+        final JournalByteRange r = RetainedAudioJournalScan._afterPrefix(
+            OwedRange(start: covered), end, frame);
+        return _Owed(r, null, 0, r.length);
+      }
       // Nothing was ever recorded as owed: the whole recording, as before RC-3.
       final JournalByteRange all = JournalByteRange(0, end);
       return _Owed(all, null, 0, all.length);
     }
-    final int frame = m.format.bytesPerFrame;
     int bytes = 0;
     for (final OwedRange r in owed) {
       bytes += RetainedAudioJournalScan._afterPrefix(r, end, frame).length;

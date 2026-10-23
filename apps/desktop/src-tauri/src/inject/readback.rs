@@ -40,6 +40,13 @@
 // the value is read ONCE BEFORE the keystroke and the verdict requires the value
 // to have CHANGED as well. A probe that can confirm without anything happening is
 // the render receipt all over again, one layer up.
+//
+// NR-254 (2026-10-14) found that rule had three gaps, each a way to say yes with
+// nothing new in the box: the baseline was read on a thread that raced Ctrl+V; a
+// missing baseline counted as 「changed」; and two polls could read two different
+// focused elements. Now: `watch` waits for its baseline, no baseline never
+// confirms, the same UIA element must answer both reads, and the change must add
+// a copy of the text (`evaluate`, `evaluate_readings`, tests `nr254_*`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -133,14 +140,23 @@ pub fn evaluate(baseline: Option<&str>, current: Option<&str>, expected: &str) -
     if expected.trim().is_empty() {
         return LandingEvidence::NotObserved;
     }
+    // NR-254: no baseline, no confirmation. 「Changed」 is unprovable without one,
+    // and the box may well have ended with this text before the keystroke.
+    let Some(baseline) = baseline else {
+        return LandingEvidence::NotObserved;
+    };
     let now = normalise(current);
-    let was = baseline.map(normalise);
+    let was = normalise(baseline);
     // The value must have CHANGED. See the header: without this, a box that
     // already contained the text confirms a paste that never happened.
-    if was.as_deref() == Some(now.as_str()) {
+    if was == now {
         return LandingEvidence::NotObserved;
     }
-    if now.ends_with(&normalise(expected)) {
+    let expected = normalise(expected);
+    // NR-254: and the change must have ADDED a copy of the text. 「Changed and ends
+    // with it」 is also true of a box that already ended with it (an earlier
+    // identical paste) and changed somewhere else.
+    if now.ends_with(&expected) && now.matches(&expected).count() > was.matches(&expected).count() {
         LandingEvidence::Confirmed
     } else {
         LandingEvidence::NotObserved
@@ -155,6 +171,43 @@ pub fn evaluate(baseline: Option<&str>, current: Option<&str>, expected: &str) -
 fn normalise(s: &str) -> String {
     s.replace("\r\n", "\n").trim_end().to_string()
 }
+
+/// One reading of the focused element: WHICH element it was (its UIA runtime id)
+/// and the value it held.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FocusReading {
+    pub element: Vec<i32>,
+    pub value: String,
+}
+
+/// [`evaluate`] over two whole readings, plus the one question `evaluate` cannot
+/// ask: were they readings of the SAME element?
+///
+/// NR-254: every poll asks UIA for whatever is focused NOW. A baseline taken from
+/// one element (Notepad's AI prompt box, a tab strip mid-switch) and a poll that
+/// lands on another (an editor that already ends with the text) look like 「the
+/// value changed and ends with it」 without anything having been pasted. An
+/// element whose runtime id could not be read cannot vouch for itself.
+pub fn evaluate_readings(
+    baseline: Option<&FocusReading>,
+    current: Option<&FocusReading>,
+    expected: &str,
+) -> LandingEvidence {
+    let Some(current) = current else {
+        return LandingEvidence::Unavailable;
+    };
+    match baseline {
+        Some(b) if !b.element.is_empty() && b.element == current.element => {
+            evaluate(Some(&b.value), Some(&current.value), expected)
+        }
+        _ => LandingEvidence::NotObserved,
+    }
+}
+
+/// How long `watch` waits for the baseline before letting the keystroke go: one
+/// bounded read plus thread start-up. Overlaps `CLIPBOARD_SETTLE`, which the
+/// paste spends asleep before Ctrl+V anyway (`clipboard_confirm.rs`).
+pub const BASELINE_WAIT_MS: u64 = READBACK_BUDGET_MS + 50;
 
 /// A running read-back watch. Created BEFORE the keystroke (so it can take its
 /// baseline), polled by the paste's hold loop, and dropped when the paste ends.
@@ -269,19 +322,35 @@ impl<T: Send + 'static> BoundedReuseWorker<T> {
 /// user's clipboard while it waits.
 #[cfg(target_os = "windows")]
 pub fn watch(expected: &str) -> LandingWatch {
+    let mut reader = uia_reader::spawn_uia_reader();
+    watch_with(
+        expected,
+        POLL_INTERVAL,
+        std::time::Duration::from_millis(BASELINE_WAIT_MS),
+        move || uia_reader::read_bounded(&mut reader),
+    )
+}
+
+/// The watch itself, over any reader — `watch` hands it the UIA one; the tests
+/// hand it scripted reading sequences.
+pub fn watch_with(
+    expected: &str,
+    poll: std::time::Duration,
+    baseline_wait: std::time::Duration,
+    mut read: impl FnMut() -> Option<FocusReading> + Send + 'static,
+) -> LandingWatch {
     let confirmed = Arc::new(AtomicBool::new(false));
     let stop = Arc::new(AtomicBool::new(false));
     let last = Arc::new(Mutex::new(LandingEvidence::Unavailable));
     let (c, s, l) = (confirmed.clone(), stop.clone(), last.clone());
     let expected = expected.to_string();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
-        let mut reader = uia_reader::spawn_uia_reader();
-        // The baseline MUST be taken before the keystroke lands; `watch` is
-        // called before `send_ctrl_v` for exactly that reason.
-        let baseline = uia_reader::read_bounded(&mut reader);
+        let baseline = read();
+        let _ = ready_tx.send(());
         while !s.load(Ordering::Relaxed) {
-            let current = uia_reader::read_bounded(&mut reader);
-            let verdict = evaluate(baseline.as_deref(), current.as_deref(), &expected);
+            let current = read();
+            let verdict = evaluate_readings(baseline.as_ref(), current.as_ref(), &expected);
             if let Ok(mut g) = l.lock() {
                 *g = verdict;
             }
@@ -289,9 +358,14 @@ pub fn watch(expected: &str) -> LandingWatch {
                 c.store(true, Ordering::Relaxed);
                 return;
             }
-            std::thread::sleep(POLL_INTERVAL);
+            std::thread::sleep(poll);
         }
     });
+    // NR-254: the baseline must PREDATE the keystroke. This used to return at
+    // once and the caller sent Ctrl+V straight away, so the first read raced the
+    // paste. A baseline that misses this wait arrives late and real; a late one
+    // can only make the verdict stricter (it may already contain the paste).
+    let _ = ready_rx.recv_timeout(baseline_wait);
     LandingWatch { confirmed, stop, last }
 }
 
@@ -311,14 +385,16 @@ pub fn watch(_expected: &str) -> LandingWatch {
 mod uia_reader {
     use super::*;
 
-    pub(super) fn spawn_uia_reader() -> BoundedReuseWorker<Option<String>> {
+    pub(super) fn spawn_uia_reader() -> BoundedReuseWorker<Option<FocusReading>> {
         BoundedReuseWorker::spawn(ensure_com_initialized, read_focus_value)
     }
 
     /// One bounded read, replacing `reader` (abandoning whatever it may still
     /// be blocked on) the moment a call times out — see
     /// `BoundedReuseWorker::call_bounded`.
-    pub(super) fn read_bounded(reader: &mut BoundedReuseWorker<Option<String>>) -> Option<String> {
+    pub(super) fn read_bounded(
+        reader: &mut BoundedReuseWorker<Option<FocusReading>>,
+    ) -> Option<FocusReading> {
         match reader.call_bounded(Duration::from_millis(READBACK_BUDGET_MS)) {
             Ok(v) => v,
             Err(()) => {
@@ -350,8 +426,11 @@ fn ensure_com_initialized() {
 /// (`resp_rx` disconnects), which already triggers a fresh worker — the same
 /// externally-visible behaviour the old per-read `catch_unwind` produced.
 #[cfg(target_os = "windows")]
-fn read_focus_value() -> Option<String> {
+fn read_focus_value() -> Option<FocusReading> {
     use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+    use windows::Win32::System::Ole::{
+        SafeArrayDestroy, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound,
+    };
     use windows::Win32::UI::Accessibility::{
         CUIAutomation, IUIAutomation, IUIAutomationValuePattern, UIA_ValuePatternId,
     };
@@ -368,240 +447,32 @@ fn read_focus_value() -> Option<String> {
         let pattern: IUIAutomationValuePattern =
             focused.GetCurrentPatternAs(UIA_ValuePatternId).ok()?;
         let value = pattern.CurrentValue().ok()?;
-        Some(value.to_string())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ── P2 (2026-09-02): the reuse worker must reuse on success, replace on
-    //    timeout, and never hand a caller a stale answer from an abandoned
-    //    call — tested with a fake `work()`, no Win32/UIA involved. ─────────
-
-    #[test]
-    fn consecutive_fast_calls_reuse_the_same_worker_thread() {
-        use std::sync::atomic::AtomicU32;
-        static STARTS: AtomicU32 = AtomicU32::new(0);
-        STARTS.store(0, Ordering::SeqCst);
-        let worker = BoundedReuseWorker::spawn(
-            || {
-                STARTS.fetch_add(1, Ordering::SeqCst);
-            },
-            || 7u32,
-        );
-        for _ in 0..5 {
-            assert_eq!(worker.call_bounded(Duration::from_millis(200)), Ok(7));
-        }
-        assert_eq!(
-            STARTS.load(Ordering::SeqCst),
-            1,
-            "on_start (the CoInitializeEx stand-in) must run ONCE per worker thread, not once per call"
-        );
-    }
-
-    #[test]
-    fn a_call_that_never_returns_times_out_instead_of_blocking_forever() {
-        let (gate_tx, gate_rx) = std::sync::mpsc::channel::<()>();
-        // `work` blocks forever on a channel nobody ever sends to — exactly
-        // the shape of a UIA call into a target that never replies.
-        let worker = BoundedReuseWorker::spawn(
-            || {},
-            move || {
-                let _: Result<(), _> = gate_rx.recv();
-                0u32
-            },
-        );
-        let result = worker.call_bounded(Duration::from_millis(50));
-        assert_eq!(result, Err(()), "a stuck work() must time out, not hang the caller");
-        drop(gate_tx); // let the abandoned thread unblock and exit cleanly
-    }
-
-    #[test]
-    fn reverse_control_a_slow_but_within_budget_call_still_succeeds() {
-        // NEGATIVE CONTROL for the timeout test: a call that is slow but
-        // finishes inside the budget must still answer `Ok`. Without this, a
-        // version of `call_bounded` that always returned `Err` would still
-        // pass the test above.
-        let worker = BoundedReuseWorker::spawn(
-            || {},
-            || {
-                std::thread::sleep(Duration::from_millis(5));
-                42u32
-            },
-        );
-        assert_eq!(worker.call_bounded(Duration::from_millis(500)), Ok(42));
-    }
-
-    #[test]
-    fn read_bounded_falls_back_to_none_and_keeps_working_after_a_timeout() {
-        // Exercises the actual call-site policy (`read_bounded`'s `Err` arm):
-        // a timed-out reader is replaced, and the NEXT read still gets an
-        // honest answer rather than repeating the stale timeout forever.
-        let attempt = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let a = attempt.clone();
-        // First call hangs (simulating one stuck target read); second+ calls
-        // answer immediately. Modelled as a worker-generation counter since
-        // `BoundedReuseWorker` is generic over `work`, not swappable in place —
-        // `read_bounded`'s OWN replacement-on-timeout is what is under test,
-        // via a small helper mirroring its exact policy.
-        fn read_bounded_generic<T: Send + 'static + PartialEq>(
-            reader: &mut BoundedReuseWorker<T>,
-            budget: Duration,
-            respawn: impl FnOnce() -> BoundedReuseWorker<T>,
-        ) -> Option<T> {
-            match reader.call_bounded(budget) {
-                Ok(v) => Some(v),
-                Err(()) => {
-                    *reader = respawn();
-                    None
+        // WHICH element answered. An element whose id cannot be read gets an
+        // empty one, and `evaluate_readings` never confirms against an empty id.
+        let mut element = Vec::new();
+        if let Ok(ids) = focused.GetRuntimeId() {
+            if !ids.is_null() {
+                if let (Ok(lo), Ok(hi)) = (SafeArrayGetLBound(ids, 1), SafeArrayGetUBound(ids, 1)) {
+                    for i in lo..=hi {
+                        let mut v = 0i32;
+                        if SafeArrayGetElement(ids, &i, &mut v as *mut i32 as *mut _).is_err() {
+                            element.clear();
+                            break;
+                        }
+                        element.push(v);
+                    }
                 }
+                let _ = SafeArrayDestroy(ids);
             }
         }
-        let (gate_tx, gate_rx) = std::sync::mpsc::channel::<()>();
-        let mut reader = BoundedReuseWorker::spawn(
-            || {},
-            move || {
-                a.fetch_add(1, Ordering::SeqCst);
-                let _: Result<(), _> = gate_rx.recv(); // hangs forever
-                0u32
-            },
-        );
-        let first = read_bounded_generic(&mut reader, Duration::from_millis(30), || {
-            BoundedReuseWorker::spawn(|| {}, || 99u32)
-        });
-        assert_eq!(first, None, "a timed-out first read must fall back to None");
-        let second = read_bounded_generic(&mut reader, Duration::from_millis(200), || {
-            BoundedReuseWorker::spawn(|| {}, || 99u32)
-        });
-        assert_eq!(second, Some(99), "the replacement worker must answer normally");
-        drop(gate_tx);
+        Some(FocusReading {
+            element,
+            value: value.to_string(),
+        })
     }
-
-    #[test]
-    fn a_changed_value_ending_with_the_text_confirms() {
-        assert_eq!(
-            evaluate(Some("hello "), Some("hello 你好世界"), "你好世界"),
-            LandingEvidence::Confirmed
-        );
-    }
-
-    #[test]
-    fn an_unchanged_value_never_confirms_even_when_it_matches() {
-        // The defect this guard exists for: the box ALREADY ended with our text,
-        // so "ends with" is satisfied by a paste that never happened.
-        assert_eq!(
-            evaluate(Some("你好世界"), Some("你好世界"), "你好世界"),
-            LandingEvidence::NotObserved
-        );
-    }
-
-    #[test]
-    fn a_changed_value_that_does_not_match_is_not_observed_not_failed() {
-        // Devin's contenteditable answers with a one-space placeholder. That must
-        // read as "this instrument is blind here", never as "the paste failed".
-        assert_eq!(
-            evaluate(Some(" "), Some("  "), "你好世界"),
-            LandingEvidence::NotObserved
-        );
-    }
-
-    #[test]
-    fn no_readable_value_is_unavailable() {
-        assert_eq!(
-            evaluate(Some("x"), None, "你好世界"),
-            LandingEvidence::Unavailable
-        );
-        assert_eq!(evaluate(None, None, "你好世界"), LandingEvidence::Unavailable);
-    }
-
-    #[test]
-    fn an_unreadable_baseline_does_not_block_a_later_confirmation() {
-        // The target became readable only after it took focus properly. The value
-        // still changed (None → Some) and still ends with our text.
-        assert_eq!(
-            evaluate(None, Some("prefix 你好世界"), "你好世界"),
-            LandingEvidence::Confirmed
-        );
-    }
-
-    #[test]
-    fn empty_deliveries_cannot_confirm_anything() {
-        // "ends_with(\"\")" is true for every string on earth.
-        assert_eq!(evaluate(Some("a"), Some("b"), ""), LandingEvidence::NotObserved);
-        assert_eq!(
-            evaluate(Some("a"), Some("b"), "   \n "),
-            LandingEvidence::NotObserved
-        );
-    }
-
-    #[test]
-    fn crlf_rewriting_editors_still_confirm() {
-        assert_eq!(
-            evaluate(Some(""), Some("line1\r\nline2"), "line1\nline2"),
-            LandingEvidence::Confirmed
-        );
-    }
-
-    #[test]
-    fn trailing_whitespace_added_by_the_target_still_confirms() {
-        assert_eq!(
-            evaluate(Some("x"), Some("x你好世界\n"), "你好世界"),
-            LandingEvidence::Confirmed
-        );
-    }
-
-    #[test]
-    fn a_prefix_match_is_not_a_match() {
-        // The text landing at the START of the box means something else is at the
-        // end — most likely we are reading a different element than we injected
-        // into. Not evidence.
-        assert_eq!(
-            evaluate(Some(""), Some("你好世界 trailing"), "你好世界"),
-            LandingEvidence::NotObserved
-        );
-    }
-
-    #[test]
-    fn the_inert_watch_never_confirms_and_says_so() {
-        let w = LandingWatch::inert();
-        assert!(!w.confirmed());
-        assert_eq!(w.evidence(), LandingEvidence::Unavailable);
-    }
-
-    #[test]
-    fn every_arm_has_a_distinct_forensic_phrase() {
-        let all = [
-            LandingEvidence::Confirmed,
-            LandingEvidence::NotObserved,
-            LandingEvidence::Unavailable,
-        ];
-        for (i, a) in all.iter().enumerate() {
-            for b in all.iter().skip(i + 1) {
-                assert_ne!(a.phrase(), b.phrase(), "{a:?} and {b:?} read the same");
-            }
-        }
-    }
-
-    // The evidence sentence has to carry all three facts, because it is the only line
-    // anybody will read when the next 「it pasted the wrong text」 report arrives. The
-    // held= number is the one that makes the failure falsifiable at all: the defect
-    // was 「the payload was reachable for 110ms」, and no reader could have known that
-    // from the old line.
-    #[test]
-    fn the_evidence_sentence_carries_the_receipt_the_landing_and_the_hold() {
-        use crate::inject::clipboard_outcome::evidence_phrase;
-        use crate::inject::readback::LandingEvidence;
-        let s = evidence_phrase(true, LandingEvidence::Confirmed, 214);
-        assert!(s.contains("held=214ms"), "{s}");
-        assert!(s.contains("read-back"), "{s}");
-        // The two facts must stay distinguishable: a served receipt with NO landing
-        // evidence is exactly the state the P0 lived in, and it must not read the
-        // same as a confirmed landing.
-        let unconfirmed = evidence_phrase(true, LandingEvidence::Unavailable, 1500);
-        assert_ne!(s, unconfirmed);
-        assert!(unconfirmed.contains("unavailable"), "{unconfirmed}");
-    }
-
 }
+
+// Split out for the 800-line src cap (NR-254 pushed this file over it).
+#[cfg(test)]
+#[path = "readback_tests.rs"]
+mod tests;

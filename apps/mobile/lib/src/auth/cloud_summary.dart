@@ -268,7 +268,8 @@ typedef CloudSummaryFetcher =
 /// three named 4xx: `ACCOUNT_RESTRICTED` (A2-3, checked first),
 /// `EMAIL_NOT_VERIFIED` (VERIFY-1 D3, `auth/verification-grace.ts` decides
 /// when the grace ends), and 401 `AUTH_TOKEN_INVALID` / `AUTH_TOKEN_EXPIRED`
-/// from `accountFromBearer`. Anything else — 404, 5xx, timeout, socket — is
+/// from `accountFromBearer` (its third 401, `AUTH_ACCOUNT_REQUIRED`, is
+/// deliberately left unnamed — card E-M, `_namedRefusal`). Anything else — 404, 5xx, timeout, socket — is
 /// NOT named here on purpose: those are the genuinely transient ones and the
 /// generic 「try again」 is true of them.
 ///
@@ -285,7 +286,8 @@ enum CloudSummaryRefusal {
   /// sentence for this one states the fact and offers no errand.
   accountRestricted,
 
-  /// 401 — the bearer is expired or invalid.
+  /// 401 whose body is `AUTH_TOKEN_EXPIRED` or `AUTH_TOKEN_INVALID` — and only
+  /// that (card E-M, P-1): a bare 401 or `AUTH_ACCOUNT_REQUIRED` is transient.
   authExpired,
 }
 
@@ -430,23 +432,31 @@ Future<CloudSummaryRead> httpCloudSummaryFetch(
 /// Never throws: a body that is missing, truncated, oversized or not JSON just
 /// means we do not know which refusal it was.
 ///
-/// ⚠️ The 401 branch does not read the body at all. Both of the route's 401
-/// codes (`AUTH_TOKEN_INVALID`, `AUTH_TOKEN_EXPIRED`) mean the same thing to
-/// the one control that reads this — sign in again — and telling a user their
-/// token was 「invalid」 rather than 「expired」 buys them nothing.
+/// 🔴 Card E-M / P-1 (book 18 §2.6) — the 401 body IS read now. It used to be
+/// drained, on the reasoning that both of the route's 401 codes mean 「sign in
+/// again」. The route has a third 401: `AUTH_ACCOUNT_REQUIRED`
+/// (`apps/server-core/src/http/account-auth.ts`, 「no header / not a
+/// Bearer」) — nothing was presented, which is OUR bug, and a bare 401 from a
+/// proxy says nothing about the account at all. Telling either user to sign in
+/// again sent them on an errand that could not help. Only the two
+/// dead-credential codes are named; everything else is the transient null.
+/// Both still map to one name: 「invalid」 vs 「expired」 buys the user nothing.
 Future<CloudSummaryRefusal?> _namedRefusal(
   HttpClientResponse res,
   int status,
   Duration budget,
 ) async {
-  if (status == 401) {
-    unawaited(res.drain<void>().catchError((Object _) {}));
-    return CloudSummaryRefusal.authExpired;
-  }
   try {
     final String body = await res.transform(utf8.decoder).join().timeout(budget);
     final Object? decoded = jsonDecode(body);
     final Object? error = decoded is Map ? decoded['error'] : null;
+    if (status == 401) {
+      return switch (error) {
+        'AUTH_TOKEN_EXPIRED' || 'AUTH_TOKEN_INVALID' =>
+          CloudSummaryRefusal.authExpired,
+        _ => null,
+      };
+    }
     return switch (error) {
       'EMAIL_NOT_VERIFIED' => CloudSummaryRefusal.emailNotVerified,
       'ACCOUNT_RESTRICTED' => CloudSummaryRefusal.accountRestricted,

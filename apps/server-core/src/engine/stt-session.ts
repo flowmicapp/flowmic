@@ -20,14 +20,20 @@ import type { StartInput } from '../stt/orchestrator-types';
 
 // Moved VERBATIM to ./stt-session-pcm.ts (800-line cap — see that file's header).
 import { peakSample16 } from './stt-session-pcm';
-import { observedPolishFinalText } from '../obs/terminal-polish-timing'; import { polishWireSignalFor, type PolishSkipReason, type PolishWireSignal } from '../stt/stt-polish'; import { observePolishSignal } from '../stt/llm-reject-latch';
+// Moved under the 800-line cap to ./stt-session-polish.ts (see that file's header).
+import { polishWireForFinal, runPolishedFinal, segmentKeepsPreSeg1Contract, type PolishedFinalContext } from './stt-session-polish';
+import { OrderedOutbox } from './stt-session-outbox'; // card SEG-1
+import { DeliveredSeam } from './stt-session-seam'; // card SEAM-2
+import { PolishTimingTally, type PolishClock } from './stt-session-polish-timing'; // card INC-1c
+import { PolishSpeculation } from './stt-session-speculation'; // card INC-1f
+import { unitPolishFor, type UnitPolish } from './stt-session-units'; // card POL-3
 import { resolveByokLlm, type SelectedLlmConfig } from '../compose/llm-config';
 import { log } from '../log';
 import { trace, traceEnabled, tracedText } from '../trace/pipeline-trace';
 // 🔴 W8-4 — the origin → reason table lives beside this file, not in it; the
 // 800-line cap forced the split and the module header says so. `onAutoStopped`
-// is its one caller.
-import { autoStopReasonFor, NAMEABLE_AUTO_STOP_ORIGINS } from './stt-session-autostop';
+// (moved to ./stt-session-auto-stopped.ts, same cap) is its one caller.
+import { onAutoStopped } from './stt-session-auto-stopped';
 // Split out for the same reason (file-size cap), and re-exported UNCHANGED so
 // every existing importer of these two names — `engine/stt-factory.ts` takes
 // `SttEmitter` from here — keeps working without being touched.
@@ -40,11 +46,11 @@ import { CoverageReceiptTally } from './stt-session-receipt';
 import { reportColdOpenRejection } from './stt-session-cold-open';
 import { EngineFailureLatch } from './stt-engine-failure'; // NR-138 item 5 — book 22 §4.10
 
-interface OInterim { text: string; confidence: number; language: string; segment_idx: number; acked_audio_ms?: number } // acked_audio_ms: card RC-2, `stt/engine-backlog.ts`
+interface OInterim { text: string; confidence: number; language: string; segment_idx: number; acked_audio_ms?: number; stable_text?: string } // stable_text: card INC-1f, internal only // acked_audio_ms: card RC-2, `stt/engine-backlog.ts`
 // `empty_reason` (card EMPTY-1): present ONLY on a terminal final that carries no
 // text and whose emptiness nothing else explained. Produced by
 // `stt/empty-final-cause.ts`; forwarded verbatim, never re-derived here.
-interface OFinal extends OInterim { is_segment: boolean; duration_ms: number; empty_reason?: string; pause_before_ms?: number }
+interface OFinal extends OInterim { is_segment: boolean; duration_ms: number; empty_reason?: string; pause_before_ms?: number; seam_open?: true; seam_from?: number } // seam_*: card SEAM-2, internal
 interface OError { code: string; message: string; retryable: boolean; unheard_from_ms?: number } // unheard_from_ms: card RC4-S5 (owed-voice-verdict.ts)
 import { engineStatusProgress, type EngineStatusPayload as OStatus } from '../stt/engine-session'; // NR-96: the one copy site for the retry fields
 
@@ -120,14 +126,27 @@ export class SttSessionBridge implements SttOrchestrator {
   // can express instead of one they average away.
   private transcriptChars = 0;
   private deliveredChars = 0;
+  private readonly seamHead = new DeliveredSeam(); // card SEAM-2 — next-row lower-casing judged on the delivered text (stt-session-seam.ts)
   // WP-R4-6: the in-flight polished TERMINAL-final emit (null when polish is off,
   // delivery is detached, or no terminal final has arrived). The terminal final is
   // the LAST event of the run, so awaiting it before settle()/teardown reorders
   // nothing — every interim and soft-segment final was already emitted ahead of it.
+  // (Card SEG-1: or is queued ahead of it in [[outbox]], which finish() drains next.)
   private pendingFinal: Promise<void> | null = null;
+  // Card SEG-1 — interims, finals and stt:error leave through this, so a
+  // soft-segment final held for its polish is never overtaken (stt-session-outbox.ts).
+  private readonly outbox = new OrderedOutbox(() => !this.disposed);
+  private readonly polishTiming: PolishTimingTally; // card INC-1c — observation only (stt-session-polish-timing.ts)
+  private readonly speculation: PolishSpeculation | null; // card INC-1f — null unless armed (stt-session-speculation.ts)
+  private readonly units: UnitPolish | null; // card POL-3 — null unless FLOWMIC_POLISH_STAGES=context arms it (stt-session-units.ts)
 
   constructor(private readonly deps: SttSessionDeps) {
     this.now = deps.now ?? Date.now;
+    this.polishTiming = new PolishTimingTally(this.now, deps.onPolishTiming);
+    this.speculation = deps.polishSpeculative === true && deps.polish !== undefined && this.polishDelivery() === 'sync'
+      ? new PolishSpeculation({ polish: deps.polish, meter: (p, r) => this.meterPolish(p, r), utteranceId: this.utteranceId, pure: (raw, language) => (deps.finalText ? deps.finalText(raw, { isSegment: true, language }) : raw) })
+      : null;
+    this.units = unitPolishFor(deps);
     this.vad = new VadGate();
     // 🔴 fix-025 retired the per-account ceiling mechanism and fix-027 removed
     // its dep (`SttSessionDeps.hardLimitMs`) — there is no per-account
@@ -167,23 +186,25 @@ export class SttSessionBridge implements SttOrchestrator {
 
   private wireEvents(): void {
     const o = this.orchestrator;
-    o.on('interim', (e: OInterim) => this.deps.emitter.emit('stt:interim', {
+    o.on('interim', (e: OInterim) => this.speculation?.onInterim(nonNegInt(e.segment_idx), String(e.text ?? ''), e.stable_text, nonEmpty(e.language, this.deps.sourceLang)));
+    o.on('interim', (e: OInterim) => this.outbox.emit(() => this.deps.emitter.emit('stt:interim', {
       text: String(e.text ?? ''),
       confidence: clamp01(e.confidence),
       language: nonEmpty(e.language, this.deps.sourceLang),
       segment_idx: nonNegInt(e.segment_idx),
       ...(typeof e.acked_audio_ms === 'number' ? { acked_audio_ms: nonNegInt(e.acked_audio_ms) } : {}),
-    }));
+    })));
     // FINAL path (06 §5): dictionary replace → normalizer → (opt-in) polish, THEN
     // fan-out. The processed text is what mobile + PC + the mobile-driven
     // history:create all see — one text, no raw-vs-processed split brain.
     // `is_segment` gates the normalizer's terminal punctuation (soft-segment
     // finals stay open) AND whether polish runs (WP-R4-6 ③: polish ONLY the
-    // utterance-closing final, is_segment=false).
+    // utterance-closing final, is_segment=false). Card SEG-1 (2026-10-13): no longer —
+    // a soft-segment final that carries words is polished too, except on continuous recordings.
     o.on('final', (e: OFinal) => {
       const isSegment = Boolean(e.is_segment);
-      const raw = String(e.text ?? '');
       const language = nonEmpty(e.language, this.deps.sourceLang);
+      const raw = this.seamHead.head(String(e.text ?? ''), e.seam_from, language); // card SEAM-2
       const pure = this.deps.finalText
         ? this.deps.finalText(raw, { isSegment, language })
         : raw;
@@ -212,6 +233,7 @@ export class SttSessionBridge implements SttOrchestrator {
       // counted — they are drafts of the same words and adding them would report a
       // number several times larger than anything the user said.
       this.transcriptChars += pure.length;
+      if (isSegment && pure.trim() !== '') this.polishTiming.noteSegment(); // card POL-1 — makes the terminal final's stage 'tail'
       const emptyReason = !isSegment && pure === '' && typeof e.empty_reason === 'string' && e.empty_reason !== ''
         ? e.empty_reason
         : undefined;
@@ -259,9 +281,17 @@ export class SttSessionBridge implements SttOrchestrator {
         this.pendingFinal = this.runPolishedFinal(pure, base).catch((err) => {
           log.error('stt.polish terminal-final emit failed unexpectedly', { error: err instanceof Error ? err.message : String(err) });
         });
+      } else if (this.deps.polish && isSegment && this.polishDelivery() === 'sync' && !segmentKeepsPreSeg1Contract(this.deps) && pure.trim() !== '') {
+        // 🔴 Card SEG-1 — a soft-segment final that carries words is polished
+        // through the SAME path as the terminal one (own budget, same guard, same
+        // Smooth→Strict fallback, metered once) and leaves with its own honest
+        // signal. Before this it left bare and unmarked, and in realtime it is its
+        // OWN row (book 15 §2.0-c), so the user read unpolished text with no mark.
+        // Continuous recordings and recovery legs keep the old contract ([[segmentKeepsPreSeg1Contract]]).
+        this.polishSegmentFinal(pure, base, e.seam_open === true);
       } else {
-        // Interim, soft-segment, polish-OFF, and the detached mode: emit now.
-        this.emitFinal(pure, { ...base, ...this.polishWireForFinal(isSegment) });
+        // Interim, empty soft-segment, continuous/recovery soft-segment, polish-OFF, and the detached mode: emit now.
+        this.outbox.emit(() => this.emitFinal(pure, { ...base, ...this.polishWireForFinal(isSegment) }));
         // The utterance has SETTLED. Fire-and-forget the second pass — it must
         // never delay, gate or alter the final above (06 §5), which is already
         // delivered and already on the user's screen.
@@ -281,12 +311,12 @@ export class SttSessionBridge implements SttOrchestrator {
     o.on('error', (e: OError) => {
       const code = nonEmpty(e.code, 'STT_NETWORK_DROP');
       this.failure.noteError(code); // NR-138 item 5 — a SPOKEN engine error is a failure fact (the suppressed one below is not)
-      this.deps.emitter.emit('stt:error', {
+      this.outbox.emit(() => this.deps.emitter.emit('stt:error', {
         code,
         message: nonEmpty(e.message, nonEmpty(e.code, 'STT engine error')),
         retryable: Boolean(e.retryable),
         ...(typeof e.unheard_from_ms === 'number' ? { unheard_from_ms: e.unheard_from_ms } : {}), // card RC4-S5
-      });
+      }));
     });
     // Card ENG-4 (2026-08-15) — a refusal we deliberately do NOT put on the wire
     // (the vendor said "no audio received" about a recording our own gate found
@@ -302,7 +332,9 @@ export class SttSessionBridge implements SttOrchestrator {
     }));
     o.on('engine-status', (e: OStatus) => {
       if (e.status === 'ready') this.failure.noteRecovered(); // NR-138 item 5 — a recovered engine hands the verdict on
-      this.deps.emitter.emit('stt:engine-status', { provider: nonEmpty(e.provider, 'unknown'), status: e.status, ...engineStatusProgress(e) });
+      // Card SEG-1 — through the outbox: the phone clears its reconnect chip on any LATER interim
+      // (engine_reconnect_state.dart), so a held interim released after this status would hide it.
+      this.outbox.emit(() => this.deps.emitter.emit('stt:engine-status', { provider: nonEmpty(e.provider, 'unknown'), status: e.status, ...engineStatusProgress(e) }));
     });
     // 🔴 W8-4: `limit_origin` is READ, and `reason` on this same payload is
     // deliberately NOT. The driver's `reason` is `AudioSession.autoStop`'s own
@@ -371,46 +403,57 @@ export class SttSessionBridge implements SttOrchestrator {
     }
   }
 
-  /**
-   * The SHIPPED path: run the bounded polish on the pure two-stage text, then
-   * emit `stt:final` with the honest wire signal. `polishFinalText` never throws
-   * and never blocks delivery — on any skip it returns the pure text + a reason;
-   * the try/catch is defense-in-depth (seam ③). On a session torn down
-   * mid-polish the emit is dropped (the session is gone; nothing consumes it).
-   */
-  private async runPolishedFinal(
-    pureText: string,
-    base: { confidence: number; language: string; segment_idx: number; is_segment: boolean; duration_ms: number; utterance_id?: string },
-  ): Promise<void> {
-    const polish = this.deps.polish!;
-    let text = pureText;
-    // Default to an honest skipped('llm_error') so an unexpected throw below still
-    // surfaces as a real failure signal, never a silent 'applied' (red line).
-    let signal: PolishWireSignal = { polish: 'skipped', polish_reason: 'llm_error' };
-    try {
-      const result = await observedPolishFinalText(pureText, polish.llm, polish.deps ?? {}, base.utterance_id);
-      text = result.text;
-      // NR-130: `model_rejected` only for a config the user owns (not our managed key).
-      signal = polishWireSignalFor(result, polish.llm.source);
-      // NR-130: the desktop's `capability.llm.rejected` fact (stt/llm-reject-latch.ts).
-      observePolishSignal(this.deps.userId, polish.llm.cfg, signal);
-      this.meterPolish(polish, result);
-      if (signal.polish === 'skipped') {
-        // Forensic (WP-R4-6 ④): the internal fine-grained reason stays here; only
-        // the normalized 4-value reason reaches the wire.
-        log.warn('stt.polish skipped — delivering pure two-stage text', { wire: signal.polish_reason });
-      }
-    } catch (err) {
-      text = pureText;
-      log.error('stt.polish threw — delivering pure two-stage text', { error: err instanceof Error ? err.message : String(err) });
-    }
-    if (this.disposed) return;
-    this.emitFinal(text, { ...base, ...signal });
-    // Delivered — so this is the string the second pass smooths. Kicked AFTER
-    // the emit, never before: the pass is an improvement to text the user
-    // already has, and nothing about it may reorder itself in front of the
-    // frame that gives them that text.
-    this.kickRefine(text);
+  /** Wiring only. The SHIPPED sync polish path moved to `stt-session-polish.ts`
+   *  under the 800-line cap; that file's header enumerates every mechanical edit
+   *  the move made. `disposed` is handed over as a THUNK so the emit reads it
+   *  after the polish answered, not when the pass was kicked; the meter, the emit
+   *  and the refine kick stay THIS session's single seams. */
+  private runPolishedFinal(pureText: string, base: Parameters<typeof runPolishedFinal>[2]): Promise<void> {
+    const clock = this.polishTiming.begin(false); // card INC-1c
+    return (this.units?.tail ?? runPolishedFinal)( // card POL-3: the tail carries the earlier rows as context
+      this.polishContext(clock, {
+        // Card SEG-1 — through the outbox: synchronous when nothing is held, else
+        // behind the soft-segment finals still waiting for their polish.
+        emitFinal: (text, rest): void => this.outbox.emit(() => this.emitTimed(clock, text, rest)),
+        kickRefine: (text): void => this.outbox.emit(() => this.kickRefine(text)),
+      }),
+      pureText,
+      base,
+    );
+  }
+
+  private polishContext(clock: PolishClock, exits: Pick<PolishedFinalContext, 'emitFinal' | 'kickRefine'>): PolishedFinalContext {
+    return {
+      clock,
+      ...(this.speculation !== null ? { speculation: this.speculation } : {}),
+      polish: this.deps.polish!,
+      userId: this.deps.userId,
+      meter: (p, r): void => this.meterPolish(p, r),
+      disposed: (): boolean => this.disposed,
+      ...exits,
+    };
+  }
+
+  /** Card SEG-1 — polish a soft-segment final, holding its place in the outbox so
+   *  nothing emitted after it can overtake it. The slot is filled in `finally`
+   *  (a no-op when the session was torn down mid-polish), never left open. The
+   *  second pass is NOT kicked: it smooths the terminal utterance only. */
+  private polishSegmentFinal(pureText: string, base: Parameters<typeof runPolishedFinal>[2], openEnd: boolean): void {
+    const fill = this.outbox.reserve();
+    const clock = this.polishTiming.begin(true); // card INC-1c — the hold starts here
+    if (this.units !== null) return this.units.segment(this.polishContext(clock, { emitFinal: (t, r): void => this.emitTimed(clock, t, r), kickRefine: (): void => undefined }), pureText, base, fill); // card POL-3
+    let frame: () => void = () => undefined;
+    void runPolishedFinal(
+      this.polishContext(clock, {
+        emitFinal: (text, rest): void => { frame = (): void => this.emitTimed(clock, text, rest); },
+        kickRefine: (): void => undefined,
+      }),
+      pureText,
+      base,
+      openEnd, // card SEAM-2
+    ).catch((err: unknown) => {
+      log.error('stt.polish segment-final emit failed unexpectedly', { error: err instanceof Error ? err.message : String(err) });
+    }).finally(() => fill(frame));
   }
 
   /**
@@ -431,6 +474,7 @@ export class SttSessionBridge implements SttOrchestrator {
   private emitFinal(text: string, rest: Record<string, unknown>): void {
     this.deliveredChars += text.length;
     this.failure.noteDelivered(text); // NR-138 item 5 — a usable transcript reached the wire: bill normally
+    this.seamHead.noteDelivered(text, rest); // card SEAM-2
     // The last record of the chain, and deliberately here rather than at the two
     // call sites — for the same reason `deliveredChars` is: a `delivered` line
     // emitted beside a call site would be a claim maintained by remembering, and
@@ -455,36 +499,16 @@ export class SttSessionBridge implements SttOrchestrator {
     this.deps.emitter.emit('stt:final', { text, ...wire });
   }
 
-  /**
-   * The `polish` field for a final emitted WITHOUT waiting for a polish result —
-   * i.e. every final except the `'sync'` armed terminal one, which
-   * [[runPolishedFinal]] stamps with the full `applied|skipped` signal.
-   *
-   * There is exactly one thing this can honestly say. "Polish was ON and could
-   * not run AT ALL" is known before the final leaves, is permanent for the
-   * session (usually until the user fixes their config), and is the one skip the
-   * user can act on. Everything else is either pending or unknowable here.
-   *
-   * D-5: the field is left working on purpose. `polish:'skipped'` is what paints
-   * PolishSkippedMark; removing it would make that widget permanently invisible
-   * with nothing going red.
-   *
-   * ⚠️ Under `'detached'` an armed session returns `{}` here and the LATE skips
-   * (timeout / llm_error / empty_output / guard_reject) reach nobody: they are
-   * decided after the final has shipped and `SttRefinedSchema` has no polish
-   * field to carry them. That honesty gap is one more thing the activation
-   * triple has to answer for, and it is why `'sync'` is not merely the
-   * conservative default — it is the only mode that keeps WP-R4-6 ⑦'s promise.
-   */
-  private polishWireForFinal(isSegment: boolean): { polish?: 'skipped'; polish_reason?: PolishSkipReason } {
-    // Soft-segment finals never carried a polish field and still do not — polish
-    // is an utterance-closing concern (WP-R4-6 ③).
-    if (isSegment) return {};
-    // Armed ⇒ the answer is pending, and a pending answer is not a signal.
-    if (this.deps.polish !== undefined) return {};
-    const unavailable = this.deps.polishUnavailable;
-    if (unavailable === undefined) return {};
-    return { polish: 'skipped', polish_reason: unavailable };
+  /** Card INC-1c — the polished exit: [[emitFinal]], then the clock reads the wait. */
+  private emitTimed(clock: PolishClock, text: string, rest: Record<string, unknown>): void {
+    this.emitFinal(text, rest);
+    this.polishTiming.emitted(clock, typeof rest.utterance_id === 'string' ? rest.utterance_id : undefined, text.length);
+  }
+
+  /** Wiring only — moved to `stt-session-polish.ts` under the 800-line cap
+   *  (header there enumerates the edits). */
+  private polishWireForFinal(isSegment: boolean): ReturnType<typeof polishWireForFinal> {
+    return polishWireForFinal(this.deps, isSegment);
   }
 
   /** Wiring only. The pass itself — and the whole account of why it computes a
@@ -496,51 +520,12 @@ export class SttSessionBridge implements SttOrchestrator {
     kickDetachedPolish(this.deps.polish, pureText, this.now, (p, r) => this.meterPolish(p, r));
   }
 
-  /**
-   * 🔴 W8-4 — the recording ended without the user releasing the button, and the
-   * frame that says so now carries WHY (see [[AUTO_STOP_REASON_BY_ORIGIN]]).
-   *
-   * THE EMIT STAYS FIRST, ahead of `waitForTerminal()`. `handleAutoStop` flushes
-   * a TERMINAL `stt:final` right behind this frame, and the phone's FSM only
-   * accepts a terminal final from PROCESSING — `audio:auto-stopped` is what moves
-   * it there (`apps/mobile/lib/src/ptt/ptt_inbound.dart`, the `fsm.onPttUp()`
-   * beside the `_autoStoppedCtl.add`). Ordering these the other way round would
-   * get the final refused and strand the session in RECORDING, which is the exact
-   * bug that comment records having already been fixed once.
-   *
-   * ⚠️ AN UNNAMEABLE ORIGIN EMITS NOTHING, and the cost of that is written down
-   * rather than hidden: the phone releases RECORDING off THIS frame, so a
-   * withheld frame leaves the FSM stuck and PTT dead until the app restarts.
-   * That is a bad outcome and it is still the better one — the alternative is
-   * telling the user a specific thing that is not true, which is the defect this
-   * method exists to remove, and the closed `z.enum` has no value meaning 「stopped,
-   * cause unknown」 to fall back to (`stt:error` cannot stand in either: the phone
-   * acts on it only from PROCESSING). The branch is unreachable by construction —
-   * `limitOrigin` is typed, total, and stamped by the single producer — so it is a
-   * tripwire for OUR wiring breaking, not a product state. It is loud where an
-   * operator looks, and it never lies to the user. Registered as a fork for the
-   * supervisor rather than decided quietly here.
-   */
-  private async onAutoStopped(limitOrigin: unknown): Promise<void> {
-    this.receipt.noteAutoStop(); // card CV-1 — BEFORE the terminal flush below, or the flag would describe the next recording
-    const reason = autoStopReasonFor(limitOrigin);
-    if (reason === null) {
-      log.error('audio:auto-stopped WITHHELD — the auto-stop carried no nameable limit_origin', {
-        user_id: this.deps.userId,
-        limit_origin: typeof limitOrigin === 'string' ? limitOrigin : typeof limitOrigin,
-        known_origins: NAMEABLE_AUTO_STOP_ORIGINS,
-        consequence: 'the phone was told nothing and its FSM stays in RECORDING',
-      });
-    } else {
-      this.deps.emitter.emit('audio:auto-stopped', { reason });
-    }
-    await this.orchestrator.waitForTerminal();
-    // WP-R4-6: let an in-flight polished terminal-final finish emitting before we
-    // bill + settle (billing is idempotent via `billed`; awaiting cannot double
-    // it). null under `'detached'` / polish-off — nothing to wait for there.
-    await this.pendingFinal;
-    this.vad.finish();
-    this.settle();
+  /** Wiring only — the auto-stop ending moved to `stt-session-auto-stopped.ts`
+   *  under the 800-line cap (header there enumerates the edits). */
+  private onAutoStopped(limitOrigin: unknown): Promise<void> {
+    this.polishTiming.noteStop(); // card INC-1c
+    this.speculation?.releaseKick(); // card INC-1f
+    return onAutoStopped({ receipt: this.receipt, deps: this.deps, orchestrator: this.orchestrator, pendingFinal: () => this.pendingFinal, outbox: this.outbox, vad: this.vad, settle: () => this.settle() }, limitOrigin);
   }
 
   /** Wiring only — the pass itself, and the account of why it now delivers on
@@ -605,7 +590,7 @@ export class SttSessionBridge implements SttOrchestrator {
     // terminal fence (or past AudioSession's state guard) was reported to the
     // phone as fed while it went nowhere — and `fed_frames` is what the phone
     // checks before deleting its only copy of the audio.
-    this.intake.note(this.orchestrator.pushChunk({ seq, ts_ms: tsMs, payload }));
+    this.intake.note(this.orchestrator.pushChunk({ seq, ts_ms: tsMs, payload }), payload.length); // NR-224: bytes for coverage
   }
 
   private maybeEmitLevel(tsMs: number): void {
@@ -621,6 +606,8 @@ export class SttSessionBridge implements SttOrchestrator {
     // a socket-gone teardown; see [[emitterClosed]]. Set BEFORE any await so
     // the watchdog-forced dispose (audio.handler) is classified the same way.
     this.finishing = true;
+    this.polishTiming.noteStop(); // card INC-1c — engine_final_ms starts at the release
+    this.speculation?.releaseKick(); // card INC-1f — overlaps the engine's closing flush
     // The intake tally (owner 2026-07-27: "is this a mobile-side issue"). `peak` is the
     // loudest PCM16 sample of the whole utterance on a 0..32767 scale: a few
     // hundred is a quiet room's noise floor, an exact 0 across thousands of
@@ -652,6 +639,7 @@ export class SttSessionBridge implements SttOrchestrator {
     // shape, and it is exactly why activating it needs the triple on
     // [[SttSessionDeps.polishDelivery]] rather than a flag flip.
     await this.pendingFinal;
+    await this.outbox.drained(); // card SEG-1 — and every held soft-segment final behind it
     this.vad.finish();
     this.settle();
   }
@@ -680,7 +668,7 @@ export class SttSessionBridge implements SttOrchestrator {
     // down the seam and every layer below obeys it (hold released, no increment, no claim). Passed only when present.
     const failure = this.failure.verdict();
     if (failure) this.deps.onComplete(Math.max(0, Math.round(durationMs)), this.isByok, chars, failure);
-    else this.deps.onComplete(Math.max(0, Math.round(durationMs)), this.isByok, chars);
+    else this.deps.onComplete(Math.max(0, Math.round(durationMs)), this.isByok, chars, undefined, { uniqueMs: this.intake.fedBytes / BYTES_PER_MS }); // NR-224
   }
 
   /** NR-138 item 5 — the relay gave up on [[finish]] (its watchdog fired, or it rejected): an engine-failure fact,
@@ -747,6 +735,7 @@ export class SttSessionBridge implements SttOrchestrator {
     // terminal final). After finish() the socket is alive and the pending
     // second pass is still owed to the phone — see [[emitterClosed]].
     if (!this.finishing) this.emitterClosed = true;
+    this.speculation?.dispose(); // card INC-1f — cancel background pieces, use none
     // An unclean ending is the ONLY billing path with no `audio intake` line,
     // i.e. the only one that could produce a disputed charge with no evidence
     // of what it charged for. Decided before settle() moves the latch.

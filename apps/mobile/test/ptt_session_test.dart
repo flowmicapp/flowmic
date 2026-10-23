@@ -316,7 +316,12 @@ void main() {
     await pumpEventQueue();
     expect(session.paired.value, isFalse);
     expect(session.fsm.session, SessionState.disconnected);
-    expect(await session.tokenStorage.readToken(), isNull);
+    // Card E-M / P-2 (docs/rebuild/18 §2.6): `pair()` above is a REAL
+    // computer (standalone), whose pairing the relay still admits after an
+    // account-expiry kick. This line used to assert `isNull` — the defect
+    // written down as the acceptance (D-13). The cloud-instance pairing, which
+    // does go with the account, is pinned in auth_expired_drain_test.dart.
+    expect(await session.tokenStorage.readToken(), isNotNull);
   });
 
   test('background pause / resume emit audio:pause{reason} and audio:resume', () async {

@@ -189,11 +189,22 @@ Future<bool> outboxSend(
   // buildOutboxInjectFrame for why refusing beats emitting a frame we know the
   // server will answer with a TERMINAL code.
   if (frame == null) return false;
+  // 🔴 POL-M1 / R12 — a drained TEXT item's rows are frozen before its frame
+  // leaves. Already true for every item enqueued since POL-M1 (each enqueue
+  // site freezes first, write-once ⇒ no-op here); this line covers an item
+  // queued by an older build. Pictures carry no words to rewrite (R12 is about
+  // a row's text; every machine rewrite selects transcript rows only).
+  if (item.kind == OutboxPayloadKind.text) {
+    c.store.markHandedOff(item.coveredEntryIds);
+  }
   final bool ok = c.composeGate.emitInject(frame);
   // The row-level claim + 20 s watchdog stay exactly as they were; the queue
   // drives them rather than replacing them (two watchdogs, two questions).
   // Every row this ONE delivery settles (RV-15), not just the representative.
-  if (ok) c.delivery.armInFlight(item.requestId, item.coveredEntryIds);
+  // NR-286 (doc 15 §2.6-a rule 8) — `armOutboxSend`, not `armInFlight`: an
+  // automatic re-send of rows that already show no-answer must not flash the
+  // 「No answer from the computer」 banner again on every backoff step.
+  if (ok) c.delivery.armOutboxSend(item.requestId, item.coveredEntryIds);
   return ok;
 }
 
@@ -404,6 +415,36 @@ void outboxResendImage(ChatController c, TimelineEntry entry) {
 /// named code either stops the item (a terminal refusal) or returns it to
 /// `queued` — see isTerminalRefusalCode.
 void onInjectResultRouted(ChatController c, InjectResult r) {
+  final String? correlation = r.correlationId;
+  final bool hasItem = correlation != null && correlation.isNotEmpty;
+  // 🔴 NR-279 S4a — A VERDICT THAT MAKES THE 「will not type it in」 PROMISE
+  // WRITES THE QUEUE ITEM FIRST AND THE ROW SECOND.
+  //
+  // The row note this verdict selects promises the computer will not type the
+  // item in on its own, and `settle` is what records that promise on the item
+  // (`deferPromisedAt`, read by every later automatic attempt). Row-first, a
+  // kill between the two writes left the promise on disk with no fact behind
+  // it: the boot revive re-queued the item and a PC back inside the 60 s
+  // window got it `live` — the A1 accident itself. Settle-first, a kill leaves
+  // both or the fact alone (the next automatic attempt is `deferred`, which is
+  // the safe side). Predicate and reasoning: `verdictRecordsDeferPromise`
+  // (outbox_inject_origin.dart); pinned by
+  // test/outbox_defer_promise_order_test.dart.
+  //
+  // The UI cost is one store round trip before the row moves, for this one
+  // code only; every other verdict keeps the row-first order below.
+  if (hasItem && verdictRecordsDeferPromise(ok: r.ok, code: r.error)) {
+    unawaited(_settleThenApplyRow(c, r, correlation));
+    return;
+  }
+  _applyInjectResultToRow(c, r);
+  if (!hasItem) return;
+  // Fire-and-forget: the queue write must not block the UI's settle path, and
+  // an item that fails to persist here is picked up by the boot revive.
+  unawaited(_settleQueueItem(c, r, correlation));
+}
+
+void _applyInjectResultToRow(ChatController c, InjectResult r) {
   final int t0 = DateTime.now().millisecondsSinceEpoch;
   c.delivery.applyInjectResult(r, c.store);
   c.imageSend.onInjectSettled(
@@ -411,18 +452,46 @@ void onInjectResultRouted(ChatController c, InjectResult r) {
     c.delivery,
     DateTime.now().millisecondsSinceEpoch - t0,
   );
-  final String? correlation = r.correlationId;
-  if (correlation == null || correlation.isEmpty) return;
-  // Fire-and-forget: the queue write must not block the UI's settle path, and
-  // an item that fails to persist here is picked up by the boot revive.
-  unawaited(c.outbox.settle(
-    correlationId: correlation,
-    ok: r.ok,
-    code: r.error,
-    // Card F12/F1-d — see InjectResult.retryAfterMs's own doc for why this is
-    // read defensively: no producer sets it on this frame yet.
-    retryAfterMs: r.retryAfterMs,
-  ));
+}
+
+Future<void> _settleQueueItem(
+  ChatController c,
+  InjectResult r,
+  String correlation,
+) =>
+    c.outbox.settle(
+      correlationId: correlation,
+      ok: r.ok,
+      code: r.error,
+      // Card F12/F1-d — see InjectResult.retryAfterMs's own doc for why this is
+      // read defensively: no producer sets it on this frame yet.
+      retryAfterMs: r.retryAfterMs,
+    );
+
+/// NR-279 S4a — see the block in [onInjectResultRouted].
+///
+/// ⚠️ IF THE SETTLE THROWS, THE ROW IS NOT WRITTEN. The item's own persist
+/// already degrades to the in-memory shadow instead of throwing (D9,
+/// `DeliveryOutbox._persistItem`), so this is the residue of a residue — and
+/// in it, the row is left to its own 20 s watchdog (✗, no answer) rather than
+/// shown a promise nothing recorded. The diag line keeps that from being
+/// silent.
+Future<void> _settleThenApplyRow(
+  ChatController c,
+  InjectResult r,
+  String correlation,
+) async {
+  try {
+    await _settleQueueItem(c, r, correlation);
+  } on Object catch (e) {
+    diag('outbox.settle_failed_row_withheld', <String, Object?>{
+      'correlation': correlation,
+      'code': r.error,
+      'error': e.toString(),
+    });
+    return;
+  }
+  _applyInjectResultToRow(c, r);
 }
 
 /// Connection/session edges — MOVED VERBATIM from chat_controller.dart (800-line

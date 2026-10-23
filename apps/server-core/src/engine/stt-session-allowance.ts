@@ -2,7 +2,7 @@
 import type { AudioSession } from '../stt/audio/session';
 import type { IntegratorSessionCaps } from '../billing/integrator-session-caps';
 import { SttAllowancePool } from '../billing/stt-allowance-pool';
-import type { SttCharCounts, SttEngineFailure } from './stt-session-deps';
+import type { SttCharCounts, SttEngineFailure, SttReceivedAudio } from './stt-session-deps';
 
 export function reserveSessionAllowance(pool: SttAllowancePool, input: {
   userId: string; keyId?: string; roomId: string;
@@ -54,13 +54,17 @@ export type SessionAllowance = ReturnType<typeof reserveSessionAllowance>;
 export function settleSessionUsage(
   allowance: SessionAllowance | undefined,
   ms: number, isByok: boolean, chars: SttCharCounts, failure: SttEngineFailure | undefined,
-  meter: (billedMs: number, isByok: boolean, chars: SttCharCounts, failure?: SttEngineFailure) => void,
+  meter: (billedMs: number, isByok: boolean, chars: SttCharCounts, failure?: SttEngineFailure, received?: SttReceivedAudio) => void,
+  /** NR-224 — the session's measured received audio; passed on only when present (and never with a failure). */
+  received?: SttReceivedAudio,
 ): void {
   if (failure !== undefined) {
     allowance?.settleUncharged();
     meter(ms, isByok, chars, failure);
     return;
   }
-  if (allowance) allowance.settle(ms, (billedMs) => meter(billedMs, isByok, chars));
-  else meter(ms, isByok, chars);
+  const charge = (billedMs: number): void =>
+    (received === undefined ? meter(billedMs, isByok, chars) : meter(billedMs, isByok, chars, undefined, received));
+  if (allowance) allowance.settle(ms, charge);
+  else charge(ms);
 }

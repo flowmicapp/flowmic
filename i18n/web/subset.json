@@ -61,7 +61,8 @@
         "injectVerdictNote_INJECT_TARGET_INVALID",
         "injectVerdictNote_INJECT_WAYLAND_UNSUPPORTED",
         "injectVerdictNote_INJECT_DISPLAY_UNAVAILABLE",
-        "injectVerdictNote_INJECT_SUBMISSION_UNCERTAIN"
+        "injectVerdictNote_INJECT_SUBMISSION_UNCERTAIN",
+        "injectVerdictNote_INJECT_TARGET_ELEVATED"
       ]
     },
     {

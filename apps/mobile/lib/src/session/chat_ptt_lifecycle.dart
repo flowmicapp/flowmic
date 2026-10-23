@@ -169,6 +169,32 @@ extension ChatPttLifecycle on ChatController {
   /// reconciler and the banner source both read the clock's.
   void noteContinuousCapWarning() => notifyUi();
 
+  /// NR-213 — the user came back to a long recording they had left. Two
+  /// consequences, both owned elsewhere: the gap is PERSISTED (the article
+  /// draws it, `ArticleAwayGapStore`), and the return notice is already
+  /// standing on the away log (`ContinuousAway.noticeTicket`) — this only
+  /// repaints, for the same reason [noteContinuousCapWarning] does.
+  void _continuousAwayReturned() {
+    final ContinuousAwayReturn? r = session.continuous.away.lastReturn.value;
+    if (r == null) return;
+    unawaited(
+      awayGaps.add(
+        r.articleId,
+        ArticleAwayGap(atMs: r.atAudioMs, awayMs: r.notRecordedMs),
+      ),
+    );
+    notifyUi();
+  }
+
+  /// NR-213 — the return notice was seen (auto-hide window or ✕). Repaints:
+  /// unlike the cap reminder, this notice can stand over a recording that has
+  /// already stopped (`stoppedAtCap`), where no amplitude tick would ever
+  /// redraw the screen and the 「few seconds」 would become forever.
+  void dismissContinuousAwayNotice() {
+    session.continuous.away.dismissNotice();
+    notifyUi();
+  }
+
   void _onAmplitude(double db) => onAmplitudeRouted(this, db);
 
   void _onAutoStopped(void _) => onAutoStoppedRouted(this);

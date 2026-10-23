@@ -184,7 +184,46 @@ enum DeliveryFace {
   /// ruling: when occupied, the row = "pending delivery" (15 册 §3.2, the
   /// "PC busy" row).
   deliveredNotInjected,
+
+  /// 🔴 NR-279 (A2; owner 2026-10-19 reopens ruling ⑩) — **the 20 s row
+  /// watchdog gave up waiting for the computer, and the queue still owes this
+  /// row**: `status == failed`, `failureReason == kRowNoResultCode`
+  /// (`manual_delivery_result.dart` `_onResultTimeout`, `image_send_http.dart`
+  /// no-answer arm), and the row is in `DeliveryOutbox.owedEntryIds` (its item
+  /// is `queued` or `inflight`; the 45 s queue watchdog only re-queues it).
+  ///
+  /// A separate face from [failed] because they are different facts: here the
+  /// frame went out and may still land (and be typed) when the computer
+  /// recovers; [failed] is a final 「did not work」. It turns into a real final
+  /// failure only when either the queue stops owing the row (a terminal
+  /// refusal or overflow settles the item `refused`) or the computer answers
+  /// with its own failure code (the row's `failureReason` is overwritten and
+  /// the ordinary arms take over). A late success flips it to [injected] /
+  /// [deliveredNotInjected] like any other row.
+  ///
+  /// ✅ NR-280 (2026-10-19): its own pill word has landed, `statusNoAnswerYet`;
+  /// colour, glyph, resend and reason line are still [failed]'s (not ruled).
+  /// The paragraph below is the pre-landing state, kept as history.
+  /// ⚠️ Correction (NR-280 follow-up, MAIN 2026-10-19): colour and glyph are
+  /// now the pending family's (amber ⏳, see [deliveryFaceMeta]); resend and
+  /// the reason line are still shared with [failed].
+  ///
+  /// ⚠️ PENDING WORDING: until the owner's new nine-language word lands it
+  /// renders EXACTLY like [failed] (same pill key `statusFailed`, colour,
+  /// glyph, resend, reason line) — see the single swap point in
+  /// [deliveryFaceMeta]. ⚠️ CORRECTION (NR-279 review S2): that is true of the
+  /// PILL only. The same branch made the reason line under such a row visible
+  /// (「No answer from the computer」, `composeSendError__6`, chat_row_reason.dart
+  /// `_rowNoteFor`), so the row's visible text DID change; until the pill's own
+  /// word lands, the pill and that note read against each other.
+  noAnswerYet,
 }
+
+/// The phone-minted code the row watchdog writes when the computer never
+/// answered (`manual_delivery_result.dart` `_onResultTimeout`; also the HTTP
+/// image leg's no-answer arm). Named so the face rule, the reason table
+/// (chat_row_reason.dart `_rowNoteFor`) and their tests agree on one spelling.
+const String kRowNoResultCode = 'INJECT_NO_RESULT';
 
 /// The one place a row is turned into the word it shows.
 ///
@@ -212,7 +251,24 @@ enum DeliveryFace {
 /// LOAD-BEARING in a second place. The true reading, and the only one anything
 /// depends on: **「队列现在还欠着这一行吗」("does the queue still owe this
 /// row")**.
-DeliveryFace deliveryFaceOf(TimelineEntry entry, {required bool queued}) {
+///
+/// [owed] (NR-279) answers 「does the queue still owe this row」 — queued OR
+/// inflight (`DeliveryOutbox.owedEntryIds`), NOT [queued]: right after the
+/// 20 s row watchdog the item is still `inflight` until the 45 s queue
+/// watchdog re-queues it. It only ever selects [DeliveryFace.noAnswerYet].
+/// ⚠️ Defaulted to false, unlike [queued], on purpose and with a bound: false
+/// yields [DeliveryFace.failed], which today renders identically, so a call
+/// site that forgets it shows exactly the pre-NR-279 row rather than a wrong
+/// one. ⚠️ Correction (NR-280 follow-up): 「renders identically」 is no longer
+/// true (noAnswerYet is amber ⏳ with its own word); the bound still holds in
+/// the sense that matters — a forgetting site shows the pre-NR-279 ✗ row. The production sites pass it explicitly (chat_flow_scroll.dart reads
+/// the queue; history_page.dart has no queue and passes false, the same gap
+/// its `queued: false` documents) — pinned by row_no_result_note_test.dart.
+DeliveryFace deliveryFaceOf(
+  TimelineEntry entry, {
+  required bool queued,
+  bool owed = false,
+}) {
   if (entry.status == EntryStatus.cached && entry.cachedByVerdict &&
       entry.failureReason == 'INJECT_SUBMISSION_UNCERTAIN') {
     return DeliveryFace.injectionUncertain;
@@ -342,6 +398,13 @@ DeliveryFace deliveryFaceOf(TimelineEntry entry, {required bool queued}) {
       // a new verdict" state.
       if (_isPcInjectionVerdict(entry)) {
         return DeliveryFace.deliveredNotInjected;
+      }
+      // 🔴 NR-279 — the watchdog's 「no answer」 while the queue still owes the
+      // row is not a final failure; see [DeliveryFace.noAnswerYet]. Tested
+      // after every arm that reads a code the COMPUTER or RELAY wrote, so a
+      // real answer always wins over the phone's own timeout code.
+      if (owed && entry.failureReason == kRowNoResultCode) {
+        return DeliveryFace.noAnswerYet;
       }
       // ── 🔴 Card F12 (M4-15) — A ROW THE QUEUE STILL OWES MUST NOT WEAR A
       //    TERMINAL WORD ───────────────────────────────────────────────────────
@@ -576,6 +639,31 @@ StatusMeta deliveryFaceMeta(DeliveryFace face, AppStrings strings) {
       return StatusMeta(FlowMicColors.red, null, '⛔', strings.statusRefused);
     case DeliveryFace.failed:
       return StatusMeta(FlowMicColors.red, null, '✗', strings.statusFailed);
+    case DeliveryFace.noAnswerYet:
+      // 🔴 NR-279 — THE SWAP POINT (owner 2026-10-19 reopens ruling ⑩: this
+      // state gets a 「no answer yet」-style word, nine languages from Gemini).
+      // ✅ NR-280 (2026-10-19): the word has landed — `statusNoAnswerYet`
+      // (chat_strings.dart). The sentence that stood here, 「Colour and glyph
+      // are still [failed]'s: nobody has ruled on them」, is superseded:
+      //
+      // 🔴 NR-280 follow-up (MAIN 2026-10-19) — AMBER ⏳, the 「pending」
+      // family, NOT red ✗. The word now says 「Pending · no answer yet」 and
+      // the queue still owes and retries the item; a red ✗ beside it is a
+      // failure signal about a delivery nobody has given up on (R11: the
+      // glyph and colour are part of what the row claims). ⏳ is
+      // [delivering]'s glyph on purpose: its fact is literally this one's —
+      // 「the frame went out and no verdict has come back」 — and the two
+      // are told apart by the word, which is the channel that carries the
+      // difference (a watchdog gave up waiting vs. still inside the wait).
+      // The resend link follows this colour (chat_message_tile.dart
+      // `faceMeta.color`). Pinned at render level by
+      // row_no_result_note_test.dart 「pending family」.
+      return StatusMeta(
+        FlowMicColors.amber,
+        null,
+        '⏳',
+        strings.statusNoAnswerYet,
+      );
     case DeliveryFace.injectionUncertain:
       return StatusMeta(
         FlowMicColors.amber,

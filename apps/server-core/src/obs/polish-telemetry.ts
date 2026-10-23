@@ -10,6 +10,7 @@ import type { SelectedLlmConfig } from '../compose/llm-config';
 export function guardFamily(reason?: string): string {
   if (reason?.startsWith('closed-class-drift:')) return 'closed_class';
   if (reason?.startsWith('dict-term-drift:')) return 'dict';
+  if (reason?.startsWith('language-drift:')) return 'language';
   return ({ 'edit-distance-exceeded': 'edit', 'length-ratio-exceeded': 'length',
     'han-count-exceeded': 'han', 'open-class-delta-exceeded': 'open_class' } as Record<string, string>)[reason ?? ''] ?? 'none';
 }
@@ -45,6 +46,9 @@ function recordPolishGuard(raw: string, polished: string, guard: GuardResult, de
     open_class_k: m?.openClassK ?? null, strength: deps.strength ?? 'strict', lang: baseLanguage(deps.language),
     v2_verdict: shadow === null ? null : shadow.ok ? 'ok' : 'reject', v2_family: skipped ? 'skipped_len' : shadow === null ? null : guardFamily(shadow.reason),
     v2_explained: shadow?.explained ?? null,
+    // NR-245: accepted against a reading with an explicit self-correction
+    // applied (smooth only). A boolean, never text.
+    self_correction: guard.selfCorrection === true,
   });
 }
 

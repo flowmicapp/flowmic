@@ -32,6 +32,7 @@ import type { UsageTracker, EngineUsageMeta, MeteredPrincipalRef } from '../bill
 import type { SttCharCounts, SttEngineFailure } from '../engine/stt-session-deps';
 import { logNotCharged } from '../engine/stt-engine-failure';
 import type { ClaimBinding } from '../db/repos/usage-effects.repo';
+import type { RecordingCoverageRef } from '../db/repos/recording-coverage.repo';
 import type { UsageEventKind } from '../db/repos/usage-events.repo';
 import type { ReplicaOutbox } from '../db/replica-outbox';
 import type { ForwardedWrite } from './forwarded-write';
@@ -74,12 +75,28 @@ import type { UsageEffectKind } from '../db/repos/usage-effects.repo';
  * Components are percent-encoded so a `|` or a `:` inside an id cannot make two
  * different tuples spell the same string — the whole value of a deterministic
  * key is that it is injective.
+ *
+ * 🔴 NR-151 — `attempt_id` IS IN THE ID WHEN THE FRAME CARRIED ONE. Without it,
+ * every automatic retry of one recording (the phone derives ONE operation for
+ * all of them and mints a fresh `a-…` attempt each time —
+ * apps/mobile/lib/src/session/recovery_leg_attempt.dart `RecoveryIdentity.forAttempt`)
+ * spelled the same id, so the writer's `forward-ledger.once` answered
+ * 「duplicate」 for every replay inside its 7-day retention and the replay never
+ * reached `usage_effects` — the NR-138 bound (≤ billed + max(1 s, 2%), at most
+ * five free) was skipped on this leg: free at any length, any number of times.
+ * With the attempt in the id each replay reaches the writer's claim and is
+ * charged exactly as a direct one. Transport dedupe is unchanged for what it is
+ * for: a lost-ack retry re-sends the record the outbox stored, under the id it
+ * was stored with. No attempt ⇒ the old spelling, byte for byte (an older phone,
+ * and every record already sitting in an outbox from before this change).
+ * Pinned by test/replica-replay-bound.test.ts.
  */
 export function operationRecordId(
-  user_id: string, operation_id: string, kind: UsageEffectKind, is_byok: boolean,
+  user_id: string, operation_id: string, kind: UsageEffectKind, is_byok: boolean, attempt_id?: string,
 ): string {
   return `op|${encodeURIComponent(user_id)}|${encodeURIComponent(operation_id)}|${kind}`
-    + `|${is_byok ? 'byok' : 'platform'}`;
+    + `|${is_byok ? 'byok' : 'platform'}`
+    + (attempt_id === undefined || attempt_id === '' ? '' : `|a=${encodeURIComponent(attempt_id)}`);
 }
 
 export interface ForwardingTrackerDeps {
@@ -113,6 +130,7 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
     recordSttUsage(
       user_id: string, engine: EngineUsageMeta, duration_ms: number, chars: SttCharCounts,
       principal: MeteredPrincipalRef, operation_id?: string, failure?: SttEngineFailure, binding?: ClaimBinding,
+      attempt_id?: string, coverage?: RecordingCoverageRef,
     ): void {
       // NR-138 item 5 (book 22 §4.10) — not charged ⇒ nothing is owed to the writer: no debit, no claim, no row.
       // This obeys the bridge's verdict; it does not re-derive any billing predicate (the rule above still holds).
@@ -141,14 +159,16 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
           // NR-138 round 6 (book 22 §4.11) — the frame's binding travels with the operation, so the writer's claim
           // stores it and a later replay is compared against it. Without it the writer's claim would be unbound.
           ...(operation_id === undefined || binding === undefined ? {} : { operation_binding: binding }),
+          // NR-224 — measured HERE, on the node that received the audio; the writer settles it against the recording.
+          ...(coverage === undefined ? {} : { coverage }),
         },
         operation_id === undefined ? undefined
-          : operationRecordId(user_id, operation_id, 'stt', engine.is_byok),
+          : operationRecordId(user_id, operation_id, 'stt', engine.is_byok, attempt_id),
       );
     },
     recordLlmUsage(
       user_id: string, engine: EngineUsageMeta, tokens_in: number, tokens_out: number,
-      principal: MeteredPrincipalRef, operation_id?: string, binding?: ClaimBinding,
+      principal: MeteredPrincipalRef, operation_id?: string, binding?: ClaimBinding, attempt_id?: string,
     ): void {
       owe(
         {
@@ -162,7 +182,7 @@ export function makeForwardingUsageTracker(deps: ForwardingTrackerDeps): UsageTr
           ...(operation_id === undefined || binding === undefined ? {} : { operation_binding: binding }),
         },
         operation_id === undefined ? undefined
-          : operationRecordId(user_id, operation_id, 'llm', engine.is_byok),
+          : operationRecordId(user_id, operation_id, 'llm', engine.is_byok, attempt_id),
       );
     },
     recordQuotaRefusal(

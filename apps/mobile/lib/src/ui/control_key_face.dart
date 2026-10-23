@@ -89,7 +89,16 @@ class ControlKeyRefusal {
 /// as well rather than inventing a second word for the same place. If the phone
 /// ever really pairs with a page, this is one of the strings that has to change
 /// — registered here rather than discovered then.
+///
+/// 🔴 `INJECT_TARGET_ELEVATED` IS ANSWERED BEFORE THE GENERIC CODE LOOKUP
+/// (NR-267-B). [AppStrings.injectVerdictNote] is the TEXT-path sentence for a
+/// code and ends with 「the text is on the computer's timeline」; a key press
+/// leaves no row there, so for a key that clause is false. The key gets its own
+/// sentence naming the key. Pinned by `control_key_refusal_notice_test.dart`.
 String controlKeyRefusalText(AppStrings strings, ControlKeyRefusal refusal) {
+  if (refusal.errorCode == 'INJECT_TARGET_ELEVATED') {
+    return strings.controlKeyRefusedElevated(controlKeyLabel(strings, refusal.kind));
+  }
   final String? named = refusal.errorCode == null ? null : strings.injectVerdictNote(refusal.errorCode!);
   if (named != null) return named;
   final String key = controlKeyLabel(strings, refusal.kind);

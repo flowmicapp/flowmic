@@ -374,40 +374,23 @@ pub fn synthetic_input_verdict(facts: SyntheticInputFacts) -> Option<InjectOutco
 
 /// Read the two facts off the OS and judge. macOS only.
 ///
-/// ⚠️ ON WINDOWS THIS IS ALWAYS `None`. That is a deliberate position, but the
-/// sentence that used to justify it was an unmeasured assertion, so it is written
-/// out honestly here rather than stated as platform fact.
+/// ⚠️ ON WINDOWS THIS IS ALWAYS `None` — but NOT because Windows never swallows
+/// synthetic input. 🔴 【measured 2026-10-16】 It does: a Medium-integrity FlowMic
+/// typing (`SendInput`) or pasting (`Ctrl+V`) into a High-integrity window is
+/// dropped by UIPI with NO error from any API — FlowMic answered `ok=true`, the box
+/// stayed empty, 5 of 5 trials (`docs/strategy/2026-10-16-msix-sendinput-spike.md`
+/// §3.2, NC3/NC4). This paragraph used to say 【unverified】 and give the reasons
+/// it had never been measured (owner's machine runs everything at High, and UIPI
+/// does not guard between equals); that question is now closed.
 ///
-/// 🔴 【unverified】 **We have never measured whether a UIPI-blocked `SendInput` is
-/// silent.** The old wording ("Win32 has no OS mode that swallows `SendInput`
-/// silently") asserted behaviour of the platform that nobody here has observed —
-/// anti-façade rule ④: an assertion about behaviour elsewhere does not change when the
-/// facts do, and a reader who believes it stops asking. This one is load-bearing:
-/// it decides whether we can honestly tell the user 「系统拦住了」 ("the system
-/// blocked it") instead of
-/// reporting a success that never landed (R11).
-///
-/// 🔴 **The one adjacent measurement must NOT be read across.** IJ-04 measured that
-/// `SendMessage` from a Medium-integrity sender into a High-integrity target fails
-/// *visibly* (returns 0, `GetLastError()` = 5 / `ERROR_ACCESS_DENIED`). **That says
-/// nothing about `SendInput`** — different API, different mechanism, and the fact
-/// that they may differ is the entire reason this question is still open. Borrowing
-/// that result would be inventing an answer nobody has, which is what the previous
-/// wording did in the other direction.
-///
-/// **Why it is still unmeasured** (owner 2026-08-07 cancelled the spike, and the
-/// reasoning is worth keeping): on owner's machine the situation cannot arise —
-/// FlowMic and the target both run at High integrity, and **UIPI does not guard
-/// between equals**; producing a block would require de-elevating on purpose, so
-/// the spike would have measured *the ordinary user's* configuration, not owner's.
-/// And the half that actually affects users has a cheaper answer: on the next
-/// real-device round, speak one sentence into the elevated editor and see whether
-/// the characters arrive.
-///
-/// **Closing action** (does not need owner's hardware): run the Medium-sender →
-/// High-target probe on any ordinary, non-elevated machine.
-/// Context: `docs/decisions/2026-08-03-f1b-injected-means-delivered-not-landed.md`
-/// §6-5 — only the READ half was ever falsified.
+/// The Windows check does not live HERE because it is not machine-wide like
+/// Secure Input: it depends on WHICH window is the target, so it runs per frame
+/// with the locked window — `inject/uipi.rs` `uipi_preflight`, pinned by
+/// `uipi_tests.rs` `the_measured_medium_to_high_case_blocks_input`.
+/// ⚠️ IJ-04's adjacent finding (`SendMessage` Medium→High fails VISIBLY with
+/// `ERROR_ACCESS_DENIED`) is still not evidence about `SendInput`; the 2026-10-16
+/// rig also found `WM_NULL` / `WM_GETTEXTLENGTH` pass UIPI while `WM_USER` is
+/// denied, so even the message half depends on the message.
 // 🔴 WHY THIS LIVES IN `inject`, NOT IN `shell::accessibility` WHERE IT IS ALSO USED.
 // `shell` is `#[cfg(feature = "app")] pub mod` (lib.rs) so that `cargo test` never
 // drags in wry/webview2. This file is NOT feature-gated, so reaching into

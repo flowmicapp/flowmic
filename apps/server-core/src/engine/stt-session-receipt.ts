@@ -75,6 +75,30 @@ export function recoveryEchoOf(start: {
   return Object.keys(echo).length === 0 ? undefined : echo;
 }
 
+/**
+ * Card SEG-1b — is this `audio:start` a RECOVERY leg (the phone re-feeding audio
+ * it owes), as opposed to a person pressing the button right now?
+ *
+ * 🔴 NOT 「did the frame carry recovery identifiers」. Since card LS-1b every live
+ * press from a phone with first-frame retention on (the default since RC-1,
+ * `kRetainFromFirstFrameDefault`, apps/mobile/lib/src/audio/retained_audio_boot.dart)
+ * names its recording too — `liveStartFields` in
+ * apps/mobile/lib/src/session/recovery_identity.dart sends `recording_id`,
+ * `attempt_id`, `attempt_kind:'live'` and `range_start_sample:0`. So
+ * [[recoveryEchoOf]] is defined for EVERY press of such a phone, and reading it
+ * as 「this is a recovery leg」 put every live press of 0.3.107 on the recovery
+ * contract (SEG-1b, device check 2026-10-13: no soft segment ever polished).
+ * The phone states which one it is in `attempt_kind`; that is the answer.
+ *
+ * Fail-closed in the one ambiguous case: identifiers WITHOUT `attempt_kind`
+ * (no producer sends that today — `RecoveryIdentity.toStartFields` always
+ * stamps it) is treated as a recovery leg, the direction that keeps a re-fed
+ * long recording off the per-segment LLM path.
+ */
+export function isRecoveryLeg(start: Parameters<typeof recoveryEchoOf>[0] & { attempt_kind?: string }): boolean {
+  return recoveryEchoOf(start) !== undefined && start.attempt_kind !== 'live';
+}
+
 /** Everything the tally needs that it does not own itself. */
 export interface CoverageReceiptInput {
   /** The run's own counters: gaps and engine-leg rollovers.

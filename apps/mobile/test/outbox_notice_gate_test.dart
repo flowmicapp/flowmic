@@ -85,6 +85,7 @@ DeliveryOutbox _box(_Host host) => DeliveryOutbox(
       store: newTestOutboxStore(),
       blobs: newTestOutboxBlobs(),
       host: host,
+      retryLinkUp: () => false,
     );
 
 Future<OutboxItem?> _enqueue(DeliveryOutbox box, String id) => box.enqueueText(
@@ -321,10 +322,13 @@ void main() {
 
         unawaited(_enqueue(box, 'r-1'));
         async.flushMicrotasks();
+        // NR-286: the enqueue also arms the queue's 45 s first-attempt
+        // guard, so two timers; both must go with the queue.
         expect(
           async.pendingTimers,
-          hasLength(1),
-          reason: 'positive control: the grace wake-up really was armed',
+          hasLength(2),
+          reason: 'positive control: the grace wake-up really was armed '
+              '(beside the NR-286 first-attempt guard)',
         );
 
         box.dispose();

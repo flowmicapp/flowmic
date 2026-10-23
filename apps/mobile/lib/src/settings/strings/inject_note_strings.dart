@@ -143,6 +143,14 @@ mixin InjectNoteStrings on AppStringsLeaves {
         return _lfInjectVerdictNote_INJECT_DISPLAY_UNAVAILABLE;
       case 'INJECT_SUBMISSION_UNCERTAIN':
         return _lfInjectVerdictNote_INJECT_SUBMISSION_UNCERTAIN;
+      // Windows (2026-10-16): the window in front runs above FlowMic's integrity
+      // level (`inject/uipi.rs` `refusal_for`, before Stage 1). `mode:'cached'`
+      // ⇒ the pill already says 「delivered · not injected」; this sentence only
+      // says why. It states the fact and gives NO instruction: the queue settles
+      // it terminal, and advising the user to run FlowMic as administrator is a
+      // security trade-off that is not ours to nudge (MAIN 2026-10-16).
+      case 'INJECT_TARGET_ELEVATED':
+        return _lfInjectVerdictNote_INJECT_TARGET_ELEVATED;
       default:
         return null;
     }
@@ -399,6 +407,13 @@ mixin InjectNoteStrings on AppStringsLeaves {
       // `cached` / `INJECT_DEFERRED_NOT_AUTOINJECTED` (owner 2026-08-02).
       // Promising automatic delivery without it would leave the reader
       // expecting text to appear on the PC by itself.
+      // ⚠️ CORRECTION (NR-279, 2026-10-19): until 0.3.115 the stamp above was
+      // `deferred` only once the item was older than `kLiveDeliveryWindow`
+      // (60 s); a PC back sooner TYPED the text, contradicting this clause.
+      // Now the verdict that selects this sentence also stamps the item
+      // (`kDeferPromiseCodes`, `OutboxItem.deferPromisedAt`) and every later
+      // automatic attempt is `deferred` regardless of age — pinned by
+      // test/outbox_defer_promise_test.dart.
       // ⚠️ It is written in everyday words on purpose — **no inject-leg
       // vocabulary** (doc 15 §2.0): this stretch answers 「did it get
       // delivered」, and the ban is pinned per language in

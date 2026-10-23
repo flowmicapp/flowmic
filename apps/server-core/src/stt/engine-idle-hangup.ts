@@ -38,18 +38,40 @@ export interface IdleHangupHooks {
   voiceOwed(): boolean;
 }
 
+/** card IDLE-1 — 'silence': `idleMs` of gate-refused audio was received; 'wall':
+ *  the backstop fired (no audio handed to the vendor for `wallBackstopMs`). */
+export type IdleHangupTrigger = 'silence' | 'wall';
+
 export class EngineIdleHangup {
   private timer: unknown = null;
   private hangUpWork: Promise<void> | null = null;
   private dialWork: Promise<void> | null = null;
   private hungUp = false;
+  /** card IDLE-1 — gate-refused audio received since the leg last heard voice (ms of AUDIO, not of clock). */
+  private silentMs = 0;
+  private trigger: IdleHangupTrigger = 'silence';
 
+  /**
+   * @param idleMs card IDLE-1 — the hang-up threshold, in ms of SILENCE IN THE
+   *   RECEIVED AUDIO (see {@link noteChunk}). `0` = never hang up.
+   * @param wallBackstopMs card IDLE-1 — a wall-clock cap on how long a leg may go
+   *   without being handed audio, for the case no chunk arrives at all (an uplink
+   *   stall, `audio:pause`). `0` = none. It is not a second opinion on silence: it
+   *   exists because the VENDOR closes a socket that hears nothing (Soniox: 22.2 s
+   *   measured, `packages/stt-cloud/src/engines/soniox.ts` flush doc 「22-second idle
+   *   close」), and that close would come back through the reconnect ladder as a
+   *   drop — the F-5 shape {@link beginHangUp} exists to avoid.
+   */
   constructor(
     private readonly hooks: IdleHangupHooks,
     private readonly idleMs: number,
     private readonly _setTimeout: (fn: () => void, ms: number) => unknown,
     private readonly _clearTimeout: (handle: unknown) => void,
+    private readonly wallBackstopMs = 0,
   ) {}
+
+  /** card IDLE-1 — what fired the hang-up in flight / last run, for the `stt.cut` line. */
+  get lastTrigger(): IdleHangupTrigger { return this.trigger; }
 
   /** True from a silence hang-up until a dial is under way. It is the ONLY thing
    *  that tells 「we hung up on purpose」 from 「the leg died」, and nothing outside
@@ -66,12 +88,52 @@ export class EngineIdleHangup {
    *  free to prune the silence. The debt begins when a dial does. */
   get isDialing(): boolean { return this.dialWork !== null; }
 
-  /** (Re)start the countdown. Called wherever audio is actually handed to the
-   *  vendor, i.e. wherever the answer to "whether anyone is speaking" changes. */
+  /** (Re)start the wall-clock backstop. Called wherever audio is actually handed
+   *  to the vendor, i.e. wherever the answer to "whether anyone is speaking"
+   *  changes. A leg's BIRTH calls {@link legBorn} instead (it also zeroes the count).
+   *
+   *  🔴 card IDLE-1 — this used to start a WALL-CLOCK timer of `idleMs`, so a
+   *  stalled uplink (no chunk at all) read exactly like 3 s of silence: 9 of 11
+   *  natural mid-press hang-ups in production were stalls (decision record in the
+   *  SPEC-REF of `test/stt-idle-hangup-audio-silence.test.ts`). The silence is now
+   *  counted by {@link noteChunk}; only the backstop is a timer. */
   arm(): void {
     if (this.idleMs <= 0) return;
     this.clear();
-    this.timer = this._setTimeout(() => { this.beginHangUp(); }, this.idleMs);
+    if (this.wallBackstopMs > 0) this.timer = this._setTimeout(() => { this.beginHangUp('wall'); }, this.wallBackstopMs);
+  }
+
+  /** card IDLE-1 — a leg was just born (all four ways, `orchestrator-core.ts`
+   *  `spawnEngine`): it has heard nothing yet, so the count starts from zero there,
+   *  as the old timer did. */
+  legBorn(): void {
+    this.silentMs = 0;
+    this.arm();
+  }
+
+  /**
+   * card IDLE-1 — one received chunk, with the gate's one reading of it. The count
+   * is the AUDIO received since the last voiced chunk BEGAN (so a voiced chunk sets
+   * it to its own length, a refused one adds its length), and reaching `idleMs`
+   * hangs the leg up. A chunk that never arrives adds nothing: that is the fix.
+   *
+   * ⚠️ 「since it BEGAN」, not 「since it ended」, is chosen to keep the moment the
+   * old wall-clock timer fired under a steady stream: it was armed when the voiced
+   * chunk ARRIVED, i.e. at its start, so it fired one chunk before 「idleMs of
+   * refused audio」. Counting from the end moved the long-recording hang-up one
+   * chunk later, where RC-E's word-gap arm ends the row first — measured red in
+   * `test/stt-continuous-silence-cut.test.ts` 「row age ~23 s」.
+   *
+   * Called once per chunk from `orchestrator-core.ts` `pushChunk`, after the cut
+   * decision (a cut that started a rollover makes the leg busy and this declines;
+   * the next refused chunk asks again).
+   */
+  noteChunk(voiced: boolean, ms: number): void {
+    if (this.idleMs <= 0) return;
+    if (voiced) { this.silentMs = ms; return; }
+    if (!this.hooks.hasEngine()) return;
+    this.silentMs += ms;
+    if (this.silentMs >= this.idleMs) this.beginHangUp('silence');
   }
 
   clear(): void {
@@ -139,14 +201,16 @@ export class EngineIdleHangup {
    * optimisation. The composition is pinned by a test of its own
    * (`stt-idle-hangup.test.ts`).
    */
-  private beginHangUp(): void {
+  private beginHangUp(trigger: IdleHangupTrigger): void {
     if (this.hooks.isSettling() || !this.hooks.hasEngine()) return;
     if (this.hooks.isLegBusy() || this.hangUpWork !== null) return;
+    this.trigger = trigger;
     this.hangUpWork = this.hangUp().finally(() => { this.hangUpWork = null; });
   }
 
   private async hangUp(): Promise<void> {
     this.clear();
+    this.silentMs = 0;
     await this.hooks.flushAndCloseLeg();
     this.hungUp = true;
     // 🔴 card HANGUP-1 — the user started talking while this flush was out, so

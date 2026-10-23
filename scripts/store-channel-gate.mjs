@@ -22,7 +22,10 @@
 //
 //   1. the self-update marker is ABSENT (byte scan, with the same control
 //      marker so a blind scan cannot masquerade as a pass);
-//   2. `REQUEST_INSTALL_PACKAGES` is not declared.
+//   2. `REQUEST_INSTALL_PACKAGES` is not declared;
+//   3. (NR-297, 2026-10-20) the in-app link to the web billing page is ABSENT
+//      — same byte scan, same control marker. Markers, rationale and the
+//      measurement are in `store-billing-link-marker.mjs`.
 //
 // (1) without (2) would pass an artifact that declares a restricted permission
 // Play reviews whether or not any code uses it. (2) without (1) would pass one
@@ -164,6 +167,10 @@ import {
   countMarker,
 } from './apk-self-update-marker.mjs';
 import { findAaptForGates } from './publish-apk-gates.mjs';
+import {
+  STORE_BILLING_LINK_MARKER,
+  billingLinkRefusal,
+} from './store-billing-link-marker.mjs';
 
 /** The permission Play forbids for our use case, and the one the store flavour
  *  exists to leave out. Declared here as data so the drill can assert on the
@@ -181,13 +188,15 @@ export const STORE_FORBIDDEN_PERMISSION =
 export function scanStoreArtifact(buf) {
   const control = countMarker(buf, APK_CONTROL_MARKER);
   const feature = countMarker(buf, APK_SELF_UPDATE_MARKER);
+  // NR-297: counted in the same pass; judged separately in judgeStoreFacts.
+  const billing = countMarker(buf, STORE_BILLING_LINK_MARKER);
   // 'blind' first, exactly as in the sibling gate: a scan that cannot see
   // anything must never be reported as "clean". Absence of evidence is what
   // this whole gate is looking for, so a blind scan would otherwise be its
   // most confident pass.
-  if (control === 0) return { control, feature, verdict: 'blind' };
-  if (feature > 0) return { control, feature, verdict: 'carries-self-update' };
-  return { control, feature, verdict: 'ok' };
+  if (control === 0) return { control, feature, billing, verdict: 'blind' };
+  if (feature > 0) return { control, feature, billing, verdict: 'carries-self-update' };
+  return { control, feature, billing, verdict: 'ok' };
 }
 
 /**
@@ -385,21 +394,23 @@ export function isShippedModuleEntry(name) {
 export function scanStoreBundle(buf, entries) {
   let control = 0;
   let feature = 0;
+  let billing = 0;
   try {
     for (const e of entries) {
       if (!isShippedModuleEntry(e.name)) continue;
       const bytes = inflateZipEntry(buf, e);
       control += countMarker(bytes, APK_CONTROL_MARKER);
       feature += countMarker(bytes, APK_SELF_UPDATE_MARKER);
+      billing += countMarker(bytes, STORE_BILLING_LINK_MARKER);
     }
   } catch (e) {
     // Distinct from 'blind': blind means "read it, saw nothing"; this means
     // "could not read it". Two causes, two things to do about them.
-    return { control, feature, verdict: 'unreadable', detail: e.message };
+    return { control, feature, billing, verdict: 'unreadable', detail: e.message };
   }
-  if (control === 0) return { control, feature, verdict: 'blind' };
-  if (feature > 0) return { control, feature, verdict: 'carries-self-update' };
-  return { control, feature, verdict: 'ok' };
+  if (control === 0) return { control, feature, billing, verdict: 'blind' };
+  if (feature > 0) return { control, feature, billing, verdict: 'carries-self-update' };
+  return { control, feature, billing, verdict: 'ok' };
 }
 
 // ── the protobuf half: aapt2 cannot read a bundle manifest, varints can ─────
@@ -583,6 +594,17 @@ export function judgeStoreFacts(scan, perms) {
         '--dart-define=FLOWMIC_SELF_UPDATE — see apps/mobile/Makefile `release-store`.',
     );
   }
+  // NR-297. Only judged when the scan could see the payload (blind/unreadable
+  // already refused above, and a count from a blind scan means nothing). A
+  // scan result WITHOUT a billing count is refused rather than read as zero:
+  // an unasked question is not a clean answer.
+  if (scan.verdict === 'ok' || scan.verdict === 'carries-self-update') {
+    if (typeof scan.billing !== 'number') {
+      problems.push('the billing-link half was never scanned (no count) — refusing.');
+    } else if (scan.billing > 0) {
+      problems.push(billingLinkRefusal(scan.billing, 'release-store'));
+    }
+  }
   if (perms.reason === 'no-tool') {
     problems.push(
       'permissions could not be read: no aapt/aapt2 on this machine. This gate ' +
@@ -644,7 +666,7 @@ function main(argv) {
     // not have to reconstruct which file was measured.
     console.log(
       `OK  ${name} is a store ${detected.kind.toUpperCase()}: no self-updater ` +
-        `(control ${verdict.scan.control} hit(s), feature 0), ` +
+        `(control ${verdict.scan.control} hit(s), feature 0), no billing link, ` +
         `${verdict.perms.permissions.length} permission(s), none of them ` +
         `${STORE_FORBIDDEN_PERMISSION}`,
     );

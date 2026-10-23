@@ -441,7 +441,8 @@ export function sonioxAdapter(config = {}) {
     },
     transcribe: (pcm, seg) => new Promise((resolveP) => {
       const WebSocket = wsRequire('ws');
-      const ws = new WebSocket(SONIOX_URL);
+      // NR-178: auth on the upgrade header, never in the config frame.
+      const ws = new WebSocket(SONIOX_URL, { headers: { Authorization: `Bearer ${apiKey}` } });
       /** @type {{t:number, dir:string, v:unknown}[]} */
       const trace = [];
       let lastAudioAt = null;
@@ -487,7 +488,6 @@ export function sonioxAdapter(config = {}) {
 
       ws.on('open', async () => {
         ws.send(JSON.stringify({
-          api_key: apiKey,
           model,
           audio_format: 'pcm_s16le',
           num_channels: 1,

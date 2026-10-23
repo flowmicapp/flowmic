@@ -1,0 +1,105 @@
+{"id":"rv-es-pf-drop","lang":"es","kind":"refuse","label":"harmful","input":"Este es el punto final de la reunión","output":"Este es el punto de la reunión","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pf-inicial","lang":"es","kind":"refuse","label":"harmful","input":"Este es el punto final de la reunión","output":"Este es el punto inicial de la reunión","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pf-partida","lang":"es","kind":"refuse","label":"harmful","input":"Llegamos al punto final del recorrido","output":"Llegamos al punto de partida del recorrido","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pf-medio","lang":"es","kind":"refuse","label":"harmful","input":"Llegamos al punto final del recorrido","output":"Llegamos al punto medio del recorrido","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pf-idiom-drop","lang":"es","kind":"refuse","label":"harmful","input":"Hay que poner punto final a esta discusión","output":"Hay que poner punto a esta discusión","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pf-seguido","lang":"es","kind":"refuse","label":"harmful","input":"Hay que poner punto final a esta discusión","output":"Hay que poner punto y seguido a esta discusión","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pf-num","lang":"es","kind":"refuse","label":"harmful","input":"El punto final es el capítulo 3","output":"El punto inicial es el capítulo 3","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pf-num2","lang":"es","kind":"refuse","label":"harmful","input":"El punto final es el capítulo 3","output":"El punto final es el capítulo 4","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-admir","lang":"es","kind":"refuse","label":"harmful","input":"Es un signo de admiración hacia su trabajo","output":"Es un signo de exclamación hacia su trabajo","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-admir-drop","lang":"es","kind":"refuse","label":"harmful","input":"Es un signo de admiración hacia su trabajo","output":"Es un signo hacia su trabajo","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-comillas-swap","lang":"es","kind":"refuse","label":"harmful","input":"La tienda abre comillas incluidas","output":"La tienda cierra comillas incluidas","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-linea-unacc","lang":"es","kind":"refuse","label":"harmful","input":"Lanzamos una nueva linea de productos","output":"Lanzamos un nuevo parrafo de productos","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pdv","lang":"es","kind":"refuse","label":"harmful","input":"Desde mi punto de vista no está listo","output":"Desde mi vista no está listo","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pf-kept","lang":"es","kind":"accept","label":"neutral","input":"Este es el punto final de la reunión","output":"Este es el punto final de la reunión.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-es-coma-medical","lang":"es","kind":"refuse","label":"harmful","input":"El paciente sigue en coma desde ayer","output":"El paciente sigue desde ayer","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-colon-en","lang":"es","kind":"accept","label":"neutral","input":"Visitamos la ciudad de Colon en Panamá","output":"Visitamos la ciudad de Colón en Panamá.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-de-anf-oben-unten","lang":"de","kind":"refuse","label":"harmful","input":"Die Anführungszeichen oben fehlen","output":"Die Anführungszeichen unten fehlen","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-de-anf-oben-drop","lang":"de","kind":"refuse","label":"harmful","input":"Die Anführungszeichen oben fehlen","output":"Die Anführungszeichen fehlen","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-de-klammer-tasse","lang":"de","kind":"refuse","label":"harmful","input":"Er legte die Klammer auf den Tisch","output":"Er legte die Tasse auf den Tisch","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-de-klammer-zu-auf","lang":"de","kind":"refuse","label":"harmful","input":"Mach die Klammer zu","output":"Mach die Klammer auf","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-de-strich","lang":"de","kind":"refuse","label":"harmful","input":"Der Strichpunkt fehlt hier","output":"Der Punkt fehlt hier","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-de-punkt3","lang":"de","kind":"refuse","label":"harmful","input":"Siehe Punkt 3 im Vertrag","output":"Siehe Punkt 4 im Vertrag","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-de-punkt3-drop","lang":"de","kind":"refuse","label":"harmful","input":"Siehe Punkt 3 im Vertrag","output":"Siehe 3 im Vertrag","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-de-quote-end","lang":"de","kind":"accept","label":"neutral","input":"Wir haben eine hohe Quote","output":"Wir haben eine hohe Quote.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-de-quote-rel","lang":"de","kind":"accept","label":"neutral","input":"Die Quote die wir hatten ist gestiegen","output":"Die Quote, die wir hatten, ist gestiegen.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-de-quote-plural","lang":"de","kind":"accept","label":"neutral","input":"Die Quote sind gestiegen","output":"Die Quoten sind gestiegen.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-de-quote-mid","lang":"de","kind":"accept","label":"neutral","input":"Die Quote liegt bei fünf Prozent","output":"Die Quote liegt bei fünf Prozent.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-de-quote-drop","lang":"de","kind":"refuse","label":"harmful","input":"Die Quote liegt bei fünf Prozent","output":"Die liegt bei fünf Prozent.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-guill-swap","lang":"fr","kind":"refuse","label":"harmful","input":"Il dit ouvre les guillemets bonjour","output":"Il dit ferme les guillemets bonjour","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-ferme-paren-idiom","lang":"fr","kind":"refuse","label":"harmful","input":"Je ferme la parenthèse et je reviens au sujet","output":"Je ) et je reviens au sujet","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-ferme-paren-idiom-kept","lang":"fr","kind":"accept","label":"neutral","input":"Je ferme la parenthèse et je reviens au sujet","output":"Je ferme la parenthèse et je reviens au sujet.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-fr-point-neg","lang":"fr","kind":"refuse","label":"harmful","input":"Ce n est point vrai du tout","output":"Ce n est vrai du tout","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-point-3","lang":"fr","kind":"refuse","label":"harmful","input":"Voir le point 3 du contrat","output":"Voir le point 4 du contrat","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-colon","lang":"fr","kind":"accept","label":"neutral","input":"Le colon est arrivé hier","output":"Le colon est arrivé hier.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-fr-colon-end","lang":"fr","kind":"accept","label":"neutral","input":"Hier est arrivé un colon","output":"Hier est arrivé un colon.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-fr-quotepart","lang":"fr","kind":"accept","label":"neutral","input":"Chacun paie sa quote-part","output":"Chacun paie sa quote-part.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-fr-quotepart-syn","lang":"fr","kind":"noun_synonym","label":"harmful","input":"Chacun paie sa quote-part","output":"Chacun paie sa part.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-en-period-drop","lang":"fr","kind":"refuse","label":"harmful","input":"Dans le README the period is missing","output":"Dans le README the is missing","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-next-new","lang":"en","kind":"refuse","label":"harmful","input":"Delete the next line","output":"Delete the new line","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-next-newpara","lang":"en","kind":"refuse","label":"harmful","input":"Delete the next line","output":"Delete the new paragraph","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-newline-next","lang":"en","kind":"refuse","label":"harmful","input":"Strip the newline from the output","output":"Strip the next line from the output","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-next-drop","lang":"en","kind":"refuse","label":"harmful","input":"Comment out the next line","output":"Comment out the line","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-begin-stop","lang":"en","kind":"refuse","label":"harmful","input":"Please begin quote approvals today","output":"Please stop quote approvals today","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-end-drop","lang":"en","kind":"refuse","label":"harmful","input":"Please end quote approvals today","output":"Please quote approvals today","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-end-start","lang":"en","kind":"refuse","label":"harmful","input":"Read the end quote aloud","output":"Read the start quote aloud","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-begin-end","lang":"en","kind":"refuse","label":"harmful","input":"Let us begin quote review now","output":"Let us end quote review now","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-trial-period","lang":"en","kind":"refuse","label":"harmful","input":"The trial period ends on Friday","output":"The trial ends on Friday","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-get-quote","lang":"en","kind":"noun_synonym","label":"harmful","input":"Get a quote from the vendor","output":"Get a price from the vendor","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-newline-product","lang":"en","kind":"refuse","label":"harmful","input":"Our New Line collection launches Monday","output":"Our collection launches Monday","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-period-3","lang":"en","kind":"refuse","label":"harmful","input":"The grace period is 3 days","output":"The grace period is 30 days","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-colon-num","lang":"en","kind":"accept","label":"neutral","input":"Meet at 4 colon 30 tomorrow","output":"Meet at 4:30 tomorrow","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-en-colon-num-bad","lang":"en","kind":"refuse","label":"harmful","input":"Meet at 4 colon 30 tomorrow","output":"Meet at 4:40 tomorrow","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-comma-not","lang":"en","kind":"refuse","label":"harmful","input":"I do not agree comma sorry","output":"I agree, sorry","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-zh-quote-end","lang":"zh","kind":"accept","label":"neutral","input":"我需要一个 quote","output":"我需要一个 quote。","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-zh-quote-comma","lang":"zh","kind":"accept","label":"neutral","input":"这个 quote 明天给我","output":"这个 quote，明天给我。","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-zh-dash","lang":"zh","kind":"accept","label":"neutral","input":"打开 dash 看一下数据","output":"打开 dash，看一下数据。","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-zh-endquote-drop","lang":"zh","kind":"refuse","label":"harmful","input":"请检查 README the end quote is missing","output":"请检查 README the is missing","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-zh-comma-conv-han","lang":"zh","kind":"refuse","label":"harmful","input":"他写了 hello comma world 我们明天去北京开会","output":"他写了 hello, world 我们后天去上海开会","expect":{"strict":"refuse"}}
+{"id":"rv-zh-newline-none","lang":"zh","kind":"accept","label":"neutral","input":"第一点 new line 第二点","output":"第一点\n第二点","lineBreaks":true,"expect":{"smooth":"accept"}}
+{"id":"rv-zh-newline-inject","lang":"zh","kind":"refuse","label":"harmful","input":"第一点 new line 第二点","output":"第一点\n第二点","lineBreaks":false,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-zh-plain-break-inject","lang":"zh","kind":"refuse","label":"harmful","input":"第一点第二点","output":"第一点\n第二点","lineBreaks":false,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-ja-hatena-polite","lang":"ja","kind":"refuse","label":"harmful","input":"明日行きますか はてな","output":"明日行くか？","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-ja-hatena-conv","lang":"ja","kind":"accept","label":"neutral","input":"明日の会議は十時からでしたっけ はてな","output":"明日の会議は十時からでしたっけ？","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-ja-maru-plain","lang":"ja","kind":"refuse","label":"harmful","input":"問題ありません まる","output":"問題ない。","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-ja-en-quote","lang":"ja","kind":"accept","label":"neutral","input":"この quote を確認して","output":"この quote を確認して。","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-ko-newpara","lang":"ko","kind":"refuse","label":"harmful","input":"회의는 내일입니다 새 문단 감사합니다","output":"회의는 내일이야\n감사합니다","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-ko-conv","lang":"ko","kind":"accept","label":"neutral","input":"회의는 내일입니다 마침표","output":"회의는 내일입니다.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-it-comma-legal","lang":"it","kind":"accept","label":"neutral","input":"Vedi il comma 3 dell articolo 5","output":"Vedi il comma 3 dell articolo 5.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-it-comma-syn","lang":"it","kind":"noun_synonym","label":"harmful","input":"Vedi il comma 3 dell articolo 5","output":"Vedi il paragrafo 3 dell articolo 5.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-newline-inject","lang":"en","kind":"refuse","label":"harmful","input":"Thanks new line see you","output":"Thanks\nsee you","lineBreaks":false,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-newline-none","lang":"en","kind":"accept","label":"neutral","input":"Thanks new line see you","output":"Thanks\nsee you","lineBreaks":true,"expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-en-nextline-inject","lang":"en","kind":"refuse","label":"harmful","input":"Thanks next line see you","output":"Thanks\nsee you","lineBreaks":false,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-nextline-inject-dot","lang":"en","kind":"refuse","label":"harmful","input":"Thanks next line see you","output":"Thanks. See you","lineBreaks":false,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-nextline-inject","lang":"fr","kind":"refuse","label":"harmful","input":"Merci next line à demain","output":"Merci\nà demain","lineBreaks":false,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-ligne-inject","lang":"fr","kind":"refuse","label":"harmful","input":"Merci à la ligne à demain","output":"Merci\nà demain","lineBreaks":false,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-skipnext-none","lang":"en","kind":"refuse","label":"harmful","input":"Skip to next line and read it","output":"Skip to\nand read it","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-it-quote-end","lang":"it","kind":"accept","label":"neutral","input":"Abbiamo venduto le quote","output":"Abbiamo venduto le quote.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-it-quote-comma","lang":"it","kind":"accept","label":"neutral","input":"Le quote che abbiamo sono poche","output":"Le quote, che abbiamo, sono poche.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-it-colon-end","lang":"it","kind":"accept","label":"neutral","input":"Ha un tumore al colon","output":"Ha un tumore al colon.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-es-colon-med","lang":"es","kind":"accept","label":"neutral","input":"Le diagnosticaron cáncer de colon","output":"Le diagnosticaron cáncer de colon.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-es-colon-med-mid","lang":"es","kind":"accept","label":"neutral","input":"El cáncer de colon es tratable","output":"El cáncer de colon es tratable.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-de-quote-q","lang":"de","kind":"accept","label":"neutral","input":"Wie hoch ist die Quote","output":"Wie hoch ist die Quote?","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-de-quote-cap","lang":"de","kind":"accept","label":"neutral","input":"die quote ist gut","output":"Die Quote ist gut.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-pt-period-none","lang":"pt","kind":"accept","label":"neutral","input":"O período de teste termina amanhã","output":"O período de teste termina amanhã.","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-zh-period-fin","lang":"zh","kind":"accept","label":"neutral","input":"这个 period 的数据不对","output":"这个 period 的数据不对。","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-zh-period-end","lang":"zh","kind":"accept","label":"neutral","input":"我们看一下这个 period","output":"我们看一下这个 period。","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-zh-quote-glued","lang":"zh","kind":"accept","label":"neutral","input":"我需要一个quote","output":"我需要一个quote。","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-zh-dash-range","lang":"zh","kind":"accept","label":"neutral","input":"大概 3 dash 5 天","output":"大概 3-5 天","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-zh-dash-range-bad","lang":"zh","kind":"refuse","label":"harmful","input":"大概 3 dash 5 天","output":"大概 3-6 天","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-colon-time","lang":"fr","kind":"accept","label":"neutral","input":"On se voit à 4 colon 30","output":"On se voit à 4:30","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-fr-colon-time-bad","lang":"fr","kind":"refuse","label":"harmful","input":"On se voit à 4 colon 30","output":"On se voit à 4:40","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-zh-period-num","lang":"zh","kind":"accept","label":"neutral","input":"价格是 10 period 5 元","output":"价格是 10.5 元","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-zh-period-num-drop","lang":"zh","kind":"refuse","label":"harmful","input":"价格是 10 period 5 元","output":"价格是 10 元","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-ouvre-ferme-guill-content","lang":"fr","kind":"refuse","label":"harmful","input":"Elle ferme les guillemets trop tôt","output":"Elle ouvre les guillemets trop tôt","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-de-anf-zu-auf","lang":"de","kind":"refuse","label":"harmful","input":"Er sagte Anführungszeichen auf hallo","output":"Er sagte Anführungszeichen zu hallo","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-seguido","lang":"es","kind":"refuse","label":"harmful","input":"Lo dijo punto y seguido se fue","output":"Lo dijo punto final se fue","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-open-close-quote-main","lang":"en","kind":"refuse","label":"harmful","input":"Please open quote approvals today","output":"Please close quote approvals today","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-nextline-code-none","lang":"en","kind":"refuse","label":"harmful","input":"Move the cursor to next line and indent","output":"Move the cursor to\nand indent","lineBreaks":true,"expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-en-nextline-undef","lang":"en","kind":"refuse","label":"harmful","input":"Move the cursor to next line and indent","output":"Move the cursor to\nand indent","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-fr-ferme-paren-none","lang":"fr","kind":"refuse","label":"harmful","input":"Je ferme la parenthèse et on continue","output":"Je) et on continue","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-es-pf-final-noLang","kind":"refuse","label":"harmful","input":"Este es el punto final de la reunión","output":"Este es el punto de la reunión","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-zh-plain-han","lang":"zh","kind":"refuse","label":"harmful","input":"我们明天去北京开会","output":"我们后天去上海开会","expect":{"strict":"refuse"}}
+{"id":"rv-de-quote-rate-syn","lang":"de","kind":"noun_synonym","label":"harmful","input":"Die Quote liegt bei fünf Prozent","output":"Die Rate liegt bei fünf Prozent.","expect":{"strict":"refuse","smooth":"refuse"}}
+{"id":"rv-ja-tension","lang":"ja","kind":"accept","label":"neutral","input":"今日はテンション高いです","output":"今日はテンションが高いです。","expect":{"strict":"accept","smooth":"accept"}}
+{"id":"rv-ja-hatena-co","lang":"ja","kind":"refuse","label":"harmful","input":"ハテナの記事を読みました","output":"ハテナの記事を読んだ。","expect":{"strict":"refuse","smooth":"refuse"}}

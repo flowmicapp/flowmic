@@ -474,7 +474,7 @@ void main() {
     // ── WP-8 F1-b (2026-09-02): the SERVER registered these, phone did not ──
     //
     // packages/protocol/src/error-codes.ts has real bilingual copy for all
-    // four codes below (stt-session.ts:258 passes them through verbatim), but
+    // four codes below (stt-session.ts `o.on('error')` passes them through verbatim), but
     // no recording_strings.dart case ever rendered it — each one fell to the
     // generic 「转写引擎报错（CODE）」/"Speech engine reported an error (CODE)"
     // fallback, a raw identifier reaching the user for a code the registry

@@ -117,6 +117,10 @@ export const TABLES = [
   // Additive in the same way — one CREATE plus one index, no ALTER — and with
   // the same missing foreign key, for the same reason.
   'usage_records_archive',
+  // NR-224 (2026-10-10, book 22 §4.12): the per-recording coverage store (db/schema-recovery.ts table 17). TWENTY.
+  // Purely additive — one CREATE plus one index, no ALTER, no reconcileSchema step. It carries `REFERENCES users(id)
+  // ON DELETE CASCADE` like the recovery pair it sits beside: a deleted account takes its coverage with it.
+  'recording_coverage',
 ];
 
 /** The `users` DDL exactly as it stood BEFORE Window D1 (0.2.36) — no

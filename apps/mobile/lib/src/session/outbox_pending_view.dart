@@ -225,6 +225,25 @@ class OutboxPendingView {
   /// the two must not be swapped. A row whose frame is in flight has a delivery
   /// ON THE WIRE, so 「queued」 would be false for it; a row whose resend must reuse
   /// the existing item includes exactly that case. Two questions, two sets.
+  ///
+  /// 🔴 SECOND CONSUMER (NR-279 A2, 2026-10-19) — THE ROW'S FACE. The chat row
+  /// reads this set as `owed` (`chat_flow_scroll.dart`
+  /// `owed: controller.owedEntryIds.contains(entry.id)`, via
+  /// `ChatStatusSurface.owedEntryIds`) and `deliveryFaceOf` (status_badge.dart)
+  /// turns a watchdog no-answer row it contains into
+  /// `DeliveryFace.noAnswerYet` instead of ✗. So the warning [queuedEntryIds]
+  /// carries applies here as well: **widening or narrowing this set changes
+  /// what the timeline SAYS**, not only whether a resend reuses an item. The
+  /// history page passes `owed: false` explicitly (`history_page.dart`).
+  ///
+  /// ⚠️ A DELETED PAIRING DOES NOT EMPTY IT. `DeliveryOutbox` has no purge on
+  /// unpair (grep `discard` / `purge` in delivery_outbox.dart: none; the queue
+  /// keeps every item by design, see the no-`delete` note in outbox_store.dart),
+  /// and the item stays addressed to its machine uid — so it stays owed for as
+  /// long as that machine is not paired again, and is delivered if it is.
+  /// ⇒ whatever word `noAnswerYet` shows must stay true for 「that computer may
+  /// never come back」; it must not promise a retry is about to happen. The
+  /// queued faces (📤 / 📥) were already in the same position before NR-279.
   final Set<String> owedEntryIds;
 
   /// 🔴 Image rows that have NOT been delivered yet and still hold their bytes

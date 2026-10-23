@@ -20,7 +20,10 @@ beforeEach(() => {
 });
 afterEach(async () => { await drain(); vi.restoreAllMocks(); });
 
-async function deliver(raw = '他跑的很快', polished = '他跑得很快') {
+// QP-1 (2026-10-13): the refused pair used to be 他跑的很快 -> 他跑得很快, which the
+// word-level guard now accepts (跑得 is a particle, not the modal 得). These
+// cases need a refusal, so they use a real number change instead.
+async function deliver(raw = '我们三点开会', polished = '我们两点开会') {
   class Engine extends EventEmitter {
     id = 'custom-openai-compatible'; state = 'closed';
     async open() { this.state = 'open'; }
@@ -55,7 +58,7 @@ it('sends the real final before a slow shadow guard, excludes its cost, and neve
   const frames = await deliver();
   expect(slow).not.toHaveBeenCalled();
   const final = frames.find(f => f.event === 'stt:final')!;
-  expect(final.payload.text).toBe('他跑的很快');
+  expect(final.payload.text).toBe('我们三点开会');
   expect(final.at).toBe(1000);
   const timing = vi.mocked(log.info).mock.calls.find(([name]) => name === 'stt.polish.timing')![1]!;
   expect(timing.elapsed_ms).toBe(0);
@@ -77,7 +80,7 @@ it.each([[1500, 1500, 1], [1501, 1, 0], [1, 1501, 0]])('caps either input at 150
   expect(fields.v2_verdict).toBe(calls ? 'ok' : null);
 });
 
-it.each([['我去。', '我去。'], ['他跑的很快', '他跑得很快']])('a throwing guard-logging stub cannot change live delivery: %s', async (raw, polished) => {
+it.each([['我去。', '我去。'], ['我们三点开会', '我们两点开会']])('a throwing guard-logging stub cannot change live delivery: %s', async (raw, polished) => {
   vi.spyOn(Date, 'now').mockReturnValue(1000);
   const baseline = (await deliver(raw, polished)).find(f => f.event === 'stt:final')!.payload;
   await drain();
@@ -102,7 +105,7 @@ it('a throwing timing logger cannot change an accepted final into skipped', asyn
 it('a throwing category formatter cannot turn a guard refusal into a polish exception', async () => {
   vi.spyOn(telemetry, 'guardFamily').mockImplementation(() => { throw new Error('synthetic category failure'); });
   const final = (await deliver()).find(f => f.event === 'stt:final')!.payload;
-  expect(final.text).toBe('他跑的很快');
+  expect(final.text).toBe('我们三点开会');
   expect(final.polish_reason).toBe('guard_reject');
   expect(vi.mocked(log.error).mock.calls).toEqual([]);
 });

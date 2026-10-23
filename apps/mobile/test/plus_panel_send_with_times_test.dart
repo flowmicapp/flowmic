@@ -127,6 +127,7 @@ class _Rig {
             onSendSelection: ({
               required String? text,
               required List<TimelineEntry> images,
+              required List<TimelineEntry> sourceRows,
             }) async =>
                 sent.add(text),
             imageSendable: (TimelineEntry e) async => false,
@@ -291,7 +292,12 @@ void main() {
     expect(sel.composeText(withTimes: false), sel.composedText);
   });
 
-  group('narrow screen: chip and send share one row, nothing clipped', () {
+  // The bar keeps one row exactly when the count, the chip and the send
+  // button fit at their natural widths, and wraps otherwise
+  // (plus_panel_send_bar.dart; the nine-language, two-width, two-size readings
+  // are in plus_panel_send_fit_test.dart). Either way nothing is clipped.
+  group('narrow screen: chip and send share one row when it fits, '
+      'nothing clipped', () {
     for (final AppLocale locale in AppLocale.values) {
       testWidgets(locale.name, (WidgetTester tester) async {
         addTearDown(tester.view.reset);
@@ -322,9 +328,32 @@ void main() {
             lessThanOrEqualTo(send.size.width + 0.5),
             reason: 'the send label is clipped');
 
-        expect(tester.getCenter(find.byKey(kChip)).dy,
-            closeTo(tester.getCenter(find.byKey(kSend)).dy, 0.5),
-            reason: 'one row');
+        final Rect chipRect = tester.getRect(find.byKey(kChip));
+        final Rect sendRect = tester.getRect(find.byKey(kSend));
+        final RenderParagraph count = tester.renderObject(find
+            .descendant(
+              of: find.byKey(const ValueKey<String>('plus.selection.bar')),
+              matching: find.byType(RichText),
+            )
+            .first);
+        final Rect barRect = tester
+            .getRect(find.byKey(const ValueKey<String>('plus.selection.bar')));
+        final double barWidth = barRect.width;
+        final double oneRowNeed = count.getMaxIntrinsicWidth(double.infinity) +
+            10 +
+            chipRect.width +
+            8 +
+            sendRect.width;
+        if (oneRowNeed <= barWidth - 0.5) {
+          expect(chipRect.center.dy, closeTo(sendRect.center.dy, 0.5),
+              reason: 'it fits ($oneRowNeed of $barWidth): one row');
+        } else if (oneRowNeed > barWidth + 0.5) {
+          expect(sendRect.top, greaterThanOrEqualTo(chipRect.bottom - 0.5),
+              reason: 'it does not fit ($oneRowNeed of $barWidth): '
+                  'the send button wraps below the chip');
+        }
+        expect(sendRect.right, lessThanOrEqualTo(barRect.right + 0.5),
+            reason: 'the send button stays inside the bar');
         expect(tester.takeException(), isNull, reason: 'no overflow');
       });
     }

@@ -38,6 +38,7 @@ import '../auth/login_controller.dart';
 import '../settings/app_strings.dart';
 import 'scan_payload.dart';
 import 'scan_sheet.dart';
+import 'sheet_error_banner.dart';
 import 'tokens.dart';
 
 /// Presents the login sheet. Resolves to true iff the user ended up logged in.
@@ -469,26 +470,9 @@ class _LoginSheetState extends State<_LoginSheet> {
     ),
   );
 
-  Widget _errorBanner(String message) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-    decoration: BoxDecoration(
-      color: FlowMicColors.redSoft,
-      border: Border.all(color: const Color(0x4DF87171)),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Row(
-      children: <Widget>[
-        const Icon(Icons.error_outline, size: 14, color: Color(0xFFFCA5A5)),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            message,
-            style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 12),
-          ),
-        ),
-      ],
-    ),
-  );
+  // FM-003 — was a copy painting a dark-theme red-300 on redSoft (1.49:1 in
+  // the light theme); the one shared strip resolves its ink per theme.
+  Widget _errorBanner(String message) => SheetErrorBanner(message);
 
   Widget _primaryButton({
     required Key key,

@@ -379,6 +379,79 @@ String encodeCandidateFailure({
   return '$kCandidateFailurePrefix${parts.join('|')}';
 }
 
+/// The single-address 「could not reach it」 code. Same family `pair()` returns
+/// (`'CONNECT_FAILED: <exception>'`); `pairError` routes every `CONNECT_FAILED…`
+/// that is not a candidate report to 「Could not reach the computer」.
+const String kConnectFailedCode = 'CONNECT_FAILED';
+
+/// A registry-shaped identifier (`AUTH_TOKEN_EXPIRED`, `NODE_IS_REPLICA`, …):
+/// what a server-side `next(new Error('CODE'))` leaves on `lastConnectError`.
+final RegExp _namedCodeShape = RegExp(r'\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b');
+
+/// 🔴 NR-279 (A3) — what a FAILED RESUME DIAL of a remembered computer
+/// actually measured, as a `pairError` code; null when it measured nothing it
+/// may report.
+///
+/// Before this, `resumePairing` reported null for every dial failure that was
+/// not one of `handshakeRefusal`'s two named codes, so tapping an offline,
+/// already-paired computer read 「Pairing failed — check the network and try
+/// again」 (`pairError(null)`) — a sentence about a pairing attempt that never
+/// happened (rca-anomalies.md §3). The phone already holds the measurement:
+/// the probe's per-address [attempts] (empty on a single-address pairing) and
+/// the fact that the dial to [dialed] failed. Reported through the SAME channel
+/// `pair()` and the pin-mismatch branch use, so one fact keeps one sentence.
+///
+/// 🔴 NULL WHEN THE OTHER END ANSWERED BY NAME. A [lastConnectError] carrying a
+/// registry-shaped code means something on the other side refused us in its
+/// own words; 「could not reach」 would then be false, and `handshakeRefusal`'s
+/// rule (「we didn't get an answer」 and 「the server said X」 must not read
+/// alike) keeps that case on the generic sentence, unchanged. Transport text
+/// (`timeout`, `websocket error`, a `SocketException`) carries no such code.
+///
+/// WHICH SENTENCE, by [lanRow]:
+///   · a LAN pairing ⇒ the per-address report (`pairCandidatesFailed`), even
+///     for ONE address — exactly what the pin-mismatch branch of
+///     `resumePairing` already does, so 「this address is unreachable, check
+///     the phone and the computer share a network」 and 「this address is not
+///     your computer, re-scan」 stay two faces with two opposite actions
+///     (pinned by test/pin_mismatch_surface_test.dart);
+///   · otherwise (a relay pairing) ⇒ [kConnectFailedCode], 「Could not reach
+///     the computer」: the report's closing advice (same network as the
+///     computer) is false for a relay, which never needs one.
+String? unreachedDialCode({
+  required String? lastConnectError,
+  required List<CandidateAttempt> attempts,
+  required String dialed,
+  required bool lanRow,
+}) {
+  final String? raw = lastConnectError;
+  if (raw != null && _namedCodeShape.hasMatch(raw)) return null;
+  return lanRow || attempts.isNotEmpty
+      ? encodeCandidateFailure(attempts: attempts, dialed: dialed)
+      : kConnectFailedCode;
+}
+
+/// Whether a remembered pairing dials a LAN computer directly (as opposed to a
+/// relay), from what the row itself stores:
+///   · pinned (`lanTlsFp`) ⇒ LAN — only LAN pairings are pinned (D2LAN-B3);
+///   · alternate addresses (`endpointCandidates`) ⇒ LAN — they come only from
+///     a LAN QR's `alt=` hosts ([qrDialCandidates]);
+///   · a plain `http`/`ws` endpoint ⇒ LAN — the relay is reached over TLS, and
+///     a pre-D2-LAN LAN pairing was stored unencrypted ([secureDialUrl] upgrades
+///     only when a fingerprint is present).
+/// A secure, unpinned, single-address row is therefore a relay pairing.
+bool rememberedRowIsLan({
+  required String endpoint,
+  required String? lanTlsFp,
+  required Iterable<String> endpointCandidates,
+}) {
+  if (lanTlsFp != null && lanTlsFp.isNotEmpty) return true;
+  if (endpointCandidates.any((String e) => e.trim().isNotEmpty)) return true;
+  final String scheme =
+      Uri.tryParse(endpoint.trim())?.scheme.toLowerCase() ?? '';
+  return scheme == 'http' || scheme == 'ws';
+}
+
 /// Read it back. `null` when [code] is not one of ours — the caller then falls
 /// through to its existing copy rather than printing a half-parsed string.
 List<MapEntry<String, CandidateFailure>>? decodeCandidateFailure(String? code) {

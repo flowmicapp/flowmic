@@ -116,6 +116,7 @@ void main() {
       store: InMemoryOutboxStore(),
       blobs: InMemoryOutboxBlobStore(),
       host: _FakeHost(),
+      retryLinkUp: () => false,
     );
     await box.enqueueText(
       requestId: 'i0-1',

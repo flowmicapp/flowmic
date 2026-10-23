@@ -230,7 +230,7 @@ mod win {
     use windows::Win32::System::Ole::CF_UNICODETEXT;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
-        VK_CONTROL, VK_V,
+        VIRTUAL_KEY, VK_CONTROL, VK_V,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, PeekMessageW,
@@ -509,12 +509,11 @@ mod win {
                 },
             },
         };
-        let inputs = [
-            make(VK_CONTROL, KEYBD_EVENT_FLAGS(0)),
-            make(VK_V, KEYBD_EVENT_FLAGS(0)),
-            make(VK_V, KEYEVENTF_KEYUP),
-            make(VK_CONTROL, KEYEVENTF_KEYUP),
-        ];
+        let (ctrl, v) = (VK_CONTROL.0, VK_V.0);
+        let plan = [(ctrl, false), (v, false), (v, true), (ctrl, true)];
+        let inputs = plan.map(|(vk, up)| {
+            make(VIRTUAL_KEY(vk), if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) })
+        });
         let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
         // D3 (2026-09-02 audit §3-D): a partial Ctrl+V (e.g. Ctrl went down but
         // V never did) is a failure, not a success — same rule as
@@ -523,6 +522,8 @@ mod win {
         // "sent" means is exactly the shape this repo's #1 bug class takes.
         if !crate::inject::sendinput::sendinput_fully_sent(sent, inputs.len()) {
             let err = unsafe { windows::Win32::Foundation::GetLastError() };
+            // NR-253 review: a cut batch can leave Ctrl held (or Ctrl+V down).
+            crate::inject::sendinput::release_keys_left_down("Ctrl+V", &plan, sent);
             return Err(if err.0 == 0 {
                 InjectError::AppRejected
             } else {
@@ -658,6 +659,17 @@ mod win {
             );
         }
 
+        // Start watching for the text to LAND before the keystroke, so the watch
+        // gets a baseline of what was in the box beforehand (readback.rs explains
+        // why a baseline is load-bearing). NR-254: `watch` now WAITS (bounded) for
+        // that baseline, so it starts here and the settle below sleeps what is left.
+        // An image has nothing to read back and gets an inert watch.
+        let settle_from = Instant::now();
+        let watch = match expected_text {
+            Some(text) => crate::inject::readback::watch(text),
+            None => crate::inject::readback::LandingWatch::inert(),
+        };
+
         // Let the clipboard change settle before Ctrl+V.
         //
         // Carried over from the legacy line (inject/image_clipboard.rs — a tree not shipped here, grep
@@ -677,16 +689,7 @@ mod win {
         //
         // 80 ms on a FALLBACK path (SendInput leads again since v0.2.1) is not a
         // latency the user can feel.
-        std::thread::sleep(CLIPBOARD_SETTLE);
-
-        // Start watching for the text to LAND before the keystroke, so the watch
-        // gets a baseline of what was in the box beforehand (readback.rs explains
-        // why a baseline is load-bearing). An image has nothing to read back and
-        // gets an inert watch that never confirms.
-        let watch = match expected_text {
-            Some(text) => crate::inject::readback::watch(text),
-            None => crate::inject::readback::LandingWatch::inert(),
-        };
+        std::thread::sleep(CLIPBOARD_SETTLE.saturating_sub(settle_from.elapsed()));
 
         let paste = send_ctrl_v();
         let started = Instant::now();

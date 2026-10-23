@@ -31,6 +31,9 @@
 // the half that is a defect on every platform: once the account is what is
 // missing, this screen must lead to the screen that fixes it.
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flowmic/src/audio/audio_capture.dart';
 import 'package:flowmic/src/auth/account_store.dart';
 import 'package:flowmic/src/auth/login_controller.dart';
@@ -284,7 +287,85 @@ void main() {
       expect(find.text(zh.cloudError('AUTH_TOKEN_INVALID')), findsNothing);
       // POSITIVE CONTROL — a sentence WAS shown; the three assertions above are
       // about which one, not about a screen that stayed silent.
-      expect(find.text(zh.cloudError('AUTH_TOKEN_UNVERIFIABLE')), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
+
+      // 🔴 NR-17 — WHICH SENTENCE, READ OFF THE SCREEN. The line that used to
+      // stand here, `find.text(zh.cloudError('AUTH_TOKEN_UNVERIFIABLE'))`,
+      // asserted `cloudError`'s own return value against the screen, so it was
+      // green when `cloudError` fell through to `pairError`'s default: the
+      // owner's "pairing failed: unknown error" on a row with no pairing. A
+      // function cannot be the oracle for what it returns. The oracle here is
+      // the catalogue file (`i18n/mobile/zh-CN.json`), which nothing in
+      // `lib/` reads, and the fallbacks are named explicitly.
+      final String onScreen = _snackText(tester);
+      expect(onScreen, _catalogueSentence('zh-CN', 'cloudError_AUTH_TOKEN_UNVERIFIABLE'),
+          reason: 'the unverifiable-key sentence in the catalogue must be the one on screen');
+      // ⚠️ NR-279 (A3): `pairError('AUTH_TOKEN_UNVERIFIABLE')` used to BE the
+      // pairing fallback (default arm, 「Pairing failed … · code …」); it now
+      // reuses this very sentence for computer rows, so comparing against it
+      // proves nothing. The fallback is still excluded, by its two marks: the
+      // generic sentence, and the raw code its diagnostic tail always prints.
+      expect(onScreen, isNot(zh.pairError(null)));
+      expect(onScreen, isNot(contains('AUTH_TOKEN_UNVERIFIABLE')),
+          reason: 'the raw code is not copy');
+      expect(onScreen, isNot(contains('配对')),
+          reason: 'no pairing is involved in a light-record row');
     });
   });
+
+  // ── 🔴 NR-17 — THE NINE LANGUAGES, EACH AGAINST ITS OWN CATALOGUE ENTRY ─────
+  //
+  // `cloudError` has a `default:` that delegates to `pairError`, so a missing
+  // arm is silent in every language at once. Each locale is therefore compared
+  // with the sentence in ITS catalogue file, and with the pairing fallback by
+  // identity (the technique `cloud_row_readmit_test.dart` uses for the sign-in
+  // arm, whose reason applies unchanged: a keyword rots when the copy is
+  // reworded, an identity check does not).
+  group('NR-17 — an unverifiable key is not told as a pairing failure', () {
+    for (final AppLocale locale in AppLocale.values) {
+      test('${locale.name} — the arm exists and is neither pairing nor sign-in copy', () {
+        final AppStrings s = AppStrings(locale);
+        final String got = s.cloudError('AUTH_TOKEN_UNVERIFIABLE');
+        expect(got, _catalogueSentence(_catalogueTag(locale), 'cloudError_AUTH_TOKEN_UNVERIFIABLE'));
+        expect(got, isNotEmpty);
+        // NR-279 (A3): computer rows now say the SAME sentence for this code
+        // (one fact, one sentence); the pairing fallback is still excluded by
+        // the generic-sentence and raw-code checks around this line.
+        expect(got, s.pairError('AUTH_TOKEN_UNVERIFIABLE'));
+        expect(got, isNot(s.pairError(null)));
+        expect(got, isNot(s.cloudError('AUTH_TOKEN_INVALID')));
+        expect(got, isNot(s.cloudError('AUTH_TOKEN_EXPIRED')));
+        expect(got, isNot(contains('AUTH_TOKEN_UNVERIFIABLE')));
+      });
+    }
+  });
+}
+
+/// The text of the one SnackBar on screen (`connections_page._toast`).
+String _snackText(WidgetTester tester) {
+  final SnackBar bar = tester.widget<SnackBar>(find.byType(SnackBar));
+  return (bar.content as Text).data!;
+}
+
+/// The catalogue file's tag for [locale] (`zh` is `zh-CN`, `zhTw` is `zh-TW`).
+String _catalogueTag(AppLocale locale) => switch (locale) {
+  AppLocale.zh => 'zh-CN',
+  AppLocale.zhTw => 'zh-TW',
+  _ => locale.name,
+};
+
+/// What the catalogue says for [key]: the Dart-literal value with its quotes
+/// removed. Throws on an escape sequence rather than guessing, so a future
+/// value that needs one makes this test say so instead of comparing wrong.
+String _catalogueSentence(String tag, String key) {
+  final File f = File('../../i18n/mobile/$tag.json');
+  expect(f.existsSync(), isTrue, reason: 'run from apps/mobile; ${f.path} must exist');
+  final Map<String, Object?> strings =
+      (jsonDecode(f.readAsStringSync()) as Map<String, Object?>)['strings']! as Map<String, Object?>;
+  final String literal = strings[key]! as String;
+  final String body = literal.substring(1, literal.length - 1);
+  if (body.contains(r'\') || body.contains(r'$')) {
+    throw StateError('$tag/$key needs escape handling in this test: $literal');
+  }
+  return body;
 }

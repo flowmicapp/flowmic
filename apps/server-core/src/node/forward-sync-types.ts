@@ -11,7 +11,7 @@
 
 import type { SuppressReason } from '../room/release-suppression';
 
-export type ForwardSyncVerb = 'release_mobile' | 'unpair_mobile' | 'settings_update';
+export type ForwardSyncVerb = 'release_mobile' | 'unpair_mobile' | 'settings_update' | 'credentials_check';
 
 // ── release_mobile ───────────────────────────────────────────────────────────
 
@@ -72,6 +72,45 @@ export type SettingsUpdateResult =
   | { kind: 'regressed'; key: string; value: unknown; updated_at?: string }
   | { kind: 'written'; key: string; value: unknown; updated_at: string };
 
+// ── credentials_check (REVOKE-PUSH, read-only) ───────────────────────────────
+//
+// 「Do you still hold these credentials, under these owners?」 — asked by a
+// replica about its LIVE sockets whose rows vanished in a pull. The only verb
+// here that writes nothing; it rides this route because it is the same
+// replica→writer, shared-secret, few-hundred-bytes shape, and a sixth hand-made
+// route is what this file's dispatcher exists to prevent.
+
+/** One live mobile socket's admission: the pairing it was admitted as, and the
+ *  PC that pairing hung off at the time. */
+export interface CredentialsCheckPairing {
+  id: string;
+  pc_id: string;
+}
+
+/** One live PC socket's admission: the PC row and the account it belonged to. */
+export interface CredentialsCheckPc {
+  id: string;
+  user_id: string;
+}
+
+export interface CredentialsCheckRequest {
+  pairings: CredentialsCheckPairing[];
+  pcs: CredentialsCheckPc[];
+}
+
+/** Echoes back exactly the entries the writer does NOT hold as asked — row
+ *  missing, or present under a different parent/owner. Echoed whole rather than
+ *  as bare ids so the replica matches on the same pair it sent (D-25: the key a
+ *  socket is closed by is the key it was admitted by). */
+export interface CredentialsCheckResult {
+  absent_pairings: CredentialsCheckPairing[];
+  absent_pcs: CredentialsCheckPc[];
+}
+
+/** The writer refuses a bigger ask outright (it chooses the memory, not the
+ *  caller). The replica chunks well under it. */
+export const CREDENTIALS_CHECK_MAX_ENTRIES = 500;
+
 // ── runtime shape guards ─────────────────────────────────────────────────────
 //
 // `node/node-runtime.ts` wraps the generic `WriterClient.forwardSync`'s
@@ -97,6 +136,25 @@ export function isUnpairMobileResult(v: unknown): v is UnpairMobileResult {
   return typeof r.unpaired === 'boolean'
     && (r.mobile_id === null || typeof r.mobile_id === 'string')
     && (r.pc_room_uuid === null || typeof r.pc_room_uuid === 'string');
+}
+
+function isPairingEntry(v: unknown): v is CredentialsCheckPairing {
+  if (v === null || typeof v !== 'object') return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.id === 'string' && typeof r.pc_id === 'string';
+}
+
+function isPcEntry(v: unknown): v is CredentialsCheckPc {
+  if (v === null || typeof v !== 'object') return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.id === 'string' && typeof r.user_id === 'string';
+}
+
+export function isCredentialsCheckResult(v: unknown): v is CredentialsCheckResult {
+  if (v === null || typeof v !== 'object') return false;
+  const r = v as Record<string, unknown>;
+  return Array.isArray(r.absent_pairings) && r.absent_pairings.every(isPairingEntry)
+    && Array.isArray(r.absent_pcs) && r.absent_pcs.every(isPcEntry);
 }
 
 export function isSettingsUpdateResult(v: unknown): v is SettingsUpdateResult {

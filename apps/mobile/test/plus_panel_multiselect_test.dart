@@ -67,9 +67,11 @@ TimelineEntry _entry(
 /// "one call carrying two things" apart from "two calls each carrying one",
 /// which is precisely the ruling.
 class _Handover {
-  _Handover(this.text, this.images);
+  _Handover(this.text, this.images, this.sourceRows);
   final String? text;
   final List<TimelineEntry> images;
+  // POL-M1 / R12 — the ticked rows the sender must freeze.
+  final List<TimelineEntry> sourceRows;
 }
 
 class _Rig {
@@ -122,7 +124,8 @@ class _Rig {
               ? ({
                   required String? text,
                   required List<TimelineEntry> images,
-                }) async => sends.add(_Handover(text, images))
+                  required List<TimelineEntry> sourceRows,
+                }) async => sends.add(_Handover(text, images, sourceRows))
               : null,
           imageSendable: wired
               ? (TimelineEntry e) async {
@@ -227,6 +230,10 @@ void main() {
     // lands last, not first.
     expect(rig.sends.single.text, '周三还书\n牛奶和鸡蛋\n收到，我稍后回复你');
     expect(rig.sends.single.images, isEmpty);
+    // POL-M1 / R12: the two ticked NOTES are handed over as rows to freeze (in
+    // the same chronological order); the favourite has no row.
+    expect(rig.sends.single.sourceRows.map((TimelineEntry e) => e.id).toList(),
+        <String>['cloud-a', 'cloud-b']);
   });
 
   testWidgets('09-D: the tick set dies with the sheet — reopening starts empty',

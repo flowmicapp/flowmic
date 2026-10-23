@@ -244,6 +244,10 @@ void main() {
 
   // RV-14 / C4: the named code must render next to the pill on a failed row,
   // and must NOT appear on an injected row (even if a stale reason lingered).
+  // NR-279 (A2): the sample code was INJECT_NO_RESULT, which now has a
+  // sentence of its own (chat_row_reason.dart `_rowNoteFor`; pinned by
+  // row_no_result_note_test.dart). LINK_DOWN is a phone code no copy table
+  // knows, so it still exercises 「a code with no sentence prints raw」.
   testWidgets('failed row renders the raw failureReason; injected does not', (
     WidgetTester tester,
   ) async {
@@ -256,12 +260,12 @@ void main() {
           entry: _entry(
             status: EntryStatus.failed,
             delivery: Delivery.inject,
-            failureReason: 'INJECT_NO_RESULT',
+            failureReason: 'LINK_DOWN',
           ),
         ),
       ),
     );
-    expect(find.text('· INJECT_NO_RESULT'), findsOneWidget);
+    expect(find.text('· LINK_DOWN'), findsOneWidget);
 
     await tester.pumpWidget(
       _wrap(
@@ -272,12 +276,12 @@ void main() {
           entry: _entry(
             status: EntryStatus.injected,
             delivery: Delivery.inject,
-            failureReason: 'INJECT_NO_RESULT',
+            failureReason: 'LINK_DOWN',
           ),
         ),
       ),
     );
-    expect(find.text('· INJECT_NO_RESULT'), findsNothing);
+    expect(find.text('· LINK_DOWN'), findsNothing);
   });
 
   testWidgets('noted row shows 仅记录 with inbox icon', (

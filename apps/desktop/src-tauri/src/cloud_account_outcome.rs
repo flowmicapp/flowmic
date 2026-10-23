@@ -46,9 +46,12 @@ pub fn refusal_outcome(status: u16, body: Option<&serde_json::Value>) -> Option<
     let error = body.and_then(|b| b.get("error")).and_then(serde_json::Value::as_str);
     let code = error.filter(|e| looks_like_code(e));
     if status == 401 {
-        // The credential itself did not verify (AUTH_TOKEN_EXPIRED / _INVALID /
-        // AUTH_ACCOUNT_REQUIRED — account-auth.ts). Sign in again is the action.
-        return Some(("unauthorized", Some(http_detail(401, code))));
+        // Card E-D / P-1: a 401 says 「sign in again」 ONLY when its code says the
+        // credential itself lapsed or did not verify. A bare 401, or
+        // AUTH_ACCOUNT_REQUIRED (the request carried no credential — our own
+        // fault), is 「try later」: the user's sign-in is not in question.
+        let outcome = if is_sign_in_lapsed(error) { "unauthorized" } else { "bad_response" };
+        return Some((outcome, Some(http_detail(401, code))));
     }
     match error {
         // Owner ruling 2026-08-27 §R1 追加: a restricted account. `detail` carries
@@ -96,7 +99,8 @@ pub fn resend_outcome(status: u16, body: Option<&serde_json::Value>) -> (&'stati
         (429, _) => ("rate_limited", None),
         (400, Some("VERIFY_NO_EMAIL")) => ("no_email", None),
         (502, Some("VERIFY_SEND_FAILED")) => ("send_failed", None),
-        (401, _) => ("unauthorized", None),
+        // Card E-D / P-1: same rule as the account read.
+        (401, code) if is_sign_in_lapsed(code) => ("unauthorized", None),
         _ => ("bad_response", None),
     }
 }
@@ -109,6 +113,14 @@ pub fn resend_detail(status: u16, body: Option<&serde_json::Value>) -> String {
         .and_then(serde_json::Value::as_str)
         .filter(|e| looks_like_code(e));
     http_detail(status, code)
+}
+
+/// P-1 (docs/strategy/2026-10-10-login-renewal-design.md §2): the only two
+/// codes that may make the desktop say the sign-in expired. Both are what
+/// `apps/server-core/src/http/account-auth.ts` answers for a credential that
+/// was presented and failed (expired / did not verify).
+fn is_sign_in_lapsed(error: Option<&str>) -> bool {
+    matches!(error, Some("AUTH_TOKEN_EXPIRED" | "AUTH_TOKEN_INVALID"))
 }
 
 fn looks_like_code(s: &str) -> bool {
@@ -157,7 +169,33 @@ mod tests {
     fn a_401_is_the_only_unauthorized_and_names_its_code() {
         let body = json!({ "error": "AUTH_TOKEN_EXPIRED" });
         assert_eq!(refusal_outcome(401, Some(&body)), Some(("unauthorized", Some("http 401 AUTH_TOKEN_EXPIRED".to_string()))));
-        assert_eq!(refusal_outcome(401, None), Some(("unauthorized", Some("http 401".to_string()))));
+        let body = json!({ "error": "AUTH_TOKEN_INVALID" });
+        assert_eq!(refusal_outcome(401, Some(&body)), Some(("unauthorized", Some("http 401 AUTH_TOKEN_INVALID".to_string()))));
+    }
+
+    /// Card E-D / P-1: only the two lapsed-credential codes may say 「login
+    /// expired」. A bare 401 or AUTH_ACCOUNT_REQUIRED is 「try later」.
+    #[test]
+    fn a_401_without_a_lapsed_credential_code_is_not_an_expired_sign_in() {
+        let required = json!({ "error": "AUTH_ACCOUNT_REQUIRED" });
+        assert_eq!(
+            refusal_outcome(401, Some(&required)),
+            Some(("bad_response", Some("http 401 AUTH_ACCOUNT_REQUIRED".to_string())))
+        );
+        assert_eq!(refusal_outcome(401, None), Some(("bad_response", Some("http 401".to_string()))));
+        for body in [json!({}), json!("text"), json!({ "error": "AUTH_TOKEN_UNVERIFIABLE" })] {
+            let (outcome, _) = refusal_outcome(401, Some(&body)).expect("401 is a refusal");
+            assert_eq!(outcome, "bad_response", "401 body {body} must not read as an expired sign-in");
+        }
+    }
+
+    #[test]
+    fn resend_401_follows_the_same_rule() {
+        use super::resend_outcome;
+        assert_eq!(resend_outcome(401, Some(&json!({ "error": "AUTH_TOKEN_EXPIRED" }))).0, "unauthorized");
+        assert_eq!(resend_outcome(401, Some(&json!({ "error": "AUTH_TOKEN_INVALID" }))).0, "unauthorized");
+        assert_eq!(resend_outcome(401, Some(&json!({ "error": "AUTH_ACCOUNT_REQUIRED" }))).0, "bad_response");
+        assert_eq!(resend_outcome(401, None).0, "bad_response");
     }
 
     #[test]

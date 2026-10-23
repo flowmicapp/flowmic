@@ -32,6 +32,9 @@ import 'package:flowmic/src/ui/status_badge.dart';
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
 
+// NR-279 — faces whose own word is pending (owner 2026-10-19 reopens ruling 10).
+import 'support/pending_wording_faces.dart';
+
 import 'support/di.dart';
 
 const AppStrings _zh = AppStringsZh();
@@ -221,12 +224,12 @@ void main() {
       for (final AppLocale locale in AppLocale.values) {
         final AppStrings s = AppStrings.of(locale);
         final Set<String> labels = <String>{
-          for (final DeliveryFace f in DeliveryFace.values)
+          for (final DeliveryFace f in facesWithOwnWording)
             deliveryFaceMeta(f, s).label,
         };
         expect(
           labels,
-          hasLength(DeliveryFace.values.length),
+          hasLength(facesWithOwnWording.length),
           reason: '$locale: two faces share a word ⇒ one of them cannot be read',
         );
         for (final String l in labels) {
@@ -644,6 +647,7 @@ void main() {
         store: newTestOutboxStore(),
         blobs: newTestOutboxBlobs(),
         host: host,
+        retryLinkUp: () => false,
       );
       final TimelineEntry row = store.buildFromUtterance(
         clientId: 'i-1',
@@ -708,6 +712,7 @@ void main() {
         store: newTestOutboxStore(),
         blobs: newTestOutboxBlobs(),
         host: host,
+        retryLinkUp: () => false,
       );
       final TimelineEntry row = store.buildFromUtterance(
         clientId: 't-1',
@@ -759,6 +764,7 @@ void main() {
         store: newTestOutboxStore(),
         blobs: newTestOutboxBlobs(),
         host: _Host(kInstance),
+        retryLinkUp: () => false,
       );
       final TimelineEntry row = store.buildFromUtterance(
         clientId: 'x-1',

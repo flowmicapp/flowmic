@@ -18,6 +18,7 @@ import type { PolishDeps, PolishSkipReason } from '../stt/stt-polish';
 import type { RefineLlmDeps } from '../stt/stt-refine-llm';
 import type { SelectedLlmConfig } from '../compose/llm-config';
 import type { RecoveryEcho } from './stt-session-receipt';
+import type { TerminalPolishTiming } from './stt-session-polish-timing';
 
 /** Sink for whitelisted STT events (audio handler fans out to mobile + PC). */
 export interface SttEmitter {
@@ -58,6 +59,14 @@ export interface SttEngineFailure {
  * "chars" log lines and `stt-factory`'s interim instrument already report. One
  * imperfect definition of "character count" beats two exact ones that disagree.
  */
+/**
+ * NR-224 (book 22 §4.12) — the audio this session actually received, measured by the bridge at settle: the PCM of
+ * every frame the pipeline took as `'fed'`, each frame once (engine/stt-session-intake.ts `FrameTally.fedBytes`).
+ * It is WHERE THE SESSION'S AUDIO ENDS, not what it is billed: the coverage store reads it to place the session in its
+ * recording (db/repos/recording-coverage.repo.ts `coverageRefOf`). Not passed with an engine failure (nothing charged).
+ */
+export interface SttReceivedAudio { uniqueMs: number }
+
 export interface SttCharCounts {
   /**
    * What the ENGINE produced for this utterance: summed over every final —
@@ -92,14 +101,21 @@ export interface SttSessionDeps {
    *  terminal final can echo them back and the phone can pin the receipt to the
    *  range it asked about (04 SPEC §3.3-a).
    *
-   *  ABSENT ⇔ the frame carried none: a live press from any phone, or a
-   *  recovery attempt from a build that predates the card. The bridge then emits
+   *  ABSENT ⇔ the frame carried none: a live press from a phone without
+   *  first-frame retention, or a recovery attempt from a build that predates
+   *  the card. ⚠️ PRESENT DOES NOT MEAN 「recovery」: since card LS-1b a live
+   *  press names its recording too (`attempt_kind:'live'`); that question is
+   *  [[recoveryLeg]]'s (card SEG-1b). The bridge then emits
    *  a receipt with counters and no echo, which is honest — the counters are
    *  about this session either way, and inventing an id would be the server
    *  answering a question only the phone can answer.
    *
    *  🔴 NOT PARSED, NOT VALIDATED, NOT STORED. See {@link RecoveryEcho}. */
   recovery?: RecoveryEcho;
+  /** Card SEG-1b — this session RE-FEEDS owed audio (`isRecoveryLeg`,
+   *  engine/stt-session-receipt.ts: identifiers present and `attempt_kind` not
+   *  `'live'`). Read ONLY by [[segmentKeepsPreSeg1Contract]]. */
+  recoveryLeg?: boolean;
   /** The ONE recordSttUsage seam — called exactly once at settle.
    *
    *  🔴 A2-5 widened it with a THIRD argument, `chars`, and the widening is the
@@ -108,7 +124,7 @@ export interface SttSessionDeps {
    *  do not care may still declare `(durationMs, isByok)` or `()` and TypeScript
    *  accepts them — which is why the reverse control for this wiring has to be
    *  behavioural (a row with real counts), not a compile error. */
-  onComplete: (durationMs: number, isByok: boolean, chars: SttCharCounts, failure?: SttEngineFailure) => void;
+  onComplete: (durationMs: number, isByok: boolean, chars: SttCharCounts, failure?: SttEngineFailure, received?: SttReceivedAudio) => void;
   /** v0.2.3 — the polish LLM's metering seam, the sibling of [onComplete].
    *
    *  Called once per polished terminal-final, and ONLY when the model actually
@@ -138,7 +154,8 @@ export interface SttSessionDeps {
    *  silent means "the user never asked", and only that.
    *  Applied ONLY to the utterance-closing final (is_segment=false)
    *  AFTER the pure two-stage pipeline — never to interim or soft-segment
-   *  finals. In production the factory fills deps.protectedTerms (dict-canonical
+   *  finals. ⚠️ Card SEG-1 (2026-10-13): soft-segment finals with words ARE
+   *  polished now, except on [[continuous]] recordings. In production the factory fills deps.protectedTerms (dict-canonical
    *  protection, lead-controller ruling 2026-07-24); fetch/budgetMs/streamerFor remain seams.
    *
    *  M4: `llm` is the provenance-carrying SelectedLlmConfig, not a bare
@@ -146,6 +163,13 @@ export interface SttSessionDeps {
    *  answer to "who provided it", so the metering flag below is physically derived from
    *  the SAME selection that produced the config. */
   polish?: { llm: SelectedLlmConfig; deps?: PolishDeps };
+  /** card SEG-1 — `audio:start.continuous === true` (a long recording, card RC-1).
+   *  Read ONLY to keep such a recording's soft-segment finals on the pre-SEG-1
+   *  contract (emitted at once, unpolished, no polish field): polishing every
+   *  ~30-90 s row of a half-hour recording is a cost and live-view decision
+   *  that card did not take. That those rows are unpolished and unmarked is an
+   *  open account, reported with the card. */
+  continuous?: boolean;
   /** RT-1 — polish was REQUESTED for this session and could NOT be armed.
    *
    *  Present ⇔ [polish] is absent AND `stt.polish.enabled` was true: the LLM
@@ -201,6 +225,24 @@ export interface SttSessionDeps {
    *  whole-utterance BATCH mode — i.e. never on Soniox or FunASR, i.e. never in
    *  production. The pass now reads TEXT, so it is engine-independent. */
   refine?: { cfg: SttRefine; llm: SelectedLlmConfig; deps?: RefineLlmDeps };
+  /** Card INC-1f — "polish while speaking" is armed for this session. The ONE
+   *  production writer is engine/stt-factory.ts through `speculationArmed`
+   *  (engine/polish-speculation-env.ts: switch on, polish armed, realtime, not
+   *  continuous, not a recovery leg). Absent ⇒ every final takes today's single
+   *  polish call, byte for byte. */
+  polishSpeculative?: boolean;
+  /** Card POL-3 — FLOWMIC_POLISH_STAGES=context, snapshotted at audio:start. The ONE
+   *  production writer is engine/stt-factory.ts (from `bootPolishStages`,
+   *  engine/polish-stages-env.ts); the ONE reader is `unitPolishFor`
+   *  (engine/stt-session-units.ts), which also requires polish armed, sync
+   *  delivery, no speculation, not continuous, not a recovery leg. Absent ⇒
+   *  `legacy`: every request is today's, byte for byte. */
+  polishStages?: 'context';
+  /** Card INC-1c — the terminal polished final's wait, measured on this
+   *  session's clock (engine/stt-session-polish-timing.ts). Observation only;
+   *  the one production writer is engine/stt-factory.ts → obs/latency.ts
+   *  `markPolishTiming`. Absent ⇒ the numbers are only logged. */
+  onPolishTiming?: (t: TerminalPolishTiming) => void;
   /** stt:level throttle window (default 200 ms). */
   levelIntervalMs?: number;
   now?: () => number;

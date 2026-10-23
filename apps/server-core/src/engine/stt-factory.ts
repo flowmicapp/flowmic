@@ -24,13 +24,18 @@ import type { IntegratorSessionCaps } from '../billing/integrator-session-caps';
 import { reserveSessionAllowance, settleSessionUsage } from './stt-session-allowance';
 import { cappedRemainingSttMs } from '../billing/capped-remaining';
 import type { RoomStore } from '../room/store';
-import { markFlushSent, markFlushBacklog, markTerminalFinal } from '../obs/latency';
+import type { TerminalPolishTiming } from './stt-session-polish-timing';
+import { bootPolishSpeculative, speculationArmed } from './polish-speculation-env';
+import { bootPolishStages } from './polish-stages-env'; // card POL-3
+import { markFlushSent, markFlushBacklog, markTerminalFinal, markPolishTiming } from '../obs/latency';
 import { getAuth, getRoomUuid, getSessionPrefs } from '../socket/wire';
 import { overlaySettings } from '../settings/session-overlay';
 import type { SttStartArgs } from '../socket/handlers/audio.handler';
 import type { SttOrchestrator } from './orchestrator';
 import { SttSessionBridge, type SttEmitter, type SttSessionDeps } from './stt-session';
-import { loadRoutings, makeSttOrchestratorFactory, makeManagedDefaultResolver } from '../stt/engine-factory';
+import { assembleSessionSonioxContext, loadRoutings, makeSttOrchestratorFactory, makeManagedDefaultResolver } from '../stt/engine-factory';
+import { terminologyTraceFields } from '../stt/terminology-destination';
+import { appCategoryFor, type AppCategory } from '../compose/app-category';
 import { configFromRouting, selectRouting, type Routing } from '../stt/engine-router';
 import { DEFAULT_POLISH_STRENGTH, type SttRefine } from '@flowmic/protocol';
 import { declaresSegmentNotTranscribed } from '../stt/owed-voice-verdict';
@@ -231,6 +236,8 @@ export function makeSttSessionFactory(
 ): (socket: Socket, args: SttStartArgs) => SttOrchestrator {
   // Fail-loud at boot: touch every FLOWMIC_STT_* parser so bad env aborts start.
   assertSttTuningEnv();
+  const speculativeOn = bootPolishSpeculative(); // card INC-1f — read once, fail-loud
+  const polishStages = bootPolishStages(speculativeOn); // card POL-3 — read once, fail-loud (refuses context+kick and the pair with speculation)
   const allowances = new SttAllowancePool();
   const build = makeSttOrchestratorFactory({
     settings: deps.settings,
@@ -261,6 +268,12 @@ export function makeSttSessionFactory(
     // ONE repo and there is no second answer to "which settings does this
     // session use". Snapshotted per audio:start, same cadence as before.
     const settings = overlaySettings(deps.settings, getSessionPrefs(socket));
+    // card CTX-1 — the target PC's focused-app CATEGORY (process name only,
+    // never the window title), snapshotted at audio:start like the settings
+    // above. 'coding' adds the default developer vocabulary to Soniox's
+    // `context` (stt/engine-factory.ts sonioxDefaultTermsFor); anything else,
+    // or no PC focus seen, leaves the frame exactly as before.
+    const appCategory = appCategoryFor(roomUuid !== null ? deps.store.getFocusProcess(roomUuid) : undefined);
     const emitter = makeSttEmitter({
       // GA-04: the audio handler supplies a resolver that follows the session
       // across a reconnect; without one (unpaired/local session) the emitter
@@ -330,7 +343,7 @@ export function makeSttSessionFactory(
     // today's behaviour; test/emb15-integrator-no-llm.test.ts pins the wiring.
     const polish: PolishArming = args.integratorRoom === true
       ? { armed: false }
-      : resolvePolishDep({ settings, quota: deps.quota }, args.userId, replacementRules.map((r) => r.canonical), args.sourceLang);
+      : resolvePolishDep({ settings, quota: deps.quota }, args.userId, replacementRules.map((r) => r.canonical), args.sourceLang, appCategory, args.delivery === 'none');
     // Per-session `stt.refine` snapshot, same cadence + fail-loud discipline as
     // the polish leg. Since 2026-09-04 the second pass is an LLM smoothing pass
     // over the delivered text, so it needs an llm.config and a live llm_tokens
@@ -338,8 +351,20 @@ export function makeSttSessionFactory(
     // absent and the reason is LOGGED, because a switch that is on and does
     // nothing must at least be explainable.
     const refineSetting = readSttRefine(settings, args.userId);
-    const refine = refineSetting.enabled && args.integratorRoom !== true // card EMB-15: refine is an LLM pass too
-      ? resolveRefine(deps, args.userId, refineSetting, replacementRules.map((r) => r.canonical), args.sourceLang)
+    // 🔴 card POL-8 (NR-261, 15-MESSAGE-STATES.md §2.0-c freeze rule ③, R12):
+    // a PC-path press (`delivery:'inject'`) never arms the second pass. Its tail
+    // row was injected the moment the final shipped, so an `stt:refined` could
+    // only rewrite the phone's copy of words that already left — history would
+    // stop matching what was delivered, with no mark. No dep ⇒ `kickRefine`
+    // returns before any LLM call ⇒ nothing is metered. `args.delivery` is the
+    // handler's `parsed.data.delivery ?? 'inject'` (audio.handler.ts), and
+    // shipped phones always send the key (mobile wire_payloads.dart
+    // `'delivery': delivery.name`), so "absent" is a pre-0.1.0 client and is
+    // read as the PC path. Notes (`'none'`, including every recovery leg —
+    // ptt_backfill.dart pins `Delivery.none`) keep today's behaviour.
+    const refineForDelivery = args.delivery === 'none';
+    const refine = refineSetting.enabled && args.integratorRoom !== true && refineForDelivery // card EMB-15: refine is an LLM pass too
+      ? resolveRefine(deps, args.userId, refineSetting, replacementRules.map((r) => r.canonical), args.sourceLang, appCategory)
       : undefined;
     // ── pipeline trace (off unless FLOWMIC_TRACE_PIPELINE) ──────────────────
     // Everything below is gathered ONLY when tracing is on, so the untraced path
@@ -371,6 +396,7 @@ export function makeSttSessionFactory(
           ? {
               requested: true,
               armed: refine !== undefined,
+              ...(refineForDelivery ? {} : { reason: 'delivery-inject' }),
               floor_ms: refineFloorMs(refineSetting),
             }
           : { requested: false },
@@ -381,18 +407,16 @@ export function makeSttSessionFactory(
         alias_count: replacementRules.reduce((n, r) => n + (r.aliases?.length ?? 0), 0),
       });
       // The honest statement about biasing: the SOURCE of terminology is
-      // engine-independent, the DESTINATION is not. `withHotwords` in
-      // stt/engine-factory.ts hands the payload to FunASR and to nothing else,
-      // so on any other engine the terms resolved above never reach the
-      // recognizer — they can still act through the deterministic replacement
-      // and (for compose tasks) through the scenario block, and this line is
-      // what lets a reader tell those cases apart instead of assuming.
-      trace('hotwords', traceId, {
-        engine: engineId ?? '(no routing matched)',
-        engine_accepts_hotwords: engineId === 'funasr',
-        term_count: replacementRules.length,
-        delivered: engineId === 'funasr' && replacementRules.length > 0,
-      });
+      // engine-independent, the DESTINATION is not. FunASR is told hotwords,
+      // Soniox a `context` string (user terms, plus the card CTX-1 category
+      // default), every other engine nothing — the table is
+      // stt/terminology-destination.ts, the same one the engine decorators read,
+      // so this record cannot say "not delivered" while the engine was told.
+      trace('hotwords', traceId, terminologyTraceFields(
+        engineId,
+        replacementRules.length,
+        assembleSessionSonioxContext(settings, args.userId, appCategory, args.sourceLang),
+      ));
     }
     const allowance = deps.mode !== 'saas' ? undefined : reserveSessionAllowance(allowances, {
       userId: args.userId, keyId: args.integratorKeyId, roomId: getAuth(socket)?.deviceId ?? '',
@@ -405,7 +429,7 @@ export function makeSttSessionFactory(
         // The terminology the ENGINE is told (FunASR hotwords / Soniox context)
         // comes from the same overlay as the replacer above — one card, both
         // destinations. Routings inside `build` stay on the database.
-        const buildWithPrefs: SttSessionDeps['build'] = (s, l, u, v) => build(s, l, u, v, { settings, ...(args.continuous === true ? { continuous: true } : {}) }); // RC-1
+        const buildWithPrefs: SttSessionDeps['build'] = (s, l, u, v) => build(s, l, u, v, { settings, ...(appCategory !== undefined ? { appCategory } : {}), ...(args.continuous === true ? { continuous: true } : {}), ...(args.recoveryLeg === true ? { recoveryLeg: true } : {}) }); // RC-1, CTX-1, SEAM-2 F2
         const reservedBuild: SttSessionDeps['build'] = (s, l, u, v) => {
           allowance?.install(s);
           return buildWithPrefs(s, l, u, v);
@@ -428,11 +452,13 @@ export function makeSttSessionFactory(
       ...(args.targetLang !== undefined ? { targetLang: args.targetLang } : {}),
       // card CV-1 — carried, not interpreted: the bridge echoes these on the terminal final (engine/stt-session-receipt.ts).
       ...(args.recovery !== undefined ? { recovery: args.recovery } : {}),
+      ...(args.recoveryLeg === true ? { recoveryLeg: true } : {}), // card SEG-1b — read by the bridge's soft-segment polish gate
       // NR-138 item 5 (book 22 §4.10) — charged ⇒ commit min(ms, hold); an engine failure with no usable transcript
       // ⇒ the hold goes back whole and nothing is committed. One function, in stt-session-allowance.ts. *** billing ***
-      onComplete: (ms, byok, chars, failure) =>
-        settleSessionUsage(allowance, ms, byok, chars, failure, (m, b, c, f) => (f === undefined ? args.onComplete(m, b, c) : args.onComplete(m, b, c, f))),
+      onComplete: (ms, byok, chars, failure, received) =>
+        settleSessionUsage(allowance, ms, byok, chars, failure, (m, b, c, f, r) => (r !== undefined ? args.onComplete(m, b, c, f, r) : f === undefined ? args.onComplete(m, b, c) : args.onComplete(m, b, c, f)), received), // NR-224: received
       ...(args.onPolishUsage !== undefined ? { onPolishUsage: args.onPolishUsage } : {}),
+      ...(roomUuid !== null ? { onPolishTiming: (t: TerminalPolishTiming): void => markPolishTiming(roomUuid, { ...t }) } : {}), // card INC-1c
       finalText,
       // `traceId` is attached HERE rather than inside resolvePolishDep so that
       // function keeps answering exactly one question ("can polish run, and with
@@ -440,6 +466,7 @@ export function makeSttSessionFactory(
       // the trace, and threading it through the arming logic would put a
       // diagnostic concern inside the decision the census polices.
       ...(polish.armed ? { polish: { llm: polish.llm, deps: { ...polish.deps, traceId } } } : {}),
+      ...(args.continuous === true ? { continuous: true } : {}), // card SEG-1 — read by the bridge's soft-segment polish gate
       // 🔴 POLISH-1 (owner, 2026-08-11) — production delivers the polish ON THE
       // FINAL again. This line said `'detached'` from 0.2.59 (7976cc3) until now,
       // and the detached pass HAS NO DELIVERY CODE: `runDetachedPolish` computes
@@ -476,6 +503,8 @@ export function makeSttSessionFactory(
       // literal to a real bridge and asserts the polished text reaches the client.
       polishDelivery: 'sync',
       ...(!polish.armed && polish.unavailable !== undefined ? { polishUnavailable: polish.unavailable } : {}),
+      ...(speculationArmed({ switchOn: speculativeOn, polishArmed: polish.armed, mode: args.mode, ...(args.continuous === true ? { continuous: true } : {}), ...(args.recoveryLeg === true ? { recoveryLeg: true } : {}) }) ? { polishSpeculative: true } : {}), // card INC-1f
+      ...(polishStages === 'context' ? { polishStages: 'context' as const } : {}), // card POL-3 — armed per session by stt-session-units.ts `unitPolishFor`
       ...(refine !== undefined ? { refine } : {}),
     }); } catch (error) { allowance?.abort(); throw error; }
   };
@@ -594,6 +623,11 @@ export function resolvePolishDep(
    *  PolishDeps.language. Optional so the arming path stays callable from tests
    *  that do not model a language; production always passes it. */
   sourceLang?: string,
+  /** NR-245: the focused-app category, for the polish guard's known terms. */
+  appCategory?: AppCategory,
+  /** ML-2: true when audio:start said delivery 'none' (PolishDeps.lineBreaks;
+   *  that text can still reach a PC later, see there and NR-253). */
+  lineBreaks?: boolean,
 ): PolishArming {
   // Fail-loud PRESERVED: a present-but-malformed `stt.polish` row still throws
   // SETTINGS_SCHEMA_INVALID. That answers a DIFFERENT question ("your settings row is broken",
@@ -640,6 +674,7 @@ export function resolvePolishDep(
     // field to the default, so this is total by the time it gets here.
     deps: {
       protectedTerms: [...protectedTerms],
+      ...(appCategory !== undefined ? { appCategory } : {}),
       strength: polishSetting.strength ?? DEFAULT_POLISH_STRENGTH,
       // Diagnostic only (PolishDeps.language). The session SNAPSHOT value, which
       // is the honest answer to 「which language did this session believe it was
@@ -647,6 +682,9 @@ export function resolvePolishDep(
       // this dep is frozen at audio:start and a field that silently meant two
       // different things depending on the caller would be worse than none.
       ...(sourceLang !== undefined ? { language: sourceLang } : {}),
+      // ML-2: explicit false for PC-bound sessions, so the guard refuses an
+      // added line break (Enter sends in a chat box).
+      ...(lineBreaks !== undefined ? { lineBreaks } : {}),
       // Card A4 (owner ruling 2026-08-24): the scenario card now reaches the
       // realtime correction pass. Built HERE, at the audio:start snapshot, for
       // the same reason the terminology rules are: a settings:update mid-session
@@ -689,6 +727,7 @@ export function resolveRefine(
   cfg: SttRefine,
   protectedTerms: readonly string[],
   sourceLang?: string,
+  appCategory?: AppCategory,
 ): { cfg: SttRefine; llm: SelectedLlmConfig; deps: RefineLlmDeps } | undefined {
   let llm: SelectedLlmConfig;
   try {
@@ -717,6 +756,7 @@ export function resolveRefine(
     llm,
     deps: {
       protectedTerms: [...protectedTerms],
+      ...(appCategory !== undefined ? { appCategory } : {}),
       // The SAME block the polish and compose paths get, from the same builder:
       // one card, and three consumers that cannot describe the speaker
       // differently. Built at the audio:start snapshot so a settings:update

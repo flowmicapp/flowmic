@@ -66,10 +66,15 @@ import '../timeline/timeline_entry.dart';
 /// [text] is null when nothing textual was ticked — NOT an empty string, which
 /// would make the sender ask "should an empty message be sent" at a layer that
 /// should not have to.
+///
+/// [sourceRows] (POL-M1 / R12) are the ticked rows whose words are in [text]
+/// — notes and recording heads, never favorites (a phrase is not a row). The
+/// sender freezes them: their words are handed off with this message.
 typedef PlusSelectionSender =
     Future<void> Function({
       required String? text,
       required List<TimelineEntry> images,
+      required List<TimelineEntry> sourceRows,
     });
 
 /// What a ticked thing is. The panel needs the distinction because the two
@@ -270,6 +275,14 @@ class PlusPanelSelection extends ChangeNotifier {
   List<TimelineEntry> get images => <TimelineEntry>[
     for (final PlusPick p in inChronologicalOrder)
       if (p.kind == PlusPickKind.image) p.entry!,
+  ];
+
+  /// POL-M1 / R12 — the ticked rows whose words go into [composeText]: every
+  /// text pick that came from a row (a note, or a recording's head). Favorites
+  /// carry no row. Read through [inChronologicalOrder], the same ordering.
+  List<TimelineEntry> get textSourceRows => <TimelineEntry>[
+    for (final PlusPick p in inChronologicalOrder)
+      if (p.text != null && p.entry != null) p.entry!,
   ];
 
   /// The one message the ticked text becomes, or null when no text is ticked.

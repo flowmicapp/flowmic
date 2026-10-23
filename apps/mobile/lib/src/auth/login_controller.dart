@@ -31,6 +31,7 @@ import '../signaling/socket_core.dart';
 import 'account_store.dart';
 import 'browser_login_controller.dart';
 import 'deep_link_source.dart';
+import 'jwt_expiry.dart';
 import 'saas_endpoint.dart';
 
 enum LoginPhase { idle, submitting, error, success }
@@ -198,6 +199,15 @@ class LoginController extends ChangeNotifier {
     final CloudAccount? stored = await _accountStore.read();
     if (stored == null) return;
     _account = stored;
+    // Card E-M (book 18 §2.6, P-1 ③) — a stored credential already past its
+    // `exp` (plus the desktop's 300 s skew, `jwt_expiry.dart`) is signed out
+    // HERE, at launch, through the same door as every other expiry: cleared
+    // store, the existing 「sign-in expired」 sentence. Before this the phone
+    // looked signed in until some cloud action failed.
+    if (storedCredentialExpired(stored.jwt, DateTime.now())) {
+      handleAuthExpired(code: LoginErrorCodes.tokenExpired);
+      return;
+    }
     _phase = LoginPhase.success;
     _errorCode = null;
     // Signed in again (across a relaunch) ⇒ the last sign-out has nothing left
@@ -443,7 +453,18 @@ class LoginController extends ChangeNotifier {
   /// Auth authority is gone (auth:expired watchdog, or an AUTH_TOKEN_EXPIRED /
   /// AUTH_TOKEN_INVALID ack from a cloud op): clear the stored JWT and surface a
   /// fail-loud re-login prompt. NEVER a silent retry (red line).
-  void handleAuthExpired({String code = LoginErrorCodes.tokenExpired}) {
+  ///
+  /// Card E-M (book 18 §2.6) — [refusedJwt] is the credential the refusal was
+  /// about, when the caller knows it. Only when it IS the one stored does this
+  /// sign anybody out: a refusal of an older credential (the user signed in
+  /// again while that request or socket was in flight) says nothing about the
+  /// account signed in now. Null ⇒ the caller cannot name it ⇒ treated as the
+  /// stored one, which is what every caller meant before this parameter.
+  void handleAuthExpired({
+    String code = LoginErrorCodes.tokenExpired,
+    String? refusedJwt,
+  }) {
+    if (refusedJwt != null && refusedJwt != jwt) return;
     // RC-S follow-up — see `onBeforeAccountChange`. Card RC6: this entry is
     // synchronous and the authority is already gone, so the acknowledgement
     // is not waited for; the stop still leaves before the account is cleared.

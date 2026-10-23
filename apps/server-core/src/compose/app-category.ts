@@ -32,10 +32,18 @@ const CATEGORY_BY_PROCESS: Readonly<Record<string, AppCategory>> = {
   webstorm64: 'coding', webstorm: 'coding', goland64: 'coding', goland: 'coding',
   clion64: 'coding', rider64: 'coding', 'sublime_text': 'coding', atom: 'coding',
   rustrover64: 'coding', zed: 'coding', neovide: 'coding', gvim: 'coding',
+  // card CTX-1 — more editors/IDEs (Windows exe stems, macOS/Linux executable names)
+  windsurf: 'coding', 'code-insiders': 'coding', codium: 'coding', vscodium: 'coding',
+  phpstorm64: 'coding', phpstorm: 'coding', datagrip64: 'coding', studio64: 'coding',
+  fleet: 'coding', xcode: 'coding', 'sublime text': 'coding',
   // coding — terminals
   windowsterminal: 'coding', wt: 'coding', powershell: 'coding', pwsh: 'coding',
   cmd: 'coding', conhost: 'coding', alacritty: 'coding', wezterm: 'coding',
   wezterm_gui: 'coding', hyper: 'coding', mintty: 'coding', kitty: 'coding',
+  // card CTX-1 — more terminals
+  'wezterm-gui': 'coding', iterm2: 'coding', terminal: 'coding', warp: 'coding',
+  ghostty: 'coding', tabby: 'coding', konsole: 'coding', 'gnome-terminal-server': 'coding',
+  kgx: 'coding',
   // email
   outlook: 'email', hxoutlook: 'email', thunderbird: 'email', mailspring: 'email',
   em_client: 'email', emclient: 'email', 'em client': 'email',
@@ -54,7 +62,10 @@ const DESCRIPTOR_BY_CATEGORY: Readonly<Record<AppCategory, string>> = {
 /** Map a focus process basename to a category, or undefined when unmapped. */
 export function appCategoryFor(processName: string | undefined): AppCategory | undefined {
   if (!processName) return undefined;
-  return CATEGORY_BY_PROCESS[processName.trim().toLowerCase()];
+  // Object.hasOwn, not a bare index: 'constructor' / '__proto__' are process
+  // names like any other and must come back unmapped, not as a prototype member.
+  const key = processName.trim().toLowerCase();
+  return Object.hasOwn(CATEGORY_BY_PROCESS, key) ? CATEGORY_BY_PROCESS[key] : undefined;
 }
 
 /** The prompt-facing descriptor for a process, or undefined when unmapped. */

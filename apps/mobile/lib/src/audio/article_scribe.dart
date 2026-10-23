@@ -89,6 +89,10 @@ class ArticleScribe {
   /// See that method. Belongs to the open recording: [begin] and [end] zero it.
   int _heldForNextLiveRowMs = 0;
 
+  /// D6-CATCHUP-DUP - how long the open long recording's recorder has been
+  /// paused ([livePaused] / [liveResumed]).
+  final Stopwatch _paused = Stopwatch();
+
   /// Card RC-N — every recovery attempt that opened on the wire, with its own
   /// cursor, so a late frame is placed by the session it belongs to (see the
   /// ledger's header). Not cleared by [begin] / [end]: a late frame of an
@@ -153,6 +157,9 @@ class ArticleScribe {
     // belongs to an old gap.
     _replay = null;
     _heldForNextLiveRowMs = 0;
+    _paused
+      ..stop()
+      ..reset();
     _pendingTail = null;
     final String id = mintArticleId(seq: _seq++, micros: _micros());
     _clock = ArticleClock(
@@ -318,6 +325,29 @@ class ArticleScribe {
     final int? start = accountOfflineBytes(bytes);
     if (start != null) _heldForNextLiveRowMs += pcmBytesToMs(bytes);
     return start;
+  }
+
+  /// D6-CATCHUP-DUP - the recorder of the open long recording paused (the app
+  /// left the foreground). See [liveResumed].
+  void livePaused() {
+    if (_clock == null) return;
+    _paused
+      ..reset()
+      ..start();
+  }
+
+  /// D6-CATCHUP-DUP - the recorder resumed: the pause is time the relay counts
+  /// and the PCM does not. The row that spans it reports the relay's WALL time
+  /// (server-core `orchestrator-rollover.ts` `boundaryMs = host.now()`; a
+  /// paused session only drops chunks, `audio.handler.ts`), so the pause is
+  /// taken back off the next live row the way an outage is ([liveRowSpan]):
+  /// the article counts audio time, not pauses (`ArticleSummary.durationMs`,
+  /// article.dart).
+  void liveResumed() {
+    if (!_paused.isRunning) return;
+    _paused.stop();
+    if (_clock == null) return;
+    _heldForNextLiveRowMs += _paused.elapsedMilliseconds;
   }
 
   /// Card RC-3b — the span a LIVE row may claim, net of any stretch

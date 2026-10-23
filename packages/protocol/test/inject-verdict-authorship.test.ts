@@ -22,8 +22,10 @@ import {
   PC_ADMISSION_REFUSAL_CODES,
   PC_INJECTION_VERDICT_CODES,
   RELAY_AUTHORED_INJECT_RESULT_CODES,
+  TRANSIENT_INJECT_VERDICT_CODES,
   injectVerdictAuthorOf,
   isPcInjectionVerdictCode,
+  isTransientInjectVerdictCode,
 } from '../src/inject-verdict-authorship';
 
 describe('inject verdict authorship — full-coverage guard', () => {
@@ -77,9 +79,19 @@ describe('inject verdict authorship — the three named sets (a change must be d
       'INJECT_SELF_WINDOW_NO_INPUT',
       'INJECT_SENDINPUT_FAIL',
       'INJECT_SUBMISSION_UNCERTAIN',
+      'INJECT_TARGET_ELEVATED',
       'INJECT_TARGET_INVALID',
       'INJECT_WAYLAND_UNSUPPORTED',
     ]);
+  });
+
+  it('INJECT_TARGET_ELEVATED ends delivery debt and is NOT retried automatically', () => {
+    // MAIN 2026-10-16: an elevated window does not lower itself, and an automatic
+    // re-send after the user moved on would type the sentence into whatever is in
+    // front by then. Delivered (pc-injection) + terminal (not transient).
+    expect(INJECT_VERDICT_AUTHORSHIP.INJECT_TARGET_ELEVATED).toBe('pc-injection');
+    expect(TRANSIENT_INJECT_VERDICT_CODES).not.toContain('INJECT_TARGET_ELEVATED');
+    expect(isTransientInjectVerdictCode('INJECT_TARGET_ELEVATED')).toBe(false);
   });
 
   it('the PC has exactly two admission-layer refusals, and neither counts as delivered', () => {

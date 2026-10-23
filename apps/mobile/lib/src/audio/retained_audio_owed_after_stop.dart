@@ -68,6 +68,43 @@ extension RetainedAudioOwedAfterStop on RetainedAudioSpill {
     }
   }
 
+  /// NR-224 (c) — [recordingId] ended with its relay session gone (or its
+  /// link or engine down) and the live rows ALREADY cover every captured byte:
+  /// there is no tail. Recorded as `settled_unverified` — the words are rows,
+  /// the terminal receipt that would license deleting the audio never came —
+  /// so the recovery queue skips it (`RecoveryQueueState.isTerminalSettle`)
+  /// and the pending screen lists it with delete only.
+  ///
+  /// 🔴 WHY NOT JUST RETURN, which is what the writer did before this card: a
+  /// manifest with no owed range reads as 「the whole recording」
+  /// (retained_audio_journal_scan.dart `_Owed.of`), so the catch-up fed the
+  /// recording again from byte 0 and appended it after the rows the user
+  /// already had — measured red by
+  /// `test/continuous_tail_at_end_catchup_test.dart` (start 0 ms, owed=[]).
+  /// A later live settle (the relay did answer after all) overwrites this with
+  /// its own verdict, which is the better-informed one.
+  Future<void> noTailOwed(String recordingId) {
+    if (!_retainFromFirstFrame) return Future<void>.value();
+    return _onJournalOf(recordingId, (RetainedAudioJournal j, bool open) {
+      if (j.manifest.owedRanges.any((OwedRange r) => r.isOwed)) return;
+      // `RecoveryQueueState.settledUnverified` (session layer; this one cannot
+      // import it). The test reads the manifest back against that constant.
+      j.setRecoveryState('settled_unverified');
+    });
+  }
+
+  /// NR-214 — the live rows of [recordingId] are on disk up to capture
+  /// position [bytes] ([RecordingManifest.liveCoveredBytes] says what that
+  /// buys). Only ever raised. Called after the row read back
+  /// (`chat_utterance_settle.dart`), so a kill between the final and the
+  /// row's write leaves the older, lower mark: words come back twice rather
+  /// than not at all.
+  Future<void> noteLiveCovered(String recordingId, int bytes) {
+    if (!_retainFromFirstFrame || bytes <= 0) return Future<void>.value();
+    return _onJournalOf(recordingId,
+        (RetainedAudioJournal j, bool open) => j.noteLiveCovered(bytes));
+  }
+
   /// The journal of [recordingId]: the open one through its own handle, or the
   /// manifest on disk reopened and closed again. Nothing when it is gone.
   Future<void> _onJournalOf(String recordingId,

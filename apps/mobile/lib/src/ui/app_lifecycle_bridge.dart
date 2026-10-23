@@ -33,6 +33,14 @@
 //     for the microphone-permission dialog this app now shows on first PTT
 //     (card U2, `Permission.microphone.request()`), for the notification shade, for
 //     the app switcher and for an incoming-call banner.
+//     ⚠️ NR-213 / D2 (2026-10-14): 「the application switcher is visible ⇒
+//     inactive」 holds on iOS ONLY. On Android the recents view STOPS the
+//     Activity, so the engine walks on to `paused` and this bridge fires
+//     [onBackground] — measured on TB335ZC (Android 16), and a 7 s recents peek
+//     paused a long recording (docs/strategy/2026-10-10-long-recording-app-
+//     switch-review.md §2 ②, §7). That is the behaviour, not a defect: a phone
+//     the user cannot see does not record. Pinned by the D2 test in
+//     test/lifecycle_pause_resume_test.dart.
 //   · `hidden` — 「a transition to this state is synthesized before the [paused]
 //     state is entered when coming from [inactive], AND before the [inactive]
 //     state is entered when coming from [paused].」 It fires on BOTH legs, so
@@ -49,7 +57,6 @@
 // at the source, which matters now that the session's wire emits are no longer
 // gated on the recorder being in a particular state.
 
-import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
@@ -86,6 +93,22 @@ class _AppLifecycleBridgeState extends State<AppLifecycleBridge>
   /// This is the whole pairing latch — see the header.
   bool _backgrounded = false;
 
+  /// NR-174-D6 — the edges run one after the other. Both callbacks used to be
+  /// fired `unawaited` side by side, while app_lifecycle_edges.dart told its
+  /// reader the bridge awaited them: a return inside a slow `pauseCapture`
+  /// would read the recorder as still `recording`, skip the resume, and the
+  /// pause would then land last — recorder parked, relay latched, panel
+  /// saying Recording.
+  Future<void> _edges = Future<void>.value();
+
+  void _enqueue(Future<void> Function() edge) {
+    // A failed edge is reported, never swallowed, and never blocks the next.
+    _edges = _edges.then((_) => edge()).catchError((Object e, StackTrace st) {
+      FlutterError.reportError(FlutterErrorDetails(
+          exception: e, stack: st, library: 'app lifecycle bridge'));
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -104,11 +127,11 @@ class _AppLifecycleBridgeState extends State<AppLifecycleBridge>
       case AppLifecycleState.paused:
         if (_backgrounded) return;
         _backgrounded = true;
-        unawaited(widget.onBackground());
+        _enqueue(widget.onBackground);
       case AppLifecycleState.resumed:
         if (!_backgrounded) return;
         _backgrounded = false;
-        unawaited(widget.onForeground());
+        _enqueue(widget.onForeground);
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
