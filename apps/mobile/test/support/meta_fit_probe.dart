@@ -53,7 +53,31 @@ class MetaProbe {
 
   /// One line per residual cell: what put it on a third line.
   final List<String> detail = <String>[];
+
+  /// `key/line3` when the card's two-or-three-line answer flips within
+  /// [kMetaShapingBand] of the card's width (strict sizes only): the host's
+  /// text shaping, not our layout, decides which side of the edge it lands.
+  final List<String> borderline = <String>[];
 }
+
+/// How close to the card's width (dp) a third meta line counts as decided by
+/// the host's text shaping rather than by our layout.
+///
+/// Measured 2026-10-23: `en/360/xlarge/{injected,noted}/modelRejected/
+/// thisYear/selecting` need a third line on Windows (and on macOS: mac-verify
+/// passed with them pinned) and are 0.20 dp short of fitting two (dry layout
+/// at width + 0.05 dp steps). Public CI's Linux runner (run for b3d64055, the
+/// same Flutter 3.44 SDK, whose Roboto files are the ones this ruler loads)
+/// laid both out on two lines, so 「pinned but fits two lines now」 turned red
+/// there. 2 dp is ten times that flip and well under one glyph at these
+/// sizes, so a real layout change (a word or an item moving) still moves a
+/// cell out of the band.
+///
+/// The band only excuses the pin RATCHET (a pinned cell that fits two lines
+/// on this host). It never excuses a hidden, cut or ellipsized fact, an item
+/// past the card edge, a wrapped fact, or an unpinned card that needs a
+/// third line — those checks read the laid-out tree as before.
+const double kMetaShapingBand = 2.0;
 
 /// Every `KeyedSubtree` with a string key under [root], by key — one walk of
 /// the tree, not one search per card (a Finder per card made this quadratic).
@@ -90,6 +114,7 @@ MetaProbe probeMetaCell(
   Element card,
   MetaExpectation want, {
   required bool strict,
+  bool shapingBand = false,
 }) {
   final MetaProbe out = MetaProbe();
   final String key = want.key;
@@ -127,6 +152,30 @@ MetaProbe probeMetaCell(
           '${block.size.width.toStringAsFixed(1)})',
         );
       }
+    }
+    // The other side of the edge, by dry layout (no side effects on the
+    // painted tree): a three-line card that fits two at width + band, or a
+    // card that fits two that needs a third at width - band. Opt-in: the
+    // history card's RenderMetaPriorityRow (chat_message_meta.dart) has no
+    // computeDryLayout, so the history test keeps the exact ratchet (it did
+    // not trip on public CI; only the chat cell did).
+    if (shapingBand) {
+      final double w = block.constraints.maxWidth;
+      final double h = block.size.height;
+      final bool nearEdge = block.lineCount == 3
+          ? block
+                    .getDryLayout(
+                      BoxConstraints(maxWidth: w + kMetaShapingBand),
+                    )
+                    .height <
+                h - 0.5
+          : block
+                    .getDryLayout(
+                      BoxConstraints(maxWidth: w - kMetaShapingBand),
+                    )
+                    .height >
+                h + 0.5;
+      if (nearEdge) out.borderline.add('$key/line3');
     }
     if (block.lineCount == 3) {
       out.residual.add('$key/line3');

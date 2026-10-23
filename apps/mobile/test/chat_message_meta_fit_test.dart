@@ -59,6 +59,15 @@
 //     extras/optional: does not fit and is not pinned`; ruler without the
 //     fallback face → `…/deferredNotInjected/noModel/today/extras/optional:
 //     pinned but fits now` (the ruler is load-bearing).
+//   · 2026-10-23, the shaping band (kMetaShapingBand, meta_fit_probe.dart):
+//     public CI's Linux runner drew two pinned cells 0.20 dp short of two
+//     lines on two lines. Reproduced here by widening the layout 0.25 dp
+//     (`maxW = constraints.maxWidth + 0.25` in chat_message_meta_layout.dart):
+//     band 0 → `en 360dp xlarge` `+0 -1`, the same two cells as CI
+//     (`en/360/xlarge/{injected,noted}/modelRejected/thisYear/selecting/line3:
+//     pinned but fits two lines now`); band 2 → `+1`. The moved-fact control
+//     above re-run with the band in place → still `+0 -1` (`a fact is not
+//     painted`, `"Resent 2025/12/28 23:59" not painted whole`).
 
 import 'dart:io';
 
@@ -95,6 +104,8 @@ void main() {
   final Set<String> runPrefixes = <String>{};
   final List<String> seen = <String>[];
   final List<String> details = <String>[];
+  // Cells within kMetaShapingBand of needing a third line (either side).
+  final Set<String> borderline = <String>{};
   tearDownAll(() {
     if (Platform.environment['FLOWMIC_META_DETAIL'] case final String path?) {
       File(path).writeAsStringSync(details.map((String d) => '$d\n').join());
@@ -109,7 +120,9 @@ void main() {
             '# for every cell); read the diff before committing.\n',
         previous: previous,
         runPrefixes: runPrefixes,
-        seen: seen,
+        // A pinned cell this host lays out on two lines only by a shaping
+        // margin keeps its pin: another host draws it on three.
+        seen: <String>[...seen, ...previous.where(borderline.contains)],
       ),
     );
   });
@@ -185,7 +198,7 @@ void main() {
                         entry: entry,
                         strings: s,
                         queued: row.queued,
-              owed: row.owed,
+                        owed: row.owed,
                         canResendImage: false,
                         onRetry: (_) {},
                         polishSkippedLabel: badge?.label(s),
@@ -239,9 +252,11 @@ void main() {
               cards[want.key]!,
               want,
               strict: strict,
+              shapingBand: true,
             );
             failures.addAll(p.failures);
             details.addAll(p.detail);
+            borderline.addAll(p.borderline);
             for (final String cell in p.residual) {
               seen.add(cell);
               if (!update && !pinned.contains(cell)) {
@@ -251,6 +266,15 @@ void main() {
           }
           for (final String cell in pinned) {
             if (cell.startsWith(prefix) && !seen.contains(cell)) {
+              // Within kMetaShapingBand of the edge the host's text shaping
+              // decides (see meta_fit_probe.dart): reported, not failed.
+              if (borderline.contains(cell)) {
+                details.add(
+                  '$cell: pinned, fits two lines on this host by '
+                  '< $kMetaShapingBand dp',
+                );
+                continue;
+              }
               failures.add('$cell: pinned but fits two lines now');
             }
           }

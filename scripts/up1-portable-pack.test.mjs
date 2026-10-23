@@ -30,6 +30,7 @@ import {
   DEFAULT_PORTABLE_PLATFORM,
   PORTABLE_DIR_NAME,
   describeStaleManifest,
+  isArchiverCrash,
   isPortableZipName,
   packPortable,
   parsePortableZipName,
@@ -53,6 +54,14 @@ function assertTrue(cond, label) {
 function skipSection(name, reason) {
   skippedSections.push({ name, reason });
   console.log(`  SKIP  ${name} — ${reason}`);
+}
+/** The Windows system archiver crashing (0xC0000005, see pack-portable.mjs
+ *  WIN_ACCESS_VIOLATION) is a broken tool on this host, not a verdict on the
+ *  pack contract: the section is SKIPPED by name with the status, never passed.
+ *  Anything else is rethrown and fails the run. */
+function skipIfArchiverCrashed(name, e) {
+  if (!isArchiverCrash(e?.archiverStatus ?? e?.status)) throw e;
+  skipSection(name, `the system archiver crashed (exit ${e.archiverStatus ?? e.status} = 0xC0000005 access violation) — the pack contract was NOT checked on this host`);
 }
 /** Asserts the call throws AND that the message names the right thing — a bare
  *  "it threw" would pass for a typo in the test itself. */
@@ -223,6 +232,8 @@ if (archiver) {
     } else {
       console.log('  ·     (decoy tar could not be produced; skipping that one assertion)');
     }
+  } catch (e) {
+    skipIfArchiverCrashed('§3 pack + round-trip', e);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -271,6 +282,8 @@ section('§4 verifier reverse controls (pure — no archiver needed)');
       let okThrew = false;
       try { verifyPortableArchive(buf, [{ rel: 'only.txt', size: 1 }]); } catch { okThrew = true; }
       assertTrue(!okThrew, 'POSITIVE CONTROL: the truthful source list verifies cleanly (so the three refusals above mean something)');
+    } catch (e) {
+      skipIfArchiverCrashed('§4 verifier reverse controls', e);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

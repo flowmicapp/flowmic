@@ -3,7 +3,9 @@
 // bsdtar listing/extraction are the oracles, never the normalizer's own parser.
 // Temporary files stay in this checkout's .local. No builds or publish calls.
 // Run: node scripts/linux-portable-modes.test.mjs
-// Missing archiver is an explicit SKIP (2), not a successful product check.
+// Missing archiver is an explicit SKIP (2), not a successful product check; so
+// is a Windows system archiver that crashes (0xC0000005, pack-portable.mjs
+// WIN_ACCESS_VIOLATION): the whole drill rests on a real bsdtar ZIP.
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -12,7 +14,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writ
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizeLinuxPortableModes } from './linux-portable-modes.mjs';
-import { packPortable, readZipEntries, resolveArchiver } from './pack-portable.mjs';
+import { isArchiverCrash, packPortable, readZipEntries, resolveArchiver } from './pack-portable.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '.local');
 mkdirSync(root, { recursive: true });
@@ -22,6 +24,7 @@ try { archiver = resolveArchiver(); } catch (error) {
   process.exit(2);
 }
 const temp = mkdtempSync(join(root, 'linux-portable-modes-'));
+let crashed = null;
 const dirName = 'FlowMic-linux-x64';
 const bundle = join(temp, dirName);
 const contents = new Map([
@@ -160,7 +163,15 @@ try {
   assert.throws(() => normalizeLinuxPortableModes(raw.subarray(0, 21), dirName), /not a classic ZIP/);
   assert.throws(() => normalizeLinuxPortableModes(raw, '../bad'), /invalid top-level/);
   console.log('PASS malformed classic ZIP, ZIP64, path and special-file refusals leave input untouched');
+} catch (error) {
+  const status = error?.archiverStatus ?? error?.status;
+  if (!isArchiverCrash(status)) throw error;
+  crashed = status;
 } finally {
   rmSync(temp, { recursive: true, force: true });
+}
+if (crashed !== null) {
+  console.log(`SKIP: ${archiver.path} crashed (exit ${crashed} = 0xC0000005 access violation) — Linux mode normalization was NOT checked on this host`);
+  process.exit(2);
 }
 console.log('PASS linux-portable-modes.test.mjs');

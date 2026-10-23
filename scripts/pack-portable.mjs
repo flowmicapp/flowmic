@@ -183,6 +183,21 @@ export function sidecarLine(hash, name) {
   return `${hash}  ${name}\n`;
 }
 
+/** Windows' STATUS_ACCESS_VIOLATION (NTSTATUS 0xC0000005) seen as a process
+ *  exit status: the archiver crashed, it did not refuse anything. Measured
+ *  2026-10-23 on GitHub's windows-2025-vs2026 image 20261021.278.1:
+ *  C:\Windows\System32	ar.exe (bsdtar 3.8.9) exited 3221225477 with empty
+ *  stdout and stderr while packing a fixture tree (public CI for 0.3.118;
+ *  image 20260925.250.1 packed the same fixtures). The same command passed on
+ *  dev-pc-a the same day. Cause not known. */
+export const WIN_ACCESS_VIOLATION = 0xC0000005;
+
+/** True when an archiver exit status is that crash on Windows. Used by the
+ *  error below and by the drills that turn it into a stated SKIP. */
+export function isArchiverCrash(status, platform = process.platform) {
+  return platform === 'win32' && status === WIN_ACCESS_VIOLATION;
+}
+
 /** Locate a libarchive-backed archiver by absolute path and prove its identity.
  *  Throws — never returns a "close enough" tool, and never falls back to a PATH
  *  lookup (see the ARCHIVER note in the header: PATH answers differently
@@ -444,7 +459,14 @@ export function packPortable({
     // exit code alone cannot tell a zip from a tar, on the bytes below too.
     if (r.error) throw new Error(`${archiver.path} could not be run: ${r.error.message}`);
     if (r.status !== 0) {
-      throw new Error(`${archiver.path} exited ${r.status}${r.signal ? ` (signal ${r.signal})` : ''}: ${(r.stderr || '').trim().slice(0, 500)}`);
+      const crashed = isArchiverCrash(r.status);
+      const err = new Error(
+        `${archiver.path} exited ${r.status}${r.signal ? ` (signal ${r.signal})` : ''}` +
+        (crashed ? ' (0xC0000005: the archiver crashed; no archive was kept. FLOWMIC_BSDTAR can point at another libarchive bsdtar)' : '') +
+        `: ${(r.stderr || '').trim().slice(0, 500)}`,
+      );
+      err.archiverStatus = r.status;
+      throw err;
     }
     if (!existsSync(tmpPath)) throw new Error(`${archiver.path} exited 0 but wrote no archive`);
 
