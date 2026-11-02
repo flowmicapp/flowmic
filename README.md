@@ -27,7 +27,7 @@ a SHA-256 checksum beside every file.
 | **Windows 10/11 (64-bit)** | Shipped | MSI installer (en-US / zh-CN) and a portable zip |
 | **Android** | Shipped | [Google Play](https://play.google.com/store/apps/details?id=app.flowmic.android) (recommended, updates automatically) or [download latest APK](https://github.com/flowmicapp/flowmic/releases/latest/download/flowmic-release-latest.apk) (built-in update check), for Android 7.0 or later |
 | **macOS (Apple Silicon)** | Shipped | Notarized, stapled zip for macOS 11 or later (Intel Macs are not supported), which Gatekeeper opens without warnings |
-| **iOS / iPadOS** | Public beta | [Join on TestFlight](https://testflight.apple.com/join/fvTxBgE3) |
+| **iOS / iPadOS** | Shipped | [App Store](https://apps.apple.com/app/flowmic-voice-typing/id6801703347) (FlowMic: Voice Typing) for iOS or iPadOS 15 or later (see note below for where it is not offered) |
 | **Linux (64-bit Intel/AMD)** | Shipped | `.deb` for Ubuntu and Debian, and a portable zip; tested on Ubuntu 22.04 LTS. Typing into other apps requires an X11 session. |
 
 The Google Play build and the GitHub APK are signed with different keys, so
@@ -35,12 +35,12 @@ Android will not install one over the other. To switch channels, you must
 uninstall first, and uninstalling deletes the notes stored on that phone.
 Export your timeline as a zip inside the app before uninstalling to keep them.
 
-The iOS build ships through TestFlight, which is Apple's beta channel and comes
-with Apple's limits: a new build appears only after Apple's review, the public
-link holds 300 testers, each build expires 90 days after upload, and you need
-iOS or iPadOS 15 or later plus Apple's TestFlight app. One limit is ours: you
-also need a computer running FlowMic, because the phone is the microphone and
-the words land on the computer.
+The App Store listing is available in 147 countries and regions, but not in
+mainland China or the 27 EU countries. If your App Store account is set to
+mainland China or an EU country, use the web version instead: open
+[flowmic.app/go](https://flowmic.app/go/) on the iPhone or iPad and pair it with
+your computer. You also need a computer running FlowMic, because the phone is
+the microphone and the words land on the computer.
 
 ---
 
