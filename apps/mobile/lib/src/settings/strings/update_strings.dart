@@ -117,20 +117,22 @@ mixin UpdateStrings on AppStringsLeaves {
   // ── the store-delivered channel (iOS, owner 2026-08-20) ───────────────────
 
   /// Under 「version x is available」 when the verdict came from a
-  /// `store_platforms` entry: the update arrives through TestFlight, and this
+  /// `store_platforms` entry: the update arrives through the App Store (the
+  /// TestFlight beta route was retired on 2026-11-02), and this
   /// app downloads nothing itself. A different sentence from
   /// [updateKindUnknownNote] on purpose — that one promises 「download it from
   /// the address below」, which on this channel would point at an address that
   /// does not exist.
   String get updateStoreChannelNote => _lfUpdateStoreChannelNote;
 
-  /// Label for the store-page link row (TestFlight invite / store listing).
+  /// Label for the store-page link row (the App Store listing; it was the
+  /// TestFlight invite until 2026-11-02).
   String get updateStoreUrlLabel => _lfUpdateStoreUrlLabel;
 
   /// 🔴 The SAME channel, and a **different fact**: the store entry exists but
   /// **nobody has minted its link yet** ([UpdateCheckResult.storeUrl] is null).
   ///
-  /// [updateStoreChannelNote] sends the user to TestFlight —
+  /// [updateStoreChannelNote] sends the user to the App Store —
   /// which, with no link, is an instruction they cannot carry out. Owner ruled
   /// the sentence on 2026-08-24: 「有新版本：XXXX，联系官方团队获取」. It is a
   /// different sentence because it points at a different action, the same

@@ -30,7 +30,7 @@ import { describeTransportError } from './verify-remote-artifact.mjs';
 // Import here rather than copy the regex: two hand-written copies of the same regex are 「同一个问题两个答案」.
 // PORTABLE_PLATFORMS likewise comes from there, rather than being maintained a second time here: two hand-maintained
 // copies of the same table will drift (the version-sync FACES table is the precedent). Add a platform in that one place.
-import { PORTABLE_PLATFORMS, isPortableZipName, parsePortableZipName } from './pack-portable.mjs';
+import { PORTABLE_PLATFORMS, isPortableZipName, isStoreMsiName, parsePortableZipName } from './pack-portable.mjs';
 
 refuseDirectRun(
   import.meta.url,
@@ -49,8 +49,10 @@ refuseDirectRun(
 // something someone else has not delivered yet into classify(), which then
 // **refuses the whole manifest** because it cannot classify it — that would
 // make this generator go red for a reason that has nothing to do with it.
+// The Store variant MSI (offline WebView2, ~252 MiB) is never an update
+// artifact: the in-app updater must keep getting the small direct MSI.
 export function isRoundArtifactName(name, version) {
-  return (/\.(msi|apk)$/i.test(name) || isPortableZipName(name)) && name.includes(version);
+  return (/\.(msi|apk)$/i.test(name) || isPortableZipName(name)) && name.includes(version) && !isStoreMsiName(name);
 }
 
 /** Artifact → which platform it belongs to, what kind it is, what locale.

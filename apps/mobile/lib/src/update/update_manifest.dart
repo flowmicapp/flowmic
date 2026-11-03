@@ -68,7 +68,8 @@ import 'dart:convert';
 const String kUpdatePlatformAndroid = 'android';
 
 /// iOS's key — looked up in [UpdateManifest.storePlatforms], never in
-/// `platforms`: iOS updates arrive through TestFlight, so the
+/// `platforms`: iOS updates arrive through the App Store (TestFlight until
+/// 2026-11-02), so the
 /// manifest carries the NEWS for it, not a downloadable artifact. Why that is
 /// a separate top-level block: an ios entry with `artifacts: []` inside
 /// `platforms` would be rejected as `empty_artifacts` by every fielded client
@@ -175,7 +176,8 @@ class UpdateStorePlatform {
   final String version;
   final String? notesUrl;
 
-  /// The store page (TestFlight invite / store listing). Optional — the news
+  /// The store page (the App Store listing; the TestFlight invite until
+  /// 2026-11-02). Optional — the news
   /// is real even while nobody has minted the link yet.
   final String? storeUrl;
 }

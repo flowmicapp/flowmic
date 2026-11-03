@@ -65,9 +65,14 @@
 //      exceptions and hashes are in scripts/vendor/rust-licenses/sources.json.
 //      Cargo runs --locked --offline; prefill all targets with cargo fetch
 //      --locked --manifest-path apps/desktop/src-tauri/Cargo.toml.
-//   5. The WebView2 Runtime is not redistributed, but its SDK loader static
-//      library is linked on Windows. The exact SDK package's license/notice
-//      accompanies webview2-com-sys in section 6, pinned in sources.json.
+//   5. Only the on-demand Microsoft Store MSI redistributes Microsoft's
+//      WebView2 Evergreen Standalone Installer (offlineInstaller in
+//      tauri.store.conf.json; scripts/build-windows-store-msi.mjs); the
+//      regular MSI keeps Tauri's default download-on-install bootstrapper.
+//      Both are gated by scripts/msi-webview2-offline.mjs.
+//      Its SDK loader static library is also linked on Windows. The exact SDK
+//      package's license/notice accompanies webview2-com-sys in section 6,
+//      pinned in sources.json.
 //   Rust std (including its vendored components) and other native blobs inside
 //   crates are not comprehensively audited by this crate-file collector.
 //   Phone artifacts use Flutter NOTICES.Z; this adds no license-page UI and
@@ -419,21 +424,24 @@ SenseVoice model — points a downloader at.
 
   const webview2Section = section(
     '5. Microsoft Edge WebView2 Runtime and SDK loader',
-    `FlowMic's apps/desktop/src-tauri/tauri.conf.json sets no \`webviewInstallMode\`\n` +
-      `under \`bundle.windows.wix\`/\`nsis\`, so Tauri 2 uses its default,\n` +
-      `\`downloadBootstrapper\`: the installer carries only Microsoft's small\n` +
-      `bootstrapper executable, which fetches the real WebView2 Runtime from\n` +
-      `Microsoft's own servers at install time (or reuses the Evergreen runtime\n` +
-      `already present on most Windows 10 1803+ / Windows 11 machines). FlowMic\n` +
-      `does not redistribute the Runtime. The SDK loader static library IS
-` +
-      `linked into the Windows executable by webview2-com-sys. Its Microsoft
-` +
-      `SDK license and notice are reproduced with that crate in section 6.
-` +
-      `Switching to offlineInstaller or fixedVersion requires revisiting
-` +
-      `Runtime redistribution obligations.`,
+    `The regular Windows MSI installers (FlowMic_<version>_x64_<lang>.msi) and\n` +
+      `the portable archives do not include the WebView2 Runtime. When no\n` +
+      `WebView2 Runtime is registered on the machine, the regular MSI downloads\n` +
+      `Microsoft's WebView2 bootstrapper from Microsoft's servers during\n` +
+      `installation and runs it; Windows 11 and most Windows 10 machines already\n` +
+      `have the Runtime, and then nothing is downloaded.\n` +
+      `The Microsoft Store edition of the installer\n` +
+      `(FlowMic_<version>_x64_en-US_store.msi, built only with\n` +
+      `apps/desktop/src-tauri/tauri.store.conf.json) carries Microsoft's\n` +
+      `WebView2 Evergreen Standalone Installer, unmodified and signed by\n` +
+      `Microsoft, downloaded at build time from Microsoft's own download link.\n` +
+      `It runs it silently, and only when no WebView2 Runtime is registered.\n` +
+      `The installers and the Runtime are Microsoft software under Microsoft's\n` +
+      `own license terms:\n` +
+      `https://developer.microsoft.com/microsoft-edge/api/eula/webview2\n` +
+      `The SDK loader static library IS linked into the Windows executable by\n` +
+      `webview2-com-sys. Its Microsoft SDK license and notice are reproduced\n` +
+      `with that crate in section 6.`,
   );
 
   const rust = collectRustNotice(ROOT);

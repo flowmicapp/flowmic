@@ -3644,17 +3644,24 @@ FunASR 模型开源协议
 5. Microsoft Edge WebView2 Runtime and SDK loader
 ==============================================================================
 
-FlowMic's apps/desktop/src-tauri/tauri.conf.json sets no `webviewInstallMode`
-under `bundle.windows.wix`/`nsis`, so Tauri 2 uses its default,
-`downloadBootstrapper`: the installer carries only Microsoft's small
-bootstrapper executable, which fetches the real WebView2 Runtime from
-Microsoft's own servers at install time (or reuses the Evergreen runtime
-already present on most Windows 10 1803+ / Windows 11 machines). FlowMic
-does not redistribute the Runtime. The SDK loader static library IS
-linked into the Windows executable by webview2-com-sys. Its Microsoft
-SDK license and notice are reproduced with that crate in section 6.
-Switching to offlineInstaller or fixedVersion requires revisiting
-Runtime redistribution obligations.
+The regular Windows MSI installers (FlowMic_<version>_x64_<lang>.msi) and
+the portable archives do not include the WebView2 Runtime. When no
+WebView2 Runtime is registered on the machine, the regular MSI downloads
+Microsoft's WebView2 bootstrapper from Microsoft's servers during
+installation and runs it; Windows 11 and most Windows 10 machines already
+have the Runtime, and then nothing is downloaded.
+The Microsoft Store edition of the installer
+(FlowMic_<version>_x64_en-US_store.msi, built only with
+apps/desktop/src-tauri/tauri.store.conf.json) carries Microsoft's
+WebView2 Evergreen Standalone Installer, unmodified and signed by
+Microsoft, downloaded at build time from Microsoft's own download link.
+It runs it silently, and only when no WebView2 Runtime is registered.
+The installers and the Runtime are Microsoft software under Microsoft's
+own license terms:
+https://developer.microsoft.com/microsoft-edge/api/eula/webview2
+The SDK loader static library IS linked into the Windows executable by
+webview2-com-sys. Its Microsoft SDK license and notice are reproduced
+with that crate in section 6.
 
 ==============================================================================
 6. Desktop Rust dependencies (303 crates)

@@ -320,9 +320,9 @@
     "favoritesTapToSend": "'Touchez une phrase pour l\\'envoyer à l\\'ordinateur'",
     "goBack": "'Retour'",
     "goClose": "'Fermer'",
-    "goDownloadAndroid": "'Android (APK)'",
+    "goDownloadAndroid": "'Android (Google Play)'",
     "goDownloadApp": "'Télécharger l\\'app mobile'",
-    "goDownloadIos": "'iPhone / iPad (bêta TestFlight)'",
+    "goDownloadIos": "'iPhone / iPad (App Store)'",
     "goDownloadScanHint": "'Scannez avec un autre téléphone, ou touchez le lien.'",
     "goHeaderFrom": "'FlowMic-web'",
     "goHeaderToUnnamedPc": "'cet ordinateur'",
@@ -953,11 +953,7 @@
       "'plateforme, elle ne peut donc pas dire si une mise à jour est '",
       "'disponible.'"
     ],
-    "updateStoreChannelNote": [
-      "\"Les nouvelles versions pour cet appareil arrivent via TestFlight \"",
-      "\"— mettez à jour là-bas ; l'application ne télécharge pas \"",
-      "\"d'installateur elle-même.\""
-    ],
+    "updateStoreChannelNote": "\"Les nouvelles versions pour cet appareil arrivent via l'App Store. Mettez à jour là-bas ; l'application ne télécharge pas d'installateur elle-même.\"",
     "updateStoreNoLinkNote": "'Cet appareil ne peut pas se mettre à jour dans l\\'application. Contactez l\\'équipe officielle pour obtenir la nouvelle version.'",
     "updateStoreUrlLabel": "'Page de mise à jour'",
     "updateUnavailable": [

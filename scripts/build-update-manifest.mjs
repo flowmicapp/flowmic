@@ -25,6 +25,9 @@
 //    must not be an exception: it answers "can this manifest be generated", and **a manifest
 //    that points at 404s does not count as generable**.
 //    Offline drills add `--skip-remote-verify` (off by default; prints a loud banner).
+//    A third, narrow way exists for the round where ONLY a store row moves:
+//        node scripts/build-update-manifest.mjs --store-only --ios <x.y.z> [--ios-store-url <https://…>]
+//    see the "store-only mode" block below the flag parsing for what it ignores and why.
 //    And publish.mjs chains it via `--with-manifest` (called **only after the LAN download
 //    center upload has succeeded**, so 「先产物后清单」 is a call-order fact in that file,
 //    not an oral rule).
@@ -77,7 +80,7 @@
 //    after the publish key was rejected by the site, or after only half the artifacts went up).
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // classify() and the round-artifact predicate moved VERBATIM (comments included)
@@ -114,7 +117,12 @@ import {
 } from './verify-remote-artifact.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = join(ROOT, 'publish');
+/** Test seam only: scripts/store-only-update-manifest.test.mjs points this at a
+ *  throwaway directory so it can run this whole script without touching the
+ *  real ./publish (the publish-github-release.mjs FLOWMIC_PUBLISH_GITHUB_RELEASE_DIR
+ *  precedent). Unset ⇒ ./publish, exactly as before. */
+const OUT_DIR_ENV = 'FLOWMIC_UPDATE_MANIFEST_OUT_DIR';
+const OUT = process.env[OUT_DIR_ENV] ? join(process.env[OUT_DIR_ENV]) : join(ROOT, 'publish');
 const MANIFEST = join(OUT, 'update-manifest.json');
 // `PROJECT` / `CHANNEL` lived here to compose the download-centre path segments
 // (`/files/<project>/<channel>/…`). Since the URLs moved to the public release
@@ -172,16 +180,72 @@ const IOS_STORE_URL = flagValue('--ios-store-url');
  *  header of verify-remote-artifact.mjs. */
 const SKIP_REMOTE_VERIFY = args.includes(REMOTE_VERIFY_SKIP_FLAG);
 
+// ── store-only mode (2026-11-02) ────────────────────────────────────────────
+//
+// The round this exists for, measured that day: iOS 0.3.118 reached the App
+// Store while the live manifest still said ios 0.3.107 — and the normal run
+// could not move that one row. It takes the round version from the root
+// package.json (0.3.119, unreleased), finds the 0.3.119 linux/mac portable zips
+// another round left in ./publish, supersedes the live 0.3.118 rows with them,
+// and then fails gate ② because download/v0.3.119 is a 404. Had that release
+// existed, the same run would have announced 0.3.119 to every Linux and Mac
+// client — a version nobody had decided to ship.
+//
+// `--store-only` answers a narrower question: "the artifact rows stay exactly
+// as live says; move only the store rows". So, in this mode:
+//   · ./publish is NOT read and the package.json version is NOT used — the
+//     artifact list is empty by construction, so the ruling-① merge below
+//     carries every live platform entry forward verbatim (mergeLivePlatforms
+//     with an empty map retains every key, by reference);
+//   · the live manifest is REQUIRED: 'absent' refuses here (in the normal run it
+//     means "this round is the whole truth"; with no round, there is nothing),
+//     and --skip-remote-verify is refused outright, because in the normal run
+//     that flag also skips the live fetch;
+//   · --ios and/or --ios-store-url is REQUIRED, and a run whose store block
+//     comes out identical to live is refused — a store-only manifest that moves
+//     nothing is a deploy with no purpose;
+//   · gates ③ and ② still run on the carried rows: re-verifying what is live is
+//     what keeps "latest DOWNLOADABLE" a measured claim (ruling ①).
+// After the carry-forward, every artifact row is compared against the live
+// answer and any difference refuses the run (it should be impossible; it is
+// checked because "should be impossible" is what the 0.3.119 accident was).
+//
+// ⚠️ The relay deploy compares the file it is about to overwrite, not the
+// endpoint we fetched: `manifest_conflicts()` in the web repo's
+// deploy/post_switch.py refuses an equal-version entry that differs. The endpoint
+// is a re-projection of that file (validateUpdateManifest() in
+// apps/server-core/src/http/update-routes.ts copies the known fields only), so
+// the carried rows are equal to the file's rows unless the file holds fields the
+// relay strips.
+const STORE_ONLY = args.includes('--store-only');
+
 let failed = false;
 const fail = (m) => { console.error(`✗ ${m}`); failed = true; };
 const ok = (m) => console.log(`✓ ${m}`);
+
+if (STORE_ONLY) {
+  if (IOS_VERSION === null && IOS_STORE_URL === null) {
+    fail('--store-only moves only the store rows, and none was given — pass --ios <x.y.z> and/or --ios-store-url <https://…>');
+  }
+  if (SKIP_REMOTE_VERIFY) {
+    fail(
+      `--store-only cannot run with ${REMOTE_VERIFY_SKIP_FLAG}: that flag skips the live-manifest fetch, ` +
+        'and store-only is nothing but the live manifest carried forward',
+    );
+  }
+  if (failed) {
+    console.error('\n✗ 清单未生成 — store-only refused before reading anything.');
+    process.exit(1);
+  }
+  console.log(`── store-only: ./publish and package.json (${VERSION}) are ignored; artifact rows come from the live manifest only ──`);
+}
 
 /* classify(filename) lived here until ruling ① (2026-08-10); it is now the
  * shared scripts/update-manifest-lib.mjs export imported above, moved verbatim
  * — every comment line, including the kind-is-a-cross-language-contract
  * ledger, travels with the function it explains. */
 
-if (!existsSync(OUT)) {
+if (!STORE_ONLY && !existsSync(OUT)) {
   console.error('✗ no ./publish — run node scripts/publish.mjs first');
   process.exit(1);
 }
@@ -193,8 +257,9 @@ if (!existsSync(OUT)) {
 // classify() into update-manifest-lib.mjs as isRoundArtifactName — which files
 // to accept and how to classify them are two halves of one question; split
 // across two places they will drift.
-const files = readdirSync(OUT).filter((f) => isRoundArtifactName(f, VERSION));
-if (files.length === 0) {
+// Store-only: no file is collected at all (see the store-only block above).
+const files = STORE_ONLY ? [] : readdirSync(OUT).filter((f) => isRoundArtifactName(f, VERSION));
+if (!STORE_ONLY && files.length === 0) {
   console.error(`✗ ./publish has no ${VERSION} installer — run node scripts/publish.mjs first`);
   process.exit(1);
 }
@@ -204,6 +269,9 @@ const platforms = {};
  *  carry-forward and the operator's `--ios` seed — never by ./publish, which
  *  by construction holds nothing for a store-delivered platform. */
 const storePlatforms = {};
+/** Store-only: the live manifest as fetched, kept to prove afterwards that the
+ *  artifact rows were carried unchanged and that the store block did move. */
+let storeOnlyLive = null;
 for (const name of files.sort()) {
   const cls = classify(name);
   if (!cls) { fail(`${name} 认不出平台/kind — the manifest must not carry an artifact nobody knows how to use`); continue; }
@@ -288,7 +356,7 @@ if (failed) {
 // 🔴 An empty manifest is worse than no manifest: the client will read it as
 //    "no platform has an update", when the truth is "this manifest has no content".
 //    Unknown ≠ latest.
-if (Object.keys(platforms).length === 0) {
+if (!STORE_ONLY && Object.keys(platforms).length === 0) {
   console.error('✗ no artifact that can be written into the manifest — 拒绝产出一份空清单 (the client would read it as 「已是最新」)');
   process.exit(1);
 }
@@ -337,11 +405,20 @@ if (SKIP_REMOTE_VERIFY) {
     );
   } else if (live.verdict === 'absent') {
     const detail = live.detail ? `, ${live.detail}` : '';
-    console.log(
-      `· live endpoint serves no usable manifest (HTTP ${live.status}${detail}) — nothing to merge; ` +
-        `this round's platforms are the whole manifest`,
-    );
+    if (STORE_ONLY) {
+      fail(
+        `--store-only: the live endpoint serves no usable manifest (HTTP ${live.status}${detail}), so there ` +
+          `are no rows to carry forward. Refusing rather than publishing a manifest with no artifact rows; ` +
+          `a first manifest comes from a normal run over a real ./publish.`,
+      );
+    } else {
+      console.log(
+        `· live endpoint serves no usable manifest (HTTP ${live.status}${detail}) — nothing to merge; ` +
+          `this round's platforms are the whole manifest`,
+      );
+    }
   } else {
+    if (STORE_ONLY) storeOnlyLive = live.manifest;
     const merged = mergeLivePlatforms({ platforms, liveManifest: live.manifest });
     const storeMerged = mergeLiveStorePlatforms({ storePlatforms, liveManifest: live.manifest });
     for (const r of storeMerged.retained) {
@@ -382,6 +459,25 @@ if (SKIP_REMOTE_VERIFY) {
     console.error('\n✗ 清单未生成 — refuse to merge when live entries cannot be asked / cannot be read (an absent platform would be silently dropped, the exact shape ruling ① exists to end).');
     process.exit(1);
   }
+}
+
+// Store-only: the artifact rows must be the live rows, every key, every field.
+if (STORE_ONLY) {
+  const liveRows = storeOnlyLive?.platforms ?? {};
+  const keys = new Set([...Object.keys(liveRows), ...Object.keys(platforms)]);
+  for (const key of keys) {
+    if (JSON.stringify(platforms[key]) !== JSON.stringify(liveRows[key])) {
+      fail(
+        `--store-only: platforms.${key} is not the live row (live ${liveRows[key]?.version ?? '<missing>'}, ` +
+          `would publish ${platforms[key]?.version ?? '<missing>'}) — this mode must never change an artifact row`,
+      );
+    }
+  }
+  if (failed) {
+    console.error('\n✗ 清单未生成 — store-only would have changed an artifact row.');
+    process.exit(1);
+  }
+  ok(`store-only: ${keys.size} artifact rows carried forward unchanged from the live manifest`);
 }
 
 // ── 🔴 Gate ③: is every URL one an OUTSIDE user can actually fetch ─────────
@@ -433,6 +529,18 @@ if (IOS_VERSION !== null) {
   // Minting the link later, without advancing the version, is a legal round.
   storePlatforms.ios = { ...storePlatforms.ios, store_url: IOS_STORE_URL };
   ok(`store_platforms.ios: store page → ${IOS_STORE_URL} (version stays ${storePlatforms.ios.version})`);
+}
+if (STORE_ONLY && !failed) {
+  const before = storeOnlyLive?.store_platforms ?? {};
+  const moved = Object.keys({ ...before, ...storePlatforms }).filter(
+    (k) => JSON.stringify(before[k]) !== JSON.stringify(storePlatforms[k]),
+  );
+  if (moved.length === 0) {
+    fail('--store-only: the store block comes out identical to the live one — nothing to publish');
+  }
+  for (const k of moved) {
+    console.log(`· store-only: store_platforms.${k}  ${before[k]?.version ?? '<none>'} → ${storePlatforms[k]?.version ?? '<none>'}`);
+  }
 }
 if (failed) {
   console.error('\n✗ 清单未生成 — the store_platforms lines above would announce something a phone cannot back.');
@@ -515,6 +623,8 @@ if (CHECK_ONLY) {
   process.exit(0);
 }
 
+// Store-only never required ./publish to exist; a normal run already refused without it.
+if (STORE_ONLY) mkdirSync(OUT, { recursive: true });
 writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
 ok(`update-manifest.json → ${MANIFEST}`);
 

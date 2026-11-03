@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "node ../../scripts/sign-windows.mjs --check && pnpm build",
+    "beforeBundleCommand": "node ../../scripts/sign-windows.mjs --resources src-tauri/resources"
+  },
+  "bundle": {
+    "windows": {
+      "signCommand": {
+        "cmd": "node",
+        "args": ["../../../scripts/sign-windows.mjs", "%1"]
+      }
+    }
+  }
+}

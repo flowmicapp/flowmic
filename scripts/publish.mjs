@@ -60,6 +60,7 @@ import {
 import { portableReadmeText, releaseFolderReadmeText } from './publish-portable-readme.mjs';
 import { FREEZE_FLAG, freezeNotice, freezeRefusal } from './publish-freeze-round.mjs';
 import { DEFERRED_FLAG, deferralRefusal, deferredNotice } from './publish-manifest-deferred.mjs';
+import { PORTABLE_MAIN_EXE, verifyWindowsArtifactsSigned } from './windows-signature-gate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DESKTOP = join(ROOT, 'apps', 'desktop');
@@ -387,6 +388,26 @@ if (!verifyArtifactsCarryNoLanIp(fail, ok)) process.exit(1);
 // this out loud on every run rather than passing silently.
 if (!(await verifyCopyAudited(fail, ok))) process.exit(1);
 
+// ── GATE 0g: every Windows PE that ships is signed AND timestamped (IT-19) ──
+// Asked before the clean below, so a refusal leaves last round's ./publish
+// intact. Only THIS version's installers (the bundle dir keeps every MSI it
+// ever built — staging both would be a coin-flip about which one installs).
+// What counts as signed, the verifier controls and the refusal texts live in
+// scripts/windows-signature-gate.mjs; the portable tree is asked again below.
+const SIGN_SCRATCH = join(ROOT, '.local', 'windows-signature-gate');
+const msis = existsSync(BUNDLE) ? readdirSync(BUNDLE).filter((f) => f.endsWith('.msi') && f.includes(VERSION)) : [];
+if (msis.length === 0) { fail(`no ${VERSION} MSI in target/release/bundle/msi (stale bundle? run tauri:build)`); process.exit(1); }
+if (!verifyWindowsArtifactsSigned({
+  msis: msis.map((f) => join(BUNDLE, f)),
+  // The DIRECT variant — what the in-app updater, the download centre and
+  // GitHub serve. A store-variant (offline WebView2) MSI left in the bundle
+  // dir is refused here by content (scripts/msi-webview2-offline.mjs).
+  msiVariant: 'direct',
+  trees: [{ dir: join(TAURI, 'resources'), label: 'staged resources' }],
+  files: [{ path: exePath, label: 'desktop exe', requireOurs: true }],
+  scratchRoot: SIGN_SCRATCH, fail, ok,
+})) process.exit(1);
+
 // ── clean + recreate ────────────────────────────────────────────────────────
 // A best-effort clean, NOT a precondition. On Windows a shell whose cwd is inside
 // publish/, an editor watching it, or an antivirus scanning a fresh MSI all hold
@@ -442,14 +463,7 @@ stage(noticeSrc, OUT);
 stage(noticeSrc, PORTABLE);
 
 console.log('\n── installers ──');
-// Only THIS version's installers. The Tauri bundle dir accumulates every MSI it
-// has ever produced, so an unfiltered copy puts two versions side by side in
-// publish/ — and the owner installs from publish/, so that is a coin-flip about
-// which build lands on their machine. Filter by the reference version.
-const msis = existsSync(BUNDLE)
-  ? readdirSync(BUNDLE).filter((f) => f.endsWith('.msi') && f.includes(VERSION))
-  : [];
-if (msis.length === 0) fail(`no ${VERSION} MSI in target/release/bundle/msi (stale bundle? run tauri:build)`);
+// `msis` = this version's installers only, chosen (and signature-gated) at GATE 0g.
 const staged = msis.map((f) => stage(join(BUNDLE, f), OUT));
 
 console.log('\n── android ──');
@@ -596,6 +610,11 @@ for (const [label, file] of [['README.txt (portable)', join(PORTABLE, 'README.tx
 }
 ok(`shipped text mentions ${VERSION} and nothing staler`);
 
+// GATE 0g, second half: the portable tree exactly as it is about to be zipped.
+if (!verifyWindowsArtifactsSigned({
+  trees: [{ dir: PORTABLE, label: 'FlowMic-portable', mainExe: PORTABLE_MAIN_EXE }],
+  scratchRoot: SIGN_SCRATCH, fail, ok,
+})) process.exit(1);
 
 if (failed) {
   console.error('\n✗ publish FAILED');

@@ -320,9 +320,9 @@
     "favoritesTapToSend": "'Phrase antippen, um sie an den Computer zu senden'",
     "goBack": "'Zurück'",
     "goClose": "'Schließen'",
-    "goDownloadAndroid": "'Android (APK)'",
+    "goDownloadAndroid": "'Android (Google Play)'",
     "goDownloadApp": "'Handy-App laden'",
-    "goDownloadIos": "'iPhone / iPad (TestFlight-Beta)'",
+    "goDownloadIos": "'iPhone / iPad (App Store)'",
     "goDownloadScanHint": "'Mit einem anderen Handy scannen oder auf den Link tippen.'",
     "goHeaderFrom": "'FlowMic-web'",
     "goHeaderToUnnamedPc": "'dieser Computer'",
@@ -939,10 +939,7 @@
       "'Diese Update-Prüfung deckt diese Plattform noch nicht ab, daher kann '",
       "'sie nicht sagen, ob ein Update verfügbar ist.'"
     ],
-    "updateStoreChannelNote": [
-      "'Neue Versionen für dieses Gerät kommen über TestFlight '",
-      "'— dort aktualisieren; die App lädt selbst keine Installationspakete herunter.'"
-    ],
+    "updateStoreChannelNote": "'Neue Versionen für dieses Gerät kommen über den App Store. Dort aktualisieren; die App lädt selbst keine Installationspakete herunter.'",
     "updateStoreNoLinkNote": "'Dieses Gerät kann sich nicht in der App aktualisieren. Wende dich an das offizielle Team, um die neue Version zu erhalten.'",
     "updateStoreUrlLabel": "'Update-Seite'",
     "updateUnavailable": [

@@ -61,7 +61,7 @@ import { fileURLToPath } from 'node:url';
 // two hand-kept copies of one string, and the web repo's QR code a third.
 import { LATEST_APK_ASSET_NAME, latestApkDownloadUrl } from './update-manifest-lib.mjs';
 import { scanZipForCjk, zipCjkRefusalMessage, zipUnreadableRefusalMessage } from './release-portable-cjk-scan.mjs';
-import { isLinuxDebName } from './pack-portable.mjs';
+import { isLinuxDebName, isStoreMsiName } from './pack-portable.mjs';
 import { verifyLinuxZipsHaveNoDevCopy } from './linux-dev-copy-gate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -198,7 +198,10 @@ function collectArtifacts() {
   // msi|apk filter.
   // NR-107 (2026-09-25): the Linux .deb ships next to the Linux portable zip.
   // Narrow shape (Tauri's exact name), same VERSION guard and sidecar rule.
-  const files = readdirSync(OUT).filter((f) => (/\.(msi|apk|zip)$/i.test(f) || isLinuxDebName(f)) && f.includes(VERSION));
+  // The Store variant MSI never rides the normal release upload: hosting it
+  // (Partner Center needs a versioned HTTPS URL) is a separate, explicit step
+  // (docs/RELEASE-IRONRULES.md §2, "Windows MSI 两个变体").
+  const files = readdirSync(OUT).filter((f) => (/\.(msi|apk|zip)$/i.test(f) || isLinuxDebName(f)) && f.includes(VERSION) && !isStoreMsiName(f));
   if (files.length === 0) {
     console.error(`✗ no ${VERSION} installers in ./publish — run \`node scripts/publish.mjs\` first (did the version just bump? artifacts need rebuilding).`);
     process.exit(1);

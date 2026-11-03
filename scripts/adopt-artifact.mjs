@@ -69,7 +69,8 @@ import { basename, dirname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { assertLinuxZipHasNoDevCopy } from './linux-dev-copy-gate.mjs';
-import { PORTABLE_PLATFORMS, linuxDebName, portableZipName, sidecarLine } from './pack-portable.mjs';
+import { PORTABLE_PLATFORMS, linuxDebName, portableZipName, resolveArchiver, sidecarLine } from './pack-portable.mjs';
+import { verifyWindowsPortableZipSigned } from './windows-signature-gate.mjs';
 
 /** Debian binary package: an ar(1) archive whose first member is `debian-binary`. */
 export function looksLikeDeb(bytes) {
@@ -154,7 +155,7 @@ export function checkVersionAgreement(sourceName, version) {
 
 /** The whole adoption, as a parameterised function so tests drive fixtures
  *  instead of the real ./publish (and so importing this module adopts nothing). */
-export function adoptArtifact({ sourcePath, attestedSha256, version, outDir, platform, dryRun = false, log = () => {} }) {
+export function adoptArtifact({ sourcePath, attestedSha256, version, outDir, platform, dryRun = false, log = () => {}, verifyWindowsZip = verifyWindowsPortableZipSigned }) {
   if (typeof attestedSha256 !== 'string' || attestedSha256 === '') {
     throw new AdoptError(
       'missing --sha256 <hash>. It is REQUIRED: the sidecar this script writes is the evidence the uploader trusts,\n' +
@@ -223,6 +224,19 @@ export function adoptArtifact({ sourcePath, attestedSha256, version, outDir, pla
     } catch (error) {
       throw new AdoptError(error.message);
     }
+  }
+
+  // IT-19: this script is the second door into ./publish for a Windows zip, so
+  // it asks the same signature question publish.mjs asks (every PE signed,
+  // chained, timestamped; FlowMic.exe ours). Refuses on a non-Windows host.
+  if (!isDeb && plat === 'windows-x64') {
+    const problems = [];
+    const signed = verifyWindowsZip({
+      zipPath: sourcePath, archiver: resolveArchiver().path,
+      scratchRoot: join(dirname(resolve(outDir)), '.local', 'windows-signature-gate'),
+      fail: (m) => problems.push(m), ok: log,
+    });
+    if (!signed) throw new AdoptError(`${sourceName} is not a fully signed Windows bundle:\n  ${problems.join('\n  ')}`);
   }
 
   const destName = isDeb ? linuxDebName(version) : portableZipName(version, plat);

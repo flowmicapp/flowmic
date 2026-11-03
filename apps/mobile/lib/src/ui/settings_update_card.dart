@@ -268,7 +268,7 @@ class SettingsUpdateCard extends StatelessWidget {
             ],
           ),
           // The store-delivered channel (iOS): the update arrives through
-          // TestFlight. The BRANCH is keyed on `storeChannel`,
+          // the App Store (TestFlight until 2026-11-02). The BRANCH is keyed on `storeChannel`,
           // NOT on `storeUrl != null` — a link-less store entry must never
           // fall through to the 「download it from the address below」 copy
           // with no address below.
@@ -281,8 +281,8 @@ class SettingsUpdateCard extends StatelessWidget {
             const SizedBox(height: 6),
             // 🔴 0.3.29 — TWO FACTS, TWO SENTENCES. `storeChannel` says the
             // update arrives through a store; `storeUrl` says whether anyone
-            // has minted the way in. Sending someone to TestFlight when no
-            // invite exists is an instruction they cannot carry out — the same
+            // has minted the way in. Sending someone to a store page when no
+            // link exists is an instruction they cannot carry out — the same
             // shape as pointing at a download address that is not there, which
             // is the exact thing the branch below this one was written to
             // avoid. Owner ruled the linkless sentence on 2026-08-24.

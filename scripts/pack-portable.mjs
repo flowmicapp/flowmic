@@ -174,6 +174,22 @@ export function isLinuxDebName(name) {
   return parseLinuxDebName(name) !== null;
 }
 
+/** The Microsoft Store variant of the Windows MSI (card MSI-OFFLINE-WEBVIEW2):
+ *  built only by scripts/build-windows-store-msi.mjs, written outside
+ *  ./publish under this name. Tauri itself names MSIs `FlowMic_<v>_x64_<lang>.msi`,
+ *  so the `_store` suffix can only come from that script. Every reader of the
+ *  product's own update path (update-manifest-lib isRoundArtifactName, the
+ *  download centre, the GitHub release uploader) refuses a name that matches. */
+// Deliberately broad (any `*_store.msi`): a refusal predicate errs towards
+// keeping a file OUT of the update path.
+export function storeMsiName(version, lang) {
+  return `FlowMic_${version}_x64_${lang}_store.msi`;
+}
+
+export function isStoreMsiName(name) {
+  return /_store\.msi$/i.test(String(name));
+}
+
 /** The sidecar format is a CONTRACT, not a convenience: scripts/publish.mjs
  *  `stage()` writes it and three other places parse it back with
  *  `.trim().split(/\s+/)[0]` (publish-download-center.mjs `collectArtifacts`,

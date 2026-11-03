@@ -327,9 +327,9 @@
     "favoritesTapToSend": "'Нажмите фразу, чтобы отправить на компьютер'",
     "goBack": "'Назад'",
     "goClose": "'Закрыть'",
-    "goDownloadAndroid": "'Android (APK)'",
+    "goDownloadAndroid": "'Android (Google Play)'",
     "goDownloadApp": "'Скачать приложение для телефона'",
-    "goDownloadIos": "'iPhone / iPad (бета в TestFlight)'",
+    "goDownloadIos": "'iPhone / iPad (App Store)'",
     "goDownloadScanHint": "'Отсканируйте другим телефоном или нажмите на ссылку.'",
     "goHeaderFrom": "'FlowMic-web'",
     "goHeaderToUnnamedPc": "'этот компьютер'",
@@ -962,10 +962,7 @@
       "'Эта проверка обновлений пока не охватывает эту платформу, поэтому не '",
       "'может сказать, доступно ли обновление.'"
     ],
-    "updateStoreChannelNote": [
-      "'Новые версии для этого устройства приходят через TestFlight '",
-      "'— обновляйтесь там; приложение само не скачивает установщики.'"
-    ],
+    "updateStoreChannelNote": "'Новые версии для этого устройства приходят через App Store. Обновляйтесь там; приложение само не скачивает установщики.'",
     "updateStoreNoLinkNote": "'Это устройство не может обновиться внутри приложения. Свяжитесь с официальной командой, чтобы получить новую версию.'",
     "updateStoreUrlLabel": "'Страница обновления'",
     "updateUnavailable": [

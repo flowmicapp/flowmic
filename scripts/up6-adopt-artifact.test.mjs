@@ -212,7 +212,11 @@ section('§7 CLI refusals, and the adopted artifact flowing into the manifest');
   // (2026-08-10) — the builder's static imports and this list must move together.
   // linux-dev-copy-gate.mjs + release-portable-cjk-scan.mjs joined with NR-107
   // (adopt-artifact refuses DEV: copy in a Linux portable zip).
-  for (const f of ['build-update-manifest.mjs', 'pack-portable.mjs', 'linux-portable-modes.mjs', 'adopt-artifact.mjs', 'verify-remote-artifact.mjs', 'update-manifest-lib.mjs', 'module-entrypoint-guard.mjs', 'linux-dev-copy-gate.mjs', 'release-portable-cjk-scan.mjs']) {
+  // windows-signature-gate.mjs + windows-signing.mjs joined with IT-19
+  // (adopt-artifact refuses an unsigned Windows portable zip).
+  // msi-webview2-offline.mjs joined with MSI-OFFLINE-WEBVIEW2 (imported by
+  // windows-signature-gate.mjs).
+  for (const f of ['build-update-manifest.mjs', 'pack-portable.mjs', 'linux-portable-modes.mjs', 'adopt-artifact.mjs', 'verify-remote-artifact.mjs', 'update-manifest-lib.mjs', 'module-entrypoint-guard.mjs', 'linux-dev-copy-gate.mjs', 'release-portable-cjk-scan.mjs', 'windows-signature-gate.mjs', 'windows-signing.mjs', 'msi-webview2-offline.mjs']) {
     writeFileSync(join(root, 'scripts', f), readFileSync(join(ROOT, 'scripts', f)));
   }
   const outDir = join(root, 'publish');

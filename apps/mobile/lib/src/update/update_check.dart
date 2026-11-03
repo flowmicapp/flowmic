@@ -256,7 +256,8 @@ class UpdateCheckResult {
   /// then points at a download address that does not exist.
   final bool storeChannel;
 
-  /// The TestFlight invite page to walk to, when the
+  /// The store page to walk to (the App Store listing; the TestFlight
+  /// invite until 2026-11-02), when the
   /// manifest carries one. Only ever non-null alongside [storeChannel].
   final String? storeUrl;
 }

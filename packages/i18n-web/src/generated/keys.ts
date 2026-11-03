@@ -21,6 +21,7 @@ export const MESSAGE_PARAMS = {
   "statusInjected": [],
   "statusDelivering": [],
   "statusQueued": [],
+  "statusNoAnswerYet": [],
   "statusUndelivered": [],
   "statusDeliveredNotInjected": [],
   "statusDeferredNotInjected": [],

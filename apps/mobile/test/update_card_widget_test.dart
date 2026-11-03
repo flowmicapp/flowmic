@@ -332,7 +332,7 @@ void main() {
             UpdateCheckOutcome.updateAvailable,
             latestVersion: '9.9.9',
             storeChannel: true,
-            storeUrl: 'https://testflight.apple.com/join/example',
+            storeUrl: 'https://apps.apple.com/app/flowmic-voice-typing/id6801703347',
             notesUrl: 'https://github.com/flowmicapp/flowmic/releases/tag/v9.9.9',
             comparedAt: DateTime.utc(2026, 8, 20, 9, 0),
           ),
@@ -343,12 +343,17 @@ void main() {
 
         final AppStrings s = AppStrings.of(AppLocale.zh);
         expect(find.text(s.updateAvailableTitle('9.9.9')), findsOneWidget);
-        // This branch is store-delivered iOS. TestFlight is the available
-        // channel; no App Store listing exists in any shipped locale.
+        // This branch is store-delivered iOS. Since 2026-11-02 the App Store
+        // listing is the only public iOS route (the live manifest's
+        // `store_platforms.ios.store_url` is the App Store page) and the
+        // TestFlight beta invite is retired, so every locale must send the
+        // reader to the App Store and none may still name TestFlight.
+        // (Until 2026-11-02 this loop asserted the opposite, when TestFlight
+        // was the only channel and no listing existed.)
         for (final AppLocale locale in AppLocale.values) {
           final String note = AppStrings.of(locale).updateStoreChannelNote;
-          expect(note, contains('TestFlight'), reason: '${locale.name} must name TestFlight');
-          expect(note, isNot(contains('App Store')), reason: '${locale.name} must not promise an App Store listing');
+          expect(note, contains('App Store'), reason: '${locale.name} must name the App Store');
+          expect(note, isNot(contains('TestFlight')), reason: '${locale.name} must not send anyone to the retired TestFlight beta');
         }
         // The store sentence, NOT the 「download it from the address below」 one —
         // that copy would point at a download address this channel never has.
@@ -360,7 +365,7 @@ void main() {
         expect(find.text(s.updateStoreNoLinkNote), findsNothing);
         // The page the user can walk to, visible and labelled.
         expect(find.text(s.updateStoreUrlLabel), findsOneWidget);
-        expect(find.text('https://testflight.apple.com/join/example'), findsOneWidget);
+        expect(find.text('https://apps.apple.com/app/flowmic-voice-typing/id6801703347'), findsOneWidget);
         // And structurally no install control, whatever the wire claims.
         expect(find.byKey(const ValueKey<String>('update.install')), findsNothing);
         expect(find.byType(FilledButton), findsNothing);
