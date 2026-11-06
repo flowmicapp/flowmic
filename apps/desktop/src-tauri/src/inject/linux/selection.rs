@@ -44,6 +44,11 @@ pub(super) struct Owner {
     generation: u64,
     saved: Option<Saved>,
     monitor: generation::Monitor,
+    /// Requestor windows of CLIPBOARD requests since our last ownership
+    /// change, bounded. Read only by the terminal paste's settle step
+    /// (`paste.rs`, D-MKT-2): "has the target's own client re-read us yet".
+    /// Never a landing receipt — see this file's header.
+    asked_since_publish: Vec<xlib::Window>,
     #[cfg(test)]
     requests: Vec<(Instant, String, xlib::Window)>,
 }
@@ -89,6 +94,7 @@ impl Owner {
             generation: 0,
             saved: None,
             monitor,
+            asked_since_publish: Vec::new(),
             #[cfg(test)]
             requests: Vec::new(),
         })
@@ -451,6 +457,7 @@ impl Owner {
         }
         self.values = values;
         self.owned_since = time;
+        self.asked_since_publish.clear();
         self.generation = self
             .generation
             .checked_add(1)
@@ -528,6 +535,9 @@ impl Owner {
     fn serve(&mut self, request: xlib::XSelectionRequestEvent) -> Result<(), String> {
         #[cfg(test)]
         self.requests.push((Instant::now(), self.name(request.target), request.requestor));
+        if request.selection == self.clipboard && self.asked_since_publish.len() < 64 {
+            self.asked_since_publish.push(request.requestor);
+        }
         let property = if request.property == 0 {
             request.target
         } else {

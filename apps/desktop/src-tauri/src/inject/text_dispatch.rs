@@ -60,9 +60,13 @@ use crate::inject::text_route::{self, TextRoute, TypeReason};
 /// be how the next person re-flips this without knowing what it costs.
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn type_or_paste(text: &str, app_id: Option<&str>, _expected_target: u64) -> InjectOutcome {
-    type_or_paste_with(
+    type_or_paste_routed(
         text,
         app_id,
+        // D-MKT-5: the console line-break rule is measured and specified for
+        // Windows consoles only (07 §2 「控制台目标的换行」); macOS keeps its
+        // behaviour, so this arm passes false there.
+        cfg!(windows),
         AppLearningStore::global(),
         &run_sendinput,
         &run_clipboard,
@@ -86,11 +90,39 @@ pub(crate) fn type_or_paste(text: &str, _app_id: Option<&str>, expected_target: 
 type SendInputRun<'a> = &'a dyn Fn(&str, Option<&str>, &AppLearningStore) -> InjectOutcome;
 #[cfg(any(not(target_os = "linux"), test))]
 type ClipboardRun<'a> = &'a dyn Fn(&str, Option<&str>, &AppLearningStore) -> InjectOutcome;
-#[cfg(any(not(target_os = "linux"), test))]
+#[cfg(test)]
 type PasteRun<'a> = &'a dyn Fn(&str, PasteReason) -> InjectOutcome;
+/// The routed paste runner: its verdict, plus `act_completed` — whether the
+/// paste ACT itself returned without error (Ctrl+V went out). D-MKT-8 needs that
+/// fact and the verdict cannot carry it: a hard paste error and a paste nobody
+/// fetched are both INJECT_CLIPBOARD_FAIL.
+#[cfg(any(not(target_os = "linux"), test))]
+type RoutedPasteRun<'a> = &'a dyn Fn(&str, PasteReason) -> (InjectOutcome, bool);
 
-/// [`type_or_paste`] with the three runners injected — the seam the routing
-/// tests drive (a live clipboard/keyboard cannot appear in a unit test).
+/// [`type_or_paste_routed`] for a paste runner that returns only a verdict —
+/// the seam the routing tests drive. Such a runner carries no `act_completed`
+/// fact, so it gets `false`: the fallback rule that held before D-MKT-8.
+///
+/// It also passes `console_line_breaks_submit = false` (no D-MKT-5 flattening),
+/// which is what the Linux production arm does: its only caller outside this
+/// module is `linux_contract_tests.rs`. Tests that need the flattening flag call
+/// [`type_or_paste_routed`] directly (`ime_route_tests.rs` `drive_with`).
+#[cfg(test)]
+pub(crate) fn type_or_paste_with(
+    text: &str,
+    app_id: Option<&str>,
+    store: &AppLearningStore,
+    sendinput_run: SendInputRun<'_>,
+    clipboard_run: ClipboardRun<'_>,
+    paste_run: PasteRun<'_>,
+) -> InjectOutcome {
+    type_or_paste_routed(text, app_id, false, store, sendinput_run, clipboard_run, &|t, r| {
+        (paste_run(t, r), false)
+    })
+}
+
+/// [`type_or_paste`] with the three runners injected (a live clipboard/keyboard
+/// cannot appear in a unit test).
 ///
 /// The two fallbacks are NOT symmetric, and the asymmetry is deliberate:
 ///
@@ -101,59 +133,98 @@ type PasteRun<'a> = &'a dyn Fn(&str, PasteReason) -> InjectOutcome;
 ///   · a failed TYPE falls back to the clipboard, which also writes per-app
 ///     learning (`map_sendinput_outcome` recorded the hard rejection on the way
 ///     through), so the next sentence into that app skips the broken road.
+///
+/// 🔴 D-MKT-8 (2026-11-05): 「a failed PASTE」 above means a paste whose ACT
+/// failed. A paste whose act completed and still is not a delivery (on Windows:
+/// nobody fetched our text, `clipboard_outcome::text_never_left_us`) is NEVER
+/// typed after. Its Ctrl+V is already in the target, which may still act on it
+/// with whatever the clipboard then holds; typing on top is a second action we
+/// cannot verify, on the road the route chose not to take, and its success
+/// would turn an honest `failed` back into a claim with no evidence behind it.
+///
+/// `console_line_breaks_submit` (D-MKT-5): when true and the target is a
+/// console, the text's line breaks are flattened to spaces BEFORE the route is
+/// chosen, so every road below — typed, pasted, and both fallbacks — carries
+/// the flattened text, and the outcome's forensic note says so. One place, not
+/// one per runner: a runner that forgot would put the Enter back. The D-MKT-8
+/// rule then applies inside `route_and_run`, to whichever text it was handed.
 #[cfg(any(not(target_os = "linux"), test))]
-pub(crate) fn type_or_paste_with(
+pub(crate) fn type_or_paste_routed(
     text: &str,
     app_id: Option<&str>,
+    console_line_breaks_submit: bool,
     store: &AppLearningStore,
     sendinput_run: SendInputRun<'_>,
     clipboard_run: ClipboardRun<'_>,
-    paste_run: PasteRun<'_>,
+    paste_run: RoutedPasteRun<'_>,
 ) -> InjectOutcome {
-    // The one learned fact the store still carries. `Some(Clipboard)` means this
-    // app returned a HARD error from SendInput before — see `record_outcome`,
-    // which no longer records anything else.
-    let typing_hard_rejected =
-        app_id.and_then(|id| store.preferred_mode_for(id)) == Some(InjectMode::Clipboard);
-
-    match text_route::route_text(text, app_id, typing_hard_rejected) {
-        TextRoute::Paste(reason) => {
-            let out = paste_run(text, reason);
-            if out.ok || out.error_code == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
-                return out;
-            }
-            sendinput_run(text, app_id, store).with_note(format!(
-                "clipboard route failed ({}), fell back to SendInput typing — a typed delivery \
-                 cannot be verified and some targets silently mangle or drop it (the corruption \
-                 the route exists to avoid), but a dropped utterance would be worse",
-                out.error_code.unwrap_or("unknown")
-            ))
+    if console_line_breaks_submit {
+        if let Some(flat) = text_route::flatten_line_breaks_for_console(text, app_id) {
+            return route_and_run(&flat.text, app_id, store, sendinput_run, clipboard_run, paste_run)
+                .with_note(flat.forensic_note(app_id));
         }
-        TextRoute::Type(TypeReason::ConsoleTarget) => {
-            let out = sendinput_run(text, app_id, store);
-            if out.ok || out.error_code == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
-                return out;
-            }
-            // 2026-07-30: the 「don't paste on top of a possible landing」 guard
-            // that used to sit here (`if out.mode == Cached { return out }`) is
-            // GONE with the verdict that produced it. `run_sendinput` can no
-            // longer answer `cached` at all — the only non-ok outcome left is a
-            // call that errored, which by definition queued nothing, so a paste
-            // cannot duplicate anything. Keeping the branch would have been an
-            // unreachable guard implying a state that no longer exists.
-            let fallback = clipboard_run(text, app_id, store);
-            if fallback.error_code == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
-                return fallback.with_note("the SendInput call failed; clipboard fallback submission is uncertain".into());
-            }
-            if fallback.ok {
-                return fallback.with_note(format!(
-                    "the SendInput call failed ({}), delivered by clipboard paste instead",
+    }
+    return route_and_run(text, app_id, store, sendinput_run, clipboard_run, paste_run);
+
+    // The route and its fallbacks, unchanged by D-MKT-5 (nested so the
+    // flattening above sits in front of all of it, under the same cfg). The
+    // paste arm carries D-MKT-8's rule (no typing after a completed paste act).
+    fn route_and_run(
+        text: &str,
+        app_id: Option<&str>,
+        store: &AppLearningStore,
+        sendinput_run: SendInputRun<'_>,
+        clipboard_run: ClipboardRun<'_>,
+        paste_run: RoutedPasteRun<'_>,
+    ) -> InjectOutcome {
+        // The one learned fact the store still carries. `Some(Clipboard)` means this
+        // app returned a HARD error from SendInput before — see `record_outcome`,
+        // which no longer records anything else.
+        let typing_hard_rejected =
+            app_id.and_then(|id| store.preferred_mode_for(id)) == Some(InjectMode::Clipboard);
+
+        match text_route::route_text(text, app_id, typing_hard_rejected) {
+            TextRoute::Paste(reason) => {
+                let (out, act_completed) = paste_run(text, reason);
+                if out.ok
+                    || act_completed
+                    || out.error_code == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN)
+                {
+                    return out;
+                }
+                sendinput_run(text, app_id, store).with_note(format!(
+                    "clipboard route failed ({}), fell back to SendInput typing — a typed delivery \
+                     cannot be verified and some targets silently mangle or drop it (the corruption \
+                     the route exists to avoid), but a dropped utterance would be worse",
                     out.error_code.unwrap_or("unknown")
-                ));
+                ))
             }
-            fallback.with_note(
-                "the SendInput call failed, and the clipboard fallback failed too".to_string(),
-            )
+            TextRoute::Type(TypeReason::ConsoleTarget) => {
+                let out = sendinput_run(text, app_id, store);
+                if out.ok || out.error_code == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
+                    return out;
+                }
+                // 2026-07-30: the 「don't paste on top of a possible landing」 guard
+                // that used to sit here (`if out.mode == Cached { return out }`) is
+                // GONE with the verdict that produced it. `run_sendinput` can no
+                // longer answer `cached` at all — the only non-ok outcome left is a
+                // call that errored, which by definition queued nothing, so a paste
+                // cannot duplicate anything. Keeping the branch would have been an
+                // unreachable guard implying a state that no longer exists.
+                let fallback = clipboard_run(text, app_id, store);
+                if fallback.error_code == Some(crate::error_codes::INJECT_SUBMISSION_UNCERTAIN) {
+                    return fallback.with_note("the SendInput call failed; clipboard fallback submission is uncertain".into());
+                }
+                if fallback.ok {
+                    return fallback.with_note(format!(
+                        "the SendInput call failed ({}), delivered by clipboard paste instead",
+                        out.error_code.unwrap_or("unknown")
+                    ));
+                }
+                fallback.with_note(
+                    "the SendInput call failed, and the clipboard fallback failed too".to_string(),
+                )
+            }
         }
     }
 }
@@ -193,9 +264,14 @@ fn run_clipboard(text: &str, app_id: Option<&str>, store: &AppLearningStore) -> 
 /// The routed paste — the default road. Same client as [`run_clipboard`],
 /// different mapper: no per-app learning (a paste says nothing about whether
 /// typing works), and the forensic line carries WHICH rule sent it here.
+///
+/// The second value is `act_completed` ([`RoutedPasteRun`]): read off the
+/// paste's own `Result`, so the verdict stays decided in one place (the mapper).
 #[cfg(not(target_os = "linux"))]
-fn run_paste(text: &str, reason: PasteReason) -> InjectOutcome {
-    map_routed_paste_outcome(ClipboardFallbackClient::new().paste_text(text), reason)
+fn run_paste(text: &str, reason: PasteReason) -> (InjectOutcome, bool) {
+    let result = ClipboardFallbackClient::new().paste_text(text);
+    let act_completed = result.is_ok();
+    (map_routed_paste_outcome(result, reason), act_completed)
 }
 
 impl InjectOutcome {

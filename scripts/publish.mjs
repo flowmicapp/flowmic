@@ -58,8 +58,9 @@ import {
   verifyArtifactBuildSha,
 } from './build-stamp/artifact-sha-gate.mjs';
 import { portableReadmeText, releaseFolderReadmeText } from './publish-portable-readme.mjs';
-import { FREEZE_FLAG, freezeNotice, freezeRefusal } from './publish-freeze-round.mjs';
-import { DEFERRED_FLAG, deferralRefusal, deferredNotice } from './publish-manifest-deferred.mjs';
+import { FREEZE_FLAG, freezeNotice } from './publish-freeze-round.mjs';
+import { DEFERRED_FLAG, deferredNotice } from './publish-manifest-deferred.mjs';
+import { publishArgvRefusal } from './publish-argv.mjs';
 import { PORTABLE_MAIN_EXE, verifyWindowsArtifactsSigned } from './windows-signature-gate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -105,10 +106,6 @@ const WITH_MANIFEST = process.argv.includes('--with-manifest');
 // reachable before a single byte is written. What the flag does — and the
 // three things it deliberately does NOT do — is in publish-freeze-round.mjs.
 const FREEZE_ROUND = process.argv.includes(FREEZE_FLAG);
-{
-  const refusal = freezeRefusal(process.argv.slice(2));
-  if (refusal) { console.error(refusal); process.exit(1); }
-}
 
 // ── manifest deferred (orchestrated round) ─────────────────────────────────
 // Same spot, same reason again: a fact about the arguments and the environment,
@@ -117,20 +114,14 @@ const FREEZE_ROUND = process.argv.includes(FREEZE_FLAG);
 // run that can answer it honestly, and it is refused outside such a run. All of
 // the reasoning is in publish-manifest-deferred.mjs.
 const MANIFEST_DEFERRED = process.argv.includes(DEFERRED_FLAG);
-{
-  const refusal = deferralRefusal(process.argv.slice(2));
-  if (refusal) { console.error(refusal); process.exit(1); }
-}
 
-if (WITH_MANIFEST && process.argv.includes('--skip-lan')) {
-  console.error(
-    '✗ --with-manifest with --skip-lan refused: the manifest would point at artifacts ' +
-    'nothing has uploaded anywhere yet (先产物后清单铁律). Either drop --skip-lan so this ' +
-    'run uploads to the LAN download center before the manifest is built, or omit ' +
-    '--with-manifest and run `node scripts/build-update-manifest.mjs` by hand once you have ' +
-    'uploaded the artifacts yourself.'
-  );
-  process.exit(1);
+// All three flag-combination refusals above (freeze allowlist, deferral lock,
+// --with-manifest with --skip-lan) plus the adopted-artifact disposition are
+// asked through ONE function, the same one scripts/ship-publish-argv.test.mjs
+// feeds every command line ship.mjs can build (publish-argv.mjs says why).
+{
+  const refusal = publishArgvRefusal(process.argv.slice(2));
+  if (refusal) { console.error(refusal); process.exit(1); }
 }
 
 // ── GATE 0-pre: two facts about the disk, read before anything is written ───

@@ -24,7 +24,10 @@
 //
 // The verdict layering is unchanged from 2026-07-30: an error-free paste at a
 // focus Stage 1/1b established is a delivery, and `pipeline::map_clipboard_outcome`
-// / `map_image_outcome` own that call. What changed is that we no longer sabotage
+// / `map_image_outcome` own that call. (CORRECTED 2026-11-05, D-MKT-8: on Windows
+// an error-free TEXT paste that nobody fetched is not a delivery — see
+// `clipboard_outcome::text_never_left_us`. The mappers still own the call; they
+// now live in `clipboard_outcome.rs`.) What changed is that we no longer sabotage
 // the delivery we are reporting, and that `landing` now says whether it was seen
 // to arrive. Restore runs even on failure; a restore failure wins ONLY when the
 // paste operation itself also failed (P1-1, 2026-09-02 — NOT gated on `landing`;

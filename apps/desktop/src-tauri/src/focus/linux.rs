@@ -150,6 +150,32 @@ fn app_with(connection: &Connection, window: u64) -> String {
     }
 }
 
+/// The identity the Linux paste chooses its chord from
+/// (`inject::x11_paste_chord`). Unlike [`app_with`], which answers "what app is
+/// this" with ONE name, this returns both WM_CLASS halves AND the executable:
+/// a Python-hosted terminal (Terminator, Guake) has `python3.x` as its exe, so
+/// the first name found is not enough to recognise it. Unreadable parts stay
+/// empty; nothing is guessed.
+pub(crate) fn window_identity_with(
+    connection: &Connection,
+    window: u64,
+) -> crate::inject::x11_paste_chord::X11WindowIdentity {
+    let (wm_instance, wm_class) = match connection.property(window, "WM_CLASS") {
+        Ok(Property::Bytes(bytes)) => {
+            let mut parts = bytes
+                .split(|b| *b == 0)
+                .map(|part| String::from_utf8_lossy(part).into_owned());
+            (parts.next().unwrap_or_default(), parts.next().unwrap_or_default())
+        }
+        _ => Default::default(),
+    };
+    let exe = pid_with(connection, window)
+        .and_then(|pid| std::fs::read_link(format!("/proc/{pid}/exe")).ok())
+        .and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .unwrap_or_default();
+    crate::inject::x11_paste_chord::X11WindowIdentity { wm_instance, wm_class, exe }
+}
+
 fn target_with(connection: &Connection) -> Result<Option<(u64, String, String)>, String> {
     let window = active_with(connection)?;
     if window == 0 || pid_with(connection, window) == Some(std::process::id()) {

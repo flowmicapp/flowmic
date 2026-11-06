@@ -63,6 +63,9 @@ import {
   findOrphans,
   formatLine,
   listProcesses,
+  mainCheckoutOf,
+  ourTrees,
+  ownerOf,
   probeSsh,
   siblingRepos,
   sshArgsFor,
@@ -73,7 +76,7 @@ import {
 let failures = 0;
 let sectionsRun = 0;
 let skipReason = null;
-const TOTAL_SECTIONS = 9;
+const TOTAL_SECTIONS = 10;
 const section = (title) => { sectionsRun += 1; console.log(`\n=== ${title} ===`); };
 function assertTrue(cond, label) {
   if (cond) console.log(`  PASS  ${label}`);
@@ -182,6 +185,47 @@ try {
     // it defaults to) both have to work through the SAME call site.
     const viaPromise = await checkOrphanProcesses(() => Promise.resolve([procs[0], procs[1]]));
     assertTrue(viaPromise.length === 1 && viaPromise[0].level === 'PASS', 'a listProcessesFn that returns a real Promise (not just a value) resolves correctly too');
+  }
+
+  // ── §3b whose process is it: a stranger project's test server is not refused,
+  //    ours and the unattributable still are (2026-11-03, the 0.3.119 round) ──
+  // The two FOREIGN fixtures are the shapes read off this machine's process
+  // table that day (a G:\umby Playwright test-server, a G:\CC-WORK `next
+  // start`); the preflight FAILed on them and the round was finished by hand.
+  section('§3b owner attribution: foreign project WARNs, our trees and unknown owners still FAIL');
+  {
+    const trees = ourTrees(['D:\\work\\product', 'D:\\work\\product-site']);
+    const homes = ['c:\\users\\me\\appdata\\roaming', 'c:\\program files', 'c:\\users\\me\\.'];
+    const procs = [
+      { ProcessId: 1, ParentProcessId: 0, Name: 'node.exe', CommandLine: 'self' },
+      { ProcessId: 700, ParentProcessId: 9, Name: 'node.exe', CommandLine: 'C:\\nvm4w\\nodejs\\node.EXE G:\\umby\\build\\web-console\\node_modules\\@playwright\\test\\cli.js test-server -c web\\app\\tests\\playwright.config.mjs --host 127.0.0.1' },
+      { ProcessId: 701, ParentProcessId: 9, Name: 'node.exe', CommandLine: 'C:\\nvm4w\\nodejs\\node.EXE G:\\CC-WORK\\nerss-wt\\int-n1w2\\apps\\console-tenant\\node_modules\\next\\dist\\bin\\next start -p 4103 --verify' },
+      { ProcessId: 702, ParentProcessId: 9, Name: 'node.exe', CommandLine: '"C:\\Program Files\\nodejs\\node.exe" D:\\work\\product-site\\node_modules\\@playwright\\test\\cli.js test' },
+      { ProcessId: 703, ParentProcessId: 9, Name: 'node.exe', CommandLine: 'C:\\nvm4w\\nodejs\\node.EXE D:/work/product-worktrees/lane-c/scripts/foo.test.mjs' },
+      { ProcessId: 704, ParentProcessId: 9, Name: 'node.exe', CommandLine: 'C:\\nvm4w\\nodejs\\node.EXE C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\pnpm\\bin\\pnpm.cjs test' },
+      { ProcessId: 705, ParentProcessId: 9, Name: 'node.exe', CommandLine: 'node G:\\windows-system-folder\\npm-cache\\_npx\\25b8\\node_modules\\playwright\\cli.js test' },
+      { ProcessId: 706, ParentProcessId: 9, Name: 'cargo.exe', CommandLine: 'cargo test --manifest-path G:\\other\\Cargo.toml' },
+      { ProcessId: 707, ParentProcessId: 9, Name: 'node.exe', CommandLine: 'C:\\nvm4w\\nodejs\\node.EXE G:\\other\\node_modules\\vitest\\vitest.mjs run' },
+      { ProcessId: 708, ParentProcessId: 9, Name: 'flutter_tester.exe', CommandLine: '' },
+    ];
+    const byPid = Object.fromEntries(findOrphans(procs, 1, { trees, homes }).map((o) => [o.pid, o]));
+    assertTrue(byPid[700]?.owner === 'foreign' && byPid[701]?.owner === 'foreign', 'the two measured stranger shapes are attributed to another project');
+    assertTrue(byPid[702]?.owner === 'ours', 'a quoted executable with spaces does not hide an argument under OUR web repo');
+    assertTrue(byPid[703]?.owner === 'ours', 'a forward-slash path inside a -worktrees slot is ours');
+    assertTrue(byPid[704]?.owner === 'unknown', 'a global pnpm under AppData says nothing about whose run it is => unknown, not foreign');
+    assertTrue(byPid[705]?.owner === 'unknown', 'an npx cache relocated off AppData is still a tool cache => unknown');
+    assertTrue(byPid[708]?.owner === 'unknown', 'no command line at all => unknown');
+    const rows = await checkOrphanProcesses(() => procs.filter((p) => p.ProcessId !== 1), { trees, homes });
+    const level = (pid) => rows.find((r) => r.detail.startsWith(`PID ${pid} `))?.level;
+    assertTrue(level(700) === 'WARN' && level(701) === 'WARN', 'the stranger Playwright test-server and next start are WARN, not FAIL (what made the 0.3.119 round unshippable)');
+    assertTrue(rows.find((r) => r.detail.startsWith('PID 700 ')).detail.includes('G:\\umby'), '  ...and the WARN still prints the command line (reported, not dropped)');
+    assertTrue(level(702) === 'FAIL' && level(703) === 'FAIL', 'REVERSE CONTROL: the same Playwright shape under OUR trees still FAILs');
+    assertTrue(level(704) === 'FAIL' && level(705) === 'FAIL' && level(708) === 'FAIL', 'fail-closed: every unattributable process still FAILs');
+    assertTrue(level(706) === 'FAIL' && level(707) === 'FAIL', 'a stranger cargo / vitest still FAILs: the release gate refuses those shapes on any tree, so the preflight says it first');
+    const noTrees = findOrphans(procs, 1, { homes });
+    assertTrue(noTrees.every((o) => o.owner !== 'ours'), 'without trees nothing is ours: the narrowing is never applied by default');
+    assertTrue(mainCheckoutOf('F:\\x\\flowmic-app-worktrees\\lane-b').toLowerCase() === 'f:\\x\\flowmic-app', 'a lane slot maps back to its main checkout, so a slot-run preflight still counts main as ours');
+    assertTrue(ownerOf('C:\\nvm4w\\nodejs\\node.EXE scripts\\x.test.mjs', { trees, homes }) === 'unknown', 'the executable alone is never project evidence (our own runs use a global node)');
   }
 
   // ── §4 ancestryOf: walks parents, stops on missing/cyclic, caps depth ─────

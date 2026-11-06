@@ -41,8 +41,19 @@ export const FREEZE_FLAG = '--freeze-round';
  *  `--skip-lan` is here because it publishes nowhere at all (it is the offline
  *  round). `--with-manifest` is deliberately ABSENT: it writes the very file
  *  the freeze forbids touching, so the two flags are a contradiction, not a
- *  combination. */
-export const FREEZE_COMPATIBLE_FLAGS = Object.freeze(['--freeze-round', '--skip-lan']);
+ *  combination.
+ *
+ *  `--keep-adopted` / `--discard-adopted` judged 2026-11-03 (0.3.119 round):
+ *  both decide only what happens to a cross-machine artifact already sitting
+ *  in ./publish — keep it through the clean step and upload it to the INTERNAL
+ *  download centre with everything else, or delete it locally
+ *  (publish-adopted-artifact-gate.mjs `readDisposition`). Neither reaches
+ *  anything outside, which is the one question this list asks. Without them a
+ *  freeze round that has an adopted Mac/Linux zip could not run at all — the
+ *  adopted gate demands a disposition and this list refused both — and
+ *  scripts/ship.mjs passes `--keep-adopted` beside `--freeze-round` whenever
+ *  a staged round's plan has PUBLISH but not MANIFEST. */
+export const FREEZE_COMPATIBLE_FLAGS = Object.freeze(['--freeze-round', '--skip-lan', '--keep-adopted', '--discard-adopted']);
 
 /**
  * Pure: the refusal text for an argv, or null when the run may proceed.

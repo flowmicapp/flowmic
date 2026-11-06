@@ -269,6 +269,81 @@ const CONSOLE_TARGETS: &[&str] = &[
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// A LINE BREAK INTO A CONSOLE IS A COMMAND BEING RUN (D-MKT-5, 2026-11-05)
+//
+// Measured on Windows 10 19045, cmd in conhost: a two-paragraph text was typed
+// with a line break between the paragraphs, cmd ran the first paragraph as a
+// command, and the phone and the PC both reported success
+// (docs/marketing/05b-defects-found.md D-MKT-5). NR-253 had already measured
+// that Shift+Enter runs the line in cmd exactly like Enter (block above).
+//
+// No mechanism inserts a line break into a console without submitting it, for
+// the whole class: cmd has no bracketed paste and no continuation key, and
+// PSReadLine's Shift+Enter continuation holds only while PSReadLine is the
+// program reading input, which we cannot see (`is_console_target`, 「WHY AN
+// EXCEPTION AT ALL」). Refusing is worse: no existing error code says this, so
+// a refusal would name a false reason. So each run of line breaks becomes ONE
+// space before routing, on every road into a console. The words all arrive, in
+// order, on one line that waits for the user's own Enter.
+//
+// Contract: docs/rebuild/07-DESKTOP-SPEC.md §2 「控制台目标的换行」, which also
+// lists what this does NOT cover.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `text` with its line breaks replaced for a console target, and how many
+/// runs were replaced (for the forensic line).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlattenedLineBreaks {
+    pub text: String,
+    pub runs: usize,
+}
+
+/// `Some` iff `app_id` is a console target ([`is_console_target`]) AND `text`
+/// carries a CR or LF. Each maximal run of CR/LF characters (so `\r\n`, `\n\n`
+/// and `\r\n\r\n` alike) becomes exactly one ASCII space; nothing else in the
+/// text changes. CR and LF are exactly the characters the typed path turns into
+/// keystrokes (`SendInputClient::type_text` splits on `['\r', '\n']`); other
+/// vertical whitespace (U+000B, U+0085, U+2028…) is typed as a character there
+/// and is left alone here.
+///
+/// Platform-free on purpose: the Windows-only decision is the caller's
+/// (`text_dispatch::type_or_paste` passes true only on Windows).
+pub fn flatten_line_breaks_for_console(text: &str, app_id: Option<&str>) -> Option<FlattenedLineBreaks> {
+    if !is_console_target(app_id) || !text.contains(['\r', '\n']) {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut runs = 0usize;
+    let mut in_run = false;
+    for c in text.chars() {
+        if c == '\r' || c == '\n' {
+            if !in_run {
+                out.push(' ');
+                runs += 1;
+                in_run = true;
+            }
+        } else {
+            out.push(c);
+            in_run = false;
+        }
+    }
+    Some(FlattenedLineBreaks { text: out, runs })
+}
+
+impl FlattenedLineBreaks {
+    /// The forensic note. Its prefix is the grep anchor named in the contract.
+    pub fn forensic_note(&self, app_id: Option<&str>) -> String {
+        format!(
+            "console line breaks flattened: {} line-break run(s) sent as single spaces to console \
+             target {:?}, because a line break there is an Enter that runs the text before it \
+             (D-MKT-5, docs/rebuild/07-DESKTOP-SPEC.md §2)",
+            self.runs,
+            app_id.unwrap_or("-"),
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // WHICH KEYSTROKE A TYPED LINE BREAK BECOMES (NR-253, 2026-10-14)
 //
 // Only the TYPED path has this question. A paste carries the text's own line
@@ -300,6 +375,11 @@ const CONSOLE_TARGETS: &[&str] = &[
 //   · Windows 11 Notepad: Shift+Enter stores U+000B (a soft break), plain
 //     Enter a real CR ⇒ the one entry below. Its AI prompt box runs in the
 //     same process, so it gets plain Enter too — which submits that prompt.
+// ⚠️ D-MKT-5 (2026-11-05): on Windows the console half above no longer
+// happens — a console target's line breaks are flattened to spaces before
+// routing (`flatten_line_breaks_for_console`, below), because the cmd row
+// above means a typed break there RUNS the line. This keystroke choice now
+// only answers for the fallback after a failed paste into a non-console app.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The line-break keystroke for typed text going to `app_id` (an executable
@@ -497,6 +577,47 @@ mod route_tests {
         // A prefix or substring is not the app.
         assert_eq!(line_break_key_for(Some("notepad++")), LineBreakKey::ShiftEnter);
         assert_eq!(line_break_key_for(Some("Notepads")), LineBreakKey::ShiftEnter);
+    }
+
+    // ── D-MKT-5: a line break into a console must not be a submitted line ────
+
+    #[test]
+    fn console_line_breaks_become_one_space_per_run() {
+        // The D-MKT-5 repro text, exactly as the phone sent it.
+        let repro = "V01 block one. First paragraph: the export job runs every night at two and \
+                     writes a CSV to the shared folder.\nSecond paragraph: please add a check that \
+                     stops the job when the folder is missing, and report it in the log.";
+        let flat = flatten_line_breaks_for_console(repro, Some("cmd")).expect("cmd is a console");
+        assert!(!flat.text.contains(['\r', '\n']), "{:?}", flat.text);
+        assert_eq!(flat.text, repro.replace('\n', " "));
+        assert_eq!(flat.runs, 1);
+        // Every spelling of a break, and runs of them (a blank line between
+        // paragraphs), collapse to ONE space per run; nothing else moves.
+        for (input, want, runs) in [
+            ("a\r\nb", "a b", 1),
+            ("a\rb", "a b", 1),
+            ("a\n\nb", "a b", 1),
+            ("a\r\n\r\nb\nc", "a b c", 2),
+            ("\nleading", " leading", 1),
+            ("rm -rf build\n", "rm -rf build ", 1),
+            ("  indented\n\tline", "  indented \tline", 1),
+        ] {
+            let got = flatten_line_breaks_for_console(input, Some("WindowsTerminal")).unwrap();
+            assert_eq!((got.text.as_str(), got.runs), (want, runs), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn console_flattening_leaves_everything_else_alone() {
+        // Single-line text into a console: no change at all (10/10 exact on cmd).
+        assert_eq!(flatten_line_breaks_for_console("git status", Some("cmd")), None);
+        // Not a console: line breaks are the target's business (paste carries
+        // them as characters; NR-253 picks the typed keystroke).
+        assert_eq!(flatten_line_breaks_for_console("a\nb", Some("Code")), None);
+        assert_eq!(flatten_line_breaks_for_console("a\nb", Some("notepad")), None);
+        assert_eq!(flatten_line_breaks_for_console("a\nb", None), None);
+        // Other vertical whitespace is not a keystroke on the typed path.
+        assert_eq!(flatten_line_breaks_for_console("a\u{2028}b\u{0B}c", Some("cmd")), None);
     }
 
     #[test]

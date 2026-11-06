@@ -48,6 +48,7 @@ import { KEEP_FLAG } from './publish-adopted-artifact-gate.mjs';
 import { DEFERRED_FLAG } from './publish-manifest-deferred.mjs';
 import { adoptedKeepDecision } from './ship-adopted.mjs';
 import { siblingRepos } from './ship-preflight.mjs';
+import { publishPlanFlags } from './ship-publish-flags.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** Windows drive letters are case-insensitive to the filesystem and NOT to pnpm.
@@ -217,8 +218,8 @@ const SPEC = [
     note: 'writer node; its own GATE 0 reuses the receipt (SC-2); uploads publish/update-manifest.json' },
 
   { name: 'DEPLOY_JP', target: 'relay', needs: ['PUBLISH', 'MANIFEST'], heavy: false, priority: 7, tool: 'py',
-    args: ['-3', 'deploy/deploy-vps-app.py'], cwd: 'web', env: 'vps-jp.env',
-    note: 'read replica; §1-23 puts it FIRST on a round that alters the users table' },
+    args: ['-3', 'deploy/deploy-vps-app.py'], cwd: 'web', env: 'vps-jp.env', transport: 'chunked-tar',
+    note: 'read replica; §1-23 puts it FIRST on a round that alters the users table; chunked-tar because per-file SFTP drops mid-upload on the 25-40% loss link to JP (web repo deploy/chunked_transport.py header)' },
 
   { name: 'DEPLOY_GO', target: 'go', needs: ['PUBLISH', 'BUILD_GO'], heavy: false, priority: 8, tool: 'bash',
     args: ['deploy/deploy-go-static.sh'], cwd: 'go', note: 'scp + verify-go-site.mjs' },
@@ -572,7 +573,7 @@ export function attachCommands(nodes, { root = REPO_ROOT, tools, logDir, note, f
     if (n.name === 'PUBLISH' && manifestDeferred) args = [...args, DEFERRED_FLAG];
     if (n.name === 'PUBLISH' && keepAdopted) args = [...args, KEEP_FLAG];
     if (n.name === 'DEPLOY_NY' || n.name === 'DEPLOY_JP') {
-      args = [...args, note, ...(feature ? ['--feature', feature] : ['--no-feature-markers'])];
+      args = [...args, note, ...(feature ? ['--feature', feature] : ['--no-feature-markers']), ...(n.transport ? ['--transport', n.transport] : [])];
     }
     const plan = spawnPlan(exe || n.tool, args);
     n.describe = `${n.tool} ${args.join(' ')}   (cwd ${n.cwd}${n.env ? `, ${n.env}` : ''})`;
@@ -695,7 +696,7 @@ export async function main(argv = process.argv.slice(2), { root = REPO_ROOT } = 
   // is stated here rather than silently widened: the trigger is "PUBLISH will
   // run and MANIFEST will not", of which `--skip manifest` is the common case.
   const planNames = new Set(plan.nodes.map((n) => n.name));
-  const freezeRound = planNames.has('PUBLISH') && !planNames.has('MANIFEST');
+  const { freezeRound, manifestDeferred } = publishPlanFlags(planNames); // scripts/ship-publish-flags.mjs
 
   const { durations, source } = loadDurations();
   const cp = criticalPath(plan.nodes, durations);
@@ -710,7 +711,6 @@ export async function main(argv = process.argv.slice(2), { root = REPO_ROOT } = 
   // The same fact about the plan decides both flags, and they are opposites:
   // either nobody will update the live manifest this round (freeze), or a later
   // step of this run will and gets to be the one that asserts it (deferral).
-  const manifestDeferred = planNames.has('PUBLISH') && planNames.has('MANIFEST');
   if (planNames.has('PUBLISH')) {
     console.log(freezeRound
       ? 'PUBLISH --freeze-round — MANIFEST is not in this plan, so publish stops at the internal download centre, prints what the live manifest still points at, and exits 0. Installed clients are told NOTHING this round (owner 2026-09-09 release freeze).'

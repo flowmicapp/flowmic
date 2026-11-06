@@ -97,20 +97,23 @@ fn over_length_text_is_rejected_not_truncated() {
 // test encoded owner's 07-28 rule 「未确认，即未注入」 ("unconfirmed means not
 // injected"), and owner's 07-30 ruling
 // narrowed what 「注入」 ("injected") asserts so the rule has nothing left to bite on.
+//
+// 🔴 2026-11-05 (D-MKT-8): true only where the receipt is NOT observed. On
+// Windows nobody-fetched means our text reached no window, so it is failed;
+// the rule and its truth table live in paste_verdict_tests.rs.
 #[test]
-fn an_unconfirmed_clipboard_paste_is_still_a_performed_delivery() {
+fn an_unconfirmed_clipboard_paste_is_a_delivery_only_without_a_receipt_instrument() {
     let store = AppLearningStore::new();
     let out = map_clipboard_outcome(
         Ok(PasteOutcome { confirmed: false, ..Default::default() }),
         None,
         &store,
     );
-    assert!(out.ok, "the paste was performed at a verified focus");
+    let observed = crate::inject::clipboard_outcome::RECEIPT_IS_OBSERVED;
+    assert_eq!(out.ok, !observed, "nobody-fetched is a failure exactly where it is measured");
     assert_eq!(out.mode, InjectMode::Clipboard);
-    assert_eq!(
-        out.error_code, None,
-        "an unconsumed paste is not a clipboard FAILURE — nothing of ours errored"
-    );
+    let want = observed.then_some(error_codes::INJECT_CLIPBOARD_FAIL);
+    assert_eq!(out.error_code, want);
 }
 
 // RV-48 (2026-07-30) — this assertion is INVERTED, and it is a semantic fix, not a

@@ -82,6 +82,10 @@ pub mod target_probe;
 pub mod text_dispatch;
 pub mod text_route;
 pub mod uipi;
+/// D-MKT-2 (2026-11-05): which chord a Linux X11 paste presses — terminal
+/// emulators paste on Ctrl+Shift+V, not Ctrl+V. Pure and compiled everywhere so
+/// the decision is provable off Linux; its one caller is the Linux paste.
+pub mod x11_paste_chord;
 // 2026-07-30: `verify_readback` (the v0.2.1 before/after UIA read that was meant
 // to make a SendInput delivery provable) is DELETED, not just unwired. It asked
 // the target app to expose its own text through UI Automation — the target's

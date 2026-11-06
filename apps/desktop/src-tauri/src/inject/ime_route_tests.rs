@@ -57,9 +57,12 @@ mod route_wiring {
         out: InjectOutcome,
         calls: Vec<&'static str>,
         paste_reason: Option<PasteReason>,
+        /// The text each runner was handed, in call order (D-MKT-5).
+        texts: Vec<String>,
     }
 
-    /// Drive `type_or_paste_with` with recording fakes.
+    /// Drive `type_or_paste_routed` with recording fakes, with the Windows
+    /// console line-break rule on (what production passes on Windows).
     fn drive(
         text: &str,
         app_id: Option<&str>,
@@ -67,30 +70,50 @@ mod route_wiring {
         paste: InjectOutcome,
         typed: InjectOutcome,
     ) -> Driven {
+        drive_with(text, app_id, true, store, paste, typed)
+    }
+
+    fn drive_with(
+        text: &str,
+        app_id: Option<&str>,
+        console_line_breaks_submit: bool,
+        store: &AppLearningStore,
+        paste: InjectOutcome,
+        typed: InjectOutcome,
+    ) -> Driven {
         let calls: RefCell<Vec<&'static str>> = RefCell::new(Vec::new());
         let seen: RefCell<Option<PasteReason>> = RefCell::new(None);
-        let out = type_or_paste_with(
+        let texts: RefCell<Vec<String>> = RefCell::new(Vec::new());
+        // `type_or_paste_routed`, not `type_or_paste_with`: only the routed seam
+        // takes the D-MKT-5 flag. The paste fake below reports
+        // `act_completed = false`, the rule `type_or_paste_with` applies too.
+        let out = type_or_paste_routed(
             text,
             app_id,
+            console_line_breaks_submit,
             store,
-            &|_t, _id, _s| {
+            &|t, _id, _s| {
                 calls.borrow_mut().push("sendinput");
+                texts.borrow_mut().push(t.to_string());
                 typed.clone()
             },
-            &|_t, _id, _s| {
+            &|t, _id, _s| {
                 calls.borrow_mut().push("clipboard-fallback");
+                texts.borrow_mut().push(t.to_string());
                 ok_out(InjectMode::Clipboard)
             },
-            &|_t, reason| {
+            &|t, reason| {
                 calls.borrow_mut().push("paste");
+                texts.borrow_mut().push(t.to_string());
                 *seen.borrow_mut() = Some(reason);
-                paste.clone()
+                (paste.clone(), false)
             },
         );
         Driven {
             out,
             calls: calls.into_inner(),
             paste_reason: seen.into_inner(),
+            texts: texts.into_inner(),
         }
     }
 
@@ -219,20 +242,87 @@ mod route_wiring {
         assert_eq!(control.calls, vec!["sendinput"], "without the learned fact it types");
     }
 
+    // ── D-MKT-5: no line break reaches a console as an Enter ─────────────────
+    //
+    // Measured 2026-11-05: this exact text, typed into cmd, ran its first
+    // paragraph as a command while both ends said ✓. Every road into a console
+    // must now carry it on one line, and say so in the forensic note.
+
+    const REPRO: &str = "V01 block one. First paragraph: the export job runs every night at two \
+                         and writes a CSV to the shared folder.\nSecond paragraph: please add a \
+                         check that stops the job when the folder is missing, and report it in \
+                         the log.";
+
+    fn assert_flattened_note(out: &InjectOutcome) {
+        let note = out.error_message.as_deref().expect("the flattening must be on the record");
+        assert!(note.contains("console line breaks flattened: 1 line-break run(s)"), "{note}");
+    }
+
+    #[test]
+    fn a_multi_paragraph_text_reaches_a_typed_console_on_one_line() {
+        let store = AppLearningStore::new();
+        let d = drive(REPRO, Some("cmd"), &store, ok_out(InjectMode::Clipboard), ok_out(InjectMode::SendInput));
+        assert_eq!(d.calls, vec!["sendinput"], "still the typed console route");
+        assert_eq!(d.texts, vec![REPRO.replace('\n', " ")], "no line break reaches the keyboard");
+        assert!(d.out.ok);
+        assert_flattened_note(&d.out);
+    }
+
+    #[test]
+    fn every_road_into_a_console_carries_the_flattened_text() {
+        // Paste route (CJK into a terminal), learned hard rejection, and the
+        // clipboard fallback after a failed typed attempt: none may carry a break.
+        let store = AppLearningStore::new();
+        let cjk = drive("提交代码。\n然后推送。", Some("WindowsTerminal"), &store,
+            ok_out(InjectMode::Clipboard), ok_out(InjectMode::SendInput));
+        assert_eq!((cjk.calls.clone(), cjk.paste_reason), (vec!["paste"], Some(PasteReason::ImeUnsafeText)));
+        assert_eq!(cjk.texts, vec!["提交代码。 然后推送。".to_string()]);
+        assert_flattened_note(&cjk.out);
+
+        let fallback = drive(REPRO, Some("pwsh"), &store, ok_out(InjectMode::Clipboard), failed_typing());
+        assert_eq!(fallback.calls, vec!["sendinput", "clipboard-fallback"]);
+        assert!(fallback.texts.iter().all(|t| !t.contains(['\r', '\n'])), "{:?}", fallback.texts);
+        assert_flattened_note(&fallback.out);
+
+        let learned = AppLearningStore::new();
+        learned.record_outcome("cmd", InjectMode::SendInput, false);
+        let rejected = drive("dir\r\ncls", Some("cmd"), &learned,
+            ok_out(InjectMode::Clipboard), ok_out(InjectMode::SendInput));
+        assert_eq!(rejected.paste_reason, Some(PasteReason::TypingHardRejected));
+        assert_eq!(rejected.texts, vec!["dir cls".to_string()]);
+    }
+
+    #[test]
+    fn the_console_rule_touches_nothing_else() {
+        let store = AppLearningStore::new();
+        // Single-line text into cmd: identical text, no note (10/10 exact before).
+        let single = drive("git status", Some("cmd"), &store, ok_out(InjectMode::Clipboard), ok_out(InjectMode::SendInput));
+        assert_eq!(single.texts, vec!["git status".to_string()]);
+        assert_eq!(single.out.error_message, None);
+        // Not a console: the paste keeps its line breaks.
+        let editor = drive(REPRO, Some("Code"), &store, ok_out(InjectMode::Clipboard), ok_out(InjectMode::SendInput));
+        assert_eq!(editor.texts, vec![REPRO.to_string()]);
+        // The non-Windows arm (`type_or_paste` passes false off Windows): unchanged.
+        let off = drive_with(REPRO, Some("kitty"), false, &store, ok_out(InjectMode::Clipboard), ok_out(InjectMode::SendInput));
+        assert_eq!(off.texts, vec![REPRO.to_string()]);
+    }
+
     // ── the mapper: the no-learning half is structural, the truth half is here ──
 
     #[test]
     fn routed_mapper_reports_an_error_free_paste_as_injected_clipboard() {
         // No `AppLearningStore` parameter EXISTS on this mapper — the no-learning
         // guarantee is the signature, not a branch (clipboard_outcome.rs).
+        // `confirmed: true` since D-MKT-8 (2026-11-05): on Windows a paste nobody
+        // fetched is no longer error-free (paste_verdict_tests.rs pins that).
         let out = map_routed_paste_outcome(
             Ok(PasteOutcome {
-                confirmed: false,
+                confirmed: true,
                 ..Default::default()
             }),
             PasteReason::DefaultPath,
         );
-        assert!(out.ok, "receipt is evidence, not a gate (design §3, 2026-07-30)");
+        assert!(out.ok, "a served receipt is not landing evidence, and not a refusal");
         assert_eq!(out.mode, InjectMode::Clipboard);
         assert_eq!(out.error_code, None);
     }

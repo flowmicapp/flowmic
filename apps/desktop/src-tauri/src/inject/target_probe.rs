@@ -73,10 +73,16 @@
 // ── what CAN be proved from outside, and is therefore the whole refusal set ───
 //
 //   · `GetGUIThreadInfo` succeeded and `hwndFocus == 0` — no window in the active
-//     thread holds keyboard focus, so WM_KEY* has nowhere to go. Provable.
+//     thread holds keyboard focus, so WM_KEY* has nowhere to go. Provable —
+//     EXCEPT for a `ConsoleWindowClass` foreground window, where the thread we
+//     can name is not the window's keyboard thread (D-MKT-6, 2026-11-05; see
+//     `is_console_window_class` / `classify_focus_in`).
 //   · the thread is in MENU mode / a popup menu / an interactive move-resize —
 //     keystrokes there are mnemonics and drag-cancels, i.e. exactly the
 //     destructive case this gate exists for. Provable, and cross-process readable.
+//     For a `ConsoleWindowClass` window these bits are read from the system's
+//     foreground thread (`GetGUIThreadInfo(0)`), because the console's menu
+//     lives on conhost's thread (D-MKT-6b; see `console_fg_thread_flags`).
 //
 // Everything else types. When `GetGUIThreadInfo` cannot answer at all we land on
 // `Unknown` and type anyway; a keystroke that is then swallowed is reported as a
@@ -180,6 +186,112 @@ pub fn classify_focus(
     }
 }
 
+/// The window class conhost gives a classic console window (cmd, Windows
+/// PowerShell, anything started in a console).
+pub const CONSOLE_WINDOW_CLASS: &str = "ConsoleWindowClass";
+
+/// Is the foreground window a classic conhost console window?
+///
+/// Win32 class names are case-insensitive, so the comparison is too.
+///
+/// 🔴 Deliberately ONLY `ConsoleWindowClass` (D-MKT-6, 2026-11-05; contract =
+/// docs/rebuild/07-DESKTOP-SPEC.md §2 「控制台窗口的焦点读数」). The exemption in
+/// [`classify_focus_in`] exists because, for this one class,
+/// `GetWindowThreadProcessId` names a thread of the program INSIDE the console
+/// (cmd / powershell), not the conhost thread that owns the window and handles
+/// its keyboard — so `GetGUIThreadInfo` describes an unrelated input queue.
+/// 【measured, dev-pc-a, Windows 11, freshly started conhost windows】
+/// cmd ⇒ pid=cmd, `GetGUIThreadInfo` fails err=87; powershell 5.1 ⇒ pid=powershell,
+/// gui_ok=true focus=0. Not included, each for a stated reason:
+///   · `CASCADIA_HOSTING_WINDOW_CLASS` (Windows Terminal): the window belongs to
+///     WindowsTerminal.exe's own thread; no such redirection, focus reads normally;
+///   · `PseudoConsoleWindow` (ConPTY): same redirection, but hidden and never the
+///     foreground window;
+///   · third-party terminals (mintty, PuTTY, …): ordinary GUI programs.
+/// This is NOT `text_route::is_console_target` (a process-name list): the trigger
+/// is the inner program's thread state, measured on a `cmd` and a `python` console
+/// too, so a name list would both miss consoles and over-reach to GUI terminals.
+pub fn is_console_window_class(class: &str) -> bool {
+    class.eq_ignore_ascii_case(CONSOLE_WINDOW_CLASS)
+}
+
+/// [`classify_focus`] with the one window-class exception it needs
+/// (D-MKT-6). `foreground_class` is the class of the FOREGROUND window (not of
+/// the reported focus window, which is the thing in doubt).
+///
+/// For a console window, 「`GetGUIThreadInfo` succeeded and `hwndFocus == 0`」 was
+/// read off a thread that does not handle this window's keyboard (see
+/// [`is_console_window_class`]), so it proves nothing about the console ⇒
+/// `Unknown` ⇒ type, exactly where cmd has always landed (its inner thread usually
+/// fails the query outright). The menu / move-size refusal is left as it is:
+/// narrowing a refusal is what this card is for, not removing the other one.
+///
+/// D-MKT-6b: that refusal could never fire for a console from the inner thread
+/// (its flags are always 0 — the console's menu loop runs on conhost's thread),
+/// so it typed into an open system menu and reported success. `console_fg_flags`
+/// is the menu / move-size word from the foreground thread, as accepted by
+/// [`console_fg_thread_flags`]; for a console it can ONLY refuse. It is ignored
+/// for every other class. Every other class takes [`classify_focus`] unchanged.
+pub fn classify_focus_in(
+    foreground_class: &str,
+    gui_ok: bool,
+    gui_flags: u32,
+    focus_hwnd: u64,
+    ime_context: Option<bool>,
+    console_fg_flags: Option<u32>,
+) -> FocusInputState {
+    if is_console_window_class(foreground_class) {
+        if console_fg_flags.is_some_and(|f| f & GUI_FLAGS_NOT_TYPING != 0) {
+            return FocusInputState::NotInput;
+        }
+        if gui_ok && focus_hwnd == 0 && gui_flags & GUI_FLAGS_NOT_TYPING == 0 {
+            return FocusInputState::Unknown;
+        }
+    }
+    classify_focus(gui_ok, gui_flags, focus_hwnd, ime_context)
+}
+
+/// What `GetGUIThreadInfo(0, …)` — the system's FOREGROUND thread — said. Only
+/// asked for a `ConsoleWindowClass` foreground window (D-MKT-6b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FgThreadRead {
+    /// Not a console window: not asked, by design.
+    NotAsked,
+    /// Asked, and the call failed.
+    NoAnswer,
+    /// Its flags word and the active window it reported.
+    Answered { flags: u32, active_hwnd: u64 },
+}
+
+/// The foreground thread's flags, if they may be used for this window.
+///
+/// 【measured, the round-4 Windows 10 19045 test host, session 1, fresh
+/// `conhost.exe powershell.exe` and `conhost.exe cmd.exe`; contract =
+/// docs/rebuild/07-DESKTOP-SPEC.md §2 「控制台窗口的菜单 / 拖拽改窗读数」】
+/// system menu open: inner thread `flags=0x0` (cmd: query fails err=87),
+/// `GetGUIThreadInfo(0)` `flags=0xc active=menuOwner=<console>`; Move mode:
+/// `flags=0x2 moveSize=<console>`; no menu: `flags=0x0 active=<console>`. The
+/// conhost thread whose `active` is the console read the same, word for word.
+/// Accepted only when the class is a console and the reported active window IS
+/// the foreground window we classified (the foreground can change between the
+/// two reads; a reading about another window is void, never a refusal).
+pub fn console_fg_thread_flags(
+    foreground_class: &str,
+    fg_hwnd: u64,
+    read: FgThreadRead,
+) -> Option<u32> {
+    match read {
+        FgThreadRead::Answered { flags, active_hwnd }
+            if fg_hwnd != 0
+                && active_hwnd == fg_hwnd
+                && is_console_window_class(foreground_class) =>
+        {
+            Some(flags)
+        }
+        _ => None,
+    }
+}
+
 /// Should the TEXT injection be refused, and under which code?
 ///
 /// Only [`FocusInputState::NotInput`] refuses, and only because typing there is
@@ -274,23 +386,32 @@ pub struct FocusEvidence {
     /// keeps being verified in the field instead of trusted from one probe run.
     pub imm_context: Option<u64>,
     pub focus_class: String,
+    /// Class of the FOREGROUND window (empty = not read). Feeds the console
+    /// exception in [`classify_focus_in`] (D-MKT-6).
+    pub foreground_class: String,
+    /// The foreground window handle (0 = none / not read).
+    pub fg_hwnd: u64,
+    /// `GetGUIThreadInfo(0)` — asked only for a console window (D-MKT-6b).
+    pub fg_thread: FgThreadRead,
 }
 
 impl FocusEvidence {
     /// The state this evidence implies.
     pub fn state(&self) -> FocusInputState {
-        classify_focus(
+        classify_focus_in(
+            &self.foreground_class,
             self.gui_ok,
             self.gui_flags,
             self.focus_hwnd,
             self.imm_context.map(|h| h != 0),
+            console_fg_thread_flags(&self.foreground_class, self.fg_hwnd, self.fg_thread),
         )
     }
 
     /// One copy-pasteable line. Names every field; no field is inferred.
     pub fn one_line(&self) -> String {
         format!(
-            "state={} gui_ok={} flags=0x{:x} focus=0x{:x} class={} caret=0x{:x} himc={}",
+            "state={} gui_ok={} flags=0x{:x} focus=0x{:x} class={} caret=0x{:x} himc={} fg_class={} fg_thread={}",
             state_name(self.state()),
             self.gui_ok,
             self.gui_flags,
@@ -304,6 +425,23 @@ impl FocusEvidence {
             match self.imm_context {
                 Some(h) => format!("0x{h:x}"),
                 None => "(not asked)".to_string(),
+            },
+            if self.foreground_class.is_empty() {
+                "(none)"
+            } else {
+                &self.foreground_class
+            },
+            // `flags=`/`focus=` above are the inner thread's (the window's
+            // GetWindowThreadProcessId); this is the foreground thread, and
+            // `used=` says whether the verdict consulted it (D-MKT-6b).
+            match self.fg_thread {
+                FgThreadRead::NotAsked => "(not asked)".to_string(),
+                FgThreadRead::NoAnswer => "(no answer)".to_string(),
+                FgThreadRead::Answered { flags, active_hwnd } => format!(
+                    "flags=0x{flags:x} active=0x{active_hwnd:x} used={}",
+                    console_fg_thread_flags(&self.foreground_class, self.fg_hwnd, self.fg_thread)
+                        .is_some()
+                ),
             },
         )
     }
@@ -331,6 +469,9 @@ pub fn focus_evidence() -> FocusEvidence {
             caret_hwnd: 0,
             imm_context: None,
             focus_class: String::new(),
+            foreground_class: String::new(),
+            fg_hwnd: 0,
+            fg_thread: FgThreadRead::NotAsked,
         };
 
         let fg: HWND = GetForegroundWindow();
@@ -340,6 +481,40 @@ pub fn focus_evidence() -> FocusEvidence {
             // keeps the two answers from racing to describe the same fact.
             return ev;
         }
+        // D-MKT-6: the foreground window's class decides whether the thread read
+        // below is even this window's keyboard thread (see
+        // `is_console_window_class`). Read first, so it is on the forensic line
+        // whatever happens next.
+        {
+            let mut buf = [0u16; 128];
+            let n = GetClassNameW(fg, &mut buf);
+            if n > 0 {
+                ev.foreground_class = String::from_utf16_lossy(&buf[..n as usize]);
+            }
+        }
+        ev.fg_hwnd = fg.0 as u64;
+        // D-MKT-6b: a console's system menu / Move loop runs on conhost's
+        // thread, which the inner thread read below cannot see. `idThread = 0`
+        // asks the system's foreground thread (measured = that conhost thread,
+        // see `console_fg_thread_flags`). Read BEFORE the inner thread so an
+        // early return there cannot skip it.
+        if is_console_window_class(&ev.foreground_class) {
+            let mut fgi = GUITHREADINFO {
+                cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                ..Default::default()
+            };
+            ev.fg_thread = if GetGUIThreadInfo(0, &mut fgi).is_ok() {
+                FgThreadRead::Answered {
+                    flags: fgi.flags.0,
+                    active_hwnd: fgi.hwndActive.0 as u64,
+                }
+            } else {
+                FgThreadRead::NoAnswer
+            };
+        }
+        // For a `ConsoleWindowClass` window this names a thread of the program
+        // running INSIDE the console (cmd / powershell), not conhost's window
+        // thread — measured, see `is_console_window_class`.
         let tid = GetWindowThreadProcessId(fg, None);
         if tid == 0 {
             return ev;
@@ -393,6 +568,9 @@ pub fn focus_evidence() -> FocusEvidence {
         caret_hwnd: 0,
         imm_context: None,
         focus_class: String::new(),
+        foreground_class: String::new(),
+        fg_hwnd: 0,
+        fg_thread: FgThreadRead::NotAsked,
     }
 }
 
@@ -411,195 +589,5 @@ pub fn focused_input_state() -> FocusInputState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_provable_non_input_site_is_refused_with_the_named_code() {
-        assert_eq!(
-            refusal_for(FocusInputState::NotInput),
-            Some(error_codes::INJECT_NO_TEXT_TARGET)
-        );
-    }
-
-    #[test]
-    fn a_positively_identified_input_site_types() {
-        assert_eq!(refusal_for(FocusInputState::Input), None);
-    }
-
-    #[test]
-    fn an_inconclusive_reading_must_not_break_injection() {
-        // The 0.2.19 P0 in one assertion: refusing on 「我判不出来」 ("I can't tell") refuses every
-        // browser dictation, because from outside the process a browser with an
-        // input focused is indistinguishable from one with nothing focused.
-        assert_eq!(refusal_for(FocusInputState::Unknown), None);
-    }
-
-    /// The measurement that reshaped the design, pinned as a table. An IMM handle
-    /// is PROCESS-PRIVATE: Notepad's genuinely focused RichEditD2DPT answers null
-    /// to a foreign `ImmGetContext`, exactly as an unfocused browser page does. If
-    /// someone later reads `Some(false)` as 「不能输入」 ("cannot receive input"), injection stops working
-    /// everywhere — so it is asserted here rather than left to the comment.
-    #[test]
-    fn a_null_ime_context_is_never_a_refusal() {
-        for flags in [0u32, 0x1 /* GUI_CARETBLINKING is not a typing verdict */] {
-            let state = classify_focus(true, flags, 0x1234, Some(false));
-            assert_eq!(
-                state,
-                FocusInputState::Unknown,
-                "cross-process ImmGetContext always answers null (measured: Notepad's own \
-                 focused edit control included) — reading that as 「不能输入」 refuses 100% \
-                 of injections"
-            );
-            assert_eq!(refusal_for(state), None);
-        }
-        // Never asked is likewise not evidence.
-        assert_eq!(
-            classify_focus(true, 0, 0x1234, None),
-            FocusInputState::Unknown
-        );
-    }
-
-    #[test]
-    fn a_readable_ime_context_is_the_one_positive_signal() {
-        assert_eq!(
-            classify_focus(true, 0, 0x1234, Some(true)),
-            FocusInputState::Input
-        );
-    }
-
-    #[test]
-    fn nothing_holding_keyboard_focus_is_a_provable_refusal() {
-        // hwndFocus == 0 with gui_ok == true is a real reading: WM_KEY* has no
-        // destination. This is one of only two things provable from outside.
-        let state = classify_focus(true, 0, 0, Some(false));
-        assert_eq!(state, FocusInputState::NotInput);
-        assert_eq!(
-            refusal_for(state),
-            Some(error_codes::INJECT_NO_TEXT_TARGET)
-        );
-        // …but the SAME zero with gui_ok == false is 「could not be asked」, not 「genuinely absent」.
-        // Whatever produced that silence lands here and must still be typed into.
-        // 🔴 It is NOT 「an elevated target」 — measured false 2026-08-02, see the
-        // module note. The rule this test pins never depended on the reason.
-        assert_eq!(classify_focus(false, 0, 0, None), FocusInputState::Unknown);
-        assert_eq!(refusal_for(classify_focus(false, 0, 0, None)), None);
-    }
-
-    /// The gate's remaining reason to exist: a menu is up, so every character is
-    /// a mnemonic. Kept deliberately narrow — each bit added here widens what
-    /// gets refused, and a false refusal is the expensive direction.
-    #[test]
-    fn menu_and_move_size_modes_refuse_because_typing_there_is_destructive() {
-        for flags in [
-            0x2,  // GUI_INMOVESIZE
-            0x4,  // GUI_INMENUMODE
-            0x8,  // GUI_SYSTEMMENUMODE
-            0x10, // GUI_POPUPMENUMODE
-            0x4 | 0x1,
-        ] {
-            assert_eq!(
-                classify_focus(true, flags, 0x1234, Some(true)),
-                FocusInputState::NotInput,
-                "flags 0x{flags:x} means keystrokes are mnemonics, not text — and this \
-                 outranks even a positive IMM context"
-            );
-        }
-        // A blinking caret is NOT one of those bits: it is present in a focused
-        // browser page AND in an unfocused one (measured 2026-07-30), so keying
-        // anything to it manufactures verdicts out of noise.
-        assert_eq!(
-            classify_focus(true, 0x1, 0x1234, Some(true)),
-            FocusInputState::Input
-        );
-    }
-
-    /// IJ-01 — the three wire tokens, pinned as a table.
-    ///
-    /// Written as an exhaustive `match` over the enum rather than three asserts so
-    /// a fourth state cannot be added without deciding what it is CALLED on the
-    /// wire; and asserted against literals rather than against `state_name` so the
-    /// two tokens stay two answers to two questions (a log rename must not move a
-    /// protocol value).
-    #[test]
-    fn every_focus_state_has_exactly_one_wire_token_and_it_is_not_the_log_token() {
-        assert_eq!(wire_evidence(FocusInputState::Input), "editable");
-        assert_eq!(wire_evidence(FocusInputState::NotInput), "not_editable");
-        assert_eq!(wire_evidence(FocusInputState::Unknown), "unknown");
-        // Distinct: two states that print the same token are one state on the wire.
-        let all = [
-            FocusInputState::Input,
-            FocusInputState::NotInput,
-            FocusInputState::Unknown,
-        ];
-        for (i, a) in all.iter().enumerate() {
-            for b in all.iter().skip(i + 1) {
-                assert_ne!(wire_evidence(*a), wire_evidence(*b));
-            }
-            // …and the wire token is NOT the forensic token, which is what keeps
-            // 「rewording the log」 from becoming 「changing the protocol」.
-            assert_ne!(wire_evidence(*a), state_name(*a));
-        }
-    }
-
-    #[test]
-    fn the_image_policy_never_refuses_whatever_the_text_policy_says() {
-        for state in [
-            FocusInputState::Input,
-            FocusInputState::NotInput,
-            FocusInputState::Unknown,
-        ] {
-            assert_eq!(
-                image_refusal_for(state),
-                None,
-                "a picture is pasted, not typed — owner 2026-07-29 ruling"
-            );
-        }
-        // The two policies really are different, and only for NotInput.
-        assert_eq!(
-            refusal_for(FocusInputState::NotInput),
-            Some(error_codes::INJECT_NO_TEXT_TARGET)
-        );
-    }
-
-    #[test]
-    fn the_forensic_line_prints_evidence_not_only_the_conclusion() {
-        let ev = FocusEvidence {
-            gui_ok: true,
-            gui_flags: 0x1,
-            focus_hwnd: 0x3701056,
-            caret_hwnd: 0x3701056,
-            imm_context: Some(0),
-            focus_class: "Chrome_WidgetWin_1".to_string(),
-        };
-        let line = ev.one_line();
-        // Every raw number must be readable off the line: 「state=NotInput」 alone
-        // is what made the two root causes indistinguishable for two days.
-        assert!(line.contains("state=Unknown"), "{line}");
-        assert!(line.contains("focus=0x3701056"), "{line}");
-        assert!(line.contains("class=Chrome_WidgetWin_1"), "{line}");
-        assert!(line.contains("himc=0x0"), "{line}");
-        assert!(line.contains("flags=0x1"), "{line}");
-
-        // …and 「never asked」 must not be printable as 「asked, got null」.
-        let unasked = FocusEvidence {
-            imm_context: None,
-            ..ev.clone()
-        };
-        assert!(unasked.one_line().contains("himc=(not asked)"));
-    }
-
-    #[test]
-    fn an_empty_class_name_reads_as_none_rather_than_a_blank() {
-        let ev = FocusEvidence {
-            gui_ok: false,
-            gui_flags: 0,
-            focus_hwnd: 0,
-            caret_hwnd: 0,
-            imm_context: None,
-            focus_class: String::new(),
-        };
-        assert!(ev.one_line().contains("class=(none)"));
-        assert_eq!(ev.state(), FocusInputState::Unknown);
-    }
-}
+#[path = "target_probe_tests.rs"]
+mod tests;

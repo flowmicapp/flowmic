@@ -29,6 +29,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { fetchLiveManifest, gateShippedPlatformsLive } from './update-manifest-lib.mjs';
+import { publishArgvRefusal } from './publish-argv.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const GATE_SRC = readFileSync(join(ROOT, 'scripts', 'verify-live-update-manifest.mjs'), 'utf8'); // text only
@@ -385,7 +386,9 @@ section('§5 --freeze-round — publish stops at the same place, says so, and ex
     'the freeze branch does not exit mid-run: it falls through to the same closing lines, so the round ends green in the ordinary way',
   );
   assertTrue(
-    /freezeRefusal\(process\.argv/.test(PUBLISH_SRC),
+    // Since 2026-11-03 every flag refusal reaches publish.mjs through ONE call
+    // (scripts/publish-argv.mjs); the behavioural half proves it still refuses.
+    /publishArgvRefusal\(process\.argv/.test(PUBLISH_SRC) && publishArgvRefusal(['--freeze-round', '--with-manifest'], {}) !== null,
     'and the flag-combination refusal is wired at the top, where it is reachable before a byte is written',
   );
 }
@@ -434,7 +437,7 @@ section('§6 --manifest-deferred — publish stops at the same place, names the 
     /\} else if \(MANIFEST_DEFERRED\) \{[\s\S]{0,120}deferredNotice/.test(PUBLISH_SRC),
     'and it is an else-if on the freeze branch — one decision, three outcomes, no path where the gate and both notices are all skipped',
   );
-  assertTrue(/deferralRefusal\(process\.argv/.test(PUBLISH_SRC), 'and the flag refusal is wired at the top, reachable before a byte is written');
+  assertTrue(/publishArgvRefusal\(process\.argv/.test(PUBLISH_SRC) && publishArgvRefusal(['--manifest-deferred'], {}) !== null, 'and the flag refusal is wired at the top, reachable before a byte is written');
 }
 
 // ── summary ─────────────────────────────────────────────────────────────────

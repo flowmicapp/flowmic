@@ -36,7 +36,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -64,7 +64,7 @@ const SHIP = join(HERE, 'ship.mjs');
 
 let failures = 0;
 let sectionsRun = 0;
-const TOTAL_SECTIONS = 13;
+const TOTAL_SECTIONS = 14;
 const section = (t) => { sectionsRun += 1; console.log(`\n=== ${t} ===`); };
 function assertTrue(cond, label) {
   if (cond) console.log(`  PASS  ${label}`);
@@ -606,6 +606,62 @@ try {
     const env = attach(true);
     assertTrue(/FLOWMIC_SHIP_RUN_PID/.test(readFileSync(SHIP, 'utf8')) && env !== null,
       'ship stamps FLOWMIC_SHIP_RUN_PID on every child (§10 anchor) — the gate cannot exempt a sibling it is never told about');
+  }
+
+  // ── §12 the JP relay deploy carries its node's upload transport ─────────────
+  //
+  // 0.3.119 (2026-11-03): ship had no way to say `--transport chunked-tar`, and
+  // per-file SFTP drops mid-upload on this workstation's link to the JP
+  // replica, so JP was deployed by hand. The transport is now a field on the
+  // DEPLOY_JP row of ship's node table (per-node config, like its env file),
+  // and the deploy script's OWN argument parser is asked whether it accepts
+  // what ship builds — when that script is checked out beside this repo.
+  section('§12 DEPLOY_JP passes --transport chunked-tar, DEPLOY_NY passes none, and deploy-vps-app.py parses it');
+  {
+    const { nodes } = buildGraph({});
+    attachCommands(nodes, {
+      root: ROOT, tools: { node: 'node', pnpm: 'pnpm', make: 'make', py: 'py', bash: 'bash', git: 'git' },
+      logDir: makeTempDir('ship-drill-transport-'), sha: 'aaaabbbbcccc', note: 'drill', manifestDeferred: true,
+    });
+    for (const n of nodes) n.run = () => { throw new Error('drill: production commands are never run here'); };
+    const argsOf = (name) => nodes.find((n) => n.name === name).ready.plan.args;
+    const jp = argsOf('DEPLOY_JP');
+    const ny = argsOf('DEPLOY_NY');
+    const at = jp.indexOf('--transport');
+    assertTrue(at > 0 && jp[at + 1] === 'chunked-tar', `DEPLOY_JP hands the deploy --transport chunked-tar (got ${jp.join(' ')})`);
+    assertTrue(!ny.includes('--transport'), 'REVERSE CONTROL: DEPLOY_NY passes no transport, so NY keeps the script default (the field is per node, not global)');
+
+    // From a lane slot ship's sibling resolution points inside the slot's parent;
+    // the drill falls back to the main checkout's sibling so the cross-check still runs.
+    const { mainCheckoutOf } = await import('./ship-preflight-orphans.mjs');
+    const webFromMain = join(dirname(mainCheckoutOf(ROOT)), basename(nodes.find((n) => n.name === 'DEPLOY_JP').ready.cwd));
+    const deployDir = [nodes.find((n) => n.name === 'DEPLOY_JP').ready.cwd, webFromMain].map((d) => join(d, 'deploy')).find((d) => existsSync(join(d, 'process_bytes.py'))) ?? join(webFromMain, 'deploy');
+    const script = jp.findIndex((a) => /deploy-vps-app\.py$/.test(a));
+    const py = process.env.FLOWMIC_DRILL_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+    if (!existsSync(join(deployDir, 'process_bytes.py'))) {
+      console.log(`  SKIP  deploy-vps-app.py parser cross-check: ${deployDir} is not checked out here`);
+    } else {
+      const probe = [
+        'import json, sys',
+        'sys.path.insert(0, sys.argv[1])',
+        'from process_bytes import parse_deploy_args',
+        'from chunked_transport import SUPPORTED_TRANSPORTS',
+        'a = parse_deploy_args(sys.argv[2:])',
+        'print(json.dumps({"transport": a.transport, "supported": list(SUPPORTED_TRANSPORTS)}))',
+      ].join('\n');
+      const run = (argv) => spawnSync(py, ['-I', '-c', probe, deployDir, ...argv], { encoding: 'utf8', windowsHide: true });
+      const r = run(jp.slice(script + 1));
+      if (r.error) {
+        console.log(`  SKIP  deploy-vps-app.py parser cross-check: ${py} not runnable (${r.error.code})`);
+      } else {
+        let parsed = null;
+        try { parsed = JSON.parse(r.stdout.trim()); } catch { /* reported below */ }
+        assertTrue(r.status === 0 && parsed?.transport === 'chunked-tar', `the deploy script's own parse_deploy_args accepts ship's JP argv and reads transport=chunked-tar (exit ${r.status}${r.stderr ? `, ${r.stderr.trim().split('\n').pop()}` : ''})`);
+        assertTrue(parsed?.supported?.includes('chunked-tar'), '  ...and chunked-tar is in its SUPPORTED_TRANSPORTS');
+        const bogus = run([...jp.slice(script + 1, at), '--transport', 'chunked-tarr']);
+        assertTrue(bogus.status !== 0, 'POSITIVE CONTROL: the same parser refuses a misspelt transport, so its acceptance above is not blind');
+      }
+    }
   }
 
 } finally {

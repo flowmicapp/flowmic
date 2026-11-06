@@ -100,7 +100,9 @@ type Sender = Box<dyn Fn(&[u16]) -> Result<usize, InjectError> + Send + Sync>;
 /// The decision stands because the typed path reaches those apps only after a
 /// paste has already failed (or for ASCII into a console), while the chat send
 /// it prevents cannot be undone. Who gets plain Enter is decided in ONE place,
-/// `text_route::line_break_key_for`.
+/// `text_route::line_break_key_for`. (Since D-MKT-5, 2026-11-05, a Windows
+/// console never receives a typed line break at all: its breaks are flattened
+/// to spaces first, `text_route::flatten_line_breaks_for_console`.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineBreakKey {
     /// VK_RETURN alone. Only for targets measured to need it.

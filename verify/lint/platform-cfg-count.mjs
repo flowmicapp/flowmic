@@ -361,7 +361,23 @@ const EXPECTED = {
   // `release_keys_left_down` (key-ups after a cut Shift+Enter / Ctrl+V batch).
   // Windows-SIDE row, owes no Mac run.
   'cfg(target_os = "windows")': 34,
-  'cfg!(windows)': 4,
+  // 5 → 6 (2026-11-05, integration of D-MKT-8 + D-MKT-5 on
+  // lane/mkt-win-fixes-integration): each card bumped 4 → 5 on its own branch;
+  // together they add two sites, recounted by `pnpm verify:lint` on the merged
+  // tree. Both cards' notes follow verbatim.
+  // 4 → 5 (2026-11-05, D-MKT-8): `inject/clipboard_outcome.rs`
+  // `RECEIPT_IS_OBSERVED` — whether a text paste's `confirmed == false` is a
+  // measurement (Windows delayed rendering) or only a missing instrument (macOS,
+  // Linux). Macro form: the code compiles on every host and the Windows gate
+  // type-checks it; both values are driven explicitly by `paste_verdict_tests`
+  // through `map_routed_paste_on`. Windows-SIDE row, owes no Mac run by itself;
+  // the claim "macOS/Linux verdicts unchanged" rests on the constant being
+  // false there and was NOT run on either machine this round.
+  // 4 → 5 (2026-11-05, D-MKT-5): `inject/text_dispatch.rs::type_or_paste`
+  // passes `cfg!(windows)` as the console line-break rule's switch. Macro form:
+  // the code compiles on every platform and macOS takes the `false` arm, which
+  // is the behaviour it had before. Windows-SIDE row, owes no Mac run.
+  'cfg!(windows)': 6,
 };
 
 // ⚠️ Still invisible after the 2026-08-12 widening — DECLARED, not silent

@@ -85,6 +85,65 @@ pub(crate) fn evidence_phrase(confirmed: bool, landing: LandingEvidence, held_ms
     )
 }
 
+/// D-MKT-8 (2026-11-05): is the TEXT paste's `confirmed == false` a measurement
+/// on this platform, or only the absence of an instrument?
+///
+/// A measurement on Windows alone. There the text exists nowhere but in this
+/// process until some process asks for it: `clipboard_confirm::
+/// paste_with_confirmation` announces `CF_UNICODETEXT` with a NULL handle, the
+/// bytes leave only through `WM_RENDERFORMAT` (`clipboard_render_slot.rs`
+/// `wndproc_inner` sets `rendered` only after `SetClipboardData` took them), and
+/// `WM_RENDERALLFORMATS` is deliberately not rendered. So `false` there says no
+/// process, the target included, ever received our text during the hold.
+///
+/// macOS and Linux have no receipt (the two non-Windows `receipt_phrase` arms):
+/// their `confirmed` is false by construction and says nothing, so this is
+/// `false` there and both keep the verdict they had. Pinned against the
+/// platform's own receipt sentence by `paste_verdict_tests`.
+pub(crate) const RECEIPT_IS_OBSERVED: bool = cfg!(windows);
+
+/// D-MKT-8: did this paste provably hand our text to nobody?
+///
+/// The one NEGATIVE fact a paste can measure, and only where the receipt is
+/// observed. Read-back may only ever say yes (`readback.rs`, "THE ONE RULE"), so
+/// it is used here in that direction alone: a `Confirmed` landing overrules the
+/// missing receipt (the text was seen, so the receipt instrument was blind);
+/// `NotObserved` / `Unavailable` change nothing, in either direction.
+pub(crate) fn text_never_left_us(outcome: &PasteOutcome, receipt_observed: bool) -> bool {
+    receipt_observed && !outcome.confirmed && outcome.landing != LandingEvidence::Confirmed
+}
+
+/// The verdict for a paste whose text never left us: `failed`
+/// (INJECT_CLIPBOARD_FAIL), the existing code whose copy already says the paste
+/// step failed and the text did not land. Not `cached`: that means the keyboard
+/// was never touched (the dedup does not record it and re-runs the same id),
+/// and our Ctrl+V did go out. Not INJECT_SUBMISSION_UNCERTAIN: its copy says
+/// part of the text may be in the target, and none of ours can be.
+fn never_fetched(outcome: &PasteOutcome, route: &str) -> InjectOutcome {
+    crate::forensic::record(
+        "inject",
+        &format!(
+            "text paste NOT TAKEN — {} {route} → reporting failed (INJECT_CLIPBOARD_FAIL): our \
+             text leaves this process only when a reader asks for it, nobody asked during the \
+             hold, so no window can hold it; not typed again, the Ctrl+V already reached the \
+             target (D-MKT-8)",
+            evidence_phrase(outcome.confirmed, outcome.landing, outcome.held_ms),
+        ),
+    );
+    InjectOutcome {
+        ok: false,
+        mode: InjectMode::Clipboard,
+        error_code: Some(error_codes::INJECT_CLIPBOARD_FAIL),
+        error_message: Some(format!(
+            "Ctrl+V was sent but no process fetched our text in the {}ms it was held ({}); \
+             none of it can be in the target",
+            outcome.held_ms,
+            outcome.landing.phrase()
+        )),
+        focus_evidence: None,
+    }
+}
+
 /// The same line on a platform that has no receipt to report (MAC-05).
 ///
 /// 🔴 THIS ARM EXISTS BECAUSE THE WINDOWS SENTENCE WOULD BE A CATEGORY ERROR HERE,
@@ -263,6 +322,14 @@ pub(crate) fn map_image_outcome(result: Result<ConfirmOutcome, InjectError>) -> 
 ///              receipt (`confirmed`) rides the forensic line.
 ///   Err(..)  → one of OUR Win32 steps failed, or the user's clipboard could not
 ///              be restored → `failed` (INJECT_CLIPBOARD_FAIL).
+///
+/// 🔴 CORRECTED IN PLACE (2026-11-05, D-MKT-8; the paragraph above is kept as
+/// written): on Windows an `Ok(..)` whose text NOBODY fetched is no longer
+/// `injected` — see [`text_never_left_us`]. Measured on a Windows 10 test PC
+/// into Notepad: 3/3 deliberate clipboard races and 2 of 89 ordinary sends
+/// ended `render-receipt=none … read-back=not-observed`, the window empty, and
+/// the row said 「Injected (input confirmed)」. The receipt is still not a gate
+/// in the other direction: `confirmed == true` proves nothing landed either.
 /// Map a paste taken by the ROUTED path — which, since 2026-08-26, is the
 /// DEFAULT path for text, not a special case. `reason` says which rule sent it
 /// here (`text_route::route_text`) and rides the forensic line, so a reader can
@@ -280,13 +347,32 @@ pub(crate) fn map_image_outcome(result: Result<ConfirmOutcome, InjectError>) -> 
 /// paste at the verified focus is `injected`; a hard error is
 /// INJECT_CLIPBOARD_FAIL, after which the dispatch falls back to typing
 /// (`text_dispatch::type_or_paste_with`) rather than dropping the utterance.
+///
+/// D-MKT-8 (2026-11-05): plus the third answer — an error-free paste whose text
+/// nobody fetched is INJECT_CLIPBOARD_FAIL too, and the dispatch does NOT type
+/// after it, because its Ctrl+V already went to the target
+/// (`text_dispatch::type_or_paste_routed`, the `act_completed` flag).
 pub(crate) fn map_routed_paste_outcome(
     result: Result<PasteOutcome, InjectError>,
     reason: crate::inject::text_route::PasteReason,
 ) -> InjectOutcome {
+    map_routed_paste_on(result, reason, RECEIPT_IS_OBSERVED)
+}
+
+/// [`map_routed_paste_outcome`] with the platform fact passed in, so both values
+/// of [`RECEIPT_IS_OBSERVED`] are provable on every host.
+pub(crate) fn map_routed_paste_on(
+    result: Result<PasteOutcome, InjectError>,
+    reason: crate::inject::text_route::PasteReason,
+    receipt_observed: bool,
+) -> InjectOutcome {
     match result {
         Err(InjectError::SubmissionUncertain(detail)) => submission_uncertain(detail),
         Err(InjectError::TargetChanged(detail)) => target_changed(detail),
+        Ok(outcome) if text_never_left_us(&outcome, receipt_observed) => never_fetched(
+            &outcome,
+            &format!("sendinput=not-attempted({})", reason.forensic_phrase()),
+        ),
         Ok(PasteOutcome {
             confirmed,
             landing,
@@ -341,6 +427,11 @@ pub(crate) fn map_clipboard_outcome(
         store.record_outcome(id, InjectMode::Clipboard, result.is_ok());
     }
     match result {
+        // D-MKT-8. Learning above is unchanged on purpose: the store records only
+        // a HARD error as this app rejecting the paste path, and nothing errored.
+        Ok(outcome) if text_never_left_us(&outcome, RECEIPT_IS_OBSERVED) => {
+            never_fetched(&outcome, "sendinput=failed")
+        }
         Ok(PasteOutcome {
             confirmed,
             landing,
@@ -412,3 +503,9 @@ fn target_changed(detail: String) -> InjectOutcome {
     InjectOutcome { ok: false, mode: InjectMode::Cached,
         error_code: Some(error_codes::INJECT_FOCUS_LOST), error_message: Some(detail), focus_evidence: None }
 }
+
+// D-MKT-8 truth table, the dispatcher's no-typing rule and their reverse
+// controls. A file of its own so pipeline_tests.rs stays under the 800-line cap.
+#[cfg(test)]
+#[path = "paste_verdict_tests.rs"]
+mod paste_verdict_tests;

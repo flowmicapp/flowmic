@@ -8,6 +8,11 @@ mod keys;
 mod selection;
 mod transfer;
 
+// D-MKT-2: real-X-server proofs of the terminal paste chord wiring.
+#[cfg(test)]
+#[path = "terminal_paste_tests.rs"]
+mod terminal_paste_tests;
+
 use super::{ClipboardSnapshot, InjectError};
 use crate::focus::linux_session::{current_backend, DisplayBackend};
 use std::sync::{mpsc, OnceLock};
