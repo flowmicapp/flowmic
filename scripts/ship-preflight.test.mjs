@@ -224,7 +224,7 @@ try {
     assertTrue(level(706) === 'FAIL' && level(707) === 'FAIL', 'a stranger cargo / vitest still FAILs: the release gate refuses those shapes on any tree, so the preflight says it first');
     const noTrees = findOrphans(procs, 1, { homes });
     assertTrue(noTrees.every((o) => o.owner !== 'ours'), 'without trees nothing is ours: the narrowing is never applied by default');
-    assertTrue(mainCheckoutOf('F:\\x\\flowmic-app-worktrees\\lane-b').toLowerCase() === 'f:\\x\\flowmic-app', 'a lane slot maps back to its main checkout, so a slot-run preflight still counts main as ours');
+    assertTrue(mainCheckoutOf(join('x', 'flowmic-app-worktrees', 'lane-b')) === join('x', 'flowmic-app'), 'a lane slot maps back to its main checkout, so a slot-run preflight still counts main as ours');
     assertTrue(ownerOf('C:\\nvm4w\\nodejs\\node.EXE scripts\\x.test.mjs', { trees, homes }) === 'unknown', 'the executable alone is never project evidence (our own runs use a global node)');
   }
 
