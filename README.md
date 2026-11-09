@@ -79,6 +79,24 @@ locally as a sidecar: single user, SQLite on disk, and the local setup needs no
 account. When the phone and the computer are not on the same network, the same
 binary acts as a relay that carries frames between them and stores none of them.
 
+Over the hosted relay, the phone streams your audio to the server for
+transcription rather than passing the audio itself on to the computer.
+Recognition runs on whichever engine your account settings name for the language
+you speak, or on FlowMic's default cloud provider, Soniox, if you have not set
+one. **What the relay keeps**: it holds audio in memory only (normally the last
+few seconds so a dropped connection to the speech engine can recover, plus up to
+about three minutes of unheard audio during a long recording while that
+connection is down), never writes the audio to disk or keeps it after the
+session, and stores billing records about each session for plan limits (such as
+when it happened, how long you spoke, how many characters came out, and which
+stretch of a recording has already been counted, never the words or the audio).
+The resulting text is sent back to your phone and computer (or to your phone
+alone if you save a note locally) without being stored on the relay. The relay
+code is in this repository, though the Soniox connector is not; a self-hosted
+relay uses any of the seven included engines (including a fully local one) and
+stops with an explicit error if asked for Soniox rather than quietly switching
+engines.
+
 Where your voice and text go is decided by the two engines you configure, and
 they are two separate settings. **Speech**: a local engine keeps your voice on
 your own hardware, and cloud engines such as Soniox do not. **Language model**:
