@@ -232,6 +232,9 @@ void main() {
       // §2-2) — but a hand-typed `https://` endpoint, which
       // `_tofuFingerprintFor` deliberately does not TOFU. Its refusal
       // surfaces as a dial failure, i.e. 「cannot reach」.)
+      // ⚠️ Correction (FR-M2, 2026-11-06): the transport fact above still holds, and
+      // the SENTENCE is no longer 「cannot reach」: `pair()` names it. Measured at
+      // that layer in lan_manual_https_real_handshake_test.dart.
       final SecureServerSocket server = await _startTlsServer();
       addTearDown(server.close);
       final SocketCore core = SocketCore();

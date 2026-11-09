@@ -65,16 +65,29 @@ What's in this folder
   resources/server.js    The local server
   resources/node_modules Native modules for the local recognition engine
                          (sherpa-onnx)
-                         Note: offline local recognition also needs a model
-                            file (about 228 MB) that is not bundled and does
-                            not download automatically by default. To enable
-                            it, set the environment variable
-                            FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 and start the app
-                            once (the download is integrity-checked, and it
-                            won't be enabled if that check fails). Without
-                            the model, local recognition is unavailable;
-                            cloud recognition and your own custom engine are
-                            not affected.
+                         Note: offline local recognition also needs a speech
+                            model, which is not in this folder and never
+                            downloads on its own. In FlowMic, open Settings,
+                            Speech recognition, the section "Built-in speech
+                            model", pick a pack for your language and press
+                            "Download the model (one time)". Packs differ in
+                            size, and you can also place the model files by
+                            hand in the folder shown there. For an unattended
+                            computer, set FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 and
+                            name a model with FLOWMIC_SHERPA_MODEL_ID, then
+                            start the app once. The computer contacts
+                            huggingface.co first, hf-mirror.com if that fails,
+                            then GitHub if both fail, though some packs come
+                            from GitHub only. These sites can redirect the
+                            request to their download servers, and they
+                            receive the computer's IP address and which file
+                            it asked for. We do not run these sites, and the
+                            download sends no speech and no transcripts. The
+                            download is integrity-checked, and a model that
+                            fails the check is not used. Without a model,
+                            local recognition is unavailable; cloud
+                            recognition and your own custom engine are not
+                            affected.
 
 Where your data lives
   %APPDATA%\\FlowMic\\      The database (flowmic.sqlite), standalone.secret,

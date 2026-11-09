@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import ProbePanel from './ProbePanel.vue';
 import { S } from '../../lib/strings';
-import { llmProtocolLabel, presetGroupLabel } from '../../lib/preset-group-label';
+import { llmProtocolLabel, presetGroupLabel, presetOptionLabel } from '../../lib/preset-group-label';
 import {
   llmPresetSections, llmPresetUnresolved, model, setLlmPreset, updateLlmField,
   type LlmConfigModel,
@@ -85,7 +85,7 @@ onBeforeUnmount(() => watcher?.disconnect());
              grouping this page invents. Vendor names are proper nouns and are
              never translated; only the headings are. -->
         <optgroup v-for="s in llmPresetSections" :key="s.group" :label="presetGroupLabel(s.group)">
-          <option v-for="p in s.presets" :key="p.id" :value="p.id">{{ p.label }}</option>
+          <option v-for="p in s.presets" :key="p.id" :value="p.id">{{ presetOptionLabel(p) }}</option>
         </optgroup>
       </select>
     </div>

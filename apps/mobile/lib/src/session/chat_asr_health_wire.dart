@@ -239,7 +239,8 @@ void wireAsrHealth(ChatController c) {
     // Card RC4 — a recovery pass's engine error is not the user's press
     // failing; the draft row would say 「say it again」 for words nobody said.
     if (c.session.openSessionIsRecovery) return;
-    h.terminalError(_asrHealthNowMs(), code: s.code, message: s.message);
+    h.terminalError(_asrHealthNowMs(),
+        code: s.code, message: s.message, engineOnComputer: s.engineOnComputer);
   });
   hooks.retryableSub = c.session.fsm.sttRetryableErrors.listen((SttStall s) {
     h.retryableError(_asrHealthNowMs(), code: s.code, message: s.message);

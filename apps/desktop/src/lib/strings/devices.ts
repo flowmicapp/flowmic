@@ -109,7 +109,6 @@ export const DEVICES_KEYS = [
   'dev_revoke_unreachable',
   'dev_paired_at',
   'dev_paired_last_seen',
-  'dev_paired_never',
   // 🔴 owner 2026-08-02 UI batch-1 ②: 「离线」与「最近活动 刚刚」("offline"
   // next to "last active: just now") appearing side by side looks
   // self-contradictory. After tracing the code, the conclusion is that both
@@ -218,8 +217,9 @@ export const DEVICES_KEYS = [
 // is now a data file that cannot hold them.
 // [en] The channel terms are locked in en too: Local LAN / Cloud relay, nothing else.
 // [en] REQ-12-10b / REQ-12-14 — see zh-CN for the rules these five obey.
-// [en] Suffix after the online count (template: `{{ n }} {{ S.dev_mobiles_online }}`).
-// [en] Suffix after the row count: "Paired 3 total · 2 phones online".
+// dev_mobiles_online carries its own {n}: a label plus a number reads right for 1, 2
+// and 5 in every language, where a number before a fixed plural noun gave "1 phones".
+// [en] Suffix after the row count: "Paired 3 total · Phones online: 2".
 // [en] MAC-08 plan B — see zh-CN. Statement of fact; no imperative.
 // [ja] REQ-12-10b / REQ-12-14 — 規則は zh-CN 参照。
 // [ja] MAC-08 plan B — see zh-CN. Statement of fact; no imperative.

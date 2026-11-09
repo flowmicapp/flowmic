@@ -33,7 +33,7 @@
 import 'dart:io';
 
 import 'package:flowmic/src/session/compose_gate.dart'
-    show AiComposeFailure, AiComposeOutcome;
+    show AiComposeFailure, AiComposeOutcome, kComposePathFailureCodes;
 import 'package:flowmic/src/settings/app_settings.dart' show AppLocale;
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/signaling/state_machine.dart' show ConnectionState;
@@ -148,6 +148,16 @@ Future<List<String>> _bannerTexts(
 }
 
 void main() {
+  // rc-phone-fixes: a failed run also leaves its code on the row, and the row asks
+  // this set whether the code is a compose code (chat_row_reason.dart
+  // `_composeOutcomeOfRow`). Same list, so a new compose code cannot print raw there.
+  test('the row recognises every code the compose path can send', () {
+    expect(kComposePathFailureCodes, <String>{
+      ..._composePathCodes.map((_ComposeCode c) => c.code),
+      _phoneRaised,
+    });
+  });
+
   group('the banner a person reads (real BannerSlot)', () {
     for (final AppLocale locale in AppLocale.values) {
       final AppStrings s = AppStrings.of(locale);

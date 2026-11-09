@@ -63,7 +63,7 @@
 // also be in the draft. The capsule cannot observe row settlement — but it does
 // not have to guess: it computes the SAME predicate from the SAME fact, the
 // `mode` on `audio:start` (AudioStartSchema.mode, already forwarded verbatim by
-// socket/client.rs:502). realtime => settles per segment; translate/organize =>
+// socket/client.rs:508). realtime => settles per segment; translate/organize =>
 // the draft keeps growing to the terminal final.
 //
 // ⚠️ The TERMINAL final does NOT clear the view here. On the phone the same

@@ -232,6 +232,7 @@ export const WEB_COPY_DIRS = [
   { dir: 'src/views/usecases/copy', shape: 'nested', what: 'use-case pages' },
   { dir: 'src/views/versus/copy', shape: 'nested', what: 'comparison pages' },
   { dir: 'src/views/download/copy', shape: 'nested', what: 'download pages' },
+  { dir: 'src/views/scenarios/copy', shape: 'nested', what: 'scenario pages (English only)' },
   // EMB-10: the English developer guide at /docs/web-voice keeps its words in one
   // `en.ts` outside src/i18n (it is not localized), so the first row cannot see it.
   { dir: 'src/views/forsites/copy', shape: 'flat', what: 'web voice developer guide (English only)' },

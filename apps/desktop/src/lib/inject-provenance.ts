@@ -2,7 +2,7 @@
 // inject_target fields already reconciled into TimelineRow.target; never invents
 // a window title or a timestamp.
 
-import { formatTimelineLabel } from '@flowmic/protocol';
+import { timelineStamp } from './timeline-stamp';
 import type { HistoryStatus } from '@flowmic/protocol';
 import type { TimelineRow } from './types';
 
@@ -24,9 +24,10 @@ import type { TimelineRow } from './types';
  *  hover tooltip in EVERY UI locale, not only zh-CN. `template` is now supplied
  *  by the caller (`S.injected_into`, lib/strings/timeline.ts) — same shape as
  *  `cachedCauseTooltip`/`failedCauseInline` below taking their `reasons` table
- *  as a parameter rather than importing `S` here: this module stays pure and
- *  locale-free, and the call site (TimelinePage.vue) is the one place that
- *  provably reads the live catalogue. `{title}` and `{when}` are replaced the
+ *  as a parameter rather than importing `S` here, and the call site
+ *  (TimelinePage.vue) is the one place that provably reads the template from the
+ *  live catalogue. The `{when}` stamp is the exception: its words come from
+ *  `timelineStamp`, the same as the row's. `{title}` and `{when}` are replaced the
  *  same way every other two-slot desktop string is — see relative-time.ts /
  *  cloud-account.ts's `.replace('{…}', …)` call sites. */
 export function injectProvenanceTooltip(
@@ -38,7 +39,7 @@ export function injectProvenanceTooltip(
   const title = (target.window_title ?? '').trim() || (target.process_name ?? '').trim();
   const at = target.injected_at?.trim() ?? '';
   if (title.length === 0 || at.length === 0) return null;
-  return template.replace('{title}', title).replace('{when}', formatTimelineLabel(at));
+  return template.replace('{title}', title).replace('{when}', timelineStamp(at));
 }
 
 /** 🔴 "why didn't this row get injected" (这一行为什么没注进去) (owner 2026-08-02 F1a / docs/rebuild/15 §2.5e-4).

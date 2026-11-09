@@ -91,6 +91,7 @@ Future<TimelineStore> _pump(WidgetTester tester) async {
       home: HistoryPage(
         store: store,
         storageKind: TimelineStorageKind.sqlite,
+        queue: emptyQueueRowFacts,
       ),
     ),
   );

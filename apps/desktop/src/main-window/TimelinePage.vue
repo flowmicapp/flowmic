@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { formatTimelineLabel } from '@flowmic/protocol';
+import { timelineStamp } from '../lib/timeline-stamp';
 import Icon from './components/Icon.vue';
 // owner 2026-08-02 UI batch 1 ③ + rework ruling: "Data becomes its own page,
 // switchable with the timeline list": the data panel as a whole lives in
@@ -103,7 +103,7 @@ const searchActive = computed(() => timelineQuery.value !== '');
  *  rendered as it. */
 const retentionWhen = computed<string | null>(() => {
   const c = timelineRetention.value.cutoff;
-  return c === null ? null : formatTimelineLabel(c);
+  return c === null ? null : timelineStamp(c);
 });
 const retentionNote = computed<string | null>(() =>
   retentionWhen.value === null
@@ -620,7 +620,7 @@ const view = ref<'rows' | 'data'>('rows');
       ><Icon :name="MODE_BADGE[e.mode]?.icon ?? ''" /></span>
       <div class="body">
         <div class="meta">
-          <span>{{ formatTimelineLabel(e.created_at) }}</span>
+          <span>{{ timelineStamp(e.created_at) }}</span>
           <span>·</span>
           <span class="dot" :class="statusBadge(e.status, e.focus_evidence, e.control_outcome === 'submission_uncertain' ? 'INJECT_SUBMISSION_UNCERTAIN' : e.cached_cause).dot"></span>
           <!-- owner 2026-07-27: WHICH PHONE sent this. Before the status chip so

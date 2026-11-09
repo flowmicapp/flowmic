@@ -24,13 +24,25 @@ import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter/widgets.dart';
 
-import '../session/compose_gate.dart' show ComposeSendFailure;
+import '../session/compose_gate.dart'
+    show
+        AiComposeFailure,
+        AiComposeOutcome,
+        ComposeSendFailure,
+        kComposePathFailureCodes,
+        kRowLinkDownCode,
+        kRowWireEmitFailedCode;
+import '../session/image_send_vocabulary.dart'
+    show ImageSendFailure, ImageSendOutcome;
+import '../session/outbox_failure_text.dart'
+    show OutboxTerminal, outboxTerminalOf;
 import '../session/image_thumbnail.dart' show decodedThumbnail;
 import '../session/pending_recovery.dart' show recordedAtMsFromId;
 import '../settings/app_strings.dart' show AppStrings;
 import '../signaling/wire_payloads.dart' show FlowMode;
 import '../timeline/entry_metrics.dart'
     show entryWordCount, formatEntryDuration, textWordCount;
+import '../timeline/entry_never_sent.dart';
 import '../timeline/timeline_entry.dart';
 import '../session/usage_counters.dart';
 import 'chat_control_tile.dart';

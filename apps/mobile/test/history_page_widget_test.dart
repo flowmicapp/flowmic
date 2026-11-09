@@ -123,6 +123,7 @@ void main() {
           home: HistoryPage(
             store: store,
             storageKind: TimelineStorageKind.sqlite,
+            queue: emptyQueueRowFacts,
           ),
         ));
       await tester.pump();
@@ -155,6 +156,7 @@ void main() {
           home: HistoryPage(
             store: store,
             storageKind: TimelineStorageKind.sqlite,
+            queue: emptyQueueRowFacts,
           ),
         ));
       await tester.pump();
@@ -178,6 +180,7 @@ void main() {
         home: HistoryPage(
           store: store,
           storageKind: TimelineStorageKind.sharedPrefsFallback,
+          queue: emptyQueueRowFacts,
         ),
       ));
       await tester.pump();

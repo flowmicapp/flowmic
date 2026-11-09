@@ -242,6 +242,11 @@ mixin RecordingStrings on AppStringsLeaves {
   /// the relay, and a placement claim would be false there.
   String get sttStallConfigMissing => _lfSttStallConfigMissing;
 
+  /// FR-M1: the same refusal when the connected leg IS the computer's own
+  /// service, so the placement the sentence above must not claim is a fact here.
+  /// All four causes stay true; see docs/rebuild/15 §3.2.
+  String get sttStallConfigMissingOnComputer => _lfSttStallConfigMissingOnComputer;
+
   /// `STT_NO_ENGINE_REACHED` — the utterance was captured and NO speech engine
   /// ever received it (owner-approved code, ruling group #5-c 2026-08-10).
   ///
@@ -536,7 +541,9 @@ mixin RecordingStrings on AppStringsLeaves {
   String sttStallBannerMessage(SttStall stall) {
     if (stall.reason == SttStallReason.engineError) {
       final String? code = stall.code;
-      if (code == 'STT_CONFIG_MISSING') return sttStallConfigMissing;
+      if (code == 'STT_CONFIG_MISSING') {
+        return stall.engineOnComputer ? sttStallConfigMissingOnComputer : sttStallConfigMissing;
+      }
       if (code == 'STT_NO_ENGINE_REACHED') return sttStallNoEngineReached;
       // Card C1: the platform pool refused. NOT an engine speaking — see its doc.
       if (code == 'STT_POOL_NO_ROUTE') return sttStallPoolNoRoute;

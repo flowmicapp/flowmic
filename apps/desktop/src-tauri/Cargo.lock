@@ -877,7 +877,7 @@ dependencies = [
 
 [[package]]
 name = "flowmic-desktop"
-version = "0.3.120"
+version = "0.3.121"
 dependencies = [
  "block2",
  "flate2",
@@ -898,6 +898,7 @@ dependencies = [
  "tauri-plugin-shell",
  "thiserror 1.0.69",
  "tokio",
+ "tungstenite",
  "unicode-properties",
  "uuid",
  "windows 0.58.0",

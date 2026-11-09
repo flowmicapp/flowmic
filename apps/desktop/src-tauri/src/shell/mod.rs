@@ -17,7 +17,6 @@
 // and shared by both windows — nothing to configure here.
 
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_shell::ShellExt;
 use crate::socket::blocking::run_blocking;
 
 use crate::socket::DesktopSocket;
@@ -239,6 +238,7 @@ pub mod node_latency;
 /// `target="_blank"` and `window.open` are silently swallowed in this app —
 /// measured off wry/tauri's own sources, see that module's header.
 pub mod external_open;
+pub mod log_dir;
 
 /// The tray (07 §7: the only quit path; show main / show capsule / quit) —
 /// moved out verbatim for the 800-line cap. `setup_tray` re-exported below so
@@ -421,6 +421,8 @@ pub fn capsule_resize(app: AppHandle, width: f64, height: f64) {
         #[cfg(windows)]
         capsule_watch::observe_window(&w, "resize");
         let _ = w.set_size(tauri::LogicalSize::new(width, height));
+        #[cfg(target_os = "linux")]
+        capsule_style::requested_size_linux(&w, width, height);
     }
 }
 
@@ -564,33 +566,7 @@ pub fn show_main(app: AppHandle) {
     show_main_window(&app);
 }
 
-/// Open the directory that contains `server.log`, `window-forensics.log`, and
-/// the other desktop diagnostics. Refuse a missing directory before asking the
-/// OS to open it: the frontend renders every `Err` as a visible manual-path
-/// fallback, so a click can never disappear silently.
-#[tauri::command]
-pub fn open_log_directory(app: AppHandle) -> Result<bool, String> {
-    let log_file = crate::forensic::sibling_path("window-forensics.log");
-    let log_dir = log_file
-        .parent()
-        .ok_or_else(|| "无法解析日志目录".to_string())?;
-    if !log_dir.is_dir() {
-        return Err(format!("日志目录不存在或无法访问：{}", log_dir.display()));
-    }
-    let path = log_dir.to_string_lossy().into_owned();
-
-    // Shell::open is deprecated since tauri-plugin-shell 2.1.0 in favour of
-    // tauri-plugin-opener::OpenerExt::open_path. On desktop both call
-    // open::that_detached (Windows → ShellExecuteExW), so opening a local
-    // directory is user-visibly identical. Migrating needs a new crate +
-    // plugin init + capabilities — out of this card's territory and "no new
-    // deps" — so keep the existing path until that separate migration lands.
-    #[allow(deprecated)]
-    app.shell()
-        .open(path, None)
-        .map_err(|error| format!("打开日志目录失败（{}）：{error}", log_dir.display()))?;
-    Ok(true)
-}
+// `open_log_directory` moved to log_dir.rs (FR-D2), with `log_directory_path` beside it.
 
 // ── forensics frontend mirror (07 §10) ──────────────────────────────────────
 

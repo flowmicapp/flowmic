@@ -10,7 +10,17 @@
 // expired. The relay is the only authority on whether a key is good, so the
 // local reading is now a display hint and nothing more.
 
-use super::CloudReadiness;
+use super::{CloudConfig, CloudReadiness};
+
+impl CloudConfig {
+    /// D-MKT-21 — a dial carries the key it read when it started, and picking a
+    /// relay node takes seconds before it gets to the socket. Whether that key is
+    /// still the one this PC holds is the question `channel_session::connect_socket`
+    /// asks at the last moment, so a sign-out in that window ends the dial.
+    pub fn holds_key(&self, jwt: Option<&str>) -> bool {
+        self.jwt.as_deref() == jwt
+    }
+}
 
 impl CloudReadiness {
     /// Whether to DIAL the relay. `KeyExpired` dials like `Ready`.
@@ -78,6 +88,16 @@ mod tests {
         assert_eq!(verdict, CloudReadiness::KeyExpired, "the local reading is unchanged");
         assert!(verdict.is_dialable(), "a fast clock must not keep a valid key offline");
         assert!(cfg.readiness(true_now).is_dialable());
+    }
+
+    #[test]
+    fn a_dial_that_started_before_a_sign_out_no_longer_holds_the_key() {
+        let mut cfg = CloudConfig::default();
+        cfg.set_key("key-a", "https://relay.example");
+        assert!(cfg.holds_key(Some("key-a")));
+        assert!(!cfg.holds_key(Some("key-b")), "a replaced key is not the one the dial read");
+        cfg.clear_key(None);
+        assert!(!cfg.holds_key(Some("key-a")), "signed out: the dial must not go on");
     }
 
     #[test]

@@ -58,7 +58,7 @@ const S_EN_OWN = {
   dev_rename_save: 'Save',
   dev_rename_failed: 'Rename did not take effect — the server did not confirm. The name is still the previous one.',
   dev_paired: 'Paired phones',
-  dev_mobiles_online: 'phones online',
+  dev_mobiles_online: 'Phones online: {n}',
   dev_paired_loading: 'Loading paired phones…',
   dev_paired_failed: 'Failed to load paired phones (not connected or no server response) — the list below does not reflect the real pairing state',
   dev_paired_empty: 'No paired phones yet · tap "Add phone" to pair',
@@ -70,7 +70,6 @@ const S_EN_OWN = {
   dev_revoke_unreachable: 'This channel cannot be reached right now, so this phone cannot be unpaired at the moment.',
   dev_paired_at: 'Paired',
   dev_paired_last_seen: 'Last active',
-  dev_paired_never: 'Never connected',
   dev_paired_online_tip: 'Whether this phone is connected to this channel right now. It only reflects the current state.',
   dev_paired_last_seen_tip: 'When this phone last contacted this channel. A reconnect attempt (even a failed one), recording, and sending a picture all count as contact — so “Offline” and “just now” can both be true: it is not connected now, but it reached out moments ago.',
   dev_client_web: 'Web',
@@ -264,7 +263,6 @@ const S_EN_OWN = {
   set_about_version: 'Version',
   set_about_log_title: 'Diagnostic logs',
   set_about_log_hint: 'Diagnostic logs such as server.log and window-forensics.log are saved by default in:',
-  set_about_log_path: '%LOCALAPPDATA%\\FlowMic\\',
   set_about_log_open: 'Open log folder',
   set_about_log_opening: 'Opening…',
   set_about_log_open_failed: 'Failed to open the log folder. Navigate there manually in Explorer:',
@@ -567,8 +565,8 @@ const S_EN_OWN = {
   disc_s2_title: '2. Speech recognition',
   disc_s2_body: 'Which engine hears you is a setting you can see, not a guess — down to the two engine routes we seeded for you at first boot. If none fits, transcription stops with an error; your voice is never quietly sent anywhere you did not choose.',
   disc_s2_cloud: '· FlowMic cloud: streams through our relay to Soniox. If Soniox is unavailable we may switch back to speech servers we operate — an operator action, never mid-sentence. Held in memory only, never written to disk.',
-  disc_s2_byok: '· Your own key: your voice goes to that provider under their privacy policy, using the key you gave us. Via the cloud it still passes our relay (memory only); on your own network we are not in the path.',
-  disc_s2_local: '· A local engine: nothing leaves your own hardware at this step — that is about your voice; where the text goes next is step 3. (The built-in engine needs a speech model, which the app does not ship with: you can put the files in place yourself, or fetch it over the internet from settings on the computer. That download only ever happens because you asked for it — never on its own.)',
+  disc_s2_byok: '· Your own key: your voice goes to that provider under their privacy policy, using the key you gave us. Via the cloud it still passes our relay (memory only); on your own network, the audio goes from your phone to your computer and straight to that provider without passing through our servers. Your phone stays connected to our servers.',
+  disc_s2_local: '· A local engine: on your own network, the audio stays on your own devices and does not go out to the internet or reach our servers. Your phone stays connected to our servers. That covers the audio only, and where the text goes next is step 3. (The built-in engine needs a speech model, which the app does not ship with: you can put the files in place yourself, or fetch it over the internet from settings on the computer. That download only ever happens because you asked for it — never on its own.)',
   disc_s3_title: '3. Language-model processing (depends on your settings)',
   disc_s3_body: 'Translate and Organize always use a language model. Realtime sends each recording\'s closing transcript — including Record-only — only while AI polish is on; the switch is under Settings → Recognition and AI on this phone. While it is off, Realtime sends nothing; provisional words are never sent. The platform model is DeepSeek, on our account — we keep neither input nor output.',
   disc_s4_title: '4. Delivered to your computer and typed into the focused box',
@@ -732,7 +730,7 @@ const S_EN = {
   cap_cached: S_EN_OWN.st_cached,
 };
 
-// zh-CN (中文) — 698/698 translated;
+// zh-CN (中文) — 696/696 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_CN_OWN = {
   ...S_EN_OWN,
@@ -770,7 +768,7 @@ const S_ZH_CN_OWN = {
   dev_rename_save: '保存',
   dev_rename_failed: '重命名未生效，请检查网络后重试。设备名称已恢复原名称。',
   dev_paired: '已配对手机',
-  dev_mobiles_online: '台手机在线',
+  dev_mobiles_online: '{n} 台手机在线',
   dev_paired_loading: '正在读取已配对手机…',
   dev_paired_failed: '获取已配对手机列表失败，请检查网络连接后重试',
   dev_paired_empty: '尚无已配对手机 · 点「添加手机」配对',
@@ -782,7 +780,6 @@ const S_ZH_CN_OWN = {
   dev_revoke_unreachable: '通道暂时无法连接，暂无法取消该手机的配对，请稍后重试。',
   dev_paired_at: '配对于',
   dev_paired_last_seen: '最近活动',
-  dev_paired_never: '从未连接',
   dev_paired_online_tip: '表示此刻这台手机有没有连着这条通道，只反映当前状态。',
   dev_paired_last_seen_tip: '手机最近一次与本通道通信的时间。包含连接尝试、语音录制及图片传输等交互。',
   dev_client_web: '网页',
@@ -954,7 +951,7 @@ const S_ZH_CN_OWN = {
   set_prefs_capsule_reset_hint: '清除拖动记忆；下次浮现重新锚定到光标旁（无光标则顶部居中）。',
   set_prefs_capsule_reset_done: '已重置',
   set_prefs_language: '界面语言',
-  set_prefs_language_hint: '只认你的显式选择；从不读取系统语言，未显式选择时默认为中文。',
+  set_prefs_language_hint: '只认你的显式选择；从不读取系统语言，未显式选择时默认为英语。',
   set_prefs_theme: '主题',
   set_prefs_theme_hint: '「跟随系统」会实时响应系统的深浅色切换。',
   set_theme_system: '跟随系统',
@@ -976,7 +973,6 @@ const S_ZH_CN_OWN = {
   set_about_version: '版本',
   set_about_log_title: '诊断日志',
   set_about_log_hint: 'server.log、window-forensics.log 等诊断日志默认保存在：',
-  set_about_log_path: '%LOCALAPPDATA%\\FlowMic\\',
   set_about_log_open: '打开日志目录',
   set_about_log_opening: '正在打开…',
   set_about_log_open_failed: '打开日志目录失败。请在资源管理器中手动前往：',
@@ -1279,8 +1275,8 @@ const S_ZH_CN_OWN = {
   disc_s2_title: '② 语音识别',
   disc_s2_body: '语音识别服务透明可见，完全由你自主配置——包括首次开机时替你预置的引擎路由。没有可用引擎时会明确报错停止，绝不会将音频悄悄发送到其他地方。',
   disc_s2_cloud: '· FlowMic 云端：经我们的中继流向 Soniox；若 Soniox 不可用，可能切回我们自己运营的识别服务——由运维人员处理，绝不在单句录音中途切换。音频全程仅在内存处理，绝不落盘。',
-  disc_s2_byok: '· 自定义密钥：你的语音将根据该服务商的隐私政策发送给对方，并使用你提供的密钥。通过云端时，语音仍会经过我们的中继（仅保留在内存中）；在你的本地网络中，我们完全不会介入。',
-  disc_s2_local: '· 本地引擎：在这一步，任何数据都不会离开你自己的设备——说的是语音；文字之后去哪，见 ③。（内置引擎所需的模型文件未随安装包打包：你可自行放置模型文件，也可在电脑端设置中通过网络下载。这项下载只在你要求之后才会进行，绝不会自动启动。）',
+  disc_s2_byok: '· 自定义密钥：你的语音将根据该服务商的隐私政策发送给对方，并使用你提供的密钥。通过云端时，语音仍会经过我们的中继（仅保留在内存中）；在你的本地网络中，语音会从你的手机传到电脑，再直接发给该服务商，不经过我们的服务器。你的手机仍与我们的服务器保持连接。',
+  disc_s2_local: '· 本地引擎：在你的本地网络中，语音留在你自己的设备上，不会发往互联网或到达我们的服务器。你的手机仍与我们的服务器保持连接。以上仅针对语音，文字之后去哪，见 ③。（内置引擎所需的模型文件未随安装包打包：你可自行放置模型文件，也可在电脑端设置中通过网络下载。这项下载只在你要求之后才会进行，绝不会自动启动。）',
   disc_s3_title: '③ 语言模型处理（取决于你的设置）',
   disc_s3_body: '翻译与整理模式经由大语言模型处理。实时模式仅在开启「AI 润色」时发送每段录音的最终文字；开关在这台手机的「设置 → 识别与 AI」中。关闭时实时模式不向大模型发送任何内容；临时识别结果从不发送。平台模型采用我们账号下的 DeepSeek——输入与输出内容我们均不作保留。',
   disc_s4_title: '④ 送达电脑，注入当前焦点窗口',
@@ -1444,7 +1440,7 @@ const S_ZH_CN = {
   cap_cached: S_ZH_CN_OWN.st_cached,
 };
 
-// zh-TW (繁體中文) — 698/698 translated;
+// zh-TW (繁體中文) — 696/696 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ZH_TW_OWN = {
   ...S_EN_OWN,
@@ -1482,7 +1478,7 @@ const S_ZH_TW_OWN = {
   dev_rename_save: '儲存',
   dev_rename_failed: '重新命名未生效——伺服器沒有確認。名稱仍是原來的那個。',
   dev_paired: '已配對手機',
-  dev_mobiles_online: '台手機在線上',
+  dev_mobiles_online: '{n} 台手機在線上',
   dev_paired_loading: '正在讀取已配對手機…',
   dev_paired_failed: '讀取已配對手機失敗（未連線或伺服器無回應），下方不代表真實的配對情況',
   dev_paired_empty: '尚無已配對手機 · 點「新增手機」進行配對',
@@ -1494,7 +1490,6 @@ const S_ZH_TW_OWN = {
   dev_revoke_unreachable: '這條通道暫時連不上，現在無法取消這台手機的配對。',
   dev_paired_at: '配對於',
   dev_paired_last_seen: '最近活動',
-  dev_paired_never: '從未連線',
   dev_paired_online_tip: '表示此刻這台手機有沒有連著這條通道，只反映目前狀態。',
   dev_paired_last_seen_tip: '這台手機最近一次聯繫這條通道的時間。嘗試重新連線（即使沒連上）、錄音、傳圖都算一次聯繫。所以「離線」和「剛剛」可能同時成立：現在沒連著，但它剛剛聯繫過。',
   dev_client_web: '網頁',
@@ -1666,7 +1661,7 @@ const S_ZH_TW_OWN = {
   set_prefs_capsule_reset_hint: '清除拖曳記憶；下次浮現時會重新錨定到游標旁（沒有游標則置於頂端置中）。',
   set_prefs_capsule_reset_done: '已重設',
   set_prefs_language: '介面語言',
-  set_prefs_language_hint: '只認你的明確選擇；從不讀取系統語言，未選擇時預設為中文。',
+  set_prefs_language_hint: '只認你的明確選擇；從不讀取系統語言，未選擇時預設為英文。',
   set_prefs_theme: '主題',
   set_prefs_theme_hint: '「跟隨系統」會即時反映系統的深淺色切換。',
   set_theme_system: '跟隨系統',
@@ -1688,7 +1683,6 @@ const S_ZH_TW_OWN = {
   set_about_version: '版本',
   set_about_log_title: '診斷記錄檔',
   set_about_log_hint: 'server.log、window-forensics.log 等診斷記錄檔預設存放在：',
-  set_about_log_path: '%LOCALAPPDATA%\\FlowMic\\',
   set_about_log_open: '開啟記錄檔資料夾',
   set_about_log_opening: '正在開啟…',
   set_about_log_open_failed: '開啟記錄檔資料夾失敗。請在檔案總管中手動前往：',
@@ -1991,8 +1985,8 @@ const S_ZH_TW_OWN = {
   disc_s2_title: '② 語音辨識',
   disc_s2_body: '誰在聽你說話是一項看得見的設定，不靠猜——包括第一次啟動時為你預先設定的那兩條引擎路由。沒有合適的引擎時，轉錄會報錯停下；你的聲音絕不會被悄悄送去別處。',
   disc_s2_cloud: '· FlowMic 雲端：經我們的中繼流向 Soniox；Soniox 不可用時可能切回我們自己營運的辨識伺服器——由營運人員操作，絕不在一句話中途。音訊只在記憶體裡，不落盤。',
-  disc_s2_byok: '· 自訂金鑰：你的語音將依據該提供商的隱私權政策傳送給對方，並使用你提供的金鑰。透過雲端時，語音仍會經過我們的中繼（僅保留於記憶體中）；在你的區域網路中，我們完全不會經手。',
-  disc_s2_local: '· 本機引擎：在這一步，任何東西都不會離開你自己的硬體——這一步只關乎你的語音；文字接下來要送去哪裡是第 3 步的事。（內建引擎所需的語音模型並未隨安裝程式一起提供：你可以自行放置檔案，也可以在電腦的設定中讓它透過網際網路下載。這項下載只在你要求之後才會發生，絕不會自行開始。）',
+  disc_s2_byok: '· 自訂金鑰：你的語音將依據該提供商的隱私權政策傳送給對方，並使用你提供的金鑰。透過雲端時，語音仍會經過我們的中繼（僅保留於記憶體中）；在你的區域網路中，語音會從你的手機傳到電腦，再直接傳送給該提供商，不經過我們的伺服器。你的手機仍與我們的伺服器保持連線。',
+  disc_s2_local: '· 本機引擎：在你的區域網路中，語音留在你自己的裝置上，不會傳到網際網路或到達我們的伺服器。你的手機仍與我們的伺服器保持連線。這只涵蓋語音，文字接下來要送去哪裡是第 3 步的事。（內建引擎所需的語音模型並未隨安裝程式一起提供：你可以自行放置檔案，也可以在電腦的設定中讓它透過網際網路下載。這項下載只在你要求之後才會發生，絕不會自行開始。）',
   disc_s3_title: '③ 語言模型處理（取決於你的設定）',
   disc_s3_body: '翻譯與整理必經語言模型。即時模式只在「AI 潤飾」開著時傳送每段錄音的收尾轉錄——含僅記錄；開關在這支手機的「設定 → 辨識與 AI」裡。關著時即時模式什麼都不傳送；臨時字從不傳送。平台模型是我們帳號下的 DeepSeek——輸入輸出我們都不保留。',
   disc_s4_title: '④ 送到電腦，打進目前輸入框',
@@ -2156,7 +2150,7 @@ const S_ZH_TW = {
   cap_cached: S_ZH_TW_OWN.st_cached,
 };
 
-// fr (Français) — 698/698 translated;
+// fr (Français) — 696/696 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_FR_OWN = {
   ...S_EN_OWN,
@@ -2194,7 +2188,7 @@ const S_FR_OWN = {
   dev_rename_save: 'Enregistrer',
   dev_rename_failed: "Le changement de nom n'a pas pris effet — le serveur n'a pas confirmé. Le nom est toujours le précédent.",
   dev_paired: 'Téléphones appairés',
-  dev_mobiles_online: 'téléphones en ligne',
+  dev_mobiles_online: 'Téléphones en ligne : {n}',
   dev_paired_loading: 'Chargement des téléphones appairés…',
   dev_paired_failed: "Échec du chargement des téléphones appairés (non connecté ou pas de réponse du serveur) — la liste ci-dessous ne reflète pas l'état réel de l'appairage",
   dev_paired_empty: 'Aucun téléphone appairé · cliquez sur « Ajouter un téléphone » pour appairer',
@@ -2206,7 +2200,6 @@ const S_FR_OWN = {
   dev_revoke_unreachable: 'Ce canal est injoignable pour le moment, ce téléphone ne peut donc pas être dissocié maintenant.',
   dev_paired_at: 'Appairé le',
   dev_paired_last_seen: 'Dernière activité',
-  dev_paired_never: 'Jamais connecté',
   dev_paired_online_tip: "Indique si ce téléphone est connecté à ce canal en ce moment. Cela ne reflète que l'état actuel.",
   dev_paired_last_seen_tip: "Date du dernier contact de ce téléphone avec ce canal. Une tentative de reconnexion (même échouée), un enregistrement ou l'envoi d'une image comptent tous comme un contact — « Hors ligne » et « À l'instant » peuvent donc être vrais en même temps : il n'est pas connecté maintenant, mais il s'est manifesté il y a un instant.",
   dev_client_web: 'Web',
@@ -2378,7 +2371,7 @@ const S_FR_OWN = {
   set_prefs_capsule_reset_hint: "Efface la position mémorisée ; à la prochaine apparition, la capsule se réancre à côté du point d'insertion (en haut au centre s'il n'y en a pas).",
   set_prefs_capsule_reset_done: 'Réinitialisée',
   set_prefs_language: 'Langue',
-  set_prefs_language_hint: "Seul votre choix explicite s'applique. La langue du système n'est jamais lue ; la valeur par défaut est le chinois.",
+  set_prefs_language_hint: "Seul votre choix explicite s'applique. La langue du système n'est jamais lue ; la langue par défaut est l'anglais.",
   set_prefs_theme: 'Thème',
   set_prefs_theme_hint: '« Système » suit en temps réel les changements clair/sombre du système.',
   set_theme_system: 'Système',
@@ -2400,7 +2393,6 @@ const S_FR_OWN = {
   set_about_version: 'Version',
   set_about_log_title: 'Journaux de diagnostic',
   set_about_log_hint: 'Les journaux de diagnostic comme server.log et window-forensics.log sont enregistrés par défaut dans :',
-  set_about_log_path: '%LOCALAPPDATA%\\FlowMic\\',
   set_about_log_open: 'Ouvrir le dossier des journaux',
   set_about_log_opening: 'Ouverture…',
   set_about_log_open_failed: "Impossible d'ouvrir le dossier des journaux. Accédez-y manuellement dans l'Explorateur :",
@@ -2703,8 +2695,8 @@ const S_FR_OWN = {
   disc_s2_title: '2. Reconnaissance vocale',
   disc_s2_body: 'Le moteur qui vous entend est un réglage visible, pas une devinette — jusqu\'aux deux routes de moteur préconfigurées pour vous au premier démarrage. Si aucun ne convient, la transcription s\'arrête avec une erreur — votre voix n\'est jamais envoyée en silence ailleurs.',
   disc_s2_cloud: '· Cloud FlowMic : votre voix passe par notre relais vers Soniox. Si Soniox est indisponible, nous pouvons revenir à des serveurs de reconnaissance que nous exploitons — une action d\'exploitant, jamais en pleine phrase. En mémoire seulement, jamais écrit sur disque.',
-  disc_s2_byok: '· Votre propre clé : votre voix est transmise à ce fournisseur selon sa politique de confidentialité, à l\'aide de la clé que vous avez fournie. Via le cloud, elle transite toujours par notre relais (en mémoire uniquement) ; sur votre propre réseau, nous ne sommes pas du tout sur le trajet.',
-  disc_s2_local: "· Un moteur local : à cette étape, rien ne quitte votre propre matériel — cela concerne votre voix ; où le texte va ensuite, c'est l'étape 3. (Le moteur intégré a besoin d'un modèle vocal que l'application ne fournit pas : vous pouvez placer les fichiers vous-même, ou le télécharger depuis internet dans les réglages de l'ordinateur. Ce téléchargement n'a lieu que parce que vous l'avez demandé, jamais de lui-même.)",
+  disc_s2_byok: '· Votre propre clé : votre voix est transmise à ce fournisseur selon sa politique de confidentialité, à l\'aide de la clé que vous avez fournie. Via le cloud, elle transite toujours par notre relais (en mémoire uniquement) ; sur votre propre réseau, l\'audio passe de votre téléphone à votre ordinateur puis directement chez ce fournisseur sans passer par nos serveurs. Votre téléphone reste connecté à nos serveurs.',
+  disc_s2_local: "· Un moteur local : sur votre propre réseau, l'audio reste sur vos propres appareils et ne sort pas sur internet ni n'atteint nos serveurs. Votre téléphone reste connecté à nos serveurs. Cela ne concerne que l'audio, et où le texte va ensuite, c'est l'étape 3. (Le moteur intégré a besoin d'un modèle vocal que l'application ne fournit pas : vous pouvez placer les fichiers vous-même, ou le télécharger depuis internet dans les réglages de l'ordinateur. Ce téléchargement n'a lieu que parce que vous l'avez demandé, jamais de lui-même.)",
   disc_s3_title: '3. Traitement par le modèle de langage (selon vos paramètres)',
   disc_s3_body: 'Traduire et Organiser passent toujours par un modèle de langage. Le mode direct n\'envoie la transcription finale de chaque enregistrement — y compris « enregistrer seulement » — que lorsque le polissage IA est activé ; l\'interrupteur est sur ce téléphone, sous Paramètres → Reconnaissance et IA. Tant qu\'il est désactivé, le mode direct n\'envoie rien ; les mots provisoires ne sont jamais envoyés. Le modèle de la plateforme est DeepSeek, sur notre compte — nous ne gardons ni l\'entrée ni la sortie.',
   disc_s4_title: '4. Livré à votre ordinateur et saisi dans le champ actif',
@@ -2868,7 +2860,7 @@ const S_FR = {
   cap_cached: S_FR_OWN.st_cached,
 };
 
-// es (Español) — 698/698 translated;
+// es (Español) — 696/696 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_ES_OWN = {
   ...S_EN_OWN,
@@ -2906,7 +2898,7 @@ const S_ES_OWN = {
   dev_rename_save: 'Guardar',
   dev_rename_failed: 'El cambio de nombre no se aplicó: el servidor no lo confirmó. El nombre sigue siendo el anterior.',
   dev_paired: 'Teléfonos emparejados',
-  dev_mobiles_online: 'teléfonos en línea',
+  dev_mobiles_online: 'Teléfonos en línea: {n}',
   dev_paired_loading: 'Cargando los teléfonos emparejados…',
   dev_paired_failed: 'No se pudo cargar la lista de teléfonos emparejados (sin conexión o sin respuesta del servidor); la lista de abajo no refleja el emparejamiento real',
   dev_paired_empty: 'Todavía no hay teléfonos emparejados · pulsa «Añadir teléfono» para emparejar',
@@ -2918,7 +2910,6 @@ const S_ES_OWN = {
   dev_revoke_unreachable: 'Ahora mismo no se puede llegar a este canal, así que no se puede desemparejar este teléfono.',
   dev_paired_at: 'Emparejado',
   dev_paired_last_seen: 'Última actividad',
-  dev_paired_never: 'Nunca se ha conectado',
   dev_paired_online_tip: 'Indica si este teléfono está conectado a este canal en este momento. Solo refleja el estado actual.',
   dev_paired_last_seen_tip: 'Cuándo contactó por última vez este teléfono con este canal. Un intento de reconexión (aunque falle), una grabación y el envío de una imagen cuentan como contacto, así que «Sin conexión» y «Ahora mismo» pueden ser ciertos a la vez: ahora no está conectado, pero se puso en contacto hace un momento.',
   dev_client_web: 'Web',
@@ -3090,7 +3081,7 @@ const S_ES_OWN = {
   set_prefs_capsule_reset_hint: 'Borra la posición recordada al arrastrar; la próxima vez que aparezca volverá a anclarse junto al cursor de texto (arriba en el centro si no hay ninguno).',
   set_prefs_capsule_reset_done: 'Restablecida',
   set_prefs_language: 'Idioma',
-  set_prefs_language_hint: 'Solo se aplica tu elección explícita. Nunca se lee el idioma del sistema; por defecto se usa el chino.',
+  set_prefs_language_hint: 'Solo se aplica tu elección explícita. Nunca se lee el idioma del sistema; por defecto se usa el inglés.',
   set_prefs_theme: 'Tema',
   set_prefs_theme_hint: '«Sistema» sigue en tiempo real los cambios de claro/oscuro del sistema.',
   set_theme_system: 'Sistema',
@@ -3112,7 +3103,6 @@ const S_ES_OWN = {
   set_about_version: 'Versión',
   set_about_log_title: 'Registros de diagnóstico',
   set_about_log_hint: 'Los registros de diagnóstico como server.log y window-forensics.log se guardan por defecto en:',
-  set_about_log_path: '%LOCALAPPDATA%\\FlowMic\\',
   set_about_log_open: 'Abrir la carpeta de registros',
   set_about_log_opening: 'Abriendo…',
   set_about_log_open_failed: 'No se pudo abrir la carpeta de registros. Ve a ella a mano en el Explorador:',
@@ -3415,8 +3405,8 @@ const S_ES_OWN = {
   disc_s2_title: '2. Reconocimiento de voz',
   disc_s2_body: 'Qué motor te escucha es un ajuste visible, no una suposición: hasta las dos rutas de motor que preconfiguramos para ti en el primer arranque. Si ninguno sirve, la transcripción se detiene con un error: tu voz nunca se envía en silencio a otro sitio.',
   disc_s2_cloud: '· Nube de FlowMic: pasa por nuestro relé hacia Soniox. Si Soniox no está disponible, podemos volver a servidores de voz que operamos nosotros: una acción del operador, nunca a mitad de frase. Solo en memoria, nunca en disco.',
-  disc_s2_byok: '· Tu propia clave: tu voz va a ese proveedor según su política de privacidad, usando la clave que proporcionaste. A través de la nube sigue pasando por nuestro relay (solo en memoria); en tu propia red no intervenimos en absoluto.',
-  disc_s2_local: '· Un motor local: en este paso, nada sale de tu propio hardware — eso concierne a tu voz; a dónde va el texto después es el paso 3. (El motor integrado necesita un modelo de voz que la aplicación no incluye: puedes colocar los archivos tú mismo o descargarlo por internet desde los ajustes del ordenador. Esa descarga solo ocurre porque tú la has pedido, nunca por su cuenta.)',
+  disc_s2_byok: '· Tu propia clave: tu voz va a ese proveedor según su política de privacidad, usando la clave que proporcionaste. A través de la nube sigue pasando por nuestro relay (solo en memoria); en tu propia red, el audio va de tu teléfono a tu ordenador y directo a ese proveedor sin pasar por nuestros servidores. Tu teléfono sigue conectado a nuestros servidores.',
+  disc_s2_local: '· Un motor local: en tu propia red, el audio se queda en tus propios dispositivos y no sale a internet ni llega a nuestros servidores. Tu teléfono sigue conectado a nuestros servidores. Eso concierne solo al audio, y a dónde va el texto después es el paso 3. (El motor integrado necesita un modelo de voz que la aplicación no incluye: puedes colocar los archivos tú mismo o descargarlo por internet desde los ajustes del ordenador. Esa descarga solo ocurre porque tú la has pedido, nunca por su cuenta.)',
   disc_s3_title: '3. Procesado por el modelo de lenguaje (según tus ajustes)',
   disc_s3_body: 'Traducir y Organizar pasan siempre por un modelo de lenguaje. El modo directo envía la transcripción final de cada grabación —incluido «solo registrar»— únicamente mientras el pulido con IA está activado; ese interruptor está en este teléfono, en Ajustes → Reconocimiento e IA. Mientras está apagado, el modo directo no envía nada; las palabras provisionales nunca se envían. El modelo de la plataforma es DeepSeek, en nuestra cuenta: no guardamos ni la entrada ni la salida.',
   disc_s4_title: '4. Entrega al ordenador y escritura en el campo activo',
@@ -3580,7 +3570,7 @@ const S_ES = {
   cap_cached: S_ES_OWN.st_cached,
 };
 
-// de (Deutsch) — 698/698 translated;
+// de (Deutsch) — 696/696 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_DE_OWN = {
   ...S_EN_OWN,
@@ -3618,7 +3608,7 @@ const S_DE_OWN = {
   dev_rename_save: 'Speichern',
   dev_rename_failed: 'Das Umbenennen wurde nicht wirksam – der Server hat es nicht bestätigt. Der Name ist weiterhin der bisherige.',
   dev_paired: 'Gekoppelte Handys',
-  dev_mobiles_online: 'Handys online',
+  dev_mobiles_online: 'Handys online: {n}',
   dev_paired_loading: 'Gekoppelte Handys werden geladen…',
   dev_paired_failed: 'Gekoppelte Handys konnten nicht geladen werden (keine Verbindung oder keine Antwort vom Server) – die Liste unten gibt den echten Kopplungsstand nicht wieder',
   dev_paired_empty: 'Noch keine gekoppelten Handys · auf „Handy hinzufügen“ tippen, um zu koppeln',
@@ -3630,7 +3620,6 @@ const S_DE_OWN = {
   dev_revoke_unreachable: 'Dieser Kanal ist gerade nicht erreichbar, daher kann die Kopplung dieses Handys momentan nicht aufgehoben werden.',
   dev_paired_at: 'Gekoppelt',
   dev_paired_last_seen: 'Zuletzt aktiv',
-  dev_paired_never: 'Nie verbunden',
   dev_paired_online_tip: 'Ob dieses Handy gerade mit diesem Kanal verbunden ist. Es zeigt nur den aktuellen Stand.',
   dev_paired_last_seen_tip: 'Wann dieses Handy diesen Kanal zuletzt kontaktiert hat. Ein Verbindungsversuch (auch ein gescheiterter), eine Aufnahme und das Senden eines Bildes zählen jeweils als Kontakt – „Offline“ und „Gerade eben“ können also beide zutreffen: Es ist gerade nicht verbunden, hat sich aber eben noch gemeldet.',
   dev_client_web: 'Web',
@@ -3802,7 +3791,7 @@ const S_DE_OWN = {
   set_prefs_capsule_reset_hint: 'Löscht die gemerkte Ziehposition; beim nächsten Erscheinen verankert sich die Kapsel wieder neben dem Textcursor (oben mittig, wenn es keinen gibt).',
   set_prefs_capsule_reset_done: 'Zurückgesetzt',
   set_prefs_language: 'Sprache',
-  set_prefs_language_hint: 'Es gilt nur deine ausdrückliche Auswahl. Die Systemsprache wird nie ausgelesen; die Standardsprache ist Chinesisch.',
+  set_prefs_language_hint: 'Es gilt nur deine ausdrückliche Auswahl. Die Systemsprache wird nie ausgelesen; die Standardsprache ist Englisch.',
   set_prefs_theme: 'Design',
   set_prefs_theme_hint: '„System“ folgt dem Hell-/Dunkelwechsel des Systems in Echtzeit.',
   set_theme_system: 'System',
@@ -3824,7 +3813,6 @@ const S_DE_OWN = {
   set_about_version: 'Version',
   set_about_log_title: 'Diagnoseprotokolle',
   set_about_log_hint: 'Diagnoseprotokolle wie server.log und window-forensics.log werden standardmäßig hier gespeichert:',
-  set_about_log_path: '%LOCALAPPDATA%\\FlowMic\\',
   set_about_log_open: 'Protokollordner öffnen',
   set_about_log_opening: 'Wird geöffnet…',
   set_about_log_open_failed: 'Der Protokollordner konnte nicht geöffnet werden. Bitte im Explorer manuell dorthin wechseln:',
@@ -4127,8 +4115,8 @@ const S_DE_OWN = {
   disc_s2_title: '2. Spracherkennung',
   disc_s2_body: 'Welche Engine dich hört, ist eine sichtbare Einstellung, kein Rätsel — bis hin zu den zwei Engine-Routen, die wir beim ersten Start für dich voreingestellt haben. Passt keine, stoppt die Transkription mit einem Fehler — deine Stimme wird nie stillschweigend woandershin geschickt.',
   disc_s2_cloud: '· FlowMic-Cloud: läuft über unser Relais zu Soniox. Ist Soniox nicht erreichbar, können wir auf Sprachserver zurückschalten, die wir selbst betreiben — eine Betreiber-Aktion, nie mitten im Satz. Nur im Speicher, nie auf der Platte.',
-  disc_s2_byok: '· Eigener Schlüssel: Deine Sprachdaten gehen gemäß den Datenschutzbestimmungen dieses Anbieters an ihn, unter Verwendung des von dir angegebenen Schlüssels. Über die Cloud laufen sie weiterhin über unser Relay (nur im Arbeitsspeicher); in deinem eigenen Netzwerk sind wir überhaupt nicht beteiligt.',
-  disc_s2_local: '· Eine lokale Engine: Bei diesem Schritt verlässt nichts deine eigene Hardware – das betrifft deine Stimme; wohin der Text als Nächstes geht, ist Schritt 3. (Die eingebaute Engine braucht ein Spracherkennungsmodell, das die App nicht mitbringt: Du kannst die Dateien selbst ablegen oder es in den Einstellungen des Computers über das Internet laden. Dieser Download geschieht nur, weil du ihn verlangt hast, nie von selbst.)',
+  disc_s2_byok: '· Eigener Schlüssel: Deine Sprachdaten gehen gemäß den Datenschutzbestimmungen dieses Anbieters an ihn, unter Verwendung des von dir angegebenen Schlüssels. Über die Cloud laufen sie weiterhin über unser Relay (nur im Arbeitsspeicher); in deinem eigenen Netzwerk gehen die Sprachdaten von deinem Handy an deinen Computer und direkt an diesen Anbieter, ohne über unsere Server zu laufen. Dein Handy bleibt mit unseren Servern verbunden.',
+  disc_s2_local: '· Eine lokale Engine: In deinem eigenen Netzwerk bleiben die Sprachdaten auf deinen eigenen Geräten und gehen weder ins Internet hinaus noch erreichen sie unsere Server. Dein Handy bleibt mit unseren Servern verbunden. Das betrifft nur die Sprachdaten, und wohin der Text als Nächstes geht, ist Schritt 3. (Die eingebaute Engine braucht ein Spracherkennungsmodell, das die App nicht mitbringt: Du kannst die Dateien selbst ablegen oder es in den Einstellungen des Computers über das Internet laden. Dieser Download geschieht nur, weil du ihn verlangt hast, nie von selbst.)',
   disc_s3_title: '3. Verarbeitung durch das Sprachmodell (abhängig von deinen Einstellungen)',
   disc_s3_body: 'Übersetzen und Organisieren laufen immer durch ein Sprachmodell. Echtzeit sendet die Abschluss-Transkription jeder Aufnahme — auch „nur aufzeichnen" — nur solange die KI-Politur an ist; der Schalter liegt auf diesem Telefon unter Einstellungen → Erkennung und KI. Solange er aus ist, sendet Echtzeit nichts; vorläufige Wörter werden nie gesendet. Das Plattform-Modell ist DeepSeek, auf unserem Konto — wir behalten weder Eingabe noch Ausgabe.',
   disc_s4_title: '4. An den Computer zugestellt und ins Fokusfeld eingefügt',
@@ -4292,7 +4280,7 @@ const S_DE = {
   cap_cached: S_DE_OWN.st_cached,
 };
 
-// ja (日本語) — 698/698 translated;
+// ja (日本語) — 696/696 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_JA_OWN = {
   ...S_EN_OWN,
@@ -4330,7 +4318,7 @@ const S_JA_OWN = {
   dev_rename_save: '保存',
   dev_rename_failed: '名前の変更は反映されませんでした — サーバーが確認していません。名前は元のままです。',
   dev_paired: 'ペアリング済みスマホ',
-  dev_mobiles_online: '台のスマホがオンライン',
+  dev_mobiles_online: 'オンラインのスマホ: {n} 台',
   dev_paired_loading: 'ペアリング済みスマホを読み込み中…',
   dev_paired_failed: 'ペアリング済みスマホの読み込みに失敗しました（未接続またはサーバー無応答） — 以下は実際のペアリング状態を示していません',
   dev_paired_empty: 'ペアリング済みのスマホはまだありません · 「スマホを追加」でペアリングしてください',
@@ -4342,7 +4330,6 @@ const S_JA_OWN = {
   dev_revoke_unreachable: 'この経路には今つながらないため、いまはこの端末のペアリングを解除できません。',
   dev_paired_at: 'ペアリング日時',
   dev_paired_last_seen: '最終アクティビティ',
-  dev_paired_never: '接続したことがありません',
   dev_paired_online_tip: 'この端末が今この経路につながっているかどうか。現在の状態だけを示します。',
   dev_paired_last_seen_tip: 'この端末が最後にこの経路へ連絡した時刻です。再接続の試み（つながらなかった場合も）、録音、画像送信はすべて連絡に数えます。そのため「オフライン」と「たった今」は同時に成り立ちます：今はつながっていないが、さっき連絡があった、ということです。',
   dev_client_web: 'Web',
@@ -4536,7 +4523,6 @@ const S_JA_OWN = {
   set_about_version: 'バージョン',
   set_about_log_title: '診断ログ',
   set_about_log_hint: 'server.log、window-forensics.log などの診断ログの既定の保存先：',
-  set_about_log_path: '%LOCALAPPDATA%\\FlowMic\\',
   set_about_log_open: 'ログフォルダを開く',
   set_about_log_opening: '開いています…',
   set_about_log_open_failed: 'ログフォルダを開けませんでした。エクスプローラーで手動で移動してください：',
@@ -4839,8 +4825,8 @@ const S_JA_OWN = {
   disc_s2_title: '② 音声認識',
   disc_s2_body: 'どのエンジンが聞くかは目に見える設定であり、推測ではありません——初回起動時に用意した 2 本のエンジン経路も含めて。合うものがなければ転写はエラーで止まります。あなたの声が黙って別の場所へ送られることはありません。',
   disc_s2_cloud: '· FlowMic クラウド：私たちの中継を経て Soniox へ流れます。Soniox が使えない場合は、私たちが運用する音声認識サーバーに切り替えることがあります——運用者の操作であり、文の途中では決して行いません。メモリ上のみで、ディスクには書きません。',
-  disc_s2_byok: '· 独自のキー: 音声はその事業者のプライバシーポリシーに従い、ご自身が設定したキーを使ってその事業者に送信されます。クラウド経由の場合は当社の中継サーバー（メモリ保持のみ）を通過しますが、ご自身のローカルネットワーク上では当社を経由しません。',
-  disc_s2_local: '· ローカルエンジン：この段階では何もあなたの機器から出ません——これは音声の話です。テキストがその後どこへ行くかは ③ をご覧ください。（内蔵エンジンには音声モデルが必要ですが、アプリには同梱されていません。ご自身でファイルを置くことも、コンピューターの設定からインターネット経由でダウンロードすることもできます。ダウンロードはあなたが求めたときにだけ行われ、勝手に始まることはありません。）',
+  disc_s2_byok: '· 独自のキー: 音声はその事業者のプライバシーポリシーに従い、ご自身が設定したキーを使ってその事業者に送信されます。クラウド経由の場合は当社の中継サーバー（メモリ保持のみ）を通過しますが、ご自身のローカルネットワーク上では、音声はスマートフォンからコンピューターへ渡り、当社のサーバーを経由せずにそのままその事業者へ直接送信されます。スマートフォンは当社のサーバーに接続されたままになります。',
+  disc_s2_local: '· ローカルエンジン：ご自身のローカルネットワーク上では、音声はご自身の機器にとどまり、インターネットに出たり当社のサーバーに届いたりすることはありません。スマートフォンは当社のサーバーに接続されたままになります。これは音声のみについての話であり、テキストがその後どこへ行くかは ③ をご覧ください。（内蔵エンジンには音声モデルが必要ですが、アプリには同梱されていません。ご自身でファイルを置くことも、コンピューターの設定からインターネット経由でダウンロードすることもできます。ダウンロードはあなたが求めたときにだけ行われ、勝手に始まることはありません。）',
   disc_s3_title: '③ 言語モデル処理（設定によって変わります）',
   disc_s3_body: '翻訳と整理は必ず言語モデルを通ります。リアルタイムは「AI 仕上げ」がオンの間だけ、各録音の確定転写を送ります——「記録のみ」も含みます。スイッチはこの電話の「設定 → 認識と AI」にあります。オフの間、リアルタイムは何も送りません。未確定の文字は決して送られません。プラットフォームのモデルは私たちのアカウントの DeepSeek で、入力も出力も保持しません。',
   disc_s4_title: '④ パソコンへ届き、フォーカス中の入力欄へ入力',
@@ -5004,7 +4990,7 @@ const S_JA = {
   cap_cached: S_JA_OWN.st_cached,
 };
 
-// ko (한국어) — 698/698 translated;
+// ko (한국어) — 696/696 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_KO_OWN = {
   ...S_EN_OWN,
@@ -5042,7 +5028,7 @@ const S_KO_OWN = {
   dev_rename_save: '저장',
   dev_rename_failed: '이름 변경이 적용되지 않았습니다 — 서버가 확인하지 않았습니다. 이름은 기존 그대로입니다.',
   dev_paired: '페어링된 휴대폰',
-  dev_mobiles_online: '대의 휴대폰이 온라인',
+  dev_mobiles_online: '온라인 휴대폰: {n}대',
   dev_paired_loading: '페어링된 휴대폰을 불러오는 중…',
   dev_paired_failed: '페어링된 휴대폰 불러오기에 실패했습니다(연결되지 않았거나 서버 응답 없음) — 아래 목록은 실제 페어링 상태를 나타내지 않습니다',
   dev_paired_empty: '페어링된 휴대폰이 아직 없습니다 · 「휴대폰 추가」로 페어링하세요',
@@ -5054,7 +5040,6 @@ const S_KO_OWN = {
   dev_revoke_unreachable: '이 채널에 지금 연결할 수 없어 지금은 이 휴대폰의 페어링을 해제할 수 없습니다.',
   dev_paired_at: '페어링 일시',
   dev_paired_last_seen: '최근 활동',
-  dev_paired_never: '연결한 적 없음',
   dev_paired_online_tip: '이 휴대폰이 지금 이 채널에 연결되어 있는지 여부입니다. 현재 상태만 나타냅니다.',
   dev_paired_last_seen_tip: '이 휴대폰이 이 채널에 마지막으로 연락한 시각입니다. 재연결 시도(연결되지 못한 경우 포함), 녹음, 사진 전송이 모두 연락으로 계산됩니다. 그래서 「오프라인」과 「방금」이 동시에 성립할 수 있습니다: 지금은 연결되어 있지 않지만, 방금 연락했다는 뜻입니다.',
   dev_client_web: '웹',
@@ -5248,7 +5233,6 @@ const S_KO_OWN = {
   set_about_version: '버전',
   set_about_log_title: '진단 로그',
   set_about_log_hint: 'server.log, window-forensics.log 등 진단 로그의 기본 저장 위치:',
-  set_about_log_path: '%LOCALAPPDATA%\\FlowMic\\',
   set_about_log_open: '로그 폴더 열기',
   set_about_log_opening: '여는 중…',
   set_about_log_open_failed: '로그 폴더를 열지 못했습니다. 탐색기에서 직접 이동하세요:',
@@ -5551,8 +5535,8 @@ const S_KO_OWN = {
   disc_s2_title: '② 음성 인식',
   disc_s2_body: '어떤 엔진이 듣는지는 눈에 보이는 설정이며 추측이 아닙니다 — 첫 실행 때 미리 넣어 둔 두 엔진 경로까지 포함해서요. 맞는 엔진이 없으면 전사는 오류로 멈춥니다. 당신의 음성이 조용히 다른 곳으로 보내지는 일은 없습니다.',
   disc_s2_cloud: '· FlowMic 클라우드: 우리의 릴레이를 거쳐 Soniox로 흐릅니다. Soniox를 쓸 수 없으면 우리가 운영하는 음성 서버로 되돌릴 수 있습니다. 운영자의 조치이며, 문장 중간에는 절대 바꾸지 않습니다. 메모리에만 있고 디스크에는 쓰지 않습니다.',
-  disc_s2_byok: '· 자체 키: 음성은 해당 제공업체의 개인정보 처리방침에 따라 제공해주신 키를 사용하여 해당 제공업체로 전송됩니다. 클라우드를 거칠 때는 여전히 당사 릴레이(메모리에만 유지)를 통과하지만, 자체 네트워크에서는 경로에 전혀 개입하지 않습니다.',
-  disc_s2_local: '· 로컬 엔진: 이 단계에서는 아무것도 당신의 기기를 떠나지 않습니다 — 음성에 대한 이야기이며, 텍스트가 그다음 어디로 가는지는 ③을 보세요. (내장 엔진에는 음성 모델이 필요하지만 앱에 들어 있지 않습니다. 직접 파일을 넣어도 되고, 컴퓨터의 설정에서 인터넷으로 내려받아도 됩니다. 내려받기는 당신이 요청했을 때만 이뤄지며, 저절로 시작되지 않습니다.)',
+  disc_s2_byok: '· 자체 키: 음성은 해당 제공업체의 개인정보 처리방침에 따라 제공해주신 키를 사용하여 해당 제공업체로 전송됩니다. 클라우드를 거칠 때는 여전히 당사 릴레이(메모리에만 유지)를 통과하지만, 자체 네트워크에서는 음성이 당사 서버를 거치지 않고 휴대폰에서 컴퓨터로, 그리고 해당 제공업체로 바로 전송됩니다. 휴대폰은 당사 서버와 연결된 상태를 유지합니다.',
+  disc_s2_local: '· 로컬 엔진: 자체 네트워크에서는 음성이 당신의 기기에 머물며 인터넷으로 나가거나 당사 서버에 닿지 않습니다. 휴대폰은 당사 서버와 연결된 상태를 유지합니다. 이는 음성에만 해당하며, 텍스트가 그다음 어디로 가는지는 ③을 보세요. (내장 엔진에는 음성 모델이 필요하지만 앱에 들어 있지 않습니다. 직접 파일을 넣어도 되고, 컴퓨터의 설정에서 인터넷으로 내려받아도 됩니다. 내려받기는 당신이 요청했을 때만 이뤄지며, 저절로 시작되지 않습니다.)',
   disc_s3_title: '③ 언어 모델 처리 (설정에 따라 달라집니다)',
   disc_s3_body: '번역과 정리는 항상 언어 모델을 거칩니다. 실시간은 "AI 다듬기"가 켜져 있는 동안에만 각 녹음의 마감 전사를 보냅니다("기록만"도 포함). 스위치는 이 휴대폰의 설정 → 인식과 AI 에 있습니다. 꺼져 있는 동안 실시간은 아무것도 보내지 않으며, 임시 글자는 절대 전송되지 않습니다. 플랫폼 모델은 우리 계정의 DeepSeek이며, 입력도 출력도 보관하지 않습니다.',
   disc_s4_title: '④ 컴퓨터로 전달되어 포커스된 입력창에 입력',
@@ -5716,7 +5700,7 @@ const S_KO = {
   cap_cached: S_KO_OWN.st_cached,
 };
 
-// ru (Русский) — 698/698 translated;
+// ru (Русский) — 696/696 translated;
 // the rest inherit en by construction (owner 2026-08-14, 17 册 §0-bis).
 const S_RU_OWN = {
   ...S_EN_OWN,
@@ -5754,7 +5738,7 @@ const S_RU_OWN = {
   dev_rename_save: 'Сохранить',
   dev_rename_failed: 'Переименование не вступило в силу — сервер его не подтвердил. Имя осталось прежним.',
   dev_paired: 'Сопряжённые телефоны',
-  dev_mobiles_online: 'телефонов онлайн',
+  dev_mobiles_online: 'Телефонов онлайн: {n}',
   dev_paired_loading: 'Загрузка сопряжённых телефонов…',
   dev_paired_failed: 'Не удалось получить список сопряжённых телефонов (нет соединения или сервер не ответил) — список ниже не отражает реальное состояние сопряжений',
   dev_paired_empty: 'Сопряжённых телефонов пока нет · нажмите «Добавить телефон», чтобы сопрячь',
@@ -5766,7 +5750,6 @@ const S_RU_OWN = {
   dev_revoke_unreachable: 'Этот канал сейчас недоступен, поэтому отменить сопряжение с этим телефоном сейчас нельзя.',
   dev_paired_at: 'Сопряжён',
   dev_paired_last_seen: 'Последняя активность',
-  dev_paired_never: 'Ни разу не подключался',
   dev_paired_online_tip: 'Показывает, подключён ли этот телефон к каналу прямо сейчас. Отражает только текущее состояние.',
   dev_paired_last_seen_tip: 'Когда этот телефон в последний раз связывался с этим каналом. Попытка переподключения (даже неудачная), запись и отправка изображения — всё это считается связью, поэтому «Офлайн» и «Только что» могут быть верны одновременно: сейчас он не подключён, но только что выходил на связь.',
   dev_client_web: 'Веб',
@@ -5938,7 +5921,7 @@ const S_RU_OWN = {
   set_prefs_capsule_reset_hint: 'Сбрасывает запомненное положение после перетаскивания; при следующем появлении капсула снова привяжется к курсору ввода (если курсора нет — по центру сверху).',
   set_prefs_capsule_reset_done: 'Сброшено',
   set_prefs_language: 'Язык интерфейса',
-  set_prefs_language_hint: 'Учитывается только ваш явный выбор. Язык системы никогда не считывается; по умолчанию — китайский.',
+  set_prefs_language_hint: 'Учитывается только ваш явный выбор. Язык системы никогда не считывается; по умолчанию используется английский.',
   set_prefs_theme: 'Тема',
   set_prefs_theme_hint: '«Системная» в реальном времени следует за переключением светлой и тёмной темы в системе.',
   set_theme_system: 'Системная',
@@ -5960,7 +5943,6 @@ const S_RU_OWN = {
   set_about_version: 'Версия',
   set_about_log_title: 'Журналы диагностики',
   set_about_log_hint: 'Журналы диагностики, такие как server.log и window-forensics.log, по умолчанию сохраняются в:',
-  set_about_log_path: '%LOCALAPPDATA%\\FlowMic\\',
   set_about_log_open: 'Открыть папку журналов',
   set_about_log_opening: 'Открываем…',
   set_about_log_open_failed: 'Не удалось открыть папку журналов. Перейдите в неё вручную в Проводнике:',
@@ -6263,8 +6245,8 @@ const S_RU_OWN = {
   disc_s2_title: '2. Распознавание речи',
   disc_s2_body: 'Какой движок вас слышит — видимая настройка, а не догадка; среди них и два маршрута движка, которые мы предварительно настроили для вас при первом запуске. Если подходящего нет, распознавание останавливается с ошибкой; ваш голос никогда не отправляется тихо куда-то ещё.',
   disc_s2_cloud: '· Облако FlowMic: поток идёт через наш ретранслятор к Soniox. Если Soniox недоступен, мы можем переключиться на речевые серверы, которыми управляем сами, — действие оператора, никогда посреди фразы. Только в памяти, никогда на диск.',
-  disc_s2_byok: '· Собственный ключ: ваш голос отправляется стороннему поставщику согласно его политике конфиденциальности с использованием ключа, который вы указали. При передаче через облако данные все еще проходят через наш ретранслятор (только в памяти); в вашей собственной сети мы вообще не находимся на этом пути.',
-  disc_s2_local: '· Локальный движок: на этом шаге ничего не покидает ваше собственное оборудование — это касается вашего голоса; куда текст отправляется дальше, решается на шаге 3. (Встроенному движку нужна модель распознавания речи, которой нет в приложении: вы можете положить файлы сами или загрузить её через интернет в настройках на компьютере. Загрузка происходит только потому, что вы об этом попросили, и никогда сама по себе.)',
+  disc_s2_byok: '· Собственный ключ: ваш голос отправляется стороннему поставщику согласно его политике конфиденциальности с использованием ключа, который вы указали. При передаче через облако данные все еще проходят через наш ретранслятор (только в памяти); в вашей собственной сети аудио отправляется с вашего телефона на компьютер и напрямую этому поставщику, минуя наши серверы. Ваш телефон остаётся подключённым к нашим серверам.',
+  disc_s2_local: '· Локальный движок: в вашей собственной сети аудио остаётся на ваших собственных устройствах, не уходит в интернет и не попадает на наши серверы. Ваш телефон остаётся подключённым к нашим серверам. Это касается только аудио, а куда текст отправляется дальше, решается на шаге 3. (Встроенному движку нужна модель распознавания речи, которой нет в приложении: вы можете положить файлы сами или загрузить её через интернет в настройках на компьютере. Загрузка происходит только потому, что вы об этом попросили, и никогда сама по себе.)',
   disc_s3_title: '3. Обработка языковой моделью (зависит от ваших настроек)',
   disc_s3_body: 'Перевод и Структура всегда проходят через языковую модель. Реальное время отправляет итоговую расшифровку каждой записи — включая «только запись» — лишь пока включена ИИ-доводка; переключатель на этом телефоне, в Настройки → Распознавание и ИИ. Пока он выключен, реальное время не отправляет ничего; предварительные слова не отправляются никогда. Модель платформы — DeepSeek, на нашем аккаунте; мы не храним ни вход, ни выход.',
   disc_s4_title: '4. Доставлено на компьютер и вставлено в активное поле',
@@ -6448,7 +6430,7 @@ export const CATALOGUE: Record<UiLocale, Record<StringKey, string>> = {
 const REASON_EN: Record<PcInjectionCode, string> = {
   INJECT_FOCUS_LOST: 'No input focus found',
   INJECT_TARGET_INVALID: 'Target invalid or text too long',
-  INJECT_CLIPBOARD_FAIL: 'Clipboard delivery unconfirmed',
+  INJECT_CLIPBOARD_FAIL: 'Paste did not complete',
   INJECT_SENDINPUT_FAIL: 'Neither typing nor paste succeeded',
   INJECT_DEFERRED_NOT_AUTOINJECTED: 'Re-delivered automatically; deliberately not injected',
   INJECT_SELF_WINDOW_NO_INPUT: "Focus was on FlowMic's own window",
@@ -6468,7 +6450,7 @@ const REASON_ZH_CN: Record<PcInjectionCode, string> = {
   ...REASON_EN,
   INJECT_FOCUS_LOST: '未找到输入焦点',
   INJECT_TARGET_INVALID: '目标无效或文本过长',
-  INJECT_CLIPBOARD_FAIL: '剪贴板投递未确认',
+  INJECT_CLIPBOARD_FAIL: '粘贴未能完成',
   INJECT_SENDINPUT_FAIL: '打字与粘贴都没成功',
   INJECT_DEFERRED_NOT_AUTOINJECTED: '自动补投的消息，刻意没有注入',
   INJECT_SELF_WINDOW_NO_INPUT: '焦点在 FlowMic 自己的窗口',
@@ -6488,7 +6470,7 @@ const REASON_ZH_TW: Record<PcInjectionCode, string> = {
   ...REASON_EN,
   INJECT_FOCUS_LOST: '找不到輸入焦點',
   INJECT_TARGET_INVALID: '目標無效或文字過長',
-  INJECT_CLIPBOARD_FAIL: '剪貼簿投遞未確認',
+  INJECT_CLIPBOARD_FAIL: '貼上未完成',
   INJECT_SENDINPUT_FAIL: '打字與貼上都沒成功',
   INJECT_DEFERRED_NOT_AUTOINJECTED: '自動補投的訊息，刻意沒有注入',
   INJECT_SELF_WINDOW_NO_INPUT: '焦點在 FlowMic 自己的視窗',
@@ -6508,7 +6490,7 @@ const REASON_FR: Record<PcInjectionCode, string> = {
   ...REASON_EN,
   INJECT_FOCUS_LOST: 'Aucun focus de saisie trouvé',
   INJECT_TARGET_INVALID: 'Cible invalide ou texte trop long',
-  INJECT_CLIPBOARD_FAIL: 'Collage par le presse-papiers non confirmé',
+  INJECT_CLIPBOARD_FAIL: "Le collage ne s'est pas terminé",
   INJECT_SENDINPUT_FAIL: "Ni la frappe ni le collage n'ont réussi",
   INJECT_DEFERRED_NOT_AUTOINJECTED: 'Livré automatiquement en rattrapage ; volontairement non injecté',
   INJECT_SELF_WINDOW_NO_INPUT: 'Le focus était sur la fenêtre de FlowMic',
@@ -6528,7 +6510,7 @@ const REASON_ES: Record<PcInjectionCode, string> = {
   ...REASON_EN,
   INJECT_FOCUS_LOST: 'No se encontró el foco de entrada',
   INJECT_TARGET_INVALID: 'Destino no válido o texto demasiado largo',
-  INJECT_CLIPBOARD_FAIL: 'Pegado del portapapeles sin confirmar',
+  INJECT_CLIPBOARD_FAIL: 'El pegado no se completó',
   INJECT_SENDINPUT_FAIL: 'No funcionó ni escribir ni pegar',
   INJECT_DEFERRED_NOT_AUTOINJECTED: 'Reentregado automáticamente; no inyectado a propósito',
   INJECT_SELF_WINDOW_NO_INPUT: 'El foco estaba en la propia ventana de FlowMic',
@@ -6548,7 +6530,7 @@ const REASON_DE: Record<PcInjectionCode, string> = {
   ...REASON_EN,
   INJECT_FOCUS_LOST: 'Kein Eingabefokus gefunden',
   INJECT_TARGET_INVALID: 'Ziel ungültig oder Text zu lang',
-  INJECT_CLIPBOARD_FAIL: 'Einfügen über die Zwischenablage nicht bestätigt',
+  INJECT_CLIPBOARD_FAIL: 'Das Einfügen wurde nicht abgeschlossen',
   INJECT_SENDINPUT_FAIL: 'Weder Tippen noch Einfügen hat funktioniert',
   INJECT_DEFERRED_NOT_AUTOINJECTED: 'Automatisch nachträglich zugestellt; bewusst nicht eingefügt',
   INJECT_SELF_WINDOW_NO_INPUT: 'Der Fokus lag auf dem eigenen Fenster von FlowMic',
@@ -6568,7 +6550,7 @@ const REASON_JA: Record<PcInjectionCode, string> = {
   ...REASON_EN,
   INJECT_FOCUS_LOST: '入力フォーカスが見つかりません',
   INJECT_TARGET_INVALID: 'ターゲットが無効か、テキストが長すぎます',
-  INJECT_CLIPBOARD_FAIL: 'クリップボードへの配信が確認できません',
+  INJECT_CLIPBOARD_FAIL: '貼り付けが完了しませんでした',
   INJECT_SENDINPUT_FAIL: '入力も貼り付けも成功しませんでした',
   INJECT_DEFERRED_NOT_AUTOINJECTED: '自動再送のメッセージです。意図的に注入していません',
   INJECT_SELF_WINDOW_NO_INPUT: 'フォーカスが FlowMic 自身のウィンドウにありました',
@@ -6588,7 +6570,7 @@ const REASON_KO: Record<PcInjectionCode, string> = {
   ...REASON_EN,
   INJECT_FOCUS_LOST: '입력 포커스를 찾을 수 없습니다',
   INJECT_TARGET_INVALID: '대상이 유효하지 않거나 텍스트가 너무 깁니다',
-  INJECT_CLIPBOARD_FAIL: '클립보드 전달이 확인되지 않았습니다',
+  INJECT_CLIPBOARD_FAIL: '붙여넣기가 완료되지 않았습니다',
   INJECT_SENDINPUT_FAIL: '입력과 붙여넣기 모두 성공하지 못했습니다',
   INJECT_DEFERRED_NOT_AUTOINJECTED: '자동 재전송된 메시지라 일부러 주입하지 않았습니다',
   INJECT_SELF_WINDOW_NO_INPUT: '포커스가 FlowMic 자체 창에 있었습니다',
@@ -6608,7 +6590,7 @@ const REASON_RU: Record<PcInjectionCode, string> = {
   ...REASON_EN,
   INJECT_FOCUS_LOST: 'Фокус ввода не найден',
   INJECT_TARGET_INVALID: 'Цель недействительна или текст слишком длинный',
-  INJECT_CLIPBOARD_FAIL: 'Вставка через буфер обмена не подтверждена',
+  INJECT_CLIPBOARD_FAIL: 'Вставка не завершилась',
   INJECT_SENDINPUT_FAIL: 'Ни ввод с клавиатуры, ни вставка не сработали',
   INJECT_DEFERRED_NOT_AUTOINJECTED: 'Доставлено повторно автоматически; вставка намеренно не выполнена',
   INJECT_SELF_WINDOW_NO_INPUT: 'Фокус был на собственном окне FlowMic',

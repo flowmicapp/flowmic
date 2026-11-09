@@ -300,3 +300,18 @@ fn a_transient_cloud_close_releases_like_lan_once_stale() {
     emit_reconnect(&wire2, &p, &rec);
     assert!(wire2.events().is_empty(), "transient must not override the successor arm");
 }
+
+// D-MKT-21 — `socket::session_stop` ends the polling thread on this answer, so a
+// wrong `true` takes away a session's way back. The live half (a real transport,
+// broken on cue) is tests/session_stop.rs.
+#[test]
+fn only_a_close_that_can_never_speak_again_is_final() {
+    use crate::socket::session_gen::closing_is_final;
+    // Arguments: channel, my generation, latest generation, transient.
+    assert!(closing_is_final(Channel::Lan, 1, 2, false), "a successor exists");
+    assert!(closing_is_final(Channel::Lan, 1, 2, true), "a successor beats transient");
+    assert!(closing_is_final(Channel::Cloud, 1, 2, true), "a sign-out supersedes W8-2 too");
+    assert!(closing_is_final(Channel::Cloud, 2, 2, false), "deliberate cloud close");
+    assert!(!closing_is_final(Channel::Cloud, 2, 2, true), "W8-2: a failed redial comes back");
+    assert!(!closing_is_final(Channel::Lan, 2, 2, false), "LAN is always wanted");
+}

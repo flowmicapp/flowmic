@@ -114,8 +114,9 @@ pub(crate) fn text_never_left_us(outcome: &PasteOutcome, receipt_observed: bool)
 }
 
 /// The verdict for a paste whose text never left us: `failed`
-/// (INJECT_CLIPBOARD_FAIL), the existing code whose copy already says the paste
-/// step failed and the text did not land. Not `cached`: that means the keyboard
+/// (INJECT_CLIPBOARD_FAIL), the existing code whose phone sentence says the paste
+/// did not complete (`injectVerdictNote_INJECT_CLIPBOARD_FAIL`, i18n/mobile/en.json).
+/// Not `cached`: that means the keyboard
 /// was never touched (the dedup does not record it and re-runs the same id),
 /// and our Ctrl+V did go out. Not INJECT_SUBMISSION_UNCERTAIN: its copy says
 /// part of the text may be in the target, and none of ours can be.

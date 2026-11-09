@@ -109,6 +109,10 @@ mixin OnboardingStrings on AppStringsLeaves {
 
   /// The accessibility reading for the progress indicator (which of the
   /// three pages). Those three dots on screen are mute to a screen reader.
+  ///
+  /// FR-M3: a PAGE count whatever the key is called. Pages 2 and 3 carry titles
+  /// numbered 「Step 1」 and 「Step 2」, so the word for step here would read out
+  /// 「Step 2 of 3」 beside 「Step 1」 (onboarding_counter_matches_title_test.dart).
   String onboardingStepOf(int step, int total) => _lfOnboardingStepOf(step, total);
 
   // ── W-1 Page 1: what this is ───────────────────────────────────────────

@@ -7,7 +7,14 @@
  * stay compact; older entries gain date context automatically.
  */
 
-export type TimelineLocale = 'zh-CN' | 'en';
+/** The two words this format needs. Required, with no default: this package holds
+ *  no user-visible language, and a default here is how an English desktop timeline
+ *  came to say 刚刚 (FR-D2, 2026-11-06). The desktop supplies them from its catalogue
+ *  in `apps/desktop/src/lib/timeline-stamp.ts`. */
+export interface TimelineWords {
+  justNow: string;
+  yesterday: string;
+}
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -24,16 +31,16 @@ function isSameLocalDay(a: Date, b: Date): boolean {
 /**
  * Format an ISO-8601 timestamp for a history timeline row.
  *
- * - < 60s ago → "刚刚" / "Just now"
+ * - < 60s ago → `words.justNow`
  * - same calendar day → HH:mm:ss
- * - yesterday → 昨天 HH:mm / Yesterday HH:mm
+ * - yesterday → `words.yesterday` HH:mm
  * - same year → MM-DD HH:mm:ss
  * - otherwise → YYYY-MM-DD HH:mm:ss
  */
 export function formatTimelineLabel(
   iso: string,
+  words: TimelineWords,
   now: Date = new Date(),
-  locale: TimelineLocale = 'zh-CN',
 ): string {
   // A timestamp read back from a persisted cache / an older wire shape is untyped
   // data at runtime — `iso` really can be undefined or null despite the signature.
@@ -52,7 +59,7 @@ export function formatTimelineLabel(
   const ss = pad2(d.getSeconds());
 
   if (diffMs >= 0 && diffMs < 60_000) {
-    return locale === 'zh-CN' ? '刚刚' : 'Just now';
+    return words.justNow;
   }
 
   if (isSameLocalDay(d, now)) {
@@ -62,9 +69,7 @@ export function formatTimelineLabel(
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   if (isSameLocalDay(d, yesterday)) {
-    return locale === 'zh-CN'
-      ? `昨天 ${hh}:${mm}`
-      : `Yesterday ${hh}:${mm}`;
+    return `${words.yesterday} ${hh}:${mm}`;
   }
 
   const month = pad2(d.getMonth() + 1);

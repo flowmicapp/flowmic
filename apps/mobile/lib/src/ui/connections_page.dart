@@ -49,7 +49,9 @@ import '../session/liveness_hold.dart';
 import '../session/pc_presence.dart';
 import '../settings/app_settings.dart';
 import '../settings/app_strings.dart';
+import '../signaling/http_endpoint.dart' show pairAddressPrefill;
 import '../signaling/state_machine.dart' show SessionState;
+import 'onboarding/onboarding_download_block.dart';
 import 'add_pairing_sheet.dart';
 import 'cloud_signout_row.dart';
 import 'confirm_dialog.dart';
@@ -441,9 +443,12 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     // the user cannot be expected to type from memory (and mistyping it on a
     // phone keyboard is the single most common way this sheet fails), whereas a
     // LAN address is site-specific and genuinely has no sensible default.
-    final String? last = widget.connections.pairings.isNotEmpty
-        ? widget.connections.pairings.first.endpoint
+    final MobileSession? first = widget.connections.pairings.isNotEmpty
+        ? widget.connections.pairings.first
         : null;
+    final String? last = first == null
+        ? null
+        : pairAddressPrefill(endpoint: first.endpoint, pinned: first.lanTlsFp != null);
     final String lastEndpoint = (last != null && last.isNotEmpty)
         ? last
         : widget.connections.saasEndpoint;
@@ -615,7 +620,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 20),
         children: <Widget>[
-          if (pairings.isEmpty) _emptyHint(s),
+          if (pairings.isEmpty) _emptyHintRouted(s),
           // v0.2.4 — rows for ONE computer are rendered adjacently under a
           // header that says so. The rows themselves stay separate: they are
           // two real pairings with two tokens and independent disconnect/revoke, so a
@@ -664,18 +669,6 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
     );
   }
 
-  Widget _emptyHint(AppStrings s) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 8, 4, 16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(s.noInstances, style: TextStyle(color: FlowMicColors.t2, fontSize: 14, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 4),
-        Text(s.noInstancesHint, style: TextStyle(color: FlowMicColors.t3, fontSize: 12)),
-      ],
-    ),
-  );
-
   /// 🔴 W8-1 — the pin-mismatch surface: 「这台电脑不是你配对的那一台」("this PC
   /// is not the one you paired with"), standing on
   /// the screen until the user does something about it.
@@ -708,6 +701,9 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
   ///       「够不着」("unreachable"), which is honest — no identity was ever
   ///       recorded, so this
   ///       branch would be a claim with no fact behind it (R11).
+  ///       ⚠️ Correction (FR-M2, 2026-11-06): still no pin-mismatch notice, for
+  ///       that reason, but 「够不着」 was not honest either: the computer answered.
+  ///       `pair()` now names it (docs/rebuild/15 §3.2).
   /// ⚠️ Also measured there: the logcat line the device read
   /// (`CERTIFICATE_VERIFY_FAILED … handshake.cc:298`) is byte-identical between
   /// a pin refusal and a system-trust refusal, so that line alone could never

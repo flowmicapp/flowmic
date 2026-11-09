@@ -142,9 +142,15 @@ const EXPECTED = {
   // Real Linux GTK/Xvfb named tests and reverse controls: NR-122a dispatch report.
   // NR-125: Linux machine-id identity and proc hostname fallback (40 -> 46; not-linux 14 -> 15).
   // Injected-file Linux tests and the machine_uid reverse control ran in WSL; see the NR-125 report.
-  'cfg(target_os = "linux")': 52,
+  // FR-D3: the Linux capsule's input shape, shell/capsule_style.rs and capsule_resize
+  // (linux 52 -> 58, compound 34 -> 35). Proof is the Xorg run and mac-verify recorded
+  // in the card's report, not this number.
+  // rc-desktop-fixes (2026-11-07): server.js search order moved into the
+  // platform-neutral sidecar/server_dirs.rs, so three Linux attributes are gone
+  // (58 -> 55). Proof is the Ubuntu run with .deb and portable side by side.
+  'cfg(target_os = "linux")': 55,
   'cfg(not(target_os = "linux"))': 18,
-  'cfg linux compound': 34,
+  'cfg linux compound': 35,
   // Non-Windows: not compiled on the lead box. These are the ones that matter.
   //
   // 23 → 24 (2026-09-02, B2-X): `portable::commands::main_window_hwnd` gained

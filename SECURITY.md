@@ -32,9 +32,17 @@ is not done, it says so.
 
 ### LAN mode (no FlowMic cloud)
 
-The desktop app spawns the server as a local sidecar. There is no account, no
-telemetry, and FlowMic itself opens no outbound connection. With a local speech
-engine (sherpa-onnx), audio and transcripts never leave your network.
+The desktop app spawns the server as a local sidecar, and the local setup needs
+no account. At start-up the desktop app asks flowmic.app whether a newer version
+exists, and on Windows its embedded browser makes its own start-up connections.
+The phone stays connected to FlowMic's servers while on the local network. In
+the captured sessions, the desktop app was silent after start-up when signed
+out, kept a small heartbeat to the cloud relay when signed in, and sent no
+FlowMic traffic to analytics or telemetry addresses. Audio goes directly from
+the phone to the computer over the local network using TLS and does not pass
+through FlowMic's servers. With the built-in speech engine the audio stayed on
+the local network in every captured session; with a cloud speech engine set up
+with your own key, the computer sends the audio straight to that provider.
 
 The **language model is a second, independent configuration**, and this section
 used to be silent about it. Translate, Organize and AI polish do not use the

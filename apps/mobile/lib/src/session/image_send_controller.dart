@@ -750,7 +750,7 @@ class ImageSendController {
       _host.store.applyInjectResult(
         correlationId: entry.id,
         ok: false,
-        failureReason: 'LINK_DOWN',
+        failureReason: kRowLinkDownCode,
       );
       return _raise(
         ImageSendFailure.linkDown,
@@ -762,7 +762,7 @@ class ImageSendController {
       _host.store.applyInjectResult(
         correlationId: entry.id,
         ok: false,
-        failureReason: 'WIRE_EMIT_FAILED',
+        failureReason: kRowWireEmitFailedCode,
       );
       return _raise(
         ImageSendFailure.wireFailed,

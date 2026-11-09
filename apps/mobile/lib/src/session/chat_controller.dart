@@ -81,6 +81,7 @@ import 'outbox_frame.dart';
 import 'outbox_inject_origin.dart' show verdictRecordsDeferPromise;
 import 'outbox_item.dart';
 import 'outbox_notice_gate.dart';
+import 'outbox_row_facts.dart';
 import 'outbox_store.dart';
 import 'pending_recovery.dart';
 import 'pending_recovery_store.dart';

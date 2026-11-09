@@ -34,6 +34,7 @@ use crate::socket::bridge;
 use crate::socket::channel::{self, Channel, CloudConfig, KEY_MALFORMED};
 use crate::socket::cloud_endpoint::{self, EndpointMigration};
 use crate::socket::refusal::{is_account_auth_failure, AuthFailureHook, RefusalAuthority};
+use crate::socket::session_stop::withdraw_cloud_sessions;
 
 use super::sidecar_ctl;
 
@@ -233,6 +234,10 @@ pub fn auth_failure_hook(app: &AppHandle) -> AuthFailureHook {
                         c.auth_error = Some(code.clone());
                     }
                 });
+            }
+            // D-MKT-21 — the key is gone, so no session built on it may dial again.
+            if account_level {
+                withdraw_cloud_sessions();
             }
             // Tear the dead session down so nothing pretends to be connected —
             // but ONLY when the handshake itself was refused. A verb's refusal
@@ -660,6 +665,10 @@ pub fn cloud_clear_key(app: AppHandle) -> CloudStatusDto {
     let state: State<CloudState> = app.state();
     let cfg = state.update(|c| c.clear_key(None));
     forensic::record("cloud", "Cloud Key cleared (user sign-out)");
+    // D-MKT-21 — before the slot empties, so the session in it closes as final, and
+    // so a session in no slot (a lingering W8-2 one) is reached too. Without this the
+    // closed session's polling thread kept presenting the key above every ~65 s.
+    withdraw_cloud_sessions();
     // No key ⇒ nothing dialable, whatever any stored flag says. Drop the session
     // rather than leave a socket running on a credential this PC no longer holds —
     // this used to be conditional on `cfg.active`, which since owner 2026-07-30 ②

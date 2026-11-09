@@ -24,6 +24,7 @@
 // (`didExceedMaxLines` / intrinsic width vs. the actual box), never on
 // `Text.data` — group ② of this file reuses the same method.
 
+import 'package:flowmic/src/session/outbox_failure_text.dart' show OutboxTerminal;
 import 'package:flowmic/src/session/outbox_item.dart'
     show isTerminalRefusalCode, kOutboxImageBytesGone, kOutboxOverflow;
 import 'package:flowmic/src/settings/app_settings.dart' show AppLocale;
@@ -307,7 +308,7 @@ void main() {
 
   // ── ③ Unknown codes / the queue's local terminals — existing behaviour must not be changed by this card ──
   group('③ scope boundary — this card did not open the whole bare-code fallback table', () {
-    testWidgets('failed + LINK_DOWN still prints the bare identifier', (WidgetTester tester) async {
+    testWidgets('failed + a code nobody named says the generic sentence, never the identifier', (WidgetTester tester) async {
       final DateTime now = DateTime.utc(2026, 8, 4, 12, 0);
       final TimelineEntry e = TimelineEntry(
         id: 'loc_unrelated',
@@ -319,26 +320,25 @@ void main() {
         status: EntryStatus.failed,
         origin: 'paired',
         entryType: TimelineEntry.kTranscript,
-        failureReason: 'LINK_DOWN',
+        failureReason: 'SOME_CODE_NOBODY_NAMED',
         createdAt: now,
         updatedAt: now,
       );
       await tester.pumpWidget(_tile(e));
-      expect(find.textContaining('LINK_DOWN'), findsOneWidget);
+      expect(find.textContaining('SOME_CODE_NOBODY_NAMED'), findsNothing);
       expect(
-        find.byKey(const ValueKey<String>('entry.reasonNote.loc_unrelated')),
-        findsNothing,
-        reason: 'a code with no human sentence must not grow a whole extra line out of nowhere',
+        tester.widget<Text>(find.byKey(const ValueKey<String>('entry.reasonNote.loc_unrelated'))).data,
+        _zh.rowFailureReasonUnknown,
       );
     });
 
     testWidgets('queue-local terminal OUTBOX_OVERFLOW: this in-row note is still the bare code — its human sentence lives elsewhere',
         (WidgetTester tester) async {
       await tester.pumpWidget(_tile(_entry(failureReason: kOutboxOverflow)));
-      expect(find.textContaining(kOutboxOverflow), findsOneWidget);
+      expect(find.textContaining(kOutboxOverflow), findsNothing);
       expect(
-        find.byKey(const ValueKey<String>('entry.reasonNote.loc_refusal')),
-        findsNothing,
+        find.text(_zh.outboxTerminalMessage(OutboxTerminal.overflow)),
+        findsOneWidget,
         reason: 'OUTBOX_OVERFLOW\'s human sentence is outboxTerminalMessage/banner_queue, not this in-row note',
       );
     });

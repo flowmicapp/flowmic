@@ -451,18 +451,14 @@ void main() {
   // ── ③ Unrecognized codes: behavior unchanged by one character (the bare
   //    code is still on the meta row) ───────────────────────────────────────
   group('③ unrecognized codes —— existing behavior must not be changed by this card', () {
-    testWidgets('failed + LINK_DOWN still prints the bare identifier, and does not grow a reason row', (
+    testWidgets('failed + a code nobody named says the generic sentence, never the identifier', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _tile(_entry(status: EntryStatus.failed, failureReason: 'LINK_DOWN')),
+        _tile(_entry(status: EntryStatus.failed, failureReason: 'SOME_CODE_NOBODY_NAMED')),
       );
-      expect(find.textContaining('LINK_DOWN'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey<String>('entry.reasonNote.loc_verdict')),
-        findsNothing,
-        reason: 'a code with no human sentence must not grow a whole row out of nowhere',
-      );
+      expect(find.textContaining('SOME_CODE_NOBODY_NAMED'), findsNothing);
+      expect(find.text(_zh.rowFailureReasonUnknown), findsOneWidget);
     });
 
     testWidgets('the injected face still says not one word', (WidgetTester tester) async {

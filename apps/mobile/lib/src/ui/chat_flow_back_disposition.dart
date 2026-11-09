@@ -181,6 +181,19 @@ Future<void> _attemptBackRouted(_ChatFlowPageState s) async {
       ),
     );
     if (discard != true || !s.mounted) return;
+    // rc-phone-fixes (real device, 2026-11-07): this button only left the page, so
+    // the words were back in the box on return. The buffer lives on the controller
+    // and outlives this route. Same two lines as the edit sheet's Discard
+    // (chat_flow_edit_sheet.dart, `compose.card.discard`): local, rows settle
+    // 📥 noted, never the remote ✕. Contract: doc 17 §1, the swipe table's note.
+    //
+    // ⚠️ THE BOX ONLY, and what is in the box was never handed off: a ➤ that left a
+    // queue item empties the box (chat_utterance.dart `_sendBuffer`, doc 15
+    // `15-RECEIPT-STATES.md` §2.0.1-c), so this dialog no longer stands in front of
+    // queued words. A mid-send edit can still put new words here; those are not
+    // the queued ones. The queue itself has no retraction.
+    s.controller.discardBuffer();
+    s._sheetSrcVoice = false;
   }
 
   // 🔴 0.3.43 Q6 — `onBack?.call()` STOOD HERE and has MOVED, not gone. It now

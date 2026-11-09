@@ -28,7 +28,8 @@ void main() {
       addTearDown(store.dispose);
       await store.load();
       await tester.pumpWidget(MaterialApp(home: HistoryPage(store: store,
-        storageKind: TimelineStorageKind.sharedPrefsFallback)));
+        storageKind: TimelineStorageKind.sharedPrefsFallback,
+        queue: emptyQueueRowFacts)));
       await tester.pump();
       final strings = AppStrings.of(AppLocale.zh);
       final warning = find.text(strings.historyFallbackNote);

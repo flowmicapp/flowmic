@@ -54,7 +54,7 @@ use crate::socket::credentials::Credentials;
 use crate::socket::reconcile::Reconciler;
 use crate::socket::refusal::{AuthFailureHook, RefusalAuthority};
 use crate::socket::roster_apply::apply_connected_mobiles;
-use crate::socket::session_gen::{closing_gate, ClosingGate, SessionGenerations};
+use crate::socket::session_gen::{closing_gate, closing_is_final, ClosingGate, SessionGenerations};
 use crate::socket::wire;
 
 pub type SharedCreds = Arc<Mutex<Credentials>>;
@@ -235,6 +235,18 @@ impl Pairing {
     /// Whether [`begin_closing`](Self::begin_closing) has been called.
     pub(super) fn is_closing(&self) -> bool {
         self.closing.load(Ordering::SeqCst)
+    }
+
+    /// D-MKT-21 — closing, and never going to speak again. Read fresh on every
+    /// call; `session_stop` ends the polling thread on it.
+    pub(super) fn reconnect_is_over(&self) -> bool {
+        self.is_closing()
+            && closing_is_final(
+                self.channel,
+                self.generation.load(Ordering::SeqCst),
+                self.generations.latest(self.channel),
+                self.transient_close.load(Ordering::SeqCst),
+            )
     }
 
     /// W8-2 cloud arm (2026-09-02, AUD-D P1-3) — mark this session's eventual

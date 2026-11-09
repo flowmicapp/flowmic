@@ -287,6 +287,13 @@ mixin ChatStrings on AppStringsLeaves {
   /// reason as above).
   String get statusFailed => _lfStatusFailed;
 
+  /// rc-phone-fixes (2026-11-07) — a row's reason line when this version has no
+  /// description of the reason it was given (chat_row_reason.dart `_reasonNoteFor`).
+  /// It must stay true beside every pill that speaks, so it says nothing about
+  /// whether the message went anywhere. Nine languages from Gemini
+  /// (`_dispatch/agy-out/2026-11-07-gemini-row-unknown-reason.txt`), landed verbatim.
+  String get rowFailureReasonUnknown => _lfRowFailureReasonUnknown;
+
   /// NR-280 (owner 2026-10-19 reopens ruling ⑩) — the pill of
   /// `DeliveryFace.noAnswerYet`: the 20 s row watchdog gave up waiting for the
   /// computer (`INJECT_NO_RESULT`) while the queue still owes the row. The

@@ -333,37 +333,18 @@ fn emit_state(app: &AppHandle, phase: &Phase, dialed: Option<String>) {
     }
 }
 
-/// The ordered resolve candidates (07 §5: MSI resource dir → exe-sibling → dev
-/// tree → cwd). The MSI/exe dirs come from the Tauri path resolver (app feature);
-/// the dev-tree + cwd fallbacks keep `pnpm tauri dev` working.
+/// The ordered resolve candidates (07 §5). This only gathers what the process
+/// knows; the decision, including why Linux ignores Tauri's resource dir, lives in
+/// `sidecar::server_dirs`. The dev-tree + cwd fallbacks keep `pnpm tauri dev` working.
 fn resolve_candidates(app: &AppHandle) -> Vec<std::path::PathBuf> {
-    // An installed Linux bundle must not borrow a server from cwd or a dev tree.
-    #[cfg(target_os = "linux")]
-    if let Some(resources) = std::env::current_exe().ok()
-        .and_then(|exe| exe.parent().and_then(crate::sidecar::node_runtime::linux_installed_resources))
-    {
-        return vec![resources];
-    }
-    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
-    // 1. MSI: bundled under <resource_dir>/resources/server.js.
-    if let Ok(res) = app.path().resource_dir() {
-        dirs.push(res.join("resources"));
-        dirs.push(res);
-    }
-    // 2. exe-sibling (portable / loose build).
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            dirs.push(parent.join("resources"));
-            dirs.push(parent.to_path_buf());
-        }
-    }
-    // 3. dev tree (src-tauri/resources + server-core/dist).
-    dirs.extend(io::dev_candidate_dirs());
-    // 4. cwd.
-    if let Ok(cwd) = std::env::current_dir() {
-        dirs.push(cwd.join("resources"));
-    }
-    dirs
+    let exe = std::env::current_exe().ok();
+    crate::sidecar::server_dirs::server_search_dirs(
+        cfg!(target_os = "linux"),
+        exe.as_deref().and_then(std::path::Path::parent),
+        app.path().resource_dir().ok(),
+        io::dev_candidate_dirs(),
+        std::env::current_dir().ok(),
+    )
 }
 
 /// Start (or restart) the sidecar bring-up: emit `resolving`, then run the blocking

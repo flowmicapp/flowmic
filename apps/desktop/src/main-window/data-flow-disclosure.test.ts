@@ -588,16 +588,24 @@ describe('P1 — the product says where the user’s words go', () => {
     //
     // ⚠️ ③'s BODY IS NOT ASSERTED HERE. It already says where text goes, better
     // than a duplicate would; the clause forwards, it does not re-state.
+    // 2026-11-07: marker [0] was re-pinned. It used to be the 「that is about
+    // your voice」 clause; owner ruling `policy2` +
+    // docs/marketing/verification-reports/V-LAN-speech-path.md §8/§9 replaced
+    // the claim that carried it ("nothing leaves your own hardware at this
+    // step") with one that names the audio and the network it holds on
+    // ("on your own network, the audio stays on your own devices …"). [0] now
+    // pins that audio-scoped clause, so the scope is still carried by the
+    // sentence itself; [1], the pointer to step 3, is untouched.
     const TEXT_DESTINATION_QUALIFIER: Record<Loc, readonly string[]> = {
-      'zh-CN': ['说的是语音', '文字之后去哪，见 ③'],
-      en: ['that is about your voice', 'where the text goes next is step 3'],
-      ja: ['これは音声の話です', 'テキストがその後どこへ行くかは ③'],
-      ko: ['음성에 대한 이야기', '텍스트가 그다음 어디로 가는지는 ③'],
-      'zh-TW': ['只關乎你的語音', '文字接下來要送去哪裡是第 3 步'],
-      fr: ['cela concerne votre voix', "c'est l'étape 3"],
-      es: ['eso concierne a tu voz', 'a dónde va el texto después es el paso 3'],
-      de: ['das betrifft deine Stimme', 'ist Schritt 3'],
-      ru: ['это касается вашего голоса', 'решается на шаге 3'],
+      'zh-CN': ['语音留在你自己的设备上', '文字之后去哪，见 ③'],
+      en: ['the audio stays on your own devices', 'where the text goes next is step 3'],
+      ja: ['音声はご自身の機器にとどまり', 'テキストがその後どこへ行くかは ③'],
+      ko: ['음성이 당신의 기기에 머물며', '텍스트가 그다음 어디로 가는지는 ③'],
+      'zh-TW': ['語音留在你自己的裝置上', '文字接下來要送去哪裡是第 3 步'],
+      fr: ["l'audio reste sur vos propres appareils", "c'est l'étape 3"],
+      es: ['el audio se queda en tus propios dispositivos', 'a dónde va el texto después es el paso 3'],
+      de: ['bleiben die Sprachdaten auf deinen eigenen Geräten', 'ist Schritt 3'],
+      ru: ['аудио остаётся на ваших собственных устройствах', 'решается на шаге 3'],
     };
     // 🔴 IN-PLACE CORRECTION (2026-08-19, local-model onboarding batch) — the
     // assertion below was INVERTED, not weakened by stealth.

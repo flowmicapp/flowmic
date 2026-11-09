@@ -1,6 +1,6 @@
 [package]
 name = "flowmic-desktop"
-version = "0.3.120"
+version = "0.3.121"
 description = "FlowMic desktop — Tauri 2 shell + Rust injection layer (SendInput / focus tracking / clipboard fallback / window enum) and the socket.io client to server-core."
 edition = "2021"
 # 🔴 RAISED 1.78 → 1.89 (W3, 2026-08-07). This is a CORRECTION, not a new
@@ -382,6 +382,12 @@ libc = "0.2"
 # GTK is app-only for reading the real display backend and capsule focus hints.
 x11-dl = "2.21"
 gtk = { version = "0.18", optional = true }
+
+[dev-dependencies]
+# tests/session_stop.rs: a stub relay that lets the real `rust_socketio` client dial
+# it, so the test counts connections on a real socket. tungstenite 0.21 is already in
+# Cargo.lock (under tokio-tungstenite, under rust_engineio).
+tungstenite = "0.21"
 
 [features]
 default = []

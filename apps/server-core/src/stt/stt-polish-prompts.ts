@@ -129,6 +129,9 @@ const POLISH_SYSTEM_PROMPT_LINE_BREAKS = strictPrompt(RULE_DICTATED_PUNCT_LINE_B
  * screen is no longer word-for-word what was said. That sentence is the setting's
  * user-facing copy in all nine locales, and it is here too so that the next
  * person to touch this template can see what was promised.
+ * (2026-11-07, D-MKT-14: `polishStrengthNote` now says Smooth is further from what
+ * was said, because Strict is not word for word either: the pure stages drop some
+ * fillers first, test/polish-off-still-tidies.test.ts.)
  */
 const smoothPrompt = (dictation: string): string => [
   'You correct and lightly smooth a speech-to-text transcript. Rules:',

@@ -48,6 +48,7 @@ use crate::socket::pairing::{self, Pairing, SharedCode, SharedCreds};
 use crate::socket::refusal::AuthFailureHook;
 use crate::socket::pump;
 use crate::socket::reconcile::Reconciler;
+use crate::socket::session_stop;
 use crate::socket::speak_liveness::SpeakLiveness;
 use crate::socket::inject_ops::{run_inject, TargetIntent};
 use crate::socket::{control_key, presence, row_transit, wire};
@@ -262,6 +263,10 @@ impl DesktopSocket {
         // question, is at `socket::pairing::Pairing::begin_closing`.
         self.pairing.begin_closing();
         self.stop.store(true, Ordering::SeqCst);
+        // D-MKT-21: that polling thread now ends itself when this close is final
+        // (the `error` handler, socket::session_stop). This keeps a handle on the one
+        // kind of close that may still come back, so a sign-out can reach it.
+        session_stop::remember_if_it_can_come_back(&self.pairing, &self.client);
         let _ = self.client.disconnect();
         if let Some(h) = self.pump.take() {
             let _ = h.join();
@@ -398,6 +403,7 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
     //    lifecycle.rs at this file's 800-line cap (see that file's header). ──
     builder = lifecycle::wire_open(builder, pairing.clone(), reconciler.clone(), connected.clone());
     builder = lifecycle::wire_close(builder, pairing.clone(), connected.clone());
+    builder = lifecycle::wire_error(builder, pairing.clone());
 
     // ── capsule fan-out (stt:*) + timeline fan-out (history:*) + settings peer
     //    broadcast — each forwarded verbatim to the Vue windows (07 §4/§9). ──

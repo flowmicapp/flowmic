@@ -14,6 +14,7 @@ use std::sync::Arc;
 use crate::forensic;
 use crate::socket::pairing::{self, Pairing};
 use crate::socket::reconcile::Reconciler;
+use crate::socket::session_stop;
 
 /// register or reconnect (fires on initial connect AND each reconnect)
 pub(in crate::socket) fn wire_open(
@@ -26,6 +27,9 @@ pub(in crate::socket) fn wire_open(
     let rec_o = reconciler;
     let conn_o = connected;
     builder.on("open", move |_payload, socket| {
+        // D-MKT-21: a closed session that got through a reconnect anyway ends here,
+        // before it can say anything. See socket::session_stop.
+        session_stop::end_polling_thread_if_over(&p_o, "open");
         conn_o.store(true, Ordering::SeqCst);
         // RV-34: a NEW connection carries none of the previous one's standing. The
         // ack that confirmed the last socket says nothing about this one, and the
@@ -47,13 +51,22 @@ pub(in crate::socket) fn wire_open(
     })
 }
 
+/// D-MKT-21 — runs on the polling thread before the error that would start the
+/// library's `reconnect()` is returned, so this is where a closed session's ladder
+/// ends (socket::session_stop). A session still in use is not touched: this handler
+/// reports nothing and marks nothing.
+pub(in crate::socket) fn wire_error(builder: ClientBuilder, pairing_state: Arc<Pairing>) -> ClientBuilder {
+    builder.on("error", move |_payload, _socket| {
+        session_stop::end_polling_thread_if_over(&pairing_state, "transport error");
+    })
+}
+
 /// mark disconnected so the pump forwards the transition; the settings/timeline
 /// queues flush again on the next open.
-/// rust_socketio 0.6 also has Event::Error; it is NOT registered. An earlier
-/// comment claimed "close / error" — only `"close"` is wired. `"open"` is the
-/// sole room-entering emitter; Error is not a second handshake author. Engine
-/// Close that never becomes `"close"` (Edge 1) is detected at the pump's
-/// heartbeat emit (`socket::hb_death`).
+/// An earlier comment claimed "close / error" — only `"close"` does this; Event::Error
+/// ([`wire_error`]) does not mark anything. `"open"` is the sole room-entering
+/// emitter; Error is not a second handshake author. Engine Close that never becomes
+/// `"close"` (Edge 1) is detected at the pump's heartbeat emit (`socket::hb_death`).
 pub(in crate::socket) fn wire_close(
     builder: ClientBuilder,
     pairing_state: Arc<Pairing>,

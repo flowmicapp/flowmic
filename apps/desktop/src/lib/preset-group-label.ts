@@ -15,8 +15,20 @@
 // this repo has already paid for. Called during render, it is tracked, and the
 // headings change with the language like everything else.
 
-import type { PresetGroup } from '@flowmic/protocol';
+import { CUSTOM_PRESET_ID, type PresetGroup } from '@flowmic/protocol';
 import { S } from './strings';
+
+/** What a preset is called in the engine menus (FR-D2, 2026-11-06).
+ *
+ *  Vendor names are proper nouns and print as the catalogue spells them. These two
+ *  presets are named after what they ARE in this product rather than after a
+ *  vendor, so their names belong to the interface language. Their catalogue labels
+ *  used to carry two languages at once, which an English reader saw as Chinese. */
+export function presetOptionLabel(p: { id: string; label: string; group?: PresetGroup }): string {
+  if (p.id === CUSTOM_PRESET_ID) return S.preset_group_custom;
+  if (p.group === 'builtin') return S.preset_group_builtin;
+  return p.label;
+}
 
 export function presetGroupLabel(group: PresetGroup): string {
   switch (group) {

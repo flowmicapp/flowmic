@@ -27,7 +27,7 @@ import { computed, ref } from 'vue';
 import { S } from '../../lib/strings';
 import { modelStore, startModelDownload } from '../../lib/model-client';
 import { formatMbCoarse } from '../../lib/model-status';
-import { endonymFor } from '../../lib/spoken-langs';
+import { statedLanguageName } from '../../lib/spoken-langs';
 import { focusLocalModelCard } from '../../lib/model-card-focus';
 import { jumpToSettingsSection } from '../../lib/settings-section-jump';
 import { dismissSttSetupCard, sttSetupCardView } from '../../lib/stt-setup-card';
@@ -67,7 +67,7 @@ async function downloadAndShow(): Promise<void> {
     <p class="ss-body">{{ S.stt_setup_limit_cloud }}</p>
     <div class="ss-facts">
       <span class="ss-label">{{ S.stt_setup_lang }}</span>
-      <span class="chip">{{ endonymFor(view.language) }}</span>
+      <span class="chip">{{ statedLanguageName(view.language) }}</span>
     </div>
     <div class="ss-facts" v-if="view.pack">
       <span class="ss-label">{{ S.stt_setup_pack }}</span>

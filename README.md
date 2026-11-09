@@ -8,8 +8,8 @@ input field has focus on your PC.
 
 - **Translate while you speak.** Say it in Chinese, type it in English.
 - **Tidy up while you speak.** Rambling goes in, structured prose comes out.
-- **Run it entirely on your own network.** No account, no cloud, if that is
-  what you want.
+- **Run it on your own network.** No account, no cloud relay, if that is what
+  you want.
 
 It is also a voice-notes app on its own: everything you say lands on a timeline
 on the phone, whether or not a computer was listening.
@@ -75,14 +75,13 @@ Building from source is covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 ```
 
 The server is one Node program. On your own network the desktop app runs it
-locally as a sidecar: single user, SQLite on disk, no account, no telemetry, no
-phone-home. When the phone and the computer are not on the same network, the
-same binary acts as a relay that carries frames between them and stores none of
-them.
+locally as a sidecar: single user, SQLite on disk, and the local setup needs no
+account. When the phone and the computer are not on the same network, the same
+binary acts as a relay that carries frames between them and stores none of them.
 
-What leaves your network is decided by the two engines you configure, and they
-are two separate settings. **Speech**: a local engine keeps your voice on your
-own hardware, and cloud engines such as Soniox do not. **Language model**:
+Where your voice and text go is decided by the two engines you configure, and
+they are two separate settings. **Speech**: a local engine keeps your voice on
+your own hardware, and cloud engines such as Soniox do not. **Language model**:
 Translate, Organize and AI polish send text to whichever endpoint your settings
 name. Configuring one of the two does not configure the other. There is more
 detail under [Privacy](#privacy) below.
@@ -171,15 +170,20 @@ pin. See [the mobile README](apps/mobile/README.md) for SDK selection.
 
 ## Privacy
 
-- **On your own network, FlowMic opens no outbound connection of its own.** No
-  telemetry, no phone-home, no account.
-- **Your engines are a separate question, and there are two of them.** With a
-  local speech engine your voice never leaves your network; with a cloud engine
-  such as Soniox it leaves your network and is transcribed there. Translate,
-  Organize and AI polish send text to whichever language-model endpoint your
-  settings name. A fresh install names none, and one of the presets on offer is
-  a cloud vendor. Configuring a speech engine does not configure a language
-  model.
+- **On your own network, audio goes straight from the phone to the computer and
+  does not pass through FlowMic's servers.** The desktop app checks flowmic.app
+  for a newer version at start-up (and on Windows its embedded browser makes its
+  own start-up connections), while the phone stays connected to FlowMic's
+  servers. In the captured sessions, a signed-out desktop app was silent after
+  start-up, a signed-in one kept a small heartbeat to the cloud relay, and no
+  FlowMic traffic went to analytics or telemetry addresses.
+- **Your engines are a separate question, and there are two of them.** With the
+  built-in speech engine the audio stayed on the local network in every captured
+  session; with a cloud engine such as Soniox that you set up with your own key,
+  the computer sends the audio straight to that provider. Translate, Organize
+  and AI polish send text to whichever language-model endpoint your settings
+  name. A fresh install names none, and one of the presets on offer is a cloud
+  vendor. Configuring a speech engine does not configure a language model.
 - **The relay does not store transcripts.** It hands frames from the phone to
   the PC and forgets them. The server-side history endpoints do not merely go
   unused: they refuse, out loud, with a named error code.

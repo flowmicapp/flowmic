@@ -510,48 +510,55 @@ void main() {
     // edit than it costs today — measured, it went 10 → 11 the moment the second
     // map existed. Named record fields keep the failures apart, which was the
     // only thing separate maps were ever buying.
+    // 2026-11-07: qualifier [0] was re-pinned. It used to be the 「that is about
+    // your voice」 clause; owner ruling `policy2` +
+    // docs/marketing/verification-reports/V-LAN-speech-path.md §8/§9 replaced
+    // the claim that carried it ("nothing leaves your own hardware at this
+    // step") with one that names the audio and the network it holds on
+    // ("on your own network, the audio stays on your own devices …"). [0] now
+    // pins that audio-scoped clause; [1], the pointer to step 3, is untouched.
     const Map<AppLocale, ({List<String> qualifier, String consent})>
         localEngineMarkers = <AppLocale, ({List<String> qualifier, String consent})>{
       AppLocale.zh: (
-        qualifier: <String>['说的是语音', '文字之后去哪，见 ③'],
+        qualifier: <String>['语音留在你自己的设备上', '文字之后去哪，见 ③'],
         consent: '只在你要求之后',
       ),
       AppLocale.en: (
         qualifier: <String>[
-          'that is about your voice',
+          'the audio stays on your own devices',
           'where the text goes next is step 3',
         ],
         consent: 'because you asked for it',
       ),
       AppLocale.ja: (
-        qualifier: <String>['これは音声の話です', 'テキストがその後どこへ行くかは ③'],
+        qualifier: <String>['音声はご自身の機器にとどまり', 'テキストがその後どこへ行くかは ③'],
         consent: 'あなたが求めたときにだけ',
       ),
       AppLocale.ko: (
-        qualifier: <String>['음성에 대한 이야기', '텍스트가 그다음 어디로 가는지는 ③'],
+        qualifier: <String>['음성이 당신의 기기에 머물며', '텍스트가 그다음 어디로 가는지는 ③'],
         consent: '당신이 요청했을 때만',
       ),
       AppLocale.zhTw: (
-        qualifier: <String>['說的是語音', '文字之後去哪，見 ③'],
+        qualifier: <String>['語音留在你自己的裝置上', '文字之後去哪，見 ③'],
         consent: '只在你要求之後',
       ),
       AppLocale.fr: (
         qualifier: <String>[
-          'il s\'agit de votre voix',
+          'l\'audio reste sur vos propres appareils',
           'où va le texte ensuite, voir l\'étape 3',
         ],
         consent: 'parce que vous l\'avez demandé',
       ),
       AppLocale.es: (
         qualifier: <String>[
-          'eso es tu voz',
+          'el audio se queda en tus propios dispositivos',
           'a dónde va el texto después es el paso 3',
         ],
         consent: 'porque tú la has pedido',
       ),
       AppLocale.de: (
         qualifier: <String>[
-          'das betrifft deine Stimme',
+          'bleiben die Sprachdaten auf deinen eigenen Geräten',
           'wohin der Text danach geht, ist Schritt 3',
         ],
         // 2026-09-17: the phone catalogue used to address the reader with 「Sie」
@@ -562,7 +569,7 @@ void main() {
       ),
       AppLocale.ru: (
         qualifier: <String>[
-          'речь о голосе',
+          'аудио остаётся на ваших устройствах',
           'куда дальше идёт текст, см. шаг 3',
         ],
         consent: 'вы об этом попросили',

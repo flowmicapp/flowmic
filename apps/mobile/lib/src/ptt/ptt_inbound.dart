@@ -233,6 +233,9 @@ extension PttSessionInbound on PttSession {
             // parameter every caller would have to remember to pass.
             // Absent/'plan' ⇒ the pre-existing monthly sentence, byte for byte.
             trialCeiling: latestBudget.value?.mode == 'trial',
+            // FR-M1 — WHERE THE REFUSAL HAPPENED, which this frame cannot say
+            // either. Same fact and same read as the engine-status line below.
+            engineOnComputer: serverChannel.value == ServerChannel.lan,
           );
         } else if (e != null) {
           // 🔴 P2-4 (2026-09-02 audit) — THIS ARM USED TO DROP THE FRAME

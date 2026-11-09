@@ -163,14 +163,10 @@ class CopyGap {
 /// The gate also fails on a STALE entry (a code listed here that has since been
 /// given copy), so the list cannot rot in the other direction either.
 const Map<String, CopyGap> kCopyGapAllowlist = <String, CopyGap>{
-  'INJECT_NO_TEXT_TARGET': CopyGap(
-    CopyGapKind.ownFaceSpeaksForIt,
-    'Has its own face: DeliveryFace.noFocus, whose SOLE trigger is this code '
-    '(status_badge.dart `_isNoFocusReason`). `_faceSpeaksReason` excludes '
-    'noFocus, so no raw identifier is rendered. The face word carries owner '
-    "2026-08-01's verbatim action 「点进输入框再重发就能落」 — a second sentence "
-    'would state the same fact twice.',
-  ),
+  // ⚠️ `INJECT_NO_TEXT_TARGET` WAS HERE and is gone (D-MKT-11, 2026-11-06). Its
+  // entry claimed the face word 「carries owner's verbatim action」, and the word
+  // (`statusNoFocus`) never did: it says what happened, not what to do. It now
+  // has copy in `injectVerdictNote`, judged by `test/no_focus_note_test.dart`.
   'INJECT_DEFERRED_NOT_AUTOINJECTED': CopyGap(
     CopyGapKind.ownFaceSpeaksForIt,
     'Has its own face: DeliveryFace.deferredNotInjected '

@@ -171,8 +171,11 @@ export async function constructRecognizer(
  * FLOWMIC_SHERPA_AUTO_DOWNLOAD=1 (or =true). Anything else — unset, empty, "yes",
  * a typo — stays OFF, because the failure directions are not symmetric: an
  * unwanted download leaks the fact of the install to a third party and breaks
- * the "nothing leaves your own hardware" disclosure, while a refused download
- * is a loud, actionable STT_CONFIG_MISSING. Strict '1'/'true' follows
+ * the consent promise in the local-engine disclosure line (`disc_s2_local` /
+ * `discStep2Local`: the download "only ever happens because you asked for it",
+ * pinned by the 'because you asked for it' marker in
+ * apps/desktop/src/main-window/data-flow-disclosure.test.ts), while a refused
+ * download is a loud, actionable STT_CONFIG_MISSING. Strict '1'/'true' follows
  * `managed-default.ts` (same idiom, same reason).
  */
 export function sherpaAutoDownloadEnabled(raw: string | undefined): boolean {

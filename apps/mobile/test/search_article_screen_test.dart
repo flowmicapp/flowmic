@@ -37,6 +37,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/di.dart' show emptyQueueRowFacts;
+
 import 'support/article_rig.dart';
 
 const String kWord = '琥珀计划';
@@ -170,6 +172,7 @@ Future<void> _mountHistory(WidgetTester tester, ArticleRig r) async {
     home: HistoryPage(
       store: r.store,
       storageKind: TimelineStorageKind.sqlite,
+      queue: emptyQueueRowFacts,
     ),
   ));
   await tester.pumpAndSettle();

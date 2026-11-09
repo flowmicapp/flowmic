@@ -72,7 +72,12 @@ String? liveHealthNote(AsrHealthSnapshot snapshot, AppStrings strings) {
   final AsrTerminalError? err = snapshot.terminalError;
   if (err != null) {
     return strings.sttStallBannerMessage(
-      SttStall(SttStallReason.engineError, code: err.code, message: err.message),
+      SttStall(
+        SttStallReason.engineError,
+        code: err.code,
+        message: err.message,
+        engineOnComputer: err.engineOnComputer,
+      ),
     );
   }
   if (snapshot.byteStall) return strings.liveHealthByteStall;

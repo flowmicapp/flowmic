@@ -116,6 +116,10 @@ export const SITE_PATH_ALLOWLIST = Object.freeze([
   '/use-cases/typing-hurts',
   '/use-cases/talk-it-through',
   '/use-cases/many-computers',
+  // Scenario pages: one situation each, English only, one URL per page.
+  '/use/skip-phone-copy-paste',
+  '/use/no-desktop-microphone',
+  '/use/dictate-while-pacing',
   // Comparisons: `/vs` is the overview, the rest are one comparison each.
   '/vs',
   '/vs/phone-as-mic',

@@ -25,8 +25,10 @@ import 'package:flowmic/src/signaling/wire_payloads.dart'
     show Delivery, FlowMode;
 import 'package:flowmic/src/timeline/timeline_sqlite.dart'
     show TimelineStorageKind;
+import 'package:flowmic/src/timeline/timeline_entry.dart' show TimelineEntry;
 import 'package:flowmic/src/timeline/timeline_store.dart';
 import 'package:flowmic/src/ui/history_page.dart';
+import 'package:flowmic/src/ui/time_label.dart' show timelineTimeLabel;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MethodCall, SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
@@ -101,6 +103,7 @@ Future<(TimelineStore, String)> _pump(WidgetTester tester) async {
       home: HistoryPage(
         store: store,
         storageKind: TimelineStorageKind.sqlite,
+        queue: emptyQueueRowFacts,
       ),
     ),
   );
@@ -186,9 +189,27 @@ void main() {
 
   testWidgets('④ negative control: the head row on screen still shows the '
       'title only', (WidgetTester tester) async {
-    final (TimelineStore _, String title) = await _pump(tester);
+    final (TimelineStore store, String title) = await _pump(tester);
     expect(find.text(title), findsOneWidget);
-    expect(find.textContaining('00:30'), findsNothing,
-        reason: 'ranges are for the clipboard, not the list');
+    // The forbidden string is the clipboard's range endpoint. A row's OWN
+    // wall-clock label is built from `DateTime.now()` (the head from now-1min,
+    // every other row from now), so at local 00:30 / 00:31 it legitimately
+    // reads 00:30 and a bare textContaining('00:30') went red on the clock, not
+    // on a leak. Exempt exactly the labels the rows are entitled to show,
+    // computed the way the tile computes them; anything else containing the
+    // string (a range line, a stray offset) is still a failure.
+    final Set<String> ownLabels = <String>{
+      for (final TimelineEntry e in store.entries) timelineTimeLabel(e.createdAt),
+    };
+    expect(
+      find.byWidgetPredicate(
+        (Widget w) =>
+            w is Text &&
+            (w.data ?? '').contains('00:30') &&
+            !ownLabels.contains(w.data),
+      ),
+      findsNothing,
+      reason: 'ranges are for the clipboard, not the list',
+    );
   });
 }

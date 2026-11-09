@@ -146,7 +146,7 @@ export const LLM_PRESET_GROUPS: readonly LlmPresetGroup[] = ['cloud', 'local', '
 export type SttPresetGroup = PresetGroup;
 export const STT_PRESET_GROUPS: readonly SttPresetGroup[] = ['builtin', 'local', 'cloud', 'custom'] as const;
 
-/** The explicit 「自定义 / Custom」 id, shared by both catalogues.
+/** The explicit "Custom" id, shared by both catalogues.
  *
  *  🔴 A CONSTANT, NOT THE LITERAL `'custom'` SPELLED OUT AT EACH SITE. It is
  *  read by the desktop settings model (the edit⇒custom jump, §7.1 ⑥) and written
@@ -220,7 +220,7 @@ export const STT_PRESETS: readonly SttPreset[] = [
   // docs/archive/strategy/spikes/sherpa-onnx-spike.md §6.3).
   {
     id: 'builtin-sherpa-local',
-    label: '内置本地（离线）/ Built-in Local (offline)',
+    label: 'Built-in Local (offline)',
     engine: 'sherpa-local',
     language_hint: '*',
     group: 'builtin',
@@ -310,7 +310,7 @@ export const STT_PRESETS: readonly SttPreset[] = [
   // look like — see the LLM_UNCONFIGURED note in the desktop settings model.
   {
     id: CUSTOM_PRESET_ID,
-    label: '自定义 / Custom',
+    label: 'Custom',
     engine: 'custom-openai-compatible',
     endpoint: '',
     api_key: '',
@@ -495,7 +495,7 @@ export const LLM_PRESETS: readonly LlmPreset[] = [
   // ── custom ─────────────────────────────────────────────────────────────────
   {
     id: CUSTOM_PRESET_ID,
-    label: '自定义 / Custom',
+    label: 'Custom',
     protocol: 'openai-compatible',
     endpoint: '',
     api_key: '',

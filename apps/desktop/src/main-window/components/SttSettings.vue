@@ -19,7 +19,7 @@ import {
   updateRoutingField,
   type Routing,
 } from '../settings-model';
-import { presetGroupLabel } from '../../lib/preset-group-label';
+import { presetGroupLabel, presetOptionLabel } from '../../lib/preset-group-label';
 import { sidecarBaseUrl } from '../../lib/bridge';
 import {
   createProbeStore, PROBE_STT_PATH, runProbe, toRowView, watchHidden,
@@ -271,7 +271,7 @@ onBeforeUnmount(() => watcher?.disconnect());
                        fact being reported, and it names the live engine id. -->
                   <option value="" disabled>{{ S.stt_engine_custom }} / {{ r.engine_id }}</option>
                   <optgroup v-for="s in sttPresetSections" :key="s.group" :label="presetGroupLabel(s.group)">
-                    <option v-for="p in s.presets" :key="p.id" :value="p.id">{{ p.label }}</option>
+                    <option v-for="p in s.presets" :key="p.id" :value="p.id">{{ presetOptionLabel(p) }}</option>
                   </optgroup>
                 </select>
               </td>

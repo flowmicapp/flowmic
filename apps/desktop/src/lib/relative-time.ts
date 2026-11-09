@@ -11,6 +11,7 @@
 // Pure and DOM-free like channel.ts: it READS the reactive S at call time, so a
 // language switch re-labels on the next render instead of freezing at import.
 
+import { parseServerStamp } from './server-stamp';
 import { S } from './strings';
 
 function isSameLocalDay(a: Date, b: Date): boolean {
@@ -24,11 +25,11 @@ function isSameLocalDay(a: Date, b: Date): boolean {
  *    < 24 h         → {n} 小时前 ("{n} hours ago")
  *    yesterday      → 昨天 ("yesterday")
  *    older          → the fixed YYYY-MM-DD HH:mm stamp (local time)
- *  null / blank / unparseable → null; the caller picks its fallback (the paired
- *  table shows「从未连接」("never connected"), exactly as it did for a missing last_seen_at). */
+ *  null / blank / unparseable → null; the caller picks its fallback (PairedList.vue's
+ *  `lastActiveText`). */
 export function formatRelativeTime(iso: string | null, now: Date = new Date()): string | null {
   if (iso === null || iso.trim() === '') return null;
-  const d = new Date(iso);
+  const d = parseServerStamp(iso);
   if (Number.isNaN(d.getTime())) return null;
   const diffMs = now.getTime() - d.getTime();
   if (diffMs < 60_000) return S.dev_time_just_now;

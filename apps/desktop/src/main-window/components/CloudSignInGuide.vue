@@ -48,6 +48,7 @@ import { onBeforeUnmount, ref, watch } from 'vue';
 import { S } from '../../lib/strings';
 import { openExternalUrl } from '../../lib/bridge-os';
 import { saveCloudKey } from '../../lib/bridge';
+import SignInFailureLine from './SignInFailureLine.vue';
 import SignInWaiting from './SignInWaiting.vue';
 import {
   beginBrowserSignIn,
@@ -64,7 +65,6 @@ import {
   buildDesktopSignInUrl,
   openConsoleSignIn,
   pasteLooksMalformed,
-  signInFailureText,
   signInPageCopy,
   valueAfterPaste,
 } from '../../lib/cloud-signin';
@@ -102,10 +102,11 @@ const signingIn = ref(false);
  *  shown on the waiting row so someone who leaves for their mailbox knows how
  *  long the PC keeps waiting (NR-112). Never typed here: see SignInWaiting.vue. */
 const windowMinutes = ref(0);
-/** The named failure sentence, or ''. Cleared the instant a new attempt starts:
- *  a red line left standing over a fresh attempt is the 「过期的真话」 shape this
- *  file's paste handler already guards against. */
-const signInError = ref('');
+/** The failure's code, or null. Cleared the instant a new attempt starts: a red
+ *  line left standing over a fresh attempt is the 「过期的真话」 shape this file's
+ *  paste handler already guards against. The code and not the sentence (FR-D2): a
+ *  sentence stored here stays in the language it was written in. */
+const signInFailure = ref<{ reason: string | null } | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 function stopPolling(): void {
@@ -129,13 +130,13 @@ function stopPolling(): void {
 async function openSignIn(): Promise<void> {
   if (opening.value || signingIn.value) return;
   openFailed.value = false;
-  signInError.value = '';
+  signInFailure.value = null;
   opening.value = true;
   try {
     const endpoint = (endpointInput.value.trim() || DEFAULT_CLOUD_ENDPOINT).trim();
     const begun = await beginBrowserSignIn(endpoint, signInPageCopy());
     if (!begun.ok) {
-      signInError.value = signInFailureText(begun.reason);
+      signInFailure.value = { reason: begun.reason };
       return;
     }
     windowMinutes.value = Math.round(begun.data.window_ms / 60_000);
@@ -178,7 +179,7 @@ async function tick(): Promise<void> {
     return;
   }
   if (p.phase === 'failed') {
-    signInError.value = signInFailureText(p.reason);
+    signInFailure.value = { reason: p.reason };
   }
   // `idle` = cancelled. Nothing to say: the person asked for it.
 }
@@ -265,9 +266,9 @@ async function doSaveKey(): Promise<void> {
       <SignInWaiting v-else :minutes="windowMinutes" @cancel="cancelSignIn" />
       <div class="fld-hint">{{ S.cloud_signin_browser_hint }}</div>
       <div v-if="openFailed" class="chan-loud">{{ S.cloud_signin_browser_failed }}</div>
-      <!-- Named, never a bare identifier: `signInFailureText` maps through an
+      <!-- Named, never a bare identifier: the line maps its code through an
            exhaustive record and falls back to a real sentence. -->
-      <div v-if="signInError" class="chan-loud">{{ signInError }}</div>
+      <SignInFailureLine :failure="signInFailure" />
     </div>
     <label class="fld">
       <span class="fld-l">{{ S.cloud_endpoint_label }}</span>

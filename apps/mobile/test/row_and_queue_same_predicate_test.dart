@@ -201,6 +201,9 @@ void main() {
     // (manual_delivery_reinject.dart returns `failSettled` above the enqueue),
     // so nothing owes this row anything. Calling it 「待投递」 would be a promise
     // with nobody to keep it — the exact wording the red line was written about.
+    // ⚠️ rc-phone-fixes (2026-11-07): that sentence is about the reinject path. ➤ on
+    // a dead link now writes LINK_DOWN too, over an item the queue does own, so the
+    // code alone says nothing about the queue. Which is this test's point.
     final TimelineStore store = newTestStore();
     final TimelineEntry row = store.buildFromUtterance(
       clientId: 'u-linkdown',

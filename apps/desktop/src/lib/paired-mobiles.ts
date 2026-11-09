@@ -29,6 +29,7 @@
 //     flag reads offline.
 
 import { clientOriginOf, type ClientOrigin } from '@flowmic/protocol';
+import { parseServerStamp } from './server-stamp';
 
 import { S } from './strings';
 
@@ -291,7 +292,7 @@ export function mergeWithCache(
  *  channel.formatExpiry. Unparseable / absent → null (the caller shows 「—」). */
 export function formatStamp(iso: string | null): string | null {
   if (iso === null || iso.trim() === '') return null;
-  const d = new Date(iso);
+  const d = parseServerStamp(iso);
   if (Number.isNaN(d.getTime())) return null;
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;

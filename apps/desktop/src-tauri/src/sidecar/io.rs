@@ -65,10 +65,9 @@ pub fn normalize_path(p: &Path) -> PathBuf {
     p.to_path_buf()
 }
 
-/// Resolve `server.js` across the ordered candidate DIRECTORIES (07 §5:
-/// MSI resource dir → exe-sibling → dev tree → cwd). Returns the first that
-/// exists, path-normalized. The caller (lib.rs) supplies the app-specific
-/// candidates so this stays tauri-free.
+/// Resolve `server.js` across the ordered candidate DIRECTORIES (07 §5; the order
+/// is `sidecar::server_dirs::server_search_dirs`). Returns the first that exists,
+/// path-normalized. The caller supplies the candidates so this stays tauri-free.
 pub fn resolve_server_js(candidate_dirs: &[PathBuf]) -> Option<PathBuf> {
     for dir in candidate_dirs {
         let cand = dir.join("server.js");

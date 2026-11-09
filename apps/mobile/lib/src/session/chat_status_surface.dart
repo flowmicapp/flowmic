@@ -178,6 +178,15 @@ extension ChatStatusSurface on ChatController {
   /// `chat_flow_scroll.dart` → `ChatMessageTile.owed` → `noAnswerYet` face.
   Set<String> get owedEntryIds => outbox.owedEntryIds;
 
+  /// NR-284 — the same two reads for a screen that does not hold this
+  /// controller; repaints through `onOutboxChanged` above. Consumer:
+  /// `main_page_builders.dart` `_buildHistory` → `HistoryPage.queue`.
+  OutboxRowFacts get outboxRowFacts => OutboxRowFacts(
+    changes: this,
+    queuedEntryIds: () => outbox.queuedEntryIds,
+    owedEntryIds: () => outbox.owedEntryIds,
+  );
+
   /// Image rows whose compressed copy is still on disk. Consumer:
   /// `ChatMessageTile.canResendImage` — whether the resend affordance exists at
   /// all (owner's two-stage model / R8).

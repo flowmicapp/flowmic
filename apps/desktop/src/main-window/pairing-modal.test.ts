@@ -24,7 +24,6 @@ import { renderToString } from 'vue/server-renderer';
 import { afterEach, describe, expect, it } from 'vitest';
 import PairingModal from './components/PairingModal.vue';
 import { S, UI_LOCALES, setLocale } from '../lib/strings';
-import { PAIR_APP_URL } from '../lib/strings/pairing';
 import { EMPTY_CLOUD_STATUS, type ChannelId, type CloudStatus } from '../lib/channel';
 import type { PairingInfo } from '../lib/pairing';
 
@@ -461,16 +460,6 @@ describe('U8 — pairing dialog is no longer a dead end for a first-time user', 
       expect(S.pair_cloud_app_or_browser, `identical to pair_need_app in ${code}`).not.toBe(S.pair_need_app);
     }
     setLocale('zh-CN');
-  });
-
-  it('does NOT render a download link while PAIR_APP_URL is empty (no fake URL)', async () => {
-    // Façade guard: S1 has not landed yet, so `PAIR_APP_URL` (lib/strings/pairing.ts)
-    // is ''. Rendering an <a href=""> for an empty string would be a link that
-    // goes nowhere — worse than no link at all.
-    expect(PAIR_APP_URL).toBe('');
-    const html = await render({ channel: 'lan' });
-    expect(html).not.toContain(S.pair_get_app);
-    expect(html).not.toMatch(/<a[^>]*>[^<]*<\/a>/);
   });
 
   // NR-109: U8's console pointer (「get a key from the console, paste it on the

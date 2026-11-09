@@ -124,6 +124,39 @@ bool exceedsInjectTextCap(String text) => text.length > kInjectTextMaxChars;
 /// slow one.
 const Duration kInjectResultTimeout = Duration(seconds: 20);
 
+/// The phone's own reason for a row: the pre-send probe found the link dead
+/// (`ManualDelivery.deliverText`, `runReInject`, the cloud picture leg). Stored
+/// on the row and never shown as written: `chat_row_reason.dart` `_rowNoteFor`
+/// turns it into a sentence. Not a protocol code; it never travels.
+const String kRowLinkDownCode = 'LINK_DOWN';
+
+/// The phone's own reason for a row: the socket refused to take the frame
+/// (`ManualDelivery.failSettled`'s default; the cloud picture leg). A different
+/// fact from [kRowLinkDownCode]. Same rule: stored, never shown as written, not a
+/// protocol code.
+const String kRowWireEmitFailedCode = 'WIRE_EMIT_FAILED';
+
+/// The server codes `chat_utterance_processing.dart` `_ucFailed` can put on a row
+/// when a translate/organize run fails: the compose path's codes
+/// (`compose_error_copy_binding_test.dart` `_composePathCodes`, which pins this
+/// set against the server files it scans). `chat_row_reason.dart` answers them
+/// with the banner's own sentence, `AppStrings.utteranceComposeError`.
+const Set<String> kComposePathFailureCodes = <String>{
+  'AUTH_TOKEN_INVALID',
+  'LLM_INVALID_MODEL',
+  'WEB_EVENT_NOT_ALLOWED',
+  'EMAIL_VERIFY_GRACE_EXPIRED',
+  'QUOTA_EXCEEDED',
+  'COMPOSE_OUTPUT_REJECTED',
+  'COMPOSE_EMPTY_OUTPUT',
+  'LLM_AUTH_FAIL',
+  'LLM_RATE_LIMITED',
+  'LLM_TIMEOUT',
+  'LLM_PROBE_FAIL',
+  'SETTINGS_SCHEMA_INVALID',
+  'SETTINGS_SYNC_FAIL',
+};
+
 /// Why an AI-row run (polish/organize/translate) could not be started or did not finish.
 /// Separate from [ComposeSendFailure] because these two failures have opposite
 /// consequences: a failed send means text the user believes was delivered was

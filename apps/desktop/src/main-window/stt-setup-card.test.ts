@@ -210,6 +210,32 @@ describe('what the card says', () => {
     expect(html).toContain('Français');
   });
 
+  // FR-D2 (2026-11-06): on a Chinese machine an English reader saw
+  // "Detected speaking language: 中文", the one word on the card they might not be
+  // able to read. Endonyms stay for the pickers, where someone is looking for their
+  // own language's name; this row is a statement, so it says it in the reader's words
+  // and keeps the endonym beside it. The reader's words come from the platform's
+  // Intl data, not from the catalogue (lib/spoken-langs.ts).
+  const chip = (html: string): string =>
+    /ss-label[^>]*>[^<]*<\/span>\s*<span class="chip"[^>]*>([^<]*)<\/span>/.exec(html)?.[1] ?? '<no chip>';
+
+  it('the detected language is named in the language of the reader, with its own name beside it', async () => {
+    speaks('zh-CN');
+    resetModelStoreForTest({ reach: 'ok', status: mkStatus() });
+    expect(chip(await render('en'))).toBe('Chinese (中文)');
+    expect(chip(await render('fr'))).toBe('chinois (中文)');
+    expect(chip(await render('ja'))).toBe('中国語 (中文)');
+  });
+
+  it('a reader whose interface is that language is told once, not twice', async () => {
+    speaks('zh-CN');
+    resetModelStoreForTest({ reach: 'ok', status: mkStatus() });
+    expect(chip(await render('zh-CN'))).toBe('中文');
+    speaks('fr-FR');
+    resetModelStoreForTest({ reach: 'ok', status: mkStatus() });
+    expect(chip(await render('fr')), 'differs only in case').toBe('Français');
+  });
+
   it('a Traditional-Chinese machine is offered the zh pack (one spoken language, one row)', async () => {
     speaks('zh-TW');
     resetModelStoreForTest({ reach: 'ok', status: mkStatus() });

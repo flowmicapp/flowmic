@@ -42,6 +42,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'support/cloud_summary_fakes.dart';
 import 'support/di.dart';
 import 'support/fakes.dart';
+import 'support/legibility.dart' show expectLegible;
 import 'support/portable_fakes.dart';
 import 'support/settings_fakes.dart';
 import 'support/update_fakes.dart';
@@ -182,6 +183,104 @@ void main() {
     expect(rig.prefs.prefs.inference!.toJson(),
         <String, Object?>{'granted': true, 'granted_for': 'external'});
     expect(rig.emitted(), isEmpty);
+  });
+
+  testWidgets('D-MKT-14 — the line under Strict and Smooth is painted whole at 360dp in every locale, '
+      'and none of them is the sentence that claimed Strict keeps every word', (WidgetTester tester) async {
+    _phone(tester);
+    // What each locale used to say. Filler removal runs before polish on both strengths
+    // (apps/server-core/test/polish-off-still-tidies.test.ts, D-MKT-14 block).
+    const Set<String> falseClaims = <String>{
+      'Strict keeps every word you said and only fixes mistakes. Smooth also drops fillers and false starts, so the text reads better but is no longer word for word.',
+      '严谨模式仅纠正错别字，完整保留原句字词；流畅模式将进一步过滤口头禅及重复语病，提升文本可读性。',
+      '嚴格只改錯，你說的每個字都保留。順暢還會去掉口頭禪和說到一半的話，更好讀，但不再一字不差。',
+      'Strict garde chaque mot que vous avez dit et ne corrige que les erreurs. Fluide enlève aussi les hésitations et les faux départs : plus agréable à lire, mais plus mot pour mot.',
+      'Estricto conserva cada palabra que dijiste y solo corrige errores. Suave además quita muletillas y falsos inicios: se lee mejor, pero ya no es palabra por palabra.',
+      'Streng behält jedes gesagte Wort und korrigiert nur Fehler. Glatt entfernt zusätzlich Füllwörter und Versprecher – liest sich besser, ist aber nicht mehr wortgetreu.',
+      '厳密は話した言葉をすべて残し、間違いだけを直します。なめらかは言いよどみや言い直しも取り除くので読みやすくなりますが、一語一句そのままではなくなります。',
+      '엄격은 말한 단어를 모두 남기고 틀린 부분만 고칩니다. 매끄럽게는 군말과 말 더듬도 걷어내어 읽기 좋아지지만, 한 글자 한 글자 그대로는 아닙니다.',
+      'Строго сохраняет каждое сказанное слово и исправляет только ошибки. Гладко ещё убирает слова-паразиты и обрывки — читается лучше, но уже не слово в слово.',
+    };
+    // Scoped the same way as the D-MKT-12 case, for the same measured reason.
+    final List<String> overflows = <String>[];
+    final void Function(FlutterErrorDetails)? prev = FlutterError.onError;
+    FlutterError.onError = (FlutterErrorDetails d) {
+      if (d.exceptionAsString().contains('overflowed')) {
+        final String where = d.toString();
+        if (where.contains('settings_general_prefs.dart') || where.contains('settings_widgets.dart')) {
+          overflows.add(d.exceptionAsString());
+        }
+        return;
+      }
+      prev?.call(d);
+    };
+    addTearDown(() => FlutterError.onError = prev);
+    for (final AppLocale locale in AppLocale.values) {
+      final _Rig rig = await _Rig.create(locale: locale);
+      addTearDown(rig.dispose);
+      await tester.pumpWidget(rig.widget());
+      await tester.pumpAndSettle();
+      final Finder f = find.text(rig.s.polishStrengthNote);
+      await _scrollTo(tester, f);
+      expect(f, findsOneWidget, reason: '$locale: the line under the strength row did not render');
+      expect(falseClaims, isNot(contains(rig.s.polishStrengthNote)), reason: '$locale still says the false thing');
+      expectLegible(tester, f, reason: '$locale: polishStrengthNote');
+      expect(tester.getBottomRight(f).dx, lessThanOrEqualTo(360.0), reason: '$locale: ran off the right edge');
+      await tester.pumpWidget(const SizedBox());
+    }
+    FlutterError.onError = prev;
+    expect(overflows, isEmpty, reason: 'an overflowed row shows a striped stub instead of the copy');
+  });
+
+  testWidgets('D-MKT-12 — the line under the AI polish switch is painted whole at 360dp in every '
+      'locale, and none of them is the sentence that claimed Off leaves the text as recognized',
+      (WidgetTester tester) async {
+    _phone(tester);
+    // What each locale used to say. With the switch off the final still goes
+    // through the dictionary and the normalizer
+    // (apps/server-core/test/polish-off-still-tidies.test.ts is what this stands on).
+    const Set<String> falseClaims = <String>{
+      'Cleans up the finished sentence: mis-heard words and punctuation. Off keeps the text exactly as recognized.',
+      '智能纠正错别字并完善标点符号；关闭后保留语音识别原始文本。',
+      '整理說完的這句話：聽錯的詞和標點。關掉就保持辨識出來的原樣。',
+      "Nettoie la phrase terminée : mots mal entendus et ponctuation. Désactivé, le texte reste exactement tel qu'il a été reconnu.",
+      'Limpia la frase terminada: palabras mal oídas y puntuación. Apagado deja el texto tal como se reconoció.',
+      'Räumt den fertigen Satz auf: falsch erkannte Wörter und Zeichensetzung. Aus lässt den Text genau so, wie er erkannt wurde.',
+      '確定した文を整えます。聞き間違いと句読点が対象です。オフにすると認識したままの文になります。',
+      '완성된 문장을 정리합니다. 잘못 들은 단어와 문장 부호가 대상입니다. 끄면 인식된 그대로 둡니다.',
+      'Приводит в порядок готовую фразу: ослышки и знаки препинания. Выключено — текст остаётся ровно таким, как распознан.',
+    };
+    // Scoped the same way as the case below, for the same measured reason: other
+    // rows on this page overflow at 360dp in some locales, and those are not this
+    // line. An overflow in THIS card's rows still fails.
+    final List<String> overflows = <String>[];
+    final void Function(FlutterErrorDetails)? prev = FlutterError.onError;
+    FlutterError.onError = (FlutterErrorDetails d) {
+      if (d.exceptionAsString().contains('overflowed')) {
+        final String where = d.toString();
+        if (where.contains('settings_general_prefs.dart') || where.contains('settings_widgets.dart')) {
+          overflows.add(d.exceptionAsString());
+        }
+        return;
+      }
+      prev?.call(d);
+    };
+    addTearDown(() => FlutterError.onError = prev);
+    for (final AppLocale locale in AppLocale.values) {
+      final _Rig rig = await _Rig.create(locale: locale);
+      addTearDown(rig.dispose);
+      await tester.pumpWidget(rig.widget());
+      await tester.pumpAndSettle();
+      final Finder f = find.text(rig.s.polishSub);
+      await _scrollTo(tester, f);
+      expect(f, findsOneWidget, reason: '$locale: the line under the switch did not render');
+      expect(falseClaims, isNot(contains(rig.s.polishSub)), reason: '$locale still says the false thing');
+      expectLegible(tester, f, reason: '$locale: polishSub');
+      expect(tester.getBottomRight(f).dx, lessThanOrEqualTo(360.0), reason: '$locale: ran off the right edge');
+      await tester.pumpWidget(const SizedBox());
+    }
+    FlutterError.onError = prev;
+    expect(overflows, isEmpty, reason: 'an overflowed row shows a striped stub instead of the copy');
   });
 
   testWidgets('0.2.53 law — in every locale at 360dp the consent sentence and the three '

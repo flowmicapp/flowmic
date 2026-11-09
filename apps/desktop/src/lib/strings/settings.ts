@@ -75,6 +75,8 @@ export const SETTINGS_KEYS = [
   // (「只认显式选择、从不读系统语言」, "recognizes only an explicit choice,
   // never reads the system language") hasn't changed a single character —
   // that red line hasn't moved; only which language it falls back to has.
+  // FR-D2 (2026-11-06): the five languages added after that day were translated from
+  // the old sentence and still said Chinese, as did both Chinese catalogues until now.
   'set_prefs_language_hint',
   'set_prefs_theme',
   'set_prefs_theme_hint',
@@ -135,7 +137,6 @@ export const SETTINGS_KEYS = [
   'openSourceLicenses',
   'set_about_log_title',
   'set_about_log_hint',
-  'set_about_log_path',
   'set_about_log_open',
   'set_about_log_opening',
   'set_about_log_open_failed',

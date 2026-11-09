@@ -76,6 +76,20 @@ extension PttSessionPair on PttSession {
       // 「CONNECT_FAILED: <exception>」 — the raw exception text, which is the one
       // place this distinction would still have been lost.
       final bool mismatch = transport.lastDialPinMismatch;
+      // 🔴 FR-M2 — THE COMPUTER ANSWERED, SO 「够不着」 IS FALSE HERE TOO (R11).
+      // Only a bare code dialled at a form address: a QR carries its own pin, the
+      // cloud arms carry a pcid and have no address box to fix (a certificate
+      // failure there is usually the network intercepting). This changes the
+      // sentence and NOTHING ELSE: no retry in the clear, no TOFU, no row.
+      if (pin == null &&
+          !mismatch &&
+          isSecureEndpoint(dial) &&
+          entry.payload.shortCode != null &&
+          entry.payload.pcid == null &&
+          '$e'.contains('CERTIFICATE_VERIFY_FAILED')) {
+        diag('pair.cert_unverified', <String, Object?>{'dial': dial});
+        return const PairResult(ok: false, error: kConnectFailedCertUnverified);
+      }
       // No silent failure: with more than one address in play, 「无法连接到电脑」
       // ("cannot connect to the PC") hides the only thing the user could act
       // on — WHICH addresses were tried and what each one said. The plain code
@@ -308,6 +322,8 @@ extension PttSessionPair on PttSession {
   ///
   /// ⚠️ An endpoint the user typed as `https://` is also skipped: they asked for
   /// real TLS by name, and that is the relay case again in manual clothing.
+  /// The form no longer offers a pinned row's own `https://` as if they had
+  /// (`pairAddressPrefill`), which is what made this sentence false for a while.
   Future<String?> _tofuFingerprintFor(PairEntry entry, String endpoint) async {
     if (entry.payload.cloudInstance) return null;
     if (entry.payload.qrPayload != null) return null;

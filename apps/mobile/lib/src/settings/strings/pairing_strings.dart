@@ -157,6 +157,11 @@ mixin PairingStrings on AppStringsLeaves {
   /// specific cause, never a silent / generic success) with the RAW code kept as
   /// a secondary, clearly-labelled diagnostic detail — see the comment on the
   /// final `default:` arm below for why it is neither of the two extremes.
+  /// FR-M2 — [kConnectFailedCertUnverified]: the computer answered, its certificate
+  /// could not be verified, and FlowMic did not connect. Not 「could not reach」
+  /// (R11). The advice is conditional on it being their own network on purpose.
+  String get pairErrorCertificateUnverified => _lfPairErrorCertificateUnverified;
+
   String pairError(String? code) {
     // B4-15 — checked BEFORE the switch: this code carries a payload, so it can
     // never be an exact `case` label. Decoding here (rather than in the default
@@ -427,6 +432,10 @@ mixin PairingStrings on AppStringsLeaves {
         // identifier — 0.2.53's rule, applied to the value beside the code.
         return '$head${_diagTail(restrictionReasonKey)}';
       default:
+        // FR-M2: ahead of the prefix arm below, whose family it belongs to.
+        if (code == kConnectFailedCertUnverified) {
+          return pairErrorCertificateUnverified;
+        }
         if (code != null && code.startsWith('CONNECT_FAILED')) {
           return _lfPairError__15;
         }

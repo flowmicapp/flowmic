@@ -264,6 +264,9 @@ const String kRowNoResultCode = 'INJECT_NO_RESULT';
 /// the sense that matters — a forgetting site shows the pre-NR-279 ✗ row. The production sites pass it explicitly (chat_flow_scroll.dart reads
 /// the queue; history_page.dart has no queue and passes false, the same gap
 /// its `queued: false` documents) — pinned by row_no_result_note_test.dart.
+/// ⚠️ Correction (NR-284): that history clause is no longer true. The page reads
+/// the queue too (`OutboxRowFacts`), pinned on the mounted screen by
+/// test/history_owed_row_screen_test.dart.
 DeliveryFace deliveryFaceOf(
   TimelineEntry entry, {
   required bool queued,
@@ -689,6 +692,9 @@ StatusMeta deliveryFaceMeta(DeliveryFace face, AppStrings strings) {
       // and need the code to disambiguate WHICH one; `INJECT_NO_TEXT_TARGET` is
       // the ONLY code this face is for, so the word already says the whole
       // thing the code would — printing both would be the same fact twice.
+      // ⚠️ D-MKT-11 (2026-11-06): the code is still not printed, but the row now
+      // carries a reason sentence under the text, because this word says what
+      // happened and not what to do (chat_row_reason.dart `_faceSpeaksReason`).
       return StatusMeta(FlowMicColors.red, null, '🚫', strings.statusNoFocus);
     case DeliveryFace.deferredNotInjected:
       // 🔴 Card L7 × Card L8. **SLATE, not red and not amber**, and the colour is the

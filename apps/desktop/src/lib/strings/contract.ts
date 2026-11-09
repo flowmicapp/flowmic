@@ -201,7 +201,7 @@ export interface TlBatchMsg {
 // composed sentence can live in exactly one place.
 export interface TlRetentionMsg {
   /** `kept` entries remain; everything before `when` is gone (`when` is
-   *  formatted by the page with formatTimelineLabel). */
+   *  formatted by the page with timelineStamp). */
   keptNote(kept: number, when: string): string;
   /** "No matches" + the scope statement above, composed into one sentence. */
   searchNoneTrimmed(kept: number, when: string): string;

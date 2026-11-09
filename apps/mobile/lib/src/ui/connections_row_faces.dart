@@ -289,3 +289,27 @@ Widget _endpointHintRouted(String host) => Text(
   overflow: TextOverflow.ellipsis,
   style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
 );
+
+/// What the list says before anything is paired (FR-M4).
+///
+/// The guide's page 2 says the same thing, but every page of the guide can be
+/// skipped, so this can be the first thing a person reads. The box is THE SAME
+/// widget as that page's, not a copy: the address stays derived from
+/// `kDefaultSaasEndpoint`, and two blocks could not disagree about it. It shows
+/// only while no pairing exists; connections_empty_state_test.dart pins all of it.
+///
+/// ⚠️ THE NOTES CARD STAYS BELOW IT (`_body`): the sentence says what reaching a
+/// computer takes, never that the app needs one.
+Widget _emptyHintRouted(AppStrings s) => Padding(
+  padding: const EdgeInsets.fromLTRB(4, 8, 4, 16),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: <Widget>[
+      Text(s.noInstances, style: TextStyle(color: FlowMicColors.t2, fontSize: 14, fontWeight: FontWeight.w600)),
+      const SizedBox(height: 4),
+      Text(s.noInstancesHint, style: TextStyle(color: FlowMicColors.t3, fontSize: 12)),
+      const SizedBox(height: 10),
+      OnboardingDownloadBlock(strings: s),
+    ],
+  ),
+);

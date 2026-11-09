@@ -277,12 +277,6 @@
       "name": "dev_paired_last_seen"
     },
     {
-      "key": "dev_paired_never",
-      "shard": "devices",
-      "kind": "string",
-      "name": "dev_paired_never"
-    },
-    {
       "key": "dev_paired_online_tip",
       "shard": "devices",
       "kind": "string",
@@ -1439,12 +1433,6 @@
       "shard": "settings",
       "kind": "string",
       "name": "set_about_log_hint"
-    },
-    {
-      "key": "set_about_log_path",
-      "shard": "settings",
-      "kind": "string",
-      "name": "set_about_log_path"
     },
     {
       "key": "set_about_log_open",

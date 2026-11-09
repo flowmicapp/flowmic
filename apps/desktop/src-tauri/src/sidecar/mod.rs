@@ -32,6 +32,9 @@ mod linux_runtime_tests;
 /// what puts two copies on one port, and `portclear` below is what happens next.
 pub mod port;
 pub mod portclear;
+/// Where to look for `server.js`. On Linux a portable must not pick up the copy a
+/// package manager installed; see the file header.
+pub mod server_dirs;
 pub mod state;
 
 pub use io::{

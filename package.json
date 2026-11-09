@@ -1,6 +1,6 @@
 {
   "name": "flowmic",
-  "version": "0.3.120",
+  "version": "0.3.121",
   "private": true,
   "description": "FlowMic — speak on your phone, type on your PC. Open-source cross-device voice input.",
   "license": "AGPL-3.0-only",
@@ -23,7 +23,7 @@
     "verify:types": "pnpm --filter @flowmic/protocol --fail-if-no-match typecheck && pnpm --filter @flowmic/i18n-web --fail-if-no-match typecheck && pnpm --filter @flowmic/server-core --fail-if-no-match typecheck",
     "verify:sidecar-resources": "node scripts/preflight-sidecar-resources.mjs",
     "verify:clippy": "pnpm verify:sidecar-resources && cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --lib -- -D warnings && cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --lib --features app -- -D warnings",
-    "verify:rust-tests": "pnpm verify:sidecar-resources && cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib && cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib --features app",
+    "verify:rust-tests": "pnpm verify:sidecar-resources && cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib && cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib --features app && cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --test session_stop",
     "verify:doctests": "cargo test --doc --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "verify:types:desktop": "pnpm --filter @flowmic/desktop --fail-if-no-match typecheck",
     "verify:protocol-tests": "pnpm --filter @flowmic/protocol --fail-if-no-match test",

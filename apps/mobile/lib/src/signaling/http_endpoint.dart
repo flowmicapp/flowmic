@@ -101,6 +101,30 @@ String secureDialUrl(String endpoint) {
   };
 }
 
+/// FR-M2 / D-MKT-3 — what the manual pairing form offers for a remembered row.
+///
+/// 🔴 A PINNED ROW'S `https://` IS OUR OWN UPGRADE, NOT THE USER'S REQUEST: `pair()`
+/// persists `httpBaseOf(dial)` and the dial was raised to TLS because a pin exists.
+/// Handing that back in the box makes `_tofuFingerprintFor` read it as someone
+/// asking for system-verified TLS by name, which a self-signed sidecar can never
+/// pass. So a pinned row offers the bare `host:port` and the dial decides on what
+/// the computer presents. An UNPINNED `https://` was typed by a person and stays.
+///
+/// ⚠️ NOT A DOWNGRADE: `http://` here would be a claim about the wire, and it is
+/// false (the dial upgrades to `wss://` + pin whenever the computer has a key —
+/// measured in lan_manual_https_real_handshake_test.dart). No scheme is the honest
+/// answer. See docs/rebuild/08 §4.
+String pairAddressPrefill({required String endpoint, required bool pinned}) {
+  if (!pinned) return endpoint;
+  final int sep = endpoint.indexOf('://');
+  return sep < 0 ? endpoint : endpoint.substring(sep + 3);
+}
+
+/// FR-M2 — a form-typed `https://` whose certificate the system would not accept.
+/// Client-only (never on the wire, not a protocol code), same family as
+/// `CONNECT_FAILED`; rendered by `pairError`. See docs/rebuild/15 §3.2.
+const String kConnectFailedCertUnverified = 'CONNECT_FAILED_CERT_UNVERIFIED';
+
 /// [endpoint] + an ABSOLUTE server route → the URL to request.
 ///
 /// Any path/query the endpoint carried is dropped: `/api/health`,

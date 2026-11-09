@@ -48,7 +48,7 @@ Future<TimelineStore> _storeWith(List<TimelineEntry> rows) async {
 }
 
 Widget _page(TimelineStore store) => MaterialApp(
-  home: HistoryPage(store: store, storageKind: TimelineStorageKind.sqlite),
+  home: HistoryPage(store: store, storageKind: TimelineStorageKind.sqlite, queue: emptyQueueRowFacts),
 );
 
 void main() {

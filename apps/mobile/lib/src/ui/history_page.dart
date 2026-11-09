@@ -56,6 +56,11 @@
 //      deleted row would keep rendering in a search result. [_forgetDeleted]
 //      is the fix, and it is why every delete on this page routes through one
 //      place.
+//
+// ⚠️ Correction (NR-284, 2026-11-07): ① said 「a TimelineStore and nothing else」.
+// The page now also holds [HistoryPage.queue], two read-only queue answers,
+// because the word on a row depends on them. Still no ChatController and no
+// session, so the argument for `sessionActions: false` stands unchanged.
 
 import 'dart:async' show unawaited;
 import 'dart:typed_data' show Uint8List;
@@ -64,6 +69,7 @@ import 'package:flutter/material.dart';
 
 import '../settings/app_settings.dart';
 import '../settings/app_strings.dart';
+import '../session/outbox_row_facts.dart';
 import 'middle_ellipsis_text.dart';
 import '../timeline/search_hits.dart';
 import '../timeline/timeline_entry.dart';
@@ -91,8 +97,15 @@ class HistoryPage extends StatefulWidget {
     super.key,
     required this.store,
     required this.storageKind,
+    required this.queue,
     this.appSettings,
   });
+
+  /// NR-284 (doc 15 §2.0.1-c, R11) — whether the phone's delivery queue is still
+  /// working on a row. Required for the same reason as [storageKind]: a default
+  /// of 「nothing is queued」 is what drew a red ✗ here on rows the chat page
+  /// correctly called pending.
+  final OutboxRowFacts queue;
 
   final TimelineStore store;
 
@@ -252,8 +265,17 @@ class _HistoryPageState extends State<HistoryPage> {
           // tick has to repaint this page, and merging it here is the same
           // wiring the chat page uses rather than a `setState` sprinkled
           // through the handlers.
+          //
+          // NR-284 adds `queue.changes`: the queue can stop owing a row, or
+          // finish its boot load, without the row itself being written, and the
+          // store would never say so.
           listenable: Listenable.merge(
-            <Listenable>[widget.store, ?widget.appSettings, _selection],
+            <Listenable>[
+              widget.store,
+              ?widget.appSettings,
+              _selection,
+              widget.queue.changes,
+            ],
           ),
           builder: (BuildContext context, _) {
             final AppStrings s = AppStrings.of(
@@ -328,9 +350,23 @@ class _HistoryPageState extends State<HistoryPage> {
                               // it is logged as a gap (docs/rebuild/15 §6).
                               // Closing it means threading the queue into this
                               // page, which is a different card.
-                              queued: false,
-                              // NR-279 — same gap as `queued` (no queue here).
-                              owed: false,
+                              //
+                              // ⚠️ Correction (NR-284, 2026-11-07): closed; both
+                              // are now the queue's own answers, the same two
+                              // reads as chat_flow_scroll.dart, and only
+                              // `canResendImage: false` above still stands.
+                              // Kept as history, with two sentences above now
+                              // known to be false: 「rows belonging to another
+                              // pairing have no queue item on this device」
+                              // (there is one queue per phone and `loadPending`
+                              // does not filter by pairing, outbox_store.dart
+                              // `_pendingWhere`), and 「logged as a gap」 (doc 15
+                              // §6 never had such a row).
+                              queued: widget.queue.isQueued(entry.id),
+                              // NR-279 selects `noAnswerYet` only; NR-284 is why
+                              // this page reads it (it hard-coded false and drew
+                              // ✗ on rows the queue was still retrying).
+                              owed: widget.queue.isOwed(entry.id),
                               canResendImage: false,
                               // 🔴 Card NR-3 — the three gestures, decided in
                               // ONE place gated on `_selection.active` a single

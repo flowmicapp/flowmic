@@ -145,6 +145,7 @@ void main() {
           HistoryPage(
             store: rig.store,
             storageKind: TimelineStorageKind.sqlite,
+            queue: emptyQueueRowFacts,
             appSettings: settings,
           ),
         ),

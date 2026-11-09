@@ -152,9 +152,13 @@ class SttStall {
   /// and it selects the pre-existing monthly sentence unchanged.
   final bool trialCeiling;
 
+  /// FR-M1 — the leg that refused is the computer's own service (phone-side,
+  /// `PttSession.serverChannel` at receipt). False when not measured.
+  final bool engineOnComputer;
+
   const SttStall(this.reason,
       {this.code, this.message, this.judgedAccount, this.emptyReason,
-      this.trialCeiling = false});
+      this.trialCeiling = false, this.engineOnComputer = false});
 
   @override
   bool operator ==(Object other) =>
@@ -164,12 +168,13 @@ class SttStall {
       other.message == message &&
       other.judgedAccount == judgedAccount &&
       other.emptyReason == emptyReason &&
-      other.trialCeiling == trialCeiling;
+      other.trialCeiling == trialCeiling &&
+      other.engineOnComputer == engineOnComputer;
 
   @override
   int get hashCode =>
       Object.hash(reason, code, message, judgedAccount, emptyReason,
-          trialCeiling);
+          trialCeiling, engineOnComputer);
 
   @override
   String toString() =>
@@ -673,6 +678,7 @@ class FlowmicStateMachine {
     /// Card G-2c — see [SttStall.trialCeiling]. Defaulted so every existing
     /// caller and test keeps the sentence it had.
     bool trialCeiling = false,
+    bool engineOnComputer = false,
   }) {
     final SttStall stall = SttStall(
       SttStallReason.engineError,
@@ -680,6 +686,7 @@ class FlowmicStateMachine {
       message: message,
       judgedAccount: judgedAccount,
       trialCeiling: trialCeiling,
+      engineOnComputer: engineOnComputer,
     );
     // AW-1b: immediate, unconditional — fires even on the branches below that
     // latch or refuse. Those branches decide what the FSM does; this is only

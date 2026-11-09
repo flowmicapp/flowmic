@@ -27,11 +27,11 @@
 
 part of 'chat_message_tile.dart';
 
-/// Cap the failure-code label so a long detail cannot stretch the meta row.
-String _truncateFailureReason(String reason) {
-  if (reason.length <= 28) return reason;
-  return '${reason.substring(0, 28)}…';
-}
+// ⚠️ rc-phone-fixes (2026-11-07): `_reasonLineFor` and `_truncateFailureReason` are
+// gone, so no identifier reaches a row any more ([_reasonNoteFor] ends in a sentence
+// for every code). Older comments elsewhere that name `_reasonLineFor` or 「the bare
+// identifier」 describe that tier as it was. The code itself stays on the row's
+// record (`TimelineEntry.failureReason`) for diagnostics and export.
 
 /// The optional 「· 详情」("· details") clause beside the status pill — ONE
 /// place that
@@ -114,16 +114,97 @@ String? _humanNoteFor(String code, AppStrings strings) =>
 /// so row and banner say the same thing in all nine languages; no new copy.
 /// ⚠️ The pill word (「✗ Not delivered」, ruling ⑩) is untouched — changing it
 /// is an open owner question (rca-anomalies.md §2.6 ②).
-String? _rowNoteFor(String code, AppStrings strings) =>
+///
+/// 🔴 rc-phone-fixes (real device, 2026-11-07) — the row printed
+/// 「WIRE_EMIT_FAILED」 under the time. Every sentence below is REUSED; the
+/// mapping and why each one was picked are in doc 15 `15-RECEIPT-STATES.md`
+/// §2.0.1-c (last block). Takes the row because the true sentence depends on it:
+/// 「your text was kept」 is false of a picture.
+String? _rowNoteFor(TimelineEntry entry, String code, AppStrings strings) =>
     _humanNoteFor(code, strings) ??
     (code == kRowNoResultCode
         ? strings.composeSendError(ComposeSendFailure.noResult)
-        : null);
+        : _phoneCodeNoteFor(entry, code, strings));
 
-/// Whether this face says 「why」("为什么") at all — [_reasonLineFor] and
-/// [_reasonNoteFor] share the SAME
-/// judgement, so 「show it or not」 always has exactly one answer (the whole
-/// reason this function exists).
+/// The reasons this phone writes on a row itself: a dead link, a refused emit,
+/// a picture with no way to the computer, a translate/organize run that failed.
+/// Null for anything else, which [_reasonNoteFor] answers in [_lastResortNoteFor].
+String? _phoneCodeNoteFor(TimelineEntry entry, String code, AppStrings strings) {
+  if (entry.isImage) {
+    final ImageSendFailure? picture = switch (code) {
+      kRowLinkDownCode => ImageSendFailure.notConnected,
+      kRowWireEmitFailedCode => ImageSendFailure.wireFailed,
+      // Written only when nothing is queued (`image_send_http.dart`, `!durable`).
+      'PC_UNREACHABLE' => ImageSendFailure.pcUnreachable,
+      // The HTTP route's two hold-outs (`image_upload.dart`). `detail` picks their
+      // own clause; any other code would be printed inside that sentence's
+      // brackets (`_serverRefusedWhy`), so they stop here.
+      'PC_BUSY' || 'PAIR_RELEASED' => ImageSendFailure.serverRefused,
+      _ => null,
+    };
+    return picture == null
+        ? null
+        : strings.imageSendError(ImageSendOutcome(reason: picture, detail: code));
+  }
+  switch (code) {
+    case kRowLinkDownCode:
+      // Not the banner's `linkDown` sentence: that one ends 「reconnecting」, and a
+      // row outlives the moment (doc 15 §2.0.1-c).
+      return strings.composeSendError(ComposeSendFailure.notConnected);
+    case kRowWireEmitFailedCode:
+      return strings.composeSendError(ComposeSendFailure.wireFailed);
+  }
+  final AiComposeOutcome? compose = _composeOutcomeOfRow(code);
+  return compose == null
+      ? null
+      : strings.utteranceComposeError(compose, neverSent: entry.neverSent);
+}
+
+/// The outcome behind what `_ucFailed` wrote: `outcome.code ?? outcome.reason.name`.
+AiComposeOutcome? _composeOutcomeOfRow(String code) {
+  if (kComposePathFailureCodes.contains(code)) {
+    return AiComposeOutcome(reason: AiComposeFailure.serverError, code: code);
+  }
+  final AiComposeFailure? reason = AiComposeFailure.values.asNameMap()[code];
+  return reason == null ? null : AiComposeOutcome(reason: reason);
+}
+
+/// 🔴 rc-phone-fixes (2026-11-07) — no raw code on a row. A face that speaks and has
+/// no table sentence lands here, so 「undelivered stays silent unless a table knows
+/// the code」 ([_faceSpeaksReason]) is untouched: these two are silent on 📥 and only
+/// speak on ✗. Reused sentences for the codes we can name; one generic sentence for
+/// everything else, including codes a newer computer or relay sends this version.
+/// Mapping: doc 15 `15-RECEIPT-STATES.md` §2.0.1-c.
+String _lastResortNoteFor(TimelineEntry entry, String code, AppStrings strings) {
+  final bool picture = entry.isImage;
+  final OutboxTerminal? terminal = outboxTerminalOf(code);
+  if (terminal != null) return strings.outboxTerminalMessage(terminal);
+  switch (code) {
+    case 'INJECT_NOT_IN_ROOM':
+      // The relay does not have this phone beside the computer. Not 「another phone」:
+      // that needs the server's named answer (`chat_strings.dart`, R11 note).
+      return picture
+          ? strings.imageSendError(
+              const ImageSendOutcome(reason: ImageSendFailure.notConnected),
+            )
+          : strings.composeSendError(ComposeSendFailure.notConnected);
+    case 'INJECT_NOT_PRIMARY':
+      return picture
+          ? strings.imageSendError(
+              const ImageSendOutcome(reason: ImageSendFailure.serverRefused, detail: 'PC_BUSY'),
+            )
+          : strings.pairError('PC_BUSY');
+    case 'AUTH_TOKEN_INVALID':
+      // Reached here only by a picture: a text row takes the compose sentence. The
+      // picture route's token is the pairing's, so this is the true one.
+      return strings.pairError('AUTH_TOKEN_INVALID');
+  }
+  return strings.rowFailureReasonUnknown;
+}
+
+/// Whether this face says 「why」("为什么") at all — one judgement, so 「show it or
+/// not」 always has exactly one answer (the whole reason this function exists; it
+/// was once shared with the removed `_reasonLineFor`).
 bool _faceSpeaksReason(DeliveryFace face, String? human) =>
     face == DeliveryFace.failed ||
     // NR-279 — speaks exactly like ✗ (status_badge.dart `noAnswerYet`).
@@ -131,6 +212,11 @@ bool _faceSpeaksReason(DeliveryFace face, String? human) =>
     face == DeliveryFace.refused ||
     face == DeliveryFace.deliveredNotInjected ||
     face == DeliveryFace.injectionUncertain ||
+    // D-MKT-11 (2026-11-06): this face used to stay silent on the argument that
+    // its word says the whole fact. It does not: 「no focus」 is not what the user
+    // sees on the computer, and nothing told them to close the menu (doc 15
+    // `15-UI-STATE-COPY.md` row 4 note; test/no_focus_note_test.dart).
+    face == DeliveryFace.noFocus ||
     // 🔴 Card B4-12 — undelivered stays silent for every code EXCEPT the
     // ones [human]
     // recognises. Left silent for them too, a quota/size refusal would show
@@ -149,68 +235,42 @@ bool _faceSpeaksReason(DeliveryFace face, String? human) =>
     // test/pc_offline_note_test.dart's group ② (one face per leg).
     (face == DeliveryFace.undelivered && human != null);
 
-/// 🔴 Card M6-1 (0.2.53) — for codes that have human copy, the human copy
-/// gets **its own full line** ([_reasonNoteFor]),
-/// no longer squeezed into the meta row. The source is a real-device
-/// screenshot: that row already had six slots —
-/// badge/time/pill/resend/provenance/word-count —, and
-/// `Flexible + ellipsis` clipped `INJECT_SELF_WINDOW_NO_INPUT` down to
-/// 「INJ…」.
-/// From here on this function produces **only** the bare-code tier —
-/// unrecognized codes, behaviour unchanged to the letter.
-String? _reasonLineFor(DeliveryFace face, String? code, AppStrings strings) {
-  if (code == null || code.isEmpty) return null;
-  final String? human = _rowNoteFor(code, strings);
-  if (human != null) return null;
-  // RV-14 / RV-67: the long-standing surface — ✗/⛔ name the code, every other
-  // face stays silent. 🔴 Card F2 added `deliveredNotInjected`, for the same
-  // reason as ✗/⛔,
-  // and the opposite of `noFocus`: that face serves only one code (the word
-  // already says it all), this face
-  // covers multiple codes ⇒ the code is the only thing that can say 「which
-  // one it is」. It does not carry
-  // the stale-code risk: the face **is derived from** the code
-  // (`deliveryFaceOf`
-  // reads it), so if the face exists, the code must exist too.
-  if (_faceSpeaksReason(face, human)) {
-    return '· ${_truncateFailureReason(code)}';
-  }
-  // 🔴 Card L7 × Card L8 — `INJECT_DEFERRED_NOT_AUTOINJECTED` deliberately
-  // does **NOT** get a third
-  // exception added here, and the reason can be grep-verified (anti-façade
-  // ④, not a 「deal with it later」):
-  //
-  //   ① The two cloud-image codes need the exception because they land on
-  //      `undelivered`, and **that face is shared by many codes** —
-  //      without printing a named explanation, all the user reads is one
-  //      generic word, telling them nothing.
-  //      This code **has its own face** (`DeliveryFace.deferredNotInjected`,
-  //      `status_badge.dart` `_isDeferredNotInjectedReason` — greppable,
-  //      and it is that face's
-  //      **sole** trigger condition) ⇒ the face's word already IS the
-  //      explanation for this code, printing it again just says the same
-  //      fact twice.
-  //      This uses **the same existing argument** `noFocus` uses (see this
-  //      file's call site, paragraph 4).
-  //   ② That face's word has already said everything there is to say:
-  //      「已投递 · 未自动注入」("delivered · not auto-injected") — delivery
-  //      succeeded (first word),
-  //      injection was not done (second half), four-language copy in
-  //      `AppStrings.statusDeferredNotInjected`.
-  //   ③ 🔴 **The long sentence in `ERROR_CODES` must NOT be moved here**:
-  //      that sentence is **meant to be read by the PC side**
-  //      (「the message has reached the PC and stayed on the PC's
-  //      timeline」), while this is a **phone** row — the phone should not
-  //      describe the PC's timeline on the PC's behalf, which is exactly
-  //      the boundary-crossing the two-segment terminology exists to tear
-  //      down (Book 15 §2.0 rule 2).
-  //
-  // ⇒ If, in the future, a second code is ever folded into
-  //   `deferredNotInjected`, THAT is the moment to add it back here
-  //   (the ✗/⛔ shape: one face covers multiple codes ⇒ the code is needed
-  //   to say which one).
-  return null;
-}
+// ⬇ Kept from the removed `_reasonLineFor`, because the argument still governs which
+// faces stay silent: why this code gets no line of its own.
+// 🔴 Card L7 × Card L8 — `INJECT_DEFERRED_NOT_AUTOINJECTED` deliberately
+// does **NOT** get a third
+// exception added here, and the reason can be grep-verified (anti-façade
+// ④, not a 「deal with it later」):
+//
+//   ① The two cloud-image codes need the exception because they land on
+//      `undelivered`, and **that face is shared by many codes** —
+//      without printing a named explanation, all the user reads is one
+//      generic word, telling them nothing.
+//      This code **has its own face** (`DeliveryFace.deferredNotInjected`,
+//      `status_badge.dart` `_isDeferredNotInjectedReason` — greppable,
+//      and it is that face's
+//      **sole** trigger condition) ⇒ the face's word already IS the
+//      explanation for this code, printing it again just says the same
+//      fact twice.
+//      This uses **the same existing argument** `noFocus` uses (see this
+//      file's call site, paragraph 4).
+//   ② That face's word has already said everything there is to say:
+//      「已投递 · 未自动注入」("delivered · not auto-injected") — delivery
+//      succeeded (first word),
+//      injection was not done (second half), four-language copy in
+//      `AppStrings.statusDeferredNotInjected`.
+//   ③ 🔴 **The long sentence in `ERROR_CODES` must NOT be moved here**:
+//      that sentence is **meant to be read by the PC side**
+//      (「the message has reached the PC and stayed on the PC's
+//      timeline」), while this is a **phone** row — the phone should not
+//      describe the PC's timeline on the PC's behalf, which is exactly
+//      the boundary-crossing the two-segment terminology exists to tear
+//      down (Book 15 §2.0 rule 2).
+//
+// ⇒ If, in the future, a second code is ever folded into
+//   `deferredNotInjected`, THAT is the moment to add it back here
+//   (the ✗/⛔ shape: one face covers multiple codes ⇒ the code is needed
+//   to say which one).
 
 /// 🔴 Card M6-1 (0.2.53) — the whole human-copy sentence, rendered on **its
 /// own full line below the body text** (`build`'s only call site).
@@ -262,9 +322,9 @@ String? _reasonNoteFor(
 }) {
   final String? code = entry.failureReason;
   if (code == null || code.isEmpty) return null;
-  final String? human = _rowNoteFor(code, strings);
-  if (human == null) return null;
+  final String? human = _rowNoteFor(entry, code, strings);
   if (!_faceSpeaksReason(face, human)) return null;
+  if (human == null) return _lastResortNoteFor(entry, code, strings);
   if (entry.isImage && !hasResendAffordance) {
     // Replaces the generic sentence rather than joining it: the two differ only
     // in their last clause, and printing both would put a 「再重发」("resend

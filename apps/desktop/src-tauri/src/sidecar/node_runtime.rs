@@ -71,13 +71,13 @@ pub const BUNDLED_NODE_NAME: &str = if cfg!(windows) { "node.exe" } else { "node
 /// `/usr/lib/<name>` resource directory. Measured in both L-8 bundles:
 /// `usr/lib/FlowMic/resources/node`. `env!("CARGO_PKG_NAME")` is
 /// `flowmic-desktop` and points at a directory the bundle never creates.
-#[cfg(target_os = "linux")]
 const LINUX_RESOURCE_DIR_NAME: &str = "FlowMic";
 
 /// Installed Linux binaries share /usr/bin with the HOST Node. That sibling is
 /// never our portable runtime. Keep the installed layout strict even when its
 /// payload is absent, so a damaged install cannot silently use a host runtime.
-#[cfg(target_os = "linux")]
+/// Not compiled out elsewhere because `sidecar::server_dirs` asks the Linux question
+/// from tests on any machine; production only reaches it on Linux.
 pub fn linux_installed_resources(exe_dir: &Path) -> Option<PathBuf> {
     exe_dir.ends_with("usr/bin").then(|| {
         exe_dir.parent().unwrap().join("lib").join(LINUX_RESOURCE_DIR_NAME).join("resources")
@@ -169,6 +169,10 @@ pub fn bundled_node_beside(dir: &Path) -> Option<PathBuf> {
         // uses `/usr/bin` → `../lib`, and a target/release run uses the same
         // shape. Keep this relative so an AppImage mount never depends on its
         // random `/tmp/.mount_*` prefix.
+        // Corrected 2026-11-07: that contract has one exception. With no
+        // `../lib/<name>` and no APPDIR, Tauri returns the absolute `/usr/lib/<name>`
+        // (tauri-utils `resource_dir_from`), which is why `sidecar::server_dirs`
+        // ignores it on Linux. This lookup stays exe-relative, so it never had that.
         candidates.push(
             dir.join("..")
                 .join("lib")

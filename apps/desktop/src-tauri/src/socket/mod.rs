@@ -112,6 +112,9 @@ pub mod empty_final;
 /// from "no successor was ever built, and staying quiet erases this PC from the
 /// server". See its header for the real-machine trace that forced it.
 pub mod session_gen;
+/// D-MKT-21: a closed session stops dialing, and a sign-out reaches every cloud
+/// session. Its header has the library reading behind both.
+pub mod session_stop;
 /// GA-18 — the cached pairing code + TTL, and its shared cell. Split out of
 /// `pairing.rs` at that file's 800-line cap (2026-09-02); re-exported from
 /// there (`pairing::{ShortCodeState, SharedCode}`) so nothing importing it had

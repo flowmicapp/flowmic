@@ -264,16 +264,15 @@ void main() {
       expect(find.textContaining(kTooLarge), findsNothing);
     });
 
-    testWidgets('failed + an unrecognised code ⇒ behaviour completely unchanged, still the truncated raw identifier', (
+    testWidgets('failed + an unrecognised code ⇒ the generic sentence, not the identifier (rc-phone-fixes)', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
-        _tile(_entry(status: EntryStatus.failed, failureReason: 'LINK_DOWN')),
+        _tile(_entry(status: EntryStatus.failed, failureReason: 'SOME_CODE_NOBODY_NAMED')),
       );
       expect(find.textContaining(_zh.statusFailed), findsOneWidget);
-      // Unchanged pre-existing behaviour: raw identifier, verbatim (short
-      // enough that _truncateFailureReason does not cut it).
-      expect(find.textContaining('LINK_DOWN'), findsOneWidget);
+      expect(find.textContaining('SOME_CODE_NOBODY_NAMED'), findsNothing);
+      expect(find.text(_zh.rowFailureReasonUnknown), findsOneWidget);
     });
   });
 }

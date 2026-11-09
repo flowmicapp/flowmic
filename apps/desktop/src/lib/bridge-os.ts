@@ -45,6 +45,13 @@ export async function openLogDirectory(): Promise<{ ok: true } | { ok: false; re
   return r;
 }
 
+/** The folder that holds the logs, as the running app resolves it, or `null` when
+ *  it cannot answer. The caller shows no address for `null`, never a guess. */
+export async function fetchLogDirectory(): Promise<string | null> {
+  const dir = await invokeSafe<string | null>('log_directory_path');
+  return typeof dir === 'string' && dir.length > 0 ? dir : null;
+}
+
 /** Open an `https://` address in the user's default BROWSER.
  *
  * 🔴 THE ONLY WAY THIS APP CAN OPEN A PAGE, and every external link in the

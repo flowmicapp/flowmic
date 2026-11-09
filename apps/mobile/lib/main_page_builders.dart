@@ -139,5 +139,7 @@ extension _PageBuilders on _FlowMicAppState {
     // V2-06a-2: the footnote reports the store that actually opened.
     storageKind: widget.storage.kind,
     appSettings: widget.appSettings,
+    // NR-284: the phone's one queue, the same reads the chat list makes.
+    queue: _controller.outboxRowFacts,
   );
 }

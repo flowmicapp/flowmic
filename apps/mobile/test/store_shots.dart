@@ -662,6 +662,7 @@ void main() {
     await tester.pumpWidget(_app(HistoryPage(
       store: store,
       storageKind: TimelineStorageKind.sqlite,
+      queue: emptyQueueRowFacts,
       appSettings: appSettings,
     )));
     await _settleish(tester);

@@ -222,7 +222,7 @@ onUnmounted(() => {
              red all-faulted). WHICH channel is the diagnostics page's answer,
              one click away. -->
         <div v-if="connView.detail" class="conn-detail" :class="{ warn: connView.dot === 'y' }">{{ connView.detail }}</div>
-        <div v-if="conn.mobiles > 0" class="muted" style="margin-top:4px">{{ conn.mobiles }} {{ S.dev_mobiles_online }}</div>
+        <div v-if="conn.mobiles > 0" class="muted conn-detail-mobiles" style="margin-top:4px">{{ S.dev_mobiles_online.replace('{n}', String(conn.mobiles)) }}</div>
       </button>
     </nav>
 

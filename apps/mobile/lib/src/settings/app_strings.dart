@@ -94,6 +94,7 @@ import '../audio/local_stop_reasons.dart'
         kLocalStopReasonLinkLoss,
         kLocalStopReasonLinkLossKept;
 import '../audio/retained_audio_store.dart' show RetainedAudioNotice;
+import '../signaling/http_endpoint.dart' show kConnectFailedCertUnverified;
 import '../signaling/state_machine.dart' show SttStall, SttStallReason;
 import '../signaling/wire_payloads.dart' show ComposeTask, FlowMode;
 import 'app_settings.dart';

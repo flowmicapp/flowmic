@@ -665,8 +665,9 @@ class _ChatFlowPageState extends State<ChatFlowPage> {
                     queue: chatBannerSources(
                       controller: controller,
                       strings: strings,
-                      // RV-15 corrected this: resend rides ManualDelivery.reInject
-                      // (per row), NOT deliverText — a RE-delivery, stamped now.
+                      // RV-15 corrected this: resend goes row by row, NOT through
+                      // deliverText. The row's own path since rc-phone-fixes-2:
+                      // `_retryFailedSendRouted`.
                       onRetrySendFailure: retryTargets.isEmpty
                           ? null
                           : () => _retryFailedSend(retryTargets),

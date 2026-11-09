@@ -272,10 +272,25 @@ Future<ComposeSendFailure?> _sendBuffer(ChatController c) async {
         failure == ComposeSendFailure.linkDown) {
       _forgetBufferedRows(c, sentIds);
     }
+    // 🔴 rc-phone-fixes (doc 15 `15-RECEIPT-STATES.md` §2.0.1-c, last block): this
+    // one failure leaves a queue item behind (its only producer is `deliverText`'s
+    // `report.linkOk == false`, after `enqueueText` took the item), so the words in
+    // the box are a second copy. Left there they read as unsent: Discard lets the
+    // queue type them anyway, and a second ➤ mints a second `request_id`. They go
+    // the way a success goes. Every other failure here enqueued nothing and keeps
+    // the box. The row stays ✗ with its Resend (ruling ⑩, F7).
+    if (failure == ComposeSendFailure.linkDown) {
+      _keepDraftOnARow(c, sentText, sentIds);
+      c._buffer = _bufferAfterSend(c._buffer, sentText);
+      c.aiCompose.forgetRestorable();
+      c.deliveryNotify();
+    }
     return failure;
   }
   _forgetBufferedRows(c, sentIds);
   c._buffer = _bufferAfterSend(c._buffer, sentText);
+  // ⚠️ rc-phone-fixes: 「a failed send leaves the text in the box」 below is no
+  // longer true of a dead link, which took the branch above.
   // 🔴 T-6: delivered ⇒ 「恢复原文」("restore original text") retires. The original went WITH the delivery
   // (T-7 puts it on the frame as `source_text`), so from here on the place to
   // read it is the row, not a button over a buffer that no longer holds those
@@ -284,6 +299,21 @@ Future<ComposeSendFailure?> _sendBuffer(ChatController c) async {
   c.aiCompose.forgetRestorable();
   c.deliveryNotify();
   return null;
+}
+
+/// The box is about to empty while the queue holds [sentText], so these words must
+/// be on a row or the user can no longer see them. A typed send built its own row;
+/// an untouched spoken draft IS its rows. An edited draft or an AI product is not
+/// on any row (they keep the original words), so it gets a 📥 noted one, by the same
+/// comparison and the same write as a mode switch ([mintNotedDraftRow]). Skipped when
+/// the user already emptied or rewrote the box mid-send: then these are no longer
+/// words they are holding, and [_bufferAfterSend] leaves that box alone too.
+void _keepDraftOnARow(ChatController c, String sentText, List<String> sentIds) {
+  final String draft = sentText.trim();
+  if (sentIds.isEmpty || draft.isEmpty) return;
+  if (!c._buffer.startsWith(sentText)) return;
+  if (draft == _rowsText(c, sentIds)) return;
+  mintNotedDraftRow(c, draft, coveredRows: sentIds.length, prefix: 'k');
 }
 
 /// Drop exactly the rows [sent] covered, keeping any that were folded in while

@@ -246,9 +246,10 @@ void main() {
   // and must NOT appear on an injected row (even if a stale reason lingered).
   // NR-279 (A2): the sample code was INJECT_NO_RESULT, which now has a
   // sentence of its own (chat_row_reason.dart `_rowNoteFor`; pinned by
-  // row_no_result_note_test.dart). LINK_DOWN is a phone code no copy table
-  // knows, so it still exercises 「a code with no sentence prints raw」.
-  testWidgets('failed row renders the raw failureReason; injected does not', (
+  // row_no_result_note_test.dart). LINK_DOWN was the next sample and has one too
+  // now. rc-phone-fixes: a code nobody named no longer prints raw at all; it reads
+  // the generic sentence (rc_phone_row_sentence_test.dart).
+  testWidgets('failed row says why in a sentence, never the code; injected says neither', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -260,12 +261,13 @@ void main() {
           entry: _entry(
             status: EntryStatus.failed,
             delivery: Delivery.inject,
-            failureReason: 'LINK_DOWN',
+            failureReason: 'SOME_CODE_NOBODY_NAMED',
           ),
         ),
       ),
     );
-    expect(find.text('· LINK_DOWN'), findsOneWidget);
+    expect(find.textContaining('SOME_CODE_NOBODY_NAMED'), findsNothing);
+    expect(find.text(AppStrings(AppLocale.zh).rowFailureReasonUnknown), findsOneWidget);
 
     await tester.pumpWidget(
       _wrap(
@@ -276,12 +278,13 @@ void main() {
           entry: _entry(
             status: EntryStatus.injected,
             delivery: Delivery.inject,
-            failureReason: 'LINK_DOWN',
+            failureReason: 'SOME_CODE_NOBODY_NAMED',
           ),
         ),
       ),
     );
-    expect(find.text('· LINK_DOWN'), findsNothing);
+    expect(find.textContaining('SOME_CODE_NOBODY_NAMED'), findsNothing);
+    expect(find.text(AppStrings(AppLocale.zh).rowFailureReasonUnknown), findsNothing);
   });
 
   testWidgets('noted row shows 仅记录 with inbox icon', (

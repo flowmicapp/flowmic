@@ -107,8 +107,14 @@ mixin InjectNoteStrings on AppStringsLeaves {
       // so this sentence only speaks to the call, not on behalf of the target program.
       case 'INJECT_SENDINPUT_FAIL':
         return _lfInjectVerdictNote_INJECT_SENDINPUT_FAIL;
-      // A Win32 error at some step of the clipboard fallback path, or the
-      // user's clipboard failed to restore.
+      // Several causes, and the phone is not told which (doc 15
+      // `15-DELIVERY-CHANNELS-STATES-AND-FAILURES.md`, D-MKT-8 section, the
+      // 2026-11-07 addition; `inject/clipboard_outcome.rs` `never_fetched` and the
+      // `Err` arms of its mappers): nothing fetched our text after Ctrl+V (an open
+      // IME composition swallows it, D-MKT-15), a native step failed, or on a Mac
+      // a picture landed and only restoring the clipboard failed. So the sentence
+      // asserts no cause and no certain absence; it also names no Resend, because
+      // a picture row settling here has none (test/clipboard_fail_note_test.dart).
       case 'INJECT_CLIPBOARD_FAIL':
         return _lfInjectVerdictNote_INJECT_CLIPBOARD_FAIL;
       // image.rs: exceeds the protocol limit / malformed base64 / bytes
@@ -151,6 +157,17 @@ mixin InjectNoteStrings on AppStringsLeaves {
       // security trade-off that is not ours to nudge (MAIN 2026-10-16).
       case 'INJECT_TARGET_ELEVATED':
         return _lfInjectVerdictNote_INJECT_TARGET_ELEVATED;
+      // D-MKT-11 (2026-11-06): the pill already says 「delivered · no focus, not
+      // injected」, and that word is owner's verbatim, so this line explains it
+      // rather than replacing it. The PC does not say WHICH case it was
+      // (`target_probe.rs` `classify_focus_in`: a menu or a keyboard move/resize,
+      // nothing focused; the web target's `NO_TEXT_TARGET_CODE`, no writable
+      // element), so the sentence offers a menu as an example, never as the fact.
+      // 🔴 NOT `_lfInjectVerdictNote_INJECT_NO_TEXT_TARGET`: despite the name that
+      // leaf speaks about 「this page」, for the web target end itself
+      // (i18n/web/subset.json group `web-target`). On this row it would be false.
+      case 'INJECT_NO_TEXT_TARGET':
+        return _lfNoFocusRowNote;
       default:
         return null;
     }

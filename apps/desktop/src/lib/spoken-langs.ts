@@ -29,6 +29,7 @@
 // cannot read is looking for their own language's NAME, not its translation. So
 // no key in the string catalogue spells 「中文」 and none may be added.
 
+import { getLocale } from './strings/locale';
 import { LOCALE_ENDONYM, UI_LOCALES } from './strings/generated/locales.g';
 
 /** base spoken code → the UI-locale code whose endonym names it — DERIVED from
@@ -57,6 +58,29 @@ export const ENDONYM_LOCALE: Record<string, string> = (() => {
  */
 export function endonymFor(code: string): string {
   return (LOCALE_ENDONYM as Record<string, string>)[ENDONYM_LOCALE[code] ?? ''] ?? code;
+}
+
+/**
+ * How a sentence STATES a speaking language to the person reading it, as opposed
+ * to how a picker offers one (FR-D2, 2026-11-06): the reader's own word for it,
+ * with the endonym beside it. On a Chinese machine an English reader was told
+ * "Detected speaking language: 中文".
+ *
+ * The reader's word comes from the platform's Intl data for the interface language
+ * the reader chose, never the OS locale, so no key in the string catalogue spells a
+ * language name and the rule at the top of this file still holds. No Intl answer ⇒
+ * the endonym alone, which is what this row showed before.
+ */
+export function statedLanguageName(code: string, locale: string = getLocale()): string {
+  const endonym = endonymFor(code);
+  let name: string | undefined;
+  try {
+    name = new Intl.DisplayNames([locale], { type: 'language', fallback: 'none' }).of(code);
+  } catch {
+    return endonym;
+  }
+  if (!name || name.toLocaleLowerCase(locale) === endonym.toLocaleLowerCase(locale)) return endonym;
+  return `${name} (${endonym})`;
 }
 
 /**

@@ -438,14 +438,15 @@ void main() {
       }
     });
 
-    testWidgets('unrecognised code: the ✗ face still prints the bare identifier (this card opened no fallback)', (
+    testWidgets('unrecognised code: the ✗ face says the generic sentence, never the identifier', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         _tile(_entry(id: 'loc_busy', failureReason: 'PC_UNREACHABLE')),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('PC_UNREACHABLE'), findsOneWidget);
+      expect(find.textContaining('PC_UNREACHABLE'), findsNothing);
+      expect(find.text(_zh.rowFailureReasonUnknown), findsOneWidget);
     });
   });
 }

@@ -99,10 +99,27 @@ void setModeRouted(ChatController c, FlowMode next) {
 void foldDraftToNotedOnModeSwitch(ChatController c) {
   final String draft = c._buffer.trim();
   if (draft.isEmpty) return;
-  if (draft == _coveredRowsText(c)) return;
+  if (draft == _rowsText(c, c._bufferedEntryIds)) return;
   // 's' for switch — a prefix of its own, so `deliver.noted_local` (typed
   // commit) and this one stay tellable apart in a forensic trace.
-  final String clientId = c.delivery.mintRequestId('s');
+  mintNotedDraftRow(
+    c,
+    draft,
+    coveredRows: c._bufferedEntryIds.length,
+    prefix: 's',
+  );
+}
+
+/// The one write behind 「these words were in the box and must outlive it」: a mode
+/// switch above, and a ➤ that failed on a dead link (chat_utterance.dart
+/// `_keepDraftOnARow`, prefix 'k'). The prefix tells them apart in a trace.
+void mintNotedDraftRow(
+  ChatController c,
+  String draft, {
+  required int coveredRows,
+  required String prefix,
+}) {
+  final String clientId = c.delivery.mintRequestId(prefix);
   c.store.buildFromUtterance(
     clientId: clientId,
     mode: c._mode,
@@ -114,18 +131,18 @@ void foldDraftToNotedOnModeSwitch(ChatController c) {
   diag('compose.mode_switch_folded_noted', <String, Object?>{
     'client_id': clientId,
     'text_chars': draft.length,
-    'covered_rows': c._bufferedEntryIds.length,
+    'covered_rows': coveredRows,
   });
 }
 
-/// What the rows about to settle at 📥 noted already say, assembled by
+/// What the rows [ids] already say, assembled by
 /// `_foldIntoBuffer`'s own rule so the two strings are comparable at all.
 /// A missing row contributes nothing rather than an empty span: it would make
 /// the join differ from the buffer for a reason that has nothing to do with
 /// the user, and the safe direction of that disagreement is 「mint the row」.
-String _coveredRowsText(ChatController c) {
+String _rowsText(ChatController c, List<String> ids) {
   final List<String> parts = <String>[];
-  for (final String id in c._bufferedEntryIds) {
+  for (final String id in ids) {
     final TimelineEntry? entry = c.store.findById(id);
     if (entry != null) parts.add(entry.outputText);
   }

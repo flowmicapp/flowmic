@@ -3052,6 +3052,11 @@
       "params": []
     },
     {
+      "key": "pairErrorCertificateUnverified",
+      "leaf": "_lfPairErrorCertificateUnverified",
+      "params": []
+    },
+    {
       "key": "pairError__15",
       "leaf": "_lfPairError__15",
       "params": []
@@ -3815,6 +3820,11 @@
       "params": []
     },
     {
+      "key": "rowFailureReasonUnknown",
+      "leaf": "_lfRowFailureReasonUnknown",
+      "params": []
+    },
+    {
       "key": "sameMachine",
       "leaf": "_lfSameMachine",
       "params": [
@@ -4257,6 +4267,11 @@
       "params": []
     },
     {
+      "key": "noFocusRowNote",
+      "leaf": "_lfNoFocusRowNote",
+      "params": []
+    },
+    {
       "key": "statusQueued",
       "leaf": "_lfStatusQueued",
       "params": []
@@ -4269,6 +4284,11 @@
     {
       "key": "statusUndelivered",
       "leaf": "_lfStatusUndelivered",
+      "params": []
+    },
+    {
+      "key": "sttStallConfigMissingOnComputer",
+      "leaf": "_lfSttStallConfigMissingOnComputer",
       "params": []
     },
     {

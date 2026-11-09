@@ -32,6 +32,7 @@
 
 import 'dart:io';
 
+import 'package:flowmic/src/session/outbox_row_facts.dart';
 import 'package:flowmic/src/settings/app_settings.dart';
 import 'package:flowmic/src/settings/app_strings.dart';
 import 'package:flowmic/src/timeline/timeline_entry.dart';
@@ -118,6 +119,8 @@ void main() {
                 InMemoryTimelinePersistence();
             final Map<String, MetaExpectation> wants =
                 <String, MetaExpectation>{};
+            final Set<String> queuedIds = <String>{};
+            final Set<String> owedIds = <String>{};
             for (final MetaRow row in metaRows(now)) {
               for (final MetaStamp stamp in MetaStamp.values) {
                 final String id = '${row.id}-${stamp.name}-$edited';
@@ -128,7 +131,13 @@ void main() {
                   edited: edited,
                   resentAt: edited ? at : null,
                 );
-                final DeliveryFace face = deliveryFaceOf(entry, queued: false);
+                if (row.queued) queuedIds.add(id);
+                if (row.owed) owedIds.add(id);
+                final DeliveryFace face = deliveryFaceOf(
+                  entry,
+                  queued: row.queued,
+                  owed: row.owed,
+                );
                 faces.add(face);
                 await persistence.upsert(entry);
                 wants[id] = MetaExpectation(
@@ -157,6 +166,11 @@ void main() {
                   store: store,
                   storageKind: TimelineStorageKind.sqlite,
                   appSettings: settings,
+                  queue: OutboxRowFacts(
+                    changes: store,
+                    queuedEntryIds: () => queuedIds,
+                    owedEntryIds: () => owedIds,
+                  ),
                 ),
               ),
             );
@@ -186,16 +200,10 @@ void main() {
             await tester.pumpWidget(const SizedBox());
             store.dispose();
           }
-          // Every face the history page can show: it passes `queued: false`
-          // (history_page.dart, the "queued: false is the gap" note), so the
-          // queued face is never drawn here. NR-279: nor is `noAnswerYet` —
-          // the page also passes `owed: false` (same gap: no queue here).
-          expect(
-            faces,
-            DeliveryFace.values.toSet()
-              ..remove(DeliveryFace.queued)
-              ..remove(DeliveryFace.noAnswerYet),
-          );
+          // Every face: NR-284 made the page read the queue, so the two faces
+          // this file used to leave out (`queued`, `noAnswerYet`) are drawn here
+          // now and have to fit like the others.
+          expect(faces, DeliveryFace.values.toSet());
           for (final String cell in pinned) {
             if (cell.startsWith(prefix) && !seen.contains(cell)) {
               failures.add('$cell: pinned but fits two lines now');

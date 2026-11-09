@@ -490,7 +490,8 @@ pub fn run() {
             shell::clipboard_copy::capsule_copy_text,
             shell::clipboard_image::capsule_copy_image,
             shell::show_main,
-            shell::open_log_directory,
+            shell::log_dir::open_log_directory,
+            shell::log_dir::log_directory_path,
             // 0.3.24 — the ONLY way this app can put a page in front of the
             // user. `target="_blank"` / `window.open` open NOTHING in a WebView2
             // window that was declared in tauri.conf.json (measured; see

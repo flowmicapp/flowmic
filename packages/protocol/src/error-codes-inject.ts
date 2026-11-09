@@ -24,7 +24,12 @@ export const INJECT_ERROR_CODES = {
   // nothing can ever say — a façade on the protocol face, which is worse than a
   // missing nuance. The nuance it carried is gone too, and deliberately: the state
   // it described ('sent, unconfirmable') no longer exists as an outcome.
-  INJECT_CLIPBOARD_FAIL:     { zh_CN: '剪贴板操作失败。',                      en: 'Clipboard operation failed.' },
+  // Same words as the phone's injectVerdictNote_INJECT_CLIPBOARD_FAIL (i18n/mobile).
+  // The code also covers a paste nobody took, so "clipboard failed" was untrue. No
+  // screen reads this entry today: `getErrorMessage`'s one production caller is the
+  // engine probe (apps/desktop/src/lib/probe-client.ts), and this code never comes
+  // back from a probe. Contract: docs/rebuild/15, the 2026-11-07 correction.
+  INJECT_CLIPBOARD_FAIL:     { zh_CN: '电脑上的粘贴未能完成。如果电脑输入法正开着候选框或有未完成的输入，请先确认或关闭。', en: 'The paste on the computer did not complete. If an unfinished word or candidate window is open there, finish or close it first.' },
   INJECT_IMAGE_UNSUPPORTED:  { zh_CN: '图片注入失败。',                        en: 'Image injection failed.' },
   INJECT_FOCUS_LOST:         { zh_CN: '焦点已丢失，注入取消。',                en: 'Focus lost, injection cancelled.' },
   // GA-28: the frame arrived on the channel that is NOT carrying the capsule

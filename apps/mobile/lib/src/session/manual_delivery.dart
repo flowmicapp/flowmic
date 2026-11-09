@@ -437,7 +437,14 @@ class ManualDelivery {
         return null; // Card F2: merged into running drain, not failed.
       }
       if (report.linkOk == false) {
-        return failSettled(settle, ComposeSendFailure.linkDown);
+        // rc-phone-fixes: this is the probe failing, not the socket refusing a
+        // frame, so it names LINK_DOWN (doc 15, 「探活失败」 row). It used to fall
+        // to [failSettled]'s default and record the other fact.
+        return failSettled(
+          settle,
+          ComposeSendFailure.linkDown,
+          code: kRowLinkDownCode,
+        );
       }
       // ── card B2-M — SAME SHAPE AS chat_utterance.dart's `_deliverDirect`
       // (card B2-H) ────────────────────────────────────────────────────────
@@ -607,7 +614,7 @@ class ManualDelivery {
   ComposeSendFailure? failSettled(
     List<String> settle,
     ComposeSendFailure reason, {
-    String code = 'WIRE_EMIT_FAILED',
+    String code = kRowWireEmitFailedCode,
   }) {
     for (final String id in settle) {
       _host.store.applyInjectResult(

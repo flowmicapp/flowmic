@@ -95,8 +95,8 @@ export const PAIRING_KEYS = [
   // statement, not 「scan the code below」: this line sits above the tabs and so
   // also renders in the blocked/pending states, where there is no code below it.
   'pair_cloud_app_or_browser',
-  // Link LABEL only — the href comes from `PAIR_APP_URL` below (a plain
-  // constant, NOT a locale key: see its comment for why).
+  // Link LABEL only. The href comes from `downloadUrl` in lib/site-guide.ts: an
+  // address is not translatable content, only its language prefix varies.
   'pair_get_app',
   // `pair_cloud_console_hint` (U8, 「get a Cloud Key from the console, then paste
   // it on the Devices page」) was RETIRED by NR-109 (2026-09-26): the blocked
@@ -114,20 +114,9 @@ export const PAIRING_KEYS = [
 
 export const PAIRING_STRINGS = shardCatalogue(PAIRING_KEYS);
 
-// U8 (2026-08-04) — the phone-app download URL, kept behind ONE key so card
-// S1 can fill it in in one place once the download page ships. Deliberately
-// NOT a PAIRING_STRINGS entry: that catalogue is guarded by
-// locale-parity.test.ts's "values are all non-empty strings" rule (every
-// locale, every key), and (a) a URL is not translatable content — one value
-// serves all four locales, four copies of the same string would just be a
-// second place to forget to update, and (b) empty is the ONLY honest value
-// today, which that guard would reject outright.
-//
-// 🔴 FAÇADE GUARD — empty on purpose: the download page lives in the
-// undelivered private web console repo. docs/rebuild/09-WEB-SPEC.md:43 records
-// that a hardcoded `flowmic.app/dl/...` link ALREADY exists elsewhere in
-// this codebase pointing at a route the server does not serve — the exact
-// 「404 dressed as success」 shape this repo forbids. PairingModal.vue treats
-// '' as "no link yet" and renders `pair_need_app` as plain text with no <a>;
-// it only turns `pair_get_app` into a real hyperlink once this is non-empty.
-export const PAIR_APP_URL = '';
+// U8 (2026-08-04) kept the phone-app download URL here as an empty constant on
+// purpose: the download page did not exist yet, and a link to it would have been
+// a 404 dressed as success. FR-D1 (2026-11-06): the page has been live since the
+// website's download module shipped and nobody came back to fill it in, so a new
+// user was told they need the app and given no way to get it. The address now
+// lives in lib/site-guide.ts (`downloadUrl`), beside the other website addresses.

@@ -72,6 +72,14 @@ impl SessionGenerations {
     pub(crate) fn latest(&self, channel: Channel) -> u64 {
         self.cell(channel).load(Ordering::SeqCst)
     }
+
+    /// D-MKT-21 — every session built so far on `channel` has been outlived, with
+    /// no successor needed: the identity they carry was withdrawn
+    /// (`session_stop::withdraw_cloud_sessions`). The next session built gets a
+    /// higher generation, so it is not touched.
+    pub(crate) fn supersede(&self, channel: Channel) {
+        self.cell(channel).fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 /// The one process-wide instance production sessions share. Sessions must
@@ -116,6 +124,24 @@ pub(super) const CLOSING_RELEASE_AFTER: Duration = Duration::from_secs(10);
 /// wedged — a time arm alone (first opens land inside any reasonable grace)
 /// would have released nothing; the attempt arm fires on the third.
 pub(super) const CLOSING_RELEASE_AFTER_ATTEMPTS: u32 = 2;
+
+/// D-MKT-21 — is this CLOSING session never going to speak again, however long it
+/// waits? Both arms are one-way (generations only rise, and a session cannot be
+/// marked transient after it was dropped), so a `true` here is permanent. That is
+/// what lets `session_stop` end the polling thread on it instead of only keeping its
+/// handshake quiet. The one author of this rule: [`closing_gate`] asks here too.
+pub(super) fn closing_is_final(
+    channel: Channel,
+    my_generation: u64,
+    latest_generation: u64,
+    transient: bool,
+) -> bool {
+    // A successor exists (F-3 Fix#1, forever), or the identity was withdrawn.
+    latest_generation > my_generation
+        // Cloud, and nobody marked this close as a redial attempt: deliberate
+        // (Cloud Key refused/removed, not dialable).
+        || (channel != Channel::Lan && !transient)
+}
 
 /// W8-2 — the pure decision (unit-testable without threads or clocks): may a
 /// CLOSING session's handshake go out?
@@ -191,12 +217,7 @@ pub(super) fn closing_gate(
     closed_for: Option<Duration>,
     transient: bool,
 ) -> ClosingGate {
-    if latest_generation > my_generation {
-        return ClosingGate::Suppress; // a successor exists — F-3 Fix#1, forever
-    }
-    if channel != Channel::Lan && !transient {
-        // Cloud, and nobody marked this close as a redial attempt: deliberate
-        // (Cloud Key refused/removed, not dialable) — never release.
+    if closing_is_final(channel, my_generation, latest_generation, transient) {
         return ClosingGate::Suppress;
     }
     let stale = prior_suppressed >= CLOSING_RELEASE_AFTER_ATTEMPTS

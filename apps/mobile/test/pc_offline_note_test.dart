@@ -647,7 +647,7 @@ void main() {
 
   // ── ④ scope boundary: this card changed the behaviour of no **unknown code** ──
   group('④ scope boundary — unknown-code behaviour unchanged by a single character', () {
-    testWidgets('PC_UNREACHABLE (same-family "not now") still paints the bare identifier on the ✗ face', (
+    testWidgets('PC_UNREACHABLE on a text row (no such writer) reads the generic sentence, not the identifier', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -660,8 +660,8 @@ void main() {
           ),
         ),
       );
-      expect(find.textContaining('PC_UNREACHABLE'), findsOneWidget);
-      expect(_note, findsNothing, reason: 'a code with no human sentence must not grow a whole row out of nothing');
+      expect(find.textContaining('PC_UNREACHABLE'), findsNothing);
+      expect(_note, findsOneWidget);
     });
 
     testWidgets('PC_UNREACHABLE on the 「待投递」 face still says not a single character', (

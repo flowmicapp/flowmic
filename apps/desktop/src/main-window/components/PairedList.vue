@@ -124,9 +124,19 @@ const releaseDeps: ReleaseDeps = { release: releaseMobile, reload: props.reload 
 const doRelease = (id: string, revoke: boolean, channel: ChannelId): Promise<boolean> =>
   performRelease(release, releaseDeps, id, revoke, channel);
 
-/** D5 — "last active" relative; a missing/unparseable stamp keeps the old fallback. */
-function relTime(iso: string | null): string {
-  return formatRelativeTime(iso) ?? S.dev_paired_never;
+/** D5 — "last active", relative. Three facts answer it, in this order:
+ *   · a session exists right now ⇒ the phone is in contact this instant. Only
+ *     `presence`, never the raw `online`: an unknown row's flag is a cached one.
+ *   · `last_seen_at`, the last stamped contact.
+ *   · `paired_at`. Pairing is itself a contact, and the server inserts the row with
+ *     `last_seen_at` NULL (`makeMobileRepo`'s INSERT, mobile.repo.ts), so a phone that
+ *     paired and stayed connected has no stamp at all.
+ *  This used to fall back to 「从未连接」("never connected"), which a row can only
+ *  exist by contradicting: a phone had to reach the server to mint the row. Seen on a
+ *  real machine (2026-11-07) next to「在线」("online"). */
+function lastActiveText(m: PairedMobileRow): string {
+  if (m.presence === 'online') return S.dev_time_just_now;
+  return formatRelativeTime(m.last_seen_at ?? m.paired_at) ?? '—';
 }
 
 /** 🔴 owner 2026-08-02 UI batch 1 ②: "'Offline' and 'active just now' appearing
@@ -184,7 +194,7 @@ function lastSeenTitle(stamp: string | null): string {
     {{ S.dev_paired }}
     <span v-if="pairedList.state === 'rows'" class="paired-count">
       {{ S.dev_paired_count }} {{ groups.length }} {{ S.dev_paired_unit }} ·
-      {{ onlineGroups }} {{ S.dev_mobiles_online }}
+      {{ S.dev_mobiles_online.replace('{n}', String(onlineGroups)) }}
     </span>
   </div>
   <div class="card pad">
@@ -278,7 +288,7 @@ function lastSeenTitle(stamp: string | null): string {
               {{ S.dev_paired_at }} {{ m.pairedLabel ?? '—' }}
               ·
               {{ S.dev_paired_last_seen }}
-              <span class="pm-seen" :title="lastSeenTitle(m.lastSeenLabel)">{{ relTime(m.last_seen_at) }}</span>
+              <span class="pm-seen" :title="lastSeenTitle(m.lastSeenLabel ?? m.pairedLabel)">{{ lastActiveText(m) }}</span>
             </span>
             <!-- D2: a fixed right-hand action column. "Disconnect" exists only
                  while the phone is online (an offline row has no session to

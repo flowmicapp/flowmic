@@ -45,3 +45,13 @@ function localePrefix(locale: UiLocale): string {
 export function guideUrl(chapter: GuideChapter, locale: UiLocale = getLocale()): string {
   return `${SITE_ORIGIN}${localePrefix(locale)}/guide/${chapter}`;
 }
+
+/** The website's download overview, in the interface language [measured live
+ *  2026-11-06: `/download` and all eight prefixed forms answer 200]. A person
+ *  reading the pairing dialog is at their computer, so no page can sort them by
+ *  device on its own: this one states where the phone apps are and links
+ *  `/download/android` (Google Play, then the APK) and `/download/ios` (App Store).
+ *  Its source is `src/views/download/DownloadView.vue` in the website repo. */
+export function downloadUrl(locale: UiLocale = getLocale()): string {
+  return `${SITE_ORIGIN}${localePrefix(locale)}/download`;
+}

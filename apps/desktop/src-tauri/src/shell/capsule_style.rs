@@ -207,26 +207,89 @@ pub fn configure_capsule_window(app: &AppHandle) {
 #[cfg(all(not(windows), not(target_os = "linux")))]
 pub fn configure_capsule_window(_app: &AppHandle) {}
 
+// ── FR-D3: WHERE THE LINUX CAPSULE TAKES A CLICK ─────────────────────────────
+//
+// On X11 the capsule window does not shrink to the height it is asked for. Measured
+// on Ubuntu 22.04 Xorg with 0.3.120: `xwininfo` read 560x200 while the requests were
+// 76 and 140. The extra area paints nothing and still takes clicks, so an idle capsule
+// always on top sat over whatever was below it: the first rows of the first-run
+// language card, the Cloud relay tab of the pairing dialog.
+//
+// So on Linux the capsule takes clicks only inside the rectangle it asked for. The
+// shape is set on the GTK widget, which keeps it across realize and map, so a capsule
+// that has never been shown needs no special case.
+//
+// 🔴 THIS IS THE SHAPE'S ONLY AUTHOR. tao's `set_ignore_cursor_events(false)` sets
+// the widget's shape to none, which is the whole window, and it arrives later on the
+// event loop than anything done here. Calling it would undo the rectangle after every
+// `just_injected`, so click-through goes through this state instead.
+
+/// The input shape as logical px, from the two facts that decide it. Width and height
+/// are the last `capsule_resize` request; `ignore` is the `just_injected` click-through.
+#[cfg(any(test, target_os = "linux"))]
+fn capsule_input_rect(width: f64, height: f64, ignore: bool) -> (i32, i32) {
+    // 1x1 and not an empty region: the same choice tao makes for click-through.
+    if ignore {
+        return (1, 1);
+    }
+    (width.ceil().max(1.0) as i32, height.ceil().max(1.0) as i32)
+}
+
 #[cfg(target_os = "linux")]
-pub(super) fn click_through_linux(window: &tauri::WebviewWindow, ignore: bool) {
+#[derive(Clone, Copy)]
+struct LinuxCapsuleInput {
+    width: f64,
+    height: f64,
+    ignore: bool,
+}
+
+/// Starts at the window's declared size (tauri.conf.json) until the first request.
+#[cfg(target_os = "linux")]
+static LINUX_CAPSULE_INPUT: std::sync::Mutex<LinuxCapsuleInput> =
+    std::sync::Mutex::new(LinuxCapsuleInput { width: 560.0, height: 76.0, ignore: false });
+
+#[cfg(target_os = "linux")]
+fn apply_linux_input_shape(window: &tauri::WebviewWindow) {
     use gtk::prelude::*;
     let capsule = window.clone();
     if let Err(error) = window.run_on_main_thread(move || {
+        let input = match LINUX_CAPSULE_INPUT.lock() {
+            Ok(state) => *state,
+            Err(poisoned) => *poisoned.into_inner(),
+        };
+        let (width, height) = capsule_input_rect(input.width, input.height, input.ignore);
         match capsule.gtk_window() {
-            // Tao 0.35.3 unwraps the GdkWindow in CursorIgnoreEvents. A capsule
-            // suppressed before its first map has no such window yet. Hidden
-            // but realized windows still need the restore of their input region.
-            Ok(native) if native.window().is_some() => {
-                if let Err(error) = capsule.set_ignore_cursor_events(ignore) {
-                    crate::forensic::record("capsule", &format!("Linux click-through failed: {error}"));
-                }
+            Ok(native) => {
+                let region = gtk::cairo::Region::create_rectangle(&gtk::cairo::RectangleInt::new(0, 0, width, height));
+                native.input_shape_combine_region(Some(&region));
             }
-            Ok(_) => {}
-            Err(error) => crate::forensic::record("capsule", &format!("Linux click-through GTK lookup failed: {error}")),
+            Err(error) => crate::forensic::record("capsule", &format!("Linux input shape GTK lookup failed: {error}")),
         }
     }) {
-        crate::forensic::record("capsule", &format!("Linux click-through dispatch failed: {error}"));
+        crate::forensic::record("capsule", &format!("Linux input shape dispatch failed: {error}"));
     }
+}
+
+#[cfg(target_os = "linux")]
+fn update_linux_input(window: &tauri::WebviewWindow, change: impl FnOnce(&mut LinuxCapsuleInput)) {
+    match LINUX_CAPSULE_INPUT.lock() {
+        Ok(mut state) => change(&mut state),
+        Err(poisoned) => change(&mut poisoned.into_inner()),
+    }
+    apply_linux_input_shape(window);
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn click_through_linux(window: &tauri::WebviewWindow, ignore: bool) {
+    update_linux_input(window, |input| input.ignore = ignore);
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn requested_size_linux(window: &tauri::WebviewWindow, width: f64, height: f64) {
+    update_linux_input(window, |input| {
+        input.width = width;
+        input.height = height;
+    });
 }
 
 #[cfg(target_os = "linux")]
@@ -272,6 +335,42 @@ pub(super) fn surface_linux(window: &tauri::WebviewWindow, user_gesture: bool) {
     // The capsule remains nonfocusable even when summoned from the tray.
     if let Err(error) = window.show() {
         crate::forensic::record("capsule", &format!("Linux surface failed user_gesture={user_gesture}: {error}"));
+    }
+}
+
+#[cfg(test)]
+mod input_shape_tests {
+    use super::capsule_input_rect;
+
+    #[test]
+    fn it_takes_clicks_only_inside_the_rectangle_it_asked_for() {
+        assert_eq!(capsule_input_rect(560.0, 76.0, false), (560, 76));
+        assert_eq!(capsule_input_rect(560.0, 140.0, false), (560, 140));
+    }
+
+    #[test]
+    fn a_fractional_request_never_cuts_the_card_short() {
+        assert_eq!(capsule_input_rect(560.0, 75.2, false), (560, 76));
+    }
+
+    #[test]
+    fn just_injected_passes_clicks_whatever_was_requested() {
+        assert_eq!(capsule_input_rect(560.0, 220.0, true), (1, 1));
+    }
+
+    /// `set_ignore_cursor_events(false)` would set the shape to the whole window later
+    /// on the event loop, after every `just_injected`. The name is assembled at runtime
+    /// so this file's own explanation cannot satisfy or trip the check.
+    #[test]
+    fn linux_never_hands_the_shape_back_to_tao() {
+        const SRC: &str = include_str!("capsule_style.rs");
+        let body = SRC
+            .split("pub(super) fn click_through_linux(")
+            .nth(1)
+            .and_then(|rest| rest.split("pub(super) fn requested_size_linux(").next())
+            .expect("control: the Linux click-through function is here");
+        assert!(body.contains("input.ignore = ignore"), "control: it records the fact");
+        assert!(!body.contains(&format!("set_{}", "ignore_cursor_events")));
     }
 }
 

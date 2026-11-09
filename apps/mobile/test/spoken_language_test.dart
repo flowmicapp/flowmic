@@ -76,7 +76,14 @@ class _Harness {
   late final TimelineSyncGate gate;
   late final ChatController controller;
 
-  static Future<_Harness> create({Map<String, Object> seed = const <String, Object>{}}) async {
+  /// rc-phone-fixes-2: the default seed is an install that predates this rule, because
+  /// that is what the groups below mean by 「unconfigured」. An empty seed is a new install
+  /// now, and has its own group.
+  static const Map<String, Object> _oldInstall = <String, Object>{
+    'flowmic.pref.locale_prompt': 'settled',
+  };
+
+  static Future<_Harness> create({Map<String, Object> seed = _oldInstall}) async {
     final _Harness h = _Harness();
     SharedPreferences.setMockInitialValues(seed);
     h.prefs = await SharedPreferences.getInstance();
@@ -261,6 +268,82 @@ void main() {
 
       // Takes effect on the next utterance.
       expect(await h.speakAndReadWireSourceLang(), 'ko');
+    });
+  });
+
+  // Reverse controls (2026-11-07, this file only; each measured red, restored, rerun
+  // green, same command): `chooseLocale` not setting it → fresh fr red, 「Expected: 'fr'
+  // Actual: 'en'」; the zhTw line removed → fresh zh-TW red, 「Expected: 'zh' Actual:
+  // 'en'」; the pending check dropped in `load` → old-install cases red, 「Expected: 'zh'
+  // Actual: 'en'」.
+  group('🔴 a new install speaks the language its owner just picked (doc 08 §9)', () {
+    Future<_Harness> freshInstallPicks(AppLocale ui) async {
+      final _Harness h = await _Harness.create(seed: const <String, Object>{});
+      expect(h.appSettings.needsLocaleChoice, isTrue, reason: 'premise: a new install');
+      h.appSettings.chooseLocale(ui);
+      return h;
+    }
+
+    test('fresh, picks Français ⇒ fr on the wire, and still fr after a reboot', () async {
+      final _Harness h = await freshInstallPicks(AppLocale.fr);
+      addTearDown(h.dispose);
+      expect(await h.speakAndReadWireSourceLang(), 'fr');
+
+      final AppSettingsController reborn = AppSettingsController(prefs: h.prefs);
+      addTearDown(reborn.dispose);
+      await reborn.load();
+      expect(reborn.spokenLang, 'fr', reason: 'settled + no key would read as an old install');
+    });
+
+    test('fresh, picks 繁體中文 ⇒ zh on the wire: no engine takes zh-TW as speech', () async {
+      final _Harness h = await freshInstallPicks(AppLocale.zhTw);
+      addTearDown(h.dispose);
+      expect(await h.speakAndReadWireSourceLang(), 'zh');
+    });
+
+    test('fresh, picks 中文 ⇒ zh; picks English ⇒ en, the case the owner saw as 中文', () async {
+      final _Harness a = await freshInstallPicks(AppLocale.zh);
+      addTearDown(a.dispose);
+      expect(await a.speakAndReadWireSourceLang(), 'zh');
+      final _Harness b = await freshInstallPicks(AppLocale.en);
+      addTearDown(b.dispose);
+      expect(await b.speakAndReadWireSourceLang(), 'en');
+    });
+
+    test('every UI language maps to a spoken tag on the list', () {
+      for (final AppLocale ui in AppLocale.values) {
+        expect(kSpokenLangs, contains(spokenLangForNewInstall(ui)), reason: ui.name);
+      }
+    });
+
+    test('🔴 prior prefs ⇒ the old install keeps its implicit zh, and no key is written', () async {
+      final _Harness h = await _Harness.create(
+        seed: const <String, Object>{'flowmic.pref.locale': 'fr'},
+      );
+      addTearDown(h.dispose);
+      expect(h.appSettings.needsLocaleChoice, isFalse, reason: 'premise: settled as an upgrade');
+      expect(await h.speakAndReadWireSourceLang(), 'zh',
+          reason: 'its UI being French says nothing: upgrades change nothing');
+      expect(h.prefs.containsKey('flowmic.pref.spoken_lang'), isFalse);
+    });
+
+    test('a stored spoken language survives the first-run answer', () async {
+      final _Harness h = await _Harness.create(
+        seed: const <String, Object>{
+          'flowmic.pref.locale_prompt': 'pending',
+          'flowmic.pref.spoken_lang': 'ja',
+        },
+      );
+      addTearDown(h.dispose);
+      h.appSettings.chooseLocale(AppLocale.fr);
+      expect(await h.speakAndReadWireSourceLang(), 'ja');
+    });
+
+    test('after first run the two settings are two again: setLocale moves nothing', () async {
+      final _Harness h = await freshInstallPicks(AppLocale.fr);
+      addTearDown(h.dispose);
+      h.appSettings.setLocale(AppLocale.de);
+      expect(await h.speakAndReadWireSourceLang(), 'fr');
     });
   });
 

@@ -258,7 +258,10 @@ void main() {
         AiComposeOutcome(reason: AiComposeFailure.serverError, code: 'LLM_INVALID_MODEL');
     expect(r.controller.utteranceFailure?.code, 'LLM_INVALID_MODEL',
         reason: 'positive control: the failure was raised');
-    expect(find.text(_zh.utteranceComposeError(o, neverSent: true)), findsOneWidget);
+    // Two: the banner, and since rc-phone-fixes the row itself (chat_row_reason.dart
+    // `_phoneCodeNoteFor`), which used to print LLM_INVALID_MODEL here. The row reads
+    // its own `neverSent`, so the wrong frame appearing on either is still red below.
+    expect(find.text(_zh.utteranceComposeError(o, neverSent: true)), findsNWidgets(2));
     expect(find.text(_zh.utteranceComposeError(o, neverSent: false)), findsNothing);
     await _finish(tester, r);
   });
@@ -272,7 +275,8 @@ void main() {
     const AiComposeOutcome o =
         AiComposeOutcome(reason: AiComposeFailure.serverError, code: 'LLM_INVALID_MODEL');
     expect(r.controller.utteranceFailure?.code, 'LLM_INVALID_MODEL');
-    expect(find.text(_zh.utteranceComposeError(o, neverSent: false)), findsOneWidget);
+    // Banner and row, as above.
+    expect(find.text(_zh.utteranceComposeError(o, neverSent: false)), findsNWidgets(2));
     await _finish(tester, r);
   });
 }

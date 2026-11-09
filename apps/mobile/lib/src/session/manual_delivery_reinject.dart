@@ -94,7 +94,7 @@ Future<ComposeSendFailure?> runReInject(
     return d.failSettled(
       <String>[entry.id],
       ComposeSendFailure.notConnected,
-      code: 'LINK_DOWN',
+      code: kRowLinkDownCode,
     );
   }
   // The row is GONE (deleted since the caller captured it — the banner's resend

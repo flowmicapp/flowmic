@@ -46,6 +46,9 @@ List<Widget> _metaTail({
   // not evaporated at the store door. Raw identifier, never i18n —
   // error codes are identifiers, not copy. Truncate so a long
   // detail string cannot blow the meta row.
+  // ⚠️ Correction (rc-phone-fixes, 2026-11-07): those two named codes now have
+  // sentences (chat_row_reason.dart `_rowNoteFor`), and 「never i18n」 is what
+  // put 「WIRE_EMIT_FAILED」 in front of a user. This tier is only what is left.
   //
   // N2: ✗ only. RV-43 §4 gives undelivered no reason line —
   // 「没投递，可补投」("not delivered, can be backfilled")
@@ -78,6 +81,10 @@ List<Widget> _metaTail({
   // beside it would repeat the same information less legibly, not
   // add any. If a second code is ever folded into `noFocus`, THAT
   // is the moment to add it back here (the ✗/⛔ shape, not this one).
+  // ⚠️ Correction (D-MKT-11, 2026-11-06): the raw identifier is still not
+  // printed, but no longer for this reason. The face now speaks, through a
+  // human sentence on its own line ([_reasonNoteFor]), so [_reasonLineFor]
+  // returns null because the code has copy (chat_row_reason.dart).
   //
   // 🔴 Card B4-12 (Book 15 G-16 partial) — 📥 UNDELIVERED CAN NOW
   // ALSO CARRY A
@@ -100,19 +107,9 @@ List<Widget> _metaTail({
   // replace, and arguably its own silent failure. Every OTHER code that
   // reaches undelivered (`INJECT_FOCUS_LOST` etc.) is UNCHANGED: (see
   // [_reasonLineFor] for the one place that decides this).
-  if (_reasonLineFor(face, entry.failureReason, strings)
-      case final String line?) ...<Widget>[
-    // CARD-UI (MAIN 2026-10-14): a fact, not a tail that gives way. It used
-    // to be Flexible + ellipsis (so it vanished on most narrow cards); now it
-    // sits on line 2 when it fits and on the overflow line otherwise, never
-    // cut (chat_message_meta.dart `MetaFact`).
-    MetaFact(
-      child: Text(
-        line,
-        style: TextStyle(color: FlowMicColors.t3, fontSize: 10.5),
-      ),
-    ),
-  ],
+  // ⚠️ rc-phone-fixes (2026-11-07): the `_reasonLineFor` entry that stood here is
+  // gone, so everything above is history. No code is printed on a row; every face
+  // that speaks does so on its own line ([_reasonNoteFor]).
   if (explainNoImageResend) ...<Widget>[
     // window B3-9 / Book 15 G-11 — occupies the EXACT slot
     // [canResend]'s

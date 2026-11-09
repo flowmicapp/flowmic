@@ -7,6 +7,7 @@
 // production-path defaults).
 
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show Listenable;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flowmic/src/audio/audio_capture.dart';
@@ -19,6 +20,7 @@ import 'package:flowmic/src/session/delivery_outbox.dart';
 import 'package:flowmic/src/session/outbox_blob_store.dart';
 import 'package:flowmic/src/session/outbox_destination.dart';
 import 'package:flowmic/src/session/outbox_item.dart';
+import 'package:flowmic/src/session/outbox_row_facts.dart';
 import 'package:flowmic/src/session/outbox_store.dart';
 import 'package:flowmic/src/signaling/reconnect.dart';
 import 'package:flowmic/src/signaling/lan_pinning.dart' show LanFingerprintLearner;
@@ -42,6 +44,16 @@ import 'mic_permission_fakes.dart';
 /// only on production-path defaults.
 OutboxStore newTestOutboxStore() => InMemoryOutboxStore();
 OutboxBlobStore newTestOutboxBlobs() => InMemoryOutboxBlobStore();
+
+/// NR-284 — `HistoryPage.queue` for a suite whose subject is not the row's
+/// delivery word: a queue holding nothing. A claim the suite makes out loud, so
+/// it lives here and not as a default in `lib/`. Suites about the word use the
+/// real `ChatController.outboxRowFacts` (test/history_owed_row_screen_test.dart).
+final OutboxRowFacts emptyQueueRowFacts = OutboxRowFacts(
+  changes: Listenable.merge(const <Listenable>[]),
+  queuedEntryIds: () => const <String>{},
+  owedEntryIds: () => const <String>{},
+);
 
 /// A drain host for harnesses whose subject is NOT the queue — it records what
 /// the queue handed it and reports a healthy link.

@@ -150,14 +150,21 @@ enum AsrHealthLevel { none, level1, level2 }
 class AsrTerminalError {
   final String? code;
   final String? message;
-  const AsrTerminalError({this.code, this.message});
+
+  /// FR-M1 — mirrors [SttStall.engineOnComputer] for the same reason the two
+  /// above mirror theirs: the row and the banner must pick the same sentence.
+  final bool engineOnComputer;
+  const AsrTerminalError({this.code, this.message, this.engineOnComputer = false});
 
   @override
   bool operator ==(Object other) =>
-      other is AsrTerminalError && other.code == code && other.message == message;
+      other is AsrTerminalError &&
+      other.code == code &&
+      other.message == message &&
+      other.engineOnComputer == engineOnComputer;
 
   @override
-  int get hashCode => Object.hash(code, message);
+  int get hashCode => Object.hash(code, message, engineOnComputer);
 }
 
 /// Immutable snapshot of every ASR-leg health signal at one instant. Each
@@ -499,9 +506,14 @@ class AsrHealthTracker implements ValueListenable<AsrHealthSnapshot> {
   /// session state, and never clears itself except via [recordingStarted]/
   /// [recordingEnded]. Immediate visibility even while still recording (§A8:
   /// 「立刻显露」).
-  void terminalError(int nowMs, {String? code, String? message}) {
+  void terminalError(int nowMs,
+      {String? code, String? message, bool engineOnComputer = false}) {
     _emit(_controller.value.copyWith(
-      terminalError: AsrTerminalError(code: code, message: message),
+      terminalError: AsrTerminalError(
+        code: code,
+        message: message,
+        engineOnComputer: engineOnComputer,
+      ),
     ));
   }
 

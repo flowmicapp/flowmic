@@ -37,7 +37,7 @@ import {
   type SidecarStatus,
 } from '../lib/bridge';
 // 0.3.8 — the OS-owned doors moved out of bridge.ts when the 800-line cap bit.
-import { openLogDirectory } from '../lib/bridge-os';
+import LogDirectoryRow from './components/LogDirectoryRow.vue';
 import { checkRelayLatency, type NodeLatencyRow } from '../lib/relay-latency';
 // 2026-08-30 — maps fetchAutostartState/setAutostartEnabled's machine reason
 // CODE to a localized sentence; unmapped reasons (free-form bridge text) pass
@@ -108,7 +108,6 @@ const cloud = ref<CloudStatus>({ ...EMPTY_CLOUD_STATUS });
  *  footer and a mute "saved locally" with no way to learn why. */
 const sidecar = ref<SidecarStatus | null>(null);
 const resetDone = ref(false);
-const logOpenPending = ref(false);
 /** V2-10 launch at startup. null = unknown state (read failed or not yet read
  *  back) — never render a toggle direction that hasn't been verified (criterion
  *  4). The displayed value always comes from reading the platform's autostart
@@ -119,11 +118,6 @@ const autostart = ref<AutostartInfo | null>(null);
  *  failure must be visible in the UI). */
 const autostartError = ref<string | null>(null);
 const autostartPending = ref(false);
-/** null = no failure yet. A string = the REASON, shown verbatim: "the directory
- *  doesn't exist" and "the shell won't open" need different fixes, and swallowing
- *  the difference is what makes a forensic path unusable at the exact moment it
- *  is needed. */
-const logOpenError = ref<string | null>(null);
 
 /** RV-新B — the CURRENT channel (admission-derived, from the CONNECTION frame), not
  *  the deleted `cloud.channel` preference flag which was a constant "local LAN". */
@@ -208,18 +202,6 @@ async function toggleAutostart(): Promise<void> {
     }
   } finally {
     autostartPending.value = false;
-  }
-}
-
-async function openLogs(): Promise<void> {
-  if (logOpenPending.value) return;
-  logOpenPending.value = true;
-  logOpenError.value = null;
-  try {
-    const r = await openLogDirectory();
-    logOpenError.value = r.ok ? null : r.reason;
-  } finally {
-    logOpenPending.value = false;
   }
 }
 
@@ -478,16 +460,7 @@ onUnmounted(() => {
             <OpenSourceLicenses />
             <div class="sub-h" style="margin-top:14px;margin-bottom:6px">{{ S.set_about_log_title }}</div>
             <div class="muted" style="font-size:12.5px;line-height:1.55">{{ S.set_about_log_hint }}</div>
-            <div class="log-open-row">
-              <span class="mono">{{ S.set_about_log_path }}</span>
-              <button class="btn ghost sm" type="button" :disabled="logOpenPending" @click="openLogs">
-                {{ logOpenPending ? S.set_about_log_opening : S.set_about_log_open }}
-              </button>
-            </div>
-            <div v-if="logOpenError !== null" class="log-open-error" role="alert">
-              {{ S.set_about_log_open_failed }} <span class="mono">{{ S.set_about_log_path }}</span>
-              <div class="log-open-reason mono">{{ logOpenError }}</div>
-            </div>
+            <LogDirectoryRow />
           </div>
           <!-- UP-3b in-app update (design doc §5.2: "add a block below it, no new
                page"). 🔴 No "check for updates" item added to the tray, not a single
@@ -549,10 +522,7 @@ onUnmounted(() => {
 .prefs-row.as-toggle.busy { cursor: default; opacity: .6; }
 .prefs-label { font-size: 13.5px; font-weight: 600; }
 .autostart-path { font-size: 11.5px; color: var(--t3); margin: -6px 2px 10px; word-break: break-all; line-height: 1.5; }
-.log-open-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; flex-wrap: wrap; font-size: 12.5px; }
 .log-open-error { margin-top: 8px; color: var(--red); font-size: 12px; line-height: 1.5; }
-.log-open-reason { margin-top: 3px; color: var(--t3); font-size: 11.5px; word-break: break-word; }
-.log-open-row .btn:disabled { opacity: .5; cursor: default; }
 /* RV-94 (B4-11): the actionable notice row for "saved locally" because "the local
    service hasn't started". */
 .sync-no-service {

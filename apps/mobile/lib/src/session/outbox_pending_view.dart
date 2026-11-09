@@ -235,6 +235,8 @@ class OutboxPendingView {
   /// carries applies here as well: **widening or narrowing this set changes
   /// what the timeline SAYS**, not only whether a resend reuses an item. The
   /// history page passes `owed: false` explicitly (`history_page.dart`).
+  /// ⚠️ Correction (NR-284): it no longer does. It reads this set as well, via
+  /// `ChatController.outboxRowFacts`, so the warning above covers that screen too.
   ///
   /// ⚠️ A DELETED PAIRING DOES NOT EMPTY IT. `DeliveryOutbox` has no purge on
   /// unpair (grep `discard` / `purge` in delivery_outbox.dart: none; the queue

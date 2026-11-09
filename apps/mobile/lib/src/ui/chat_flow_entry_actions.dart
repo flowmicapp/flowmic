@@ -208,9 +208,17 @@ List<TimelineEntry> _sendRetryTargetsRouted(_ChatFlowPageState s) =>
 /// independent deadlines — a retry the PC never answers ends at ✗ with a named
 /// reason instead of a permanent ⏳. A known-down link fails instantly without
 /// emitting at all.
+///
+/// 🔴 rc-phone-fixes-2 (measured on a device, 2026-11-07) — correction to the first
+/// paragraph: this called `reInject` directly and so skipped the owed check the row's
+/// Resend makes. On a row the queue still owed it minted a second id (`r18` beside
+/// `m17`), the computer saw two deliveries, and Notepad had the sentence twice. It now
+/// takes the row's path ([ChatController.resendEntry] → `outboxResendText`): owed ⇒ the
+/// same item, nothing owed ⇒ `reInject` as described above. Doc 15
+/// `15-RECEIPT-STATES.md` §2.0.1-c.
 void _retryFailedSendRouted(_ChatFlowPageState s, List<TimelineEntry> entries) {
   s.controller.dismissSendFailure();
   for (final TimelineEntry entry in entries) {
-    s.controller.reInject(entry);
+    s.controller.resendEntry(entry);
   }
 }

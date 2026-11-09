@@ -206,7 +206,26 @@ const AppLocale kDefaultUiLocale = AppLocale.en;
 ///     guarded by `test/spoken_language_test.dart`'s groups ②③, which
 ///     **assert on the ACTUAL wire frame** (reverse control, measured:
 ///     delete the `pttDown` line ⇒ group ① stays all-green, groups ②③ go red).
+///
+/// 🔴 rc-phone-fixes-2 (2026-11-07) — this constant now answers one narrower question:
+/// what does an install that was ALREADY settled, and never stored a choice, speak? It
+/// is `zh` because that is what those installs have always sent, so an upgrade changes
+/// nothing. A truly new install does not read it: [spokenLangForNewInstall]. Rule: doc
+/// 08 §9.
 const String kSpokenLangDefault = 'zh';
+
+/// Where a new install lands when its UI language is not a spoken language: English,
+/// the auxiliary language (D-45). Not [kSpokenLangDefault], which is the old installs'
+/// status quo and not a recommendation.
+const String kSpokenLangNewInstallFallback = 'en';
+
+/// A truly new install's spoken language, from the UI language its owner just picked
+/// (doc 08 §9). `zhTw` is `zh`: Traditional vs Simplified is the output script, not the
+/// speech (see [kSpokenLangs]). This reads a choice the user made, never the OS locale.
+String spokenLangForNewInstall(AppLocale ui) {
+  if (ui == AppLocale.zhTw) return 'zh';
+  return kSpokenLangs.contains(ui.name) ? ui.name : kSpokenLangNewInstallFallback;
+}
 
 /// The label set the picker offers. Grown 4 → 8 by WP3 C11 (owner 2026-08-17:
 /// the spoken language must reach the nine settled languages, not stay at the
@@ -564,6 +583,12 @@ class AppSettingsController extends ChangeNotifier {
     //   [_resolveFirstRunOnboarding]'s comment.
     _needsOnboarding = _resolveFirstRunOnboarding();
     _needsLocaleChoice = _resolveFirstRunPrompt();
+    // Nothing can be spoken before the question is answered (main.dart shows only the
+    // language page), but the value in memory should not be the old installs' `zh`
+    // meanwhile. Not persisted: [chooseLocale] writes the real answer.
+    if (_needsLocaleChoice && storedSpoken == null) {
+      _spokenLang = spokenLangForNewInstall(_locale);
+    }
     notifyListeners();
   }
 
@@ -699,7 +724,16 @@ class AppSettingsController extends ChangeNotifier {
   /// Apply-and-persist immediately / no save button (red line): the tap IS
   /// the choice, and [notifyListeners] re-renders the whole tree in the
   /// chosen language on the next frame — no restart.
+  ///
+  /// 🔴 rc-phone-fixes-2 — the answer to a pending question also sets the spoken language
+  /// of a new install, and PERSISTS it: once settled, an absent key means an old install
+  /// (`zh`), so leaving it unwritten would turn this install into one on the next boot.
+  /// A stored choice is left alone, and [setLocale] never moves this.
   void chooseLocale(AppLocale next) {
+    if (_needsLocaleChoice && _prefs.getString(_kSpokenLang) == null) {
+      _spokenLang = spokenLangForNewInstall(next);
+      _prefs.setString(_kSpokenLang, _spokenLang);
+    }
     _locale = next;
     _prefs.setString(_kLocale, next.name);
     _prefs.setString(_kLocalePrompt, kPromptSettled);

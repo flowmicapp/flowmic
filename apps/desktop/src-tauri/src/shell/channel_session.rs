@@ -286,6 +286,16 @@ fn reconcile_stored_pc_name() -> String {
 /// makes a refused key loud. LAN passes `None` for both, so its handshake and its
 /// credential file are exactly what every shipped build already uses.
 fn connect_socket(app: &AppHandle, url: &str, channel: Channel, jwt: Option<String>) {
+    // D-MKT-21 — `connect_cloud` read this key and then spent seconds picking a node.
+    // A sign-out in that window empties the slot and withdraws the sessions, and this
+    // dial would then fill the slot again with the key the user just removed.
+    let withdrawn = |app: &AppHandle| {
+        channel == Channel::Cloud && !cloud::snapshot(app).holds_key(jwt.as_deref())
+    };
+    if withdrawn(app) {
+        forensic::record("cloud", "dial dropped: the key it started with is no longer held");
+        return;
+    }
     // v0.2.1 — converge the machine name BEFORE this channel registers.
     // See pc_name::reconcile_machine_name for the smoke-run evidence: the two
     // credential files had drifted to two different names, and each channel was
@@ -308,7 +318,7 @@ fn connect_socket(app: &AppHandle, url: &str, channel: Channel, jwt: Option<Stri
     // per-channel table let the cloud leg re-type what the LAN leg had already
     // typed. Both channels now take `SocketConfig::deduper`'s default, which is
     // `dedup::machine_deduper()` — one table, not two that agree.
-    cfg.jwt = jwt;
+    cfg.jwt = jwt.clone();
     cfg.auth_failure = match channel {
         Channel::Cloud => Some(cloud::auth_failure_hook(app)),
         Channel::Lan => None,
@@ -329,6 +339,11 @@ fn connect_socket(app: &AppHandle, url: &str, channel: Channel, jwt: Option<Stri
     }));
     let tag = channel.tag();
     match socket::connect(cfg) {
+        // The refusal hook withdraws the key off the main thread, so it can land
+        // during the connect above. Dropping `sock` here closes it for good.
+        Ok(_sock) if withdrawn(app) => {
+            forensic::record("cloud", "dial dropped after connecting: the key is no longer held");
+        }
         Ok(sock) => {
             set_socket(app, channel, Some(sock));
             forensic::record("sidecar", &format!("socket connected → {url} (channel={tag})"));

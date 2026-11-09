@@ -117,17 +117,19 @@ void main() {
         reason: 'the internal identifier must not be painted next to the sentence');
   });
 
-  testWidgets('positive control: a code nobody knows still prints the bare identifier and no sentence', (
+  testWidgets('positive control: a code nobody knows reads the generic sentence, a different one', (
     WidgetTester tester,
   ) async {
-    // Without this, 「findsNothing」 above could be a blind finder.
+    // Without this, 「findsNothing」 above could be a blind finder: the same finder
+    // sees the note here, and it is not the no-answer sentence. Since rc-phone-fixes
+    // no code is printed on a row (rc_phone_row_sentence_test.dart).
     tester.view.physicalSize = const Size(360 * 3, 780 * 3);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
         _tile(_row(code: 'NR279_UNKNOWN_CODE'), const AppStringsZh()));
-    expect(_note, findsNothing);
-    expect(find.textContaining('NR279_UNKNOWN_CODE'), findsOneWidget);
+    expect(tester.widget<Text>(_note).data, const AppStringsZh().rowFailureReasonUnknown);
+    expect(find.textContaining('NR279_UNKNOWN_CODE'), findsNothing);
   });
 
   testWidgets('nine languages: the reused sentence renders in full on the ✗ row', (
