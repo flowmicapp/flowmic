@@ -7,7 +7,7 @@
 // or removing "hf-mirror.com" from it, turns this file red when run by itself:
 //   node scripts/publish-portable-readme.test.mjs
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { portableReadmeText } from './publish-portable-readme.mjs';
@@ -27,9 +27,13 @@ for (const key of ['set_nav_stt', 'model_title', 'model_dl', 'nav_settings']) {
   assert.ok(readme.includes(label(key)), `the README must print the screen's own words for ${key}: ${label(key)}`);
 }
 
-const policy = readFileSync(join(root, 'docs/legal/privacy-policy.md'), 'utf8');
+// The public tree carries no docs/ (RELEASE-IRONRULES §1-13), so the policy half
+// runs only where the policy file exists; the README half runs everywhere.
+const policyPath = join(root, 'docs/legal/privacy-policy.md');
+const policy = existsSync(policyPath) ? readFileSync(policyPath, 'utf8') : null;
+if (policy === null) console.log('SKIP policy hosts: this tree has no docs/legal (the public export)');
 for (const host of ['huggingface.co', 'hf-mirror.com', 'GitHub']) {
-  assert.ok(policy.includes(host), `the privacy policy no longer names ${host}`);
+  if (policy !== null) assert.ok(policy.includes(host), `the privacy policy no longer names ${host}`);
   assert.ok(readme.includes(host), `the README must name ${host}`);
 }
 
