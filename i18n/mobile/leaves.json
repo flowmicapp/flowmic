@@ -5031,6 +5031,16 @@
       "params": []
     },
     {
+      "key": "pendingRecoveryRouteChanged",
+      "leaf": "_lfPendingRecoveryRouteChanged",
+      "params": []
+    },
+    {
+      "key": "pendingRecoveryEngineSetup",
+      "leaf": "_lfPendingRecoveryEngineSetup",
+      "params": []
+    },
+    {
       "key": "pendingRecoveryDeleteFailed",
       "leaf": "_lfPendingRecoveryDeleteFailed",
       "params": []

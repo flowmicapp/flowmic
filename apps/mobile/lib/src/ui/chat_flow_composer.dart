@@ -52,6 +52,25 @@ void _onModeSelectedRouted(_ChatFlowPageState s, FlowMode next) {
   if (s.controller.isRecording || s.controller.mode == next) return;
   countUsage(UsageEvent.modeSwitch);
   s.controller.setMode(next);
+  // 0.3.122 — Translate into the language being spoken changes nothing a user
+  // can see (a new English install has spoken en and target en since 0.3.121's
+  // first-run spoken language). The target is the user's to choose: no
+  // language is guessed (D-45 also forbids falling back to English), so the
+  // picker the chip opens is opened here, once, on the switch. Dismissed ⇒
+  // nothing changes, the same as on the chip.
+  final String spoken = s.widget.appSettings?.spokenLang ?? kSpokenLangDefault;
+  if (next == FlowMode.translate &&
+      s.controller.translateTarget == spoken &&
+      s.mounted) {
+    unawaited(() async {
+      final String? chosen = await showTranslateTargetPicker(
+        s.context,
+        strings: s._strings,
+        target: s.controller.translateTarget,
+      );
+      if (chosen != null) await s.controller.setTranslateTarget(chosen);
+    }());
+  }
 }
 
 /// 🔴 The pttDown ACCEPTANCE edge — the one place the screen reacts to

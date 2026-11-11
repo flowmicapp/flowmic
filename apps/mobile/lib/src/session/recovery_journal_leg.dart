@@ -55,6 +55,7 @@ import 'pending_recovery_store.dart' show PendingRecoveryStore;
 import 'recovery_leg_policy.dart';
 import 'recovery_settle.dart';
 import 'recovery_relevant_projection.dart';
+import 'recording_route.dart';
 
 export 'recovery_leg_policy.dart';
 
@@ -224,10 +225,16 @@ class RecoveryJournalLeg {
     }
     bool stop = false;
     int heldForAccount = 0;
+    int heldForRoute = 0;
     for (final _Candidate c in candidates) {
       // Card RC-S — BEFORE the budget, so a held recording spends nothing.
       if (_heldForAnotherAccount(c)) {
         heldForAccount += 1;
+        continue;
+      }
+      // D-MKT-22 — same place, same reason (recording_route.dart).
+      if (_heldForRoute(c)) {
+        heldForRoute += 1;
         continue;
       }
       if (!c.status.mayAutoAttemptAt(_clock())) continue;
@@ -248,6 +255,11 @@ class RecoveryJournalLeg {
     if (heldForAccount > 0) {
       diag('audio.recovery.held_other_account', <String, Object?>{
         'recordings': heldForAccount,
+      });
+    }
+    if (heldForRoute > 0) {
+      diag('audio.recovery.held_route', <String, Object?>{
+        'recordings': heldForRoute,
       });
     }
     return _tally(verdict.tier, await _scanCandidates(), stopEarly: stop);
@@ -288,6 +300,18 @@ class RecoveryJournalLeg {
       recordingOwnerOf(c.manifest.configSnapshot,
           _spill.recordingAccount.currentDigest()) ==
       RecordingOwner.other;
+
+  /// D-MKT-22 — 🔴 THE AUTOMATIC ROUTE FEEDS A RECORDING ONLY ALONG THE ROUTE
+  /// IT WAS RECORDED ON, and not after its engine refused for want of a setup
+  /// (recording_route.dart says why each). Held the way RC-S holds: nothing
+  /// sent, nothing counted. Asked for AUTOMATIC attempts only — a user's press
+  /// ([runOne]) is consent to the route that is up now.
+  bool _heldForRoute(_Candidate c) =>
+      recordingRouteHoldOf(c.manifest,
+              channel: _session.serverChannel.value,
+              pcMachineUid: _session.pcMachineUid) !=
+          RecordingRouteHold.none ||
+      routeUnknownNow(c.manifest, _session.serverChannel.value);
 
   /// NR-137 — can a re-transcription of [c]'s kept words replace them? The
   /// same two halves the pending list asks (`PendingRecoveryStore._addJournal`).
@@ -450,6 +474,8 @@ class RecoveryJournalLeg {
             tier: tier,
             durationMs: pcmBytesToMs(held),
             currentAccount: _spill.recordingAccount.currentDigest(),
+            channel: _session.serverChannel.value,
+            pcMachineUid: _session.pcMachineUid,
           );
           bySession[key] = SessionDebtBytes(
             recoveryItem: was.waitingAuto ? was.recoveryItem : item,
@@ -457,7 +483,8 @@ class RecoveryJournalLeg {
                 was.waitingAuto ||
                 (c.status.waitingAuto &&
                 tier != RecoveryTier.awaitingServerCapability &&
-                !_heldForAnotherAccount(c)),
+                !_heldForAnotherAccount(c) &&
+                !_heldForRoute(c)),
             pendingBytes: was.pendingBytes + held,
             outageBytes: was.outageBytes + (fromOutage ? held : 0),
           );

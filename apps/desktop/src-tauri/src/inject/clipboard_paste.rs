@@ -301,12 +301,25 @@ impl ClipboardFallbackClient {
             // clipboard_snapshot now makes that rare; this makes it harmless.
             // The lost clipboard is REAL and is said out loud on the forensic
             // record rather than being folded into the delivery verdict.
-            (Ok(outcome), Err(restore_error)) if outcome.confirmed => {
+            //
+            // 🔴 WIDENED (2026-11-10, doc 15 §1 「图片」 correction) from
+            // `if outcome.confirmed` to ANY `Ok(outcome)` — the same widening P1-1
+            // gave `paste_text` above, for the same reason. Since 2026-07-30 the
+            // receipt is not the image gate: an unconfirmed paste is `injected`
+            // (`map_image_outcome`), so a restore failure cannot be the thing that
+            // turns a performed paste into 「failed」. On macOS `confirmed` is false
+            // by construction (`inject/macos/pasteboard.rs`), so the old guard made
+            // EVERY landed picture with a failed restore report INJECT_CLIPBOARD_FAIL
+            // and the phone say the paste did not complete. `dropped_unrendered`
+            // rides through untouched, so F-4 (`map_image_outcome`) still fails a
+            // dropped offer that nobody read.
+            (Ok(outcome), Err(restore_error)) => {
                 crate::forensic::record(
                     "inject",
                     &format!(
-                        "image WAS pasted (target consumed it) but the user's previous \
-                         clipboard could not be restored: {restore_error}"
+                        "image paste performed (confirmed={}) but the user's previous \
+                         clipboard could not be restored: {restore_error}",
+                        outcome.confirmed
                     ),
                 );
                 Ok(outcome)
@@ -409,10 +422,14 @@ mod tests {
         assert!(out.confirmed);
     }
 
-    /// …but an UNCONFIRMED paste plus a failed restore is still a failure: there
-    /// is no receipt, so there is nothing to outrank the restore error.
+    /// …and so does an UNCONFIRMED one (2026-11-10, doc 15 §1 「图片」 correction).
+    /// The receipt has not been the image gate since 2026-07-30, so a failed
+    /// restore must not turn a performed paste into a failure. This is every
+    /// landed picture on macOS, where `confirmed` is false by construction.
+    /// The verdict is taken end to end through `map_image_outcome`, because that
+    /// is what the phone hears.
     #[test]
-    fn an_unconfirmed_image_paste_with_a_failed_restore_is_a_failure() {
+    fn an_unconfirmed_image_paste_survives_a_failed_restore() {
         let client = ClipboardFallbackClient::with_image_fakes(
             || Ok(ClipboardSnapshot::default()),
             |_s| Err(InjectError::Win32(5)),
@@ -425,10 +442,34 @@ mod tests {
                 })
             },
         );
-        assert!(matches!(
+        let out = crate::inject::clipboard_outcome::map_image_outcome(
             client.paste_image(&[(8, vec![0])]),
-            Err(InjectError::Win32(5))
-        ));
+        );
+        assert!(out.ok, "a performed paste stays injected: {:?}", out.error_code);
+        assert_eq!(out.error_code, None);
+    }
+
+    /// The widening does not reach F-4: a dropped offer nobody read is still a
+    /// failure, restore or no restore.
+    #[test]
+    fn a_dropped_unread_image_with_a_failed_restore_is_still_a_failure() {
+        let client = ClipboardFallbackClient::with_image_fakes(
+            || Ok(ClipboardSnapshot::default()),
+            |_s| Err(InjectError::Win32(5)),
+            |_f| {
+                Ok(ConfirmOutcome {
+                    confirmed: false,
+                    requested_format: None,
+                    dropped_unrendered: true,
+                    ..Default::default()
+                })
+            },
+        );
+        let out = crate::inject::clipboard_outcome::map_image_outcome(
+            client.paste_image(&[(8, vec![0])]),
+        );
+        assert!(!out.ok);
+        assert_eq!(out.error_code, Some(crate::error_codes::INJECT_CLIPBOARD_FAIL));
     }
 
     #[test]

@@ -332,7 +332,7 @@ export const KO: WebMessages = {
   "sttStallMessage__2": "음성 엔진이 오류를 보고했습니다",
   "sttStallMessage__3": "음성이 감지되지 않았습니다. 마이크에 가까이에서 다시 말씀해 주세요",
   "sttStallMessage__4": "마이크에서 아무 소리도 수집되지 않았습니다. 시스템의 마이크 권한이나 다른 앱이 마이크를 점유하고 있는지 확인하세요",
-  "sttStallConfigMissing": "음성 인식 엔진을 시작할 수 없습니다: 엔진 구성 요소나 모델 파일이 없거나, 이 언어에 엔진이 설정되어 있지 않습니다. 엔진 설치와 설정을 확인하세요",
+  "sttStallConfigMissing": "아직 이 언어의 음성을 텍스트로 바꿀 수 없습니다. 설정에서 사용 언어를 확인하거나, 컴퓨터의 FlowMic에서 '음성 인식'을 확인하세요.",
   "sttStallEngineErrorCoded": "음성 엔진이 오류를 보고했습니다({code})",
   "sttStallLanguageUnsupported": "이 녹음에 사용된 음성 엔진은 선택한 언어를 지원하지 않습니다. 설정에서 이 언어에 다른 엔진을 지정하거나, 지원되는 언어로 말해 주세요",
   "sttStallHeardNoWords": "소리는 들어왔지만 어떤 말인지 알아듣지 못했습니다. 마이크에 가까이에서 다시 말씀해 주시고, 설정의 말하는 언어가 실제로 말한 언어와 같은지 확인해 주세요",

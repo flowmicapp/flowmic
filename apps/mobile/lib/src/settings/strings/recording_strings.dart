@@ -229,9 +229,9 @@ mixin RecordingStrings on AppStringsLeaves {
   // per-code, four languages, and an unrecognised code prints its raw
   // identifier rather than getting a sentence invented for it).
 
-  /// `STT_CONFIG_MISSING` — the engine refused to open, by name. BOTH measured
-  /// exits are named, because the phone cannot tell them apart and the frame
-  /// does not say: the engine's runtime component missing from the install
+  /// `STT_CONFIG_MISSING` — the engine refused to open, by name. Two measured
+  /// exits (0.3.122: no longer named; the copy says what to check instead —
+  /// spoken language, Speech recognition): the engine's runtime component missing from the install
   /// (sherpa addon not shipped — the P0 packaging truth) and the model files /
   /// language routing missing from the configuration. The registered protocol
   /// sentence (「该语言尚未配置识别引擎。」("no recognition engine has been

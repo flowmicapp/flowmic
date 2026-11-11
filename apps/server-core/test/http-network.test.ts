@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { classifyLanIpv4, collectLanCandidates, collectLanIpv4, rankLanIpv4 } from '../src/http/router';
+import { classifyLanAdapter } from '../src/http/lan-candidates';
 import { parseArgv } from '../src/index';
 
 describe('collectLanIpv4 (/api/network LAN-IP selection)', () => {
@@ -89,6 +90,92 @@ describe('GA-21 LAN candidate ranking', () => {
     expect(got[0]?.address).toBe('10.0.0.78'); // default guess, unchanged
     expect(got.map((c) => c.address)).toContain('100.64.7.78'); // …but pickable
     expect(got[1]?.nonStandardPrivate).toBe(true); // labelled, not demoted away
+  });
+});
+
+describe('collectLanCandidates: a VPN or virtual adapter never outranks the physical LAN (D-MKT-23)', () => {
+  it("test host 129 as os.networkInterfaces() reports it: the TAP VPN's RFC1918 address goes below the LAN", () => {
+    // Read on 129 (2026-11-10): 「本地连接」 is TAP-Windows Adapter V9 (MAC 00-FF-…,
+    // 10.0.0.129/24, the VPN to the VPS); 「以太网」 is the physical NIC
+    // (100.64.7.129/16, carries the default route). The tablet dials 100.64.7.129.
+    const ifaces = {
+      本地连接: [{ family: 'IPv4', address: '10.0.0.129', internal: false, mac: '00:ff:c6:ea:6e:74' }],
+      以太网: [{ family: 'IPv4', address: '100.64.7.129', internal: false, mac: 'bc:24:11:8e:14:c5' }],
+      'Loopback Pseudo-Interface 1': [{ family: 'IPv4', address: '127.0.0.1', internal: true, mac: '00:00:00:00:00:00' }],
+    };
+    const got = collectLanCandidates(ifaces as never);
+    expect(got.map((c) => c.address)).toEqual(['100.64.7.129', '10.0.0.129']);
+    expect(collectLanIpv4(ifaces as never)[0]).toBe('100.64.7.129');
+  });
+
+  it('orders hardware, then hypervisor/container NICs, then tunnels; the address tier only within a class', () => {
+    const ifaces = {
+      wg0: [{ family: 'IPv4', address: '10.6.0.2', internal: false, mac: '00:00:00:00:00:00' }],
+      'vEthernet (WSL)': [{ family: 'IPv4', address: '172.30.160.1', internal: false, mac: '00:15:5d:01:02:03' }],
+      docker0: [{ family: 'IPv4', address: '172.17.0.1', internal: false, mac: '02:42:ac:11:00:01' }],
+      'Wi-Fi': [{ family: 'IPv4', address: '100.70.1.5', internal: false, mac: 'f4:5c:89:aa:bb:cc' }],
+      Ethernet: [{ family: 'IPv4', address: '192.168.1.20', internal: false, mac: '3c:7c:3f:11:22:33' }],
+    };
+    expect(collectLanCandidates(ifaces as never).map((c) => c.address)).toEqual([
+      '192.168.1.20', // hardware, RFC1918
+      '100.70.1.5', // hardware, non-standard private
+      '172.30.160.1', // hypervisor (NIC order kept within the class)
+      '172.17.0.1', // container
+      '10.6.0.2', // tunnel, even though RFC1918
+    ]);
+  });
+
+  it("the dev PC as os.networkInterfaces() reports it: a Hyper-V EXTERNAL switch's vEthernet is the LAN", () => {
+    // Read 2026-11-10 on the dev PC: 「vEthernet (WSL-NET)」 is a Hyper-V external switch
+    // bound to the physical X520 (same MAC) and holds the LAN address; the Default
+    // Switch is internal (00:15:5d); two TAP VPNs and a tunnel (mihomo) sit beside them.
+    const ifaces = {
+      mihomo: [{ family: 'IPv4', address: '198.18.0.1', internal: false, mac: '00:00:00:00:00:00' }],
+      'vEthernet (WSL-NET)': [{ family: 'IPv4', address: '100.64.7.78', internal: false, mac: '00:e3:c0:01:1b:24' }],
+      '以太网 3': [{ family: 'IPv4', address: '169.254.3.1', internal: false, mac: 'be:3a:f2:b6:05:9f' }],
+      本地连接: [{ family: 'IPv4', address: '10.0.0.78', internal: false, mac: '00:ff:6b:8c:14:f5' }],
+      '本地连接 2': [{ family: 'IPv4', address: '10.8.68.78', internal: false, mac: '00:ff:a8:55:bc:77' }],
+      'vEthernet (Default Switch)': [{ family: 'IPv4', address: '172.31.16.1', internal: false, mac: '00:15:5d:59:a9:49' }],
+    };
+    expect(collectLanCandidates(ifaces as never).map((c) => c.address)).toEqual([
+      '100.64.7.78', // hardware (external switch)
+      '172.31.16.1', // hypervisor (internal switch)
+      '10.0.0.78', // tunnels: RFC1918 first, then NIC order
+      '10.8.68.78',
+      '198.18.0.1',
+    ]);
+  });
+
+  it('ranks, never drops: every address is still offered', () => {
+    const ifaces = {
+      tun0: [{ family: 'IPv4', address: '10.8.0.6', internal: false, mac: '00:00:00:00:00:00' }],
+    };
+    expect(collectLanCandidates(ifaces as never).map((c) => c.address)).toEqual(['10.8.0.6']);
+  });
+
+  it('a Wi-Fi private (locally administered) MAC is still hardware', () => {
+    expect(classifyLanAdapter('Wi-Fi', 'a6:13:9e:44:55:66')).toBe('hardware');
+    expect(classifyLanAdapter('en0', '9a:01:02:03:04:05')).toBe('hardware');
+  });
+
+  it('a VM guest whose only NIC is a hypervisor NIC keeps it first over a tunnel', () => {
+    const ifaces = {
+      'Ethernet 2': [{ family: 'IPv4', address: '10.0.0.50', internal: false, mac: '00:ff:12:34:56:78' }],
+      Ethernet: [{ family: 'IPv4', address: '100.64.7.50', internal: false, mac: '00:15:5d:aa:bb:cc' }],
+    };
+    expect(collectLanCandidates(ifaces as never)[0]?.address).toBe('100.64.7.50');
+  });
+
+  it('recognises tunnels and virtual NICs by name when the MAC says nothing', () => {
+    for (const n of ['Tailscale', 'ZeroTier One [abcd]', 'utun3', 'tun0', 'wg-office', 'ppp0', 'NordLynx', 'Corp VPN']) {
+      expect(classifyLanAdapter(n, undefined), n).toBe('tunnel');
+    }
+    for (const n of ['docker0', 'virbr0', 'vmnet8', 'vboxnet0', 'br-1a2b3c', 'bridge100']) {
+      expect(classifyLanAdapter(n, undefined), n).toBe('hypervisor');
+    }
+    for (const n of ['Ethernet', '以太网', 'Wi-Fi', 'WLAN', 'eth0', 'enp3s0', 'wlp2s0', 'en0', 'br0', 'vEthernet (WSL-NET)']) {
+      expect(classifyLanAdapter(n, undefined), n).toBe('hardware');
+    }
   });
 });
 

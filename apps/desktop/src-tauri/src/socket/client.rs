@@ -404,6 +404,7 @@ pub fn connect(config: SocketConfig) -> Result<DesktopSocket, Box<rust_socketio:
     builder = lifecycle::wire_open(builder, pairing.clone(), reconciler.clone(), connected.clone());
     builder = lifecycle::wire_close(builder, pairing.clone(), connected.clone());
     builder = lifecycle::wire_error(builder, pairing.clone());
+    builder = lifecycle::wire_any(builder, pairing.clone());
 
     // ── capsule fan-out (stt:*) + timeline fan-out (history:*) + settings peer
     //    broadcast — each forwarded verbatim to the Vue windows (07 §4/§9). ──

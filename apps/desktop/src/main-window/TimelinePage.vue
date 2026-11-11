@@ -20,7 +20,7 @@ import {
 } from './store';
 import { INJECT_FAIL_REASON, MODE_BADGE, S } from '../lib/strings';
 import { TL_BATCH_MSG, TL_METRICS_MSG, TL_RETENTION_MSG } from '../lib/strings/timeline';
-import { planBatchCopy, preCopyHint, resultMessage, selectedInOrder } from './batch-copy';
+import { planBatchCopy, preCopyHint, resultMessage, selectedInOrder, type BatchCopyPlan } from './batch-copy';
 import { canCopyRow, performRowCopy, planRowCopy } from './timeline-copy';
 import { copyRowImage } from '../lib/bridge-clipboard';
 import { canReinject, reinjectLabel, statusBadge, statusLine } from '../lib/status';
@@ -422,7 +422,12 @@ function reInject(e: TimelineRow): void {
 // ── V2-18 multi-select + batch copy (owner 2026-07-28 ①②③) ──
 const selecting = ref(false);
 const selectedKeys = ref<ReadonlySet<string>>(new Set());
-const batchMsg = ref('');
+/** The last batch copy's plan, not its sentence: `batchMsg` is built from it when
+ *  it renders, so a language switch made after the copy reaches the line
+ *  (2026-11-10, the shape FR-D2 fixed for sign-in; pinned by
+ *  stored-sentence-language-switch.test.ts). */
+const batchResult = ref<BatchCopyPlan | null>(null);
+const batchMsg = computed(() => (batchResult.value === null ? '' : resultMessage(batchResult.value)));
 const batchMsgKind = ref<'ok' | 'warn'>('ok');
 
 /** Selected rows in DISPLAY order (see selectedInOrder). The count and the
@@ -454,7 +459,7 @@ function toggleSelecting(): void {
   editing.value = null;
   confirming.value = null;
   selectedKeys.value = new Set();
-  batchMsg.value = '';
+  batchResult.value = null;
 }
 function toggleOne(e: TimelineRow): void {
   const next = new Set(selectedKeys.value);
@@ -464,16 +469,16 @@ function toggleOne(e: TimelineRow): void {
   selectedKeys.value = next;
   // A stale "Copied 3 items" beside a CHANGED selection would read as about that
   // selection — the message dies with any selection change.
-  batchMsg.value = '';
+  batchResult.value = null;
 }
 function selectAll(): void {
   // Everything in the CURRENT filtered view — what the user is looking at.
   selectedKeys.value = new Set(filtered.value.map(rowKey));
-  batchMsg.value = '';
+  batchResult.value = null;
 }
 function clearSelection(): void {
   selectedKeys.value = new Set();
-  batchMsg.value = '';
+  batchResult.value = null;
 }
 
 /** ①batch copy. The payload is plan.text — one line per text row, display order,
@@ -481,7 +486,7 @@ function clearSelection(): void {
  *  clipboard write resolves; a refused write goes to the red copyError line,
  *  never a green "Copied" (the existing single-row copy does the same). */
 async function copySelected(): Promise<void> {
-  batchMsg.value = '';
+  batchResult.value = null;
   copyError.value = '';
   const plan = planBatchCopy(selectedRows.value);
   if (plan.copied === 0) {
@@ -489,7 +494,7 @@ async function copySelected(): Promise<void> {
     // empty string would be its own small lie) and the message says exactly
     // what happened — never "Copied 0 items" (③).
     batchMsgKind.value = 'warn';
-    batchMsg.value = resultMessage(plan);
+    batchResult.value = plan;
     return;
   }
   try {
@@ -499,7 +504,7 @@ async function copySelected(): Promise<void> {
     return;
   }
   batchMsgKind.value = 'ok';
-  batchMsg.value = resultMessage(plan);
+  batchResult.value = plan;
 }
 
 // ── owner 2026-08-02 rework ruling: "Data becomes its own page, switchable with

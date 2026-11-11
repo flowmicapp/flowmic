@@ -636,6 +636,8 @@ pub fn emit_register<E: AckEmitter + ?Sized>(
                     }
                 }
             }
+            // Runs on the polling thread: see `socket::session_stop::POLLING_THREAD_CHECKPOINTS`.
+            super::session_stop::end_polling_thread_if_over(&p, "pc:register ack");
         }),
     );
     if !sent {
@@ -773,6 +775,8 @@ pub fn emit_reconnect<E: AckEmitter + ?Sized>(
                     }
                 }
             }
+            // Runs on the polling thread: see `socket::session_stop::POLLING_THREAD_CHECKPOINTS`.
+            super::session_stop::end_polling_thread_if_over(&p, "pc:reconnect ack");
         }),
     );
 }

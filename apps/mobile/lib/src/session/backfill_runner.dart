@@ -353,6 +353,12 @@ class BackfillRunner {
   /// both legs use ([_meteredFn]; NULL, not yet probed, reads as metered).
   bool get pressIsMetered => _meteredFn();
 
+  /// D-MKT-22 — the route up now, read through the same session the journal
+  /// leg asks (`RecoveryJournalLeg._heldForRoute`), so the list's sentence and
+  /// the leg's refusal cannot disagree about a recording.
+  ServerChannel? get currentChannel => _session.serverChannel.value;
+  String? get currentPcMachineUid => _session.pcMachineUid;
+
   /// Whether the microphone is open right now.
   ///
   /// A COURTESY FOR THE SCREEN, NOT A GATE. The authority is

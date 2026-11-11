@@ -65,8 +65,21 @@ struct StubRelay {
     seen: Arc<Seen>,
 }
 
+/// After `pc:register` the stub stops reading and writes events with a large payload
+/// until the client goes away, so the client's polling thread spends nearly all its
+/// time handling a packet rather than waiting in a read.
+const FLOOD_PAYLOAD: usize = 256 * 1024;
+
 impl StubRelay {
     fn start() -> Self {
+        Self::start_with(false)
+    }
+
+    fn start_flooding() -> Self {
+        Self::start_with(true)
+    }
+
+    fn start_with(flood: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let seen = Arc::new(Seen::default());
@@ -74,7 +87,7 @@ impl StubRelay {
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 let seen = accepting.clone();
-                std::thread::spawn(move || serve(stream, seen));
+                std::thread::spawn(move || serve(stream, seen, flood));
             }
         });
         Self { url, seen }
@@ -140,11 +153,14 @@ impl StubRelay {
 /// no further dial. The likely reason, from reading `rust_socketio` 0.6 `Iter::next` and
 /// not reproduced on purpose: `disconnect` landing between two reads makes the next poll
 /// answer `Ok(None)`, which reaches no callback and starts no reconnect.
+/// (2026-11-10: reproduced on purpose and closed, see
+/// `a_close_that_lands_while_a_packet_is_handled_still_ends_the_thread`; the pause
+/// stays so the tests above still test the state they name.)
 fn settle() {
     std::thread::sleep(Duration::from_millis(300));
 }
 
-fn serve(stream: TcpStream, seen: Arc<Seen>) {
+fn serve(stream: TcpStream, seen: Arc<Seen>, flood: bool) {
     let mine = stream.try_clone().unwrap();
     seen.streams.lock().unwrap().push(stream.try_clone().unwrap());
     let Ok(mut ws) = tungstenite::accept(stream) else { return };
@@ -162,6 +178,13 @@ fn serve(stream: TcpStream, seen: Arc<Seen>) {
             if !registered {
                 registered = true;
                 seen.registers.fetch_add(1, Ordering::SeqCst);
+                if flood {
+                    let big = "x".repeat(FLOOD_PAYLOAD);
+                    let frame = format!(r#"42["flood","{big}"]"#);
+                    // Ends when the client closes the connection, never otherwise.
+                    while ws.send(Message::text(frame.clone())).is_ok() {}
+                    break;
+                }
             }
         } else if text == "1" {
             // Engine.IO close: the client is leaving. A real relay closes here too.
@@ -294,4 +317,30 @@ fn a_replaced_session_stops_once_its_successor_exists() {
     std::thread::sleep(SILENCE);
     assert_eq!(relay.connect_packets().len(), 2, "{:?}", relay.connect_packets());
     drop(second);
+}
+
+/// The 1-of-32 residue (2026-11-10). A close that lands while the polling thread is
+/// handling a packet, not waiting in a read, used to leave that thread spinning on
+/// `Ok(None)` with the websocket still open (socket::session_stop, "THE SECOND WAY").
+/// The flooding stub keeps the thread inside packet handling, so the close lands there.
+#[test]
+fn a_close_that_lands_while_a_packet_is_handled_still_ends_the_thread() {
+    let _guard = one_at_a_time();
+    let relay = StubRelay::start_flooding();
+    let session = open_session(&relay, "flooded");
+    let deadline = Instant::now() + DIAL_DEADLINE;
+    while relay.seen.registers.load(Ordering::SeqCst) < 1 {
+        assert!(Instant::now() < deadline, "the session never sent pc:register");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The flood is running: the polling thread is now busy handling events.
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(relay.open_now(), 1, "positive control: the flooded connection is up");
+
+    drop(session);
+    // The thread ends, the last `Client` clone goes, the socket closes, and the stub's
+    // write fails. A spinning thread keeps the socket open and this times out.
+    relay.wait_for_open_now(0);
+    std::thread::sleep(SILENCE);
+    assert_eq!(relay.connect_packets().len(), 1, "{:?}", relay.connect_packets());
 }

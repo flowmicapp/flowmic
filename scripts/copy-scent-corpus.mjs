@@ -39,6 +39,23 @@ import { maskMarkdown, isIdentifierLiteral } from '../verify/lint/outward-voice.
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
+ * Every source file is read through here, with CRLF folded to LF.
+ *
+ * WHY (2026-11-10): the site checkout on a Windows machine is CRLF in the working
+ * tree and LF in the index and on every Mac/Linux/CI checkout (the site repo runs
+ * autocrlf). The offset in a site unit id (`...#key@8668`) and the hash of a
+ * multi-line template-literal text are both measured on the bytes read, so the
+ * same commit produced different ids and different hashes on different machines,
+ * and every pin in verify/copy-scent/baseline.json worked on exactly one of them.
+ * Folding at the read makes the offset an offset into the LF text -- the form the
+ * index holds -- on every machine. Exported for the drill.
+ */
+export const normalizeEol = (s) => String(s).replace(/\r\n/g, '\n');
+async function readSource(abs) {
+  return normalizeEol(await readFile(abs, 'utf8'));
+}
+
+/**
  * Directories of per-locale catalogues, and the SHAPE of their values.
  * `literal` = Dart/TS source literal (quoted, escaped, possibly an array).
  * `plain`   = the text itself.
@@ -155,7 +172,7 @@ async function collectRootMarkdown({ root }) {
     } catch {
       continue;
     }
-    const masked = maskMarkdown(await readFile(abs, 'utf8'));
+    const masked = maskMarkdown(await readSource(abs));
     const lines = masked.split('\n');
     let block = [];
     let startLine = 1;
@@ -382,7 +399,7 @@ async function collectWeb({ webRoot, locales, want = () => true }) {
       if (!m) continue;
       const locale = m[1];
       if (locales && !locales.includes(locale)) continue;
-      const src = maskTsComments(await readFile(path.join(abs, name), 'utf8'));
+      const src = maskTsComments(await readSource(path.join(abs, name)));
       for (const { key, raw, index } of shape === 'nested' ? sweepNested(src) : sweepFlat(src)) {
         const text = raw[0] === '`' ? raw.slice(1, -1) : decodeLiteral(raw);
         if (text === null || !isAuditableText(text)) continue;
@@ -484,7 +501,7 @@ async function collectWebClient({ clientRoot, locales, files = WEB_CLIENT_COPY_F
     const abs = path.join(clientRoot, ...file.split('/'));
     let raw;
     try {
-      raw = await readFile(abs, 'utf8');
+      raw = await readSource(abs);
     } catch {
       notes.push(`SKIP: web-client corpus reduced — not readable: ${abs} (declared authored-there file).`);
       continue;
@@ -643,7 +660,7 @@ async function collectProtocolErrors({ root, locales }) {
     const abs = path.join(root, ...sourceFile.split('/'));
     let source;
     try {
-      source = await readFile(abs, 'utf8');
+      source = await readSource(abs);
     } catch {
       return { units: [], notes: [PROTOCOL_ERRORS_SKIP(abs)] };
     }

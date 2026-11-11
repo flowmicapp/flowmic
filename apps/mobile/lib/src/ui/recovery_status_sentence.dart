@@ -17,8 +17,19 @@ String recoveryStatusSentence(
   bool asNote = false,
   // NR-137 round 2 — kept words the server would refuse: say why (tier C).
   bool blockedByServer = false,
+  // D-MKT-22 — `PendingRecoveryItem.routeHold`: the automatic route will not
+  // run this recording, so the waiting / stopped sentence says why instead.
+  RecordingRouteHold routeHold = RecordingRouteHold.none,
 }) {
   if (otherAccount) return s.pendingRecoveryOtherAccount;
+  switch (routeHold) {
+    case RecordingRouteHold.routeChanged:
+      return s.pendingRecoveryRouteChanged;
+    case RecordingRouteHold.engineSetup:
+      return s.pendingRecoveryEngineSetup;
+    case RecordingRouteHold.none:
+      break;
+  }
   if (state == PendingRecoveryState.settledUnverified) {
     if (blockedByServer) return s.pendingRecoveryStateServerUnsupported;
     if (retranscribable) {

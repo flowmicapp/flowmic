@@ -433,7 +433,18 @@ extension RecoveryJournalLegSettle on RecoveryJournalLeg {
         rowPersistedAndReadBack: rowId != null,
         serverMayDelete: verdict.tier.mayDeleteBytes,
         fedWholeRange: r.fedWholeRange, // Codex review ①
-        resultIsSilence: r.resultEmptyReason == kEmptyReasonNoVoice, // RC6 (F3)
+        // RC6 (F3) — relay-certified silence settles and releases the audio,
+        // but ONLY on the automatic route. 🔴 A press of 「Try again now」
+        // (`user_retranscribe`) that comes back as silence keeps A5-4's hold:
+        // the card stays as `emptyConfirmed` and the page says the recording
+        // still has no words (`pending_recovery_page.dart` `_noticeFor`). The
+        // user pressed RETRY, not delete; removing the audio is the delete
+        // button's job alone (owner ruling O-5, `_delete` on the same page).
+        // MEASURED 2026-11-11 on TB335ZC over the relay: the card vanished in
+        // 2.5 s with no sentence and the PCM was gone. Contract:
+        // docs/rebuild/15-TRANSCRIPTION-FINALS.md, the RC6 F3 correction.
+        resultIsSilence: r.resultEmptyReason == kEmptyReasonNoVoice &&
+            identity.attemptKind != RecoveryAttemptKind.userRetranscribe,
       ),
     );
     diag('audio.recovery.settle', <String, Object?>{

@@ -285,8 +285,22 @@ class _HistoryPageState extends State<HistoryPage> {
             // newest-first — all PC instances + cloud + ownerless legacy rows,
             // which is what "all history" means. A search replaces the list with
             // hits from storage, so it can reach rows never scrolled to.
-            final List<TimelineEntry> entries = _hits ?? widget.store.entries;
-            final bool searching = _hits != null;
+            //
+            // 0.3.122 — a hit is drawn from the store's LIVE row when the store
+            // holds one. `_hits` is the snapshot the search took, so a row that
+            // was ⏳ retrying when the search ran fell back to ✗ once the retry
+            // ended and the queue stopped owing it, while the store already
+            // had the answer (✓) — the page repaints on the store, but repainted
+            // the old copy. A hit the store has not loaded keeps its snapshot:
+            // the status writers change loaded rows (`TimelineStore.findById`).
+            final List<TimelineEntry>? hits = _hits;
+            final List<TimelineEntry> entries = hits == null
+                ? widget.store.entries
+                : <TimelineEntry>[
+                    for (final TimelineEntry e in hits)
+                      widget.store.findById(e.id) ?? e,
+                  ];
+            final bool searching = hits != null;
             return Column(
               children: <Widget>[
                 _header(context, s),

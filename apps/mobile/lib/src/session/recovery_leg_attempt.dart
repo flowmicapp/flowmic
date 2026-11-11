@@ -32,7 +32,7 @@ extension _RecoveryLegAttempt on RecoveryJournalLeg {
     c = asFed(fresh)!;
     if (_heldForAnotherAccount(c) ||
         (kind == RecoveryAttemptKind.autoRetry &&
-            !c.status.mayAutoAttemptAt(_clock()))) {
+            (!c.status.mayAutoAttemptAt(_clock()) || _heldForRoute(c)))) {
       return _StepOutcome.completed;
     }
     final AudioJournalFormat fmt = c.manifest.format;

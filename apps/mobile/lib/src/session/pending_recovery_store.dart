@@ -35,7 +35,9 @@ import '../diag/diag_log.dart';
 import 'backfill_runner.dart';
 import 'kept_words_retranscribe.dart';
 import 'legacy_recovery_identity.dart' show LegacyRecoveryGate;
+import 'instance_probe.dart' show ServerChannel;
 import 'pending_recovery.dart';
+import 'recording_route.dart' show recordingRouteHoldOf;
 import 'recovery_backoff.dart';
 import 'recovery_gate.dart';
 import 'recovery_identity.dart' show RecoveryAttemptKind;
@@ -231,6 +233,8 @@ class PendingRecoveryStore implements PendingRecoverySource {
         tier: tier,
         durationMs: _journalMs(s, m),
         currentAccount: spill.recordingAccount.currentDigest(),
+        channel: _runner.currentChannel,
+        pcMachineUid: _runner.currentPcMachineUid,
       );
       out.add(item);
       if (item.state == PendingRecoveryState.settledUnverified) {
@@ -255,6 +259,8 @@ class PendingRecoveryStore implements PendingRecoverySource {
         tier: tier,
         durationMs: _journalMs(s, m),
         currentAccount: spill.recordingAccount.currentDigest(),
+        channel: _runner.currentChannel,
+        pcMachineUid: _runner.currentPcMachineUid,
         keptWordsReplaceable:
             replaceable.contains(RetainedAudioSpill.sessionKeyOf(m.recordingId)),
         pressMetered: _runner.pressIsMetered,
@@ -275,11 +281,29 @@ class PendingRecoveryStore implements PendingRecoverySource {
     required String? currentAccount,
     bool keptWordsReplaceable = false,
     bool pressMetered = true,
+    // D-MKT-22 — the route up now. Null parts never produce `routeChanged`
+    // (recording_route.dart), so a caller that cannot say keeps that sentence
+    // off rather than guessing it.
+    ServerChannel? channel,
+    String? pcMachineUid,
   }) {
     final state = stateOf(cancelled: cancelled, manifest: manifest, tier: tier);
     final bool otherOwner =
         recordingOwnerOf(manifest.configSnapshot, currentAccount) ==
             RecordingOwner.other;
+    final RecordingRouteHold hold = otherOwner
+        ? RecordingRouteHold.none
+        : switch (recordingRouteHoldOf(manifest,
+              channel: channel, pcMachineUid: pcMachineUid)) {
+            RecordingRouteHold.routeChanged
+                when state == PendingRecoveryState.waitingAuto =>
+              RecordingRouteHold.routeChanged,
+            RecordingRouteHold.engineSetup
+                when state == PendingRecoveryState.waitingAuto ||
+                    state == PendingRecoveryState.needsManual =>
+              RecordingRouteHold.engineSetup,
+            _ => RecordingRouteHold.none,
+          };
     final bool keptWordsHere = state == PendingRecoveryState.settledUnverified &&
         manifestAllowsKeptWordsRetranscribe(manifest);
     // A7-3 tier C: `runOne` refuses every press (R8 — no button, say why).
@@ -311,6 +335,7 @@ class PendingRecoveryStore implements PendingRecoverySource {
       retranscribable: keptWords,
       retranscribeAsNote: keptWords && !keptWordsReplaceable,
       pressUsesMinutes: keptWords && pressMetered,
+      routeHold: hold,
     );
   }
 

@@ -32,7 +32,7 @@ extension ChatArticleCompletion on ChatController {
     final item = articleRecoveryItem(id);
     if (item != null) {
       return item.state == PendingRecoveryState.waitingAuto &&
-              !item.otherAccount
+              !item.autoHeld // D-MKT-22: otherAccount or a route hold
           ? ArticleCompletion.recoveryPending
           : ArticleCompletion.recoveryManual;
     }
@@ -61,6 +61,8 @@ extension ChatArticleCompletion on ChatController {
         durationMs: debt.pendingMs,
         currentAccount: session.audio.retainedAudio?.recordingAccount
             .currentDigest(),
+        channel: session.serverChannel.value,
+        pcMachineUid: session.pcMachineUid,
       );
     }
     return null;

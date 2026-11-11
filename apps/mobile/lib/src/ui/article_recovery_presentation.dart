@@ -51,6 +51,7 @@ articleRecoveryPresentation(
               retranscribable: item?.retranscribable ?? false,
               asNote: item?.retranscribeAsNote ?? false,
               blockedByServer: item?.retranscribeBlockedByServer ?? false,
+              routeHold: item?.routeHold ?? RecordingRouteHold.none, // D-MKT-22
             ),
     null => null,
   };

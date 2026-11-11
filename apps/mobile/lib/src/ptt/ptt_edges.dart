@@ -88,10 +88,18 @@ extension PttSessionEdges on PttSession {
     // is a snapshot of the wrong moment.
     //
     // Inert while the journal face is off (the spill just holds the map).
-    audio.retainedAudio?.noteConfigSnapshot(recordingConfigSnapshot(
-      mode: mode.name,
-      sourceLang: sourceLang,
-      prefs: prefs,
+    //
+    // D-MKT-22 — and WHERE this recording is being sent, for the same reason:
+    // the recovery queue used to feed it through whatever route was up later
+    // (session/recording_route.dart).
+    audio.retainedAudio?.noteConfigSnapshot(stampRecordingRoute(
+      recordingConfigSnapshot(
+        mode: mode.name,
+        sourceLang: sourceLang,
+        prefs: prefs,
+      ),
+      channel: serverChannel.value,
+      pcMachineUid: pcMachineUid,
     ));
     try {
       await audio.start(permissionPreflighted: micPermission.lastGateSawGranted);

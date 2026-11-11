@@ -48,6 +48,19 @@ pub(in crate::socket) fn wire_open(
         } else {
             pairing::emit_register(&socket, &p_o, &rec_o);
         }
+        // And again on the way out: a close that landed while this handler ran
+        // would otherwise leave the thread spinning (session_stop::POLLING_THREAD_CHECKPOINTS).
+        session_stop::end_polling_thread_if_over(&p_o, "open (end)");
+    })
+}
+
+/// D-MKT-21 residue (2026-11-10): `on_any` runs on the polling thread after the
+/// handler of EVERY incoming event, so it is the one place that covers them all.
+/// See `socket::session_stop::POLLING_THREAD_CHECKPOINTS` for why the end of a
+/// handler is a place the thread has to be able to stop.
+pub(in crate::socket) fn wire_any(builder: ClientBuilder, pairing_state: Arc<Pairing>) -> ClientBuilder {
+    builder.on_any(move |_event, _payload, _socket| {
+        session_stop::end_polling_thread_if_over(&pairing_state, "event");
     })
 }
 

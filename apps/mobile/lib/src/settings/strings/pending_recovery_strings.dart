@@ -236,6 +236,23 @@ mixin PendingRecoveryStrings on AppStringsLeaves {
   /// screen somebody else may be signed in on.
   String get pendingRecoveryOtherAccount => _lfPendingRecoveryOtherAccount;
 
+  /// D-MKT-22 — shown IN PLACE OF 「Waiting for the next automatic attempt」 on
+  /// a card whose recording was made over another channel (local network vs
+  /// FlowMic's cloud service) or to another computer than the phone is on now
+  /// (`PendingRecoveryItem.routeHold`, session/recording_route.dart). Meaning:
+  /// the automatic route will not send it over the new connection; connecting
+  /// the original way again resumes it; 「Try again now」 sends it over the
+  /// current one. The retry button stays beside it.
+  String get pendingRecoveryRouteChanged => _lfPendingRecoveryRouteChanged;
+
+  /// D-MKT-22 — shown IN PLACE OF the waiting / stopped sentence on a card
+  /// whose attempt ended with the engine refusing to open for want of a setup
+  /// (`STT_CONFIG_MISSING`). Meaning: speech recognition was not set up; the
+  /// automatic route stopped, because fixing that can change where the audio
+  /// goes; press 「Try again now」 once it is set up. Also what a first-time
+  /// user reads after the four-second banner has gone.
+  String get pendingRecoveryEngineSetup => _lfPendingRecoveryEngineSetup;
+
   /// [PendingDeleteOutcome.failed] — the file would not go.
   ///
   /// 🔴 IT SAYS WHERE THE AUDIO IS, like every other sentence on this screen.

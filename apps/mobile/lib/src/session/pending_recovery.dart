@@ -31,6 +31,9 @@
 
 import 'package:flutter/foundation.dart';
 
+import 'recording_route.dart' show RecordingRouteHold;
+export 'recording_route.dart' show RecordingRouteHold;
+
 /// Which sentence a recording gets, and which actions it may offer.
 ///
 /// 🔴 THE ORDER IS THE PRECEDENCE ORDER used by [PendingRecoveryStore] when a
@@ -167,6 +170,7 @@ class PendingRecoveryItem {
     this.retranscribeAsNote = false,
     this.pressUsesMinutes = false,
     this.retranscribeBlockedByServer = false,
+    this.routeHold = RecordingRouteHold.none,
   });
 
   /// The journal `recordingId`, or the legacy store's session key.
@@ -270,6 +274,25 @@ class PendingRecoveryItem {
   /// sentence instead of the unverified one. MAIN 2026-10-02: every
   /// Delete-only card says why.
   final bool retranscribeBlockedByServer;
+
+  /// D-MKT-22 — the automatic route will not feed this recording, and why
+  /// (`RecoveryJournalLeg._heldForRoute`; both read `recordingRouteHoldOf`).
+  /// Set by `PendingRecoveryStore.itemOf` only where the state's own sentence
+  /// would promise the automatic route: [RecordingRouteHold.routeChanged] on
+  /// `waitingAuto` (on `needsManual` the automatic attempts are over anyway,
+  /// and 「reconnect and it continues」 would be false), and
+  /// [RecordingRouteHold.engineSetup] on `waitingAuto` and `needsManual` (its
+  /// sentence says why the attempts stopped).
+  ///
+  /// Like [otherAccount] it REPLACES the state sentence. Unlike it, the retry
+  /// button STAYS: a press is the user's consent to the route that is up now,
+  /// and the leg runs it (`RecoveryJournalLeg.runOne` does not ask this).
+  final RecordingRouteHold routeHold;
+
+  /// True when the automatic route will not run this recording although its
+  /// state alone would say it is waiting for it. One read for every face that
+  /// turns 「waitingAuto」 into 「the app is on it」 (`chat_article_completion`).
+  bool get autoHeld => otherAccount || routeHold != RecordingRouteHold.none;
 
   /// 🔴 THE ONE PLACE THAT DECIDES WHICH BUTTONS EXIST. A widget that decided
   /// this for itself would be a second author of the rule, and the two would

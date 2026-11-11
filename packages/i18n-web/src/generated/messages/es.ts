@@ -332,7 +332,7 @@ export const ES: WebMessages = {
   "sttStallMessage__2": "El motor de voz informó un error",
   "sttStallMessage__3": "No se detectó voz — acércate al micrófono e inténtalo de nuevo",
   "sttStallMessage__4": "El micrófono no produjo audio — revisa el permiso del micrófono, o si otra app lo tiene",
-  "sttStallConfigMissing": "El motor de voz no pudo arrancar: faltan su componente de ejecución o los archivos del modelo, o no hay motor configurado para este idioma. Revisa la instalación y los ajustes del motor",
+  "sttStallConfigMissing": "Aún no se puede convertir la voz en texto para este idioma. Revisa el idioma hablado en los ajustes o abre FlowMic en tu ordenador para revisar Reconocimiento de voz.",
   "sttStallEngineErrorCoded": "El motor de voz informó un error ({code})",
   "sttStallLanguageUnsupported": "El motor de voz usado para esta grabación no admite el idioma que elegiste. Elige otro motor para este idioma en los ajustes, o habla uno que sí admita",
   "sttStallHeardNoWords": "Llegó sonido, pero no se pudo distinguir ninguna palabra. Acércate al micrófono e inténtalo de nuevo, y comprueba que el idioma hablado en los ajustes coincide con el que hablaste",

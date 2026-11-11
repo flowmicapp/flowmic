@@ -95,6 +95,7 @@ class PendingRecoveryCard extends StatelessWidget {
               retranscribable: item.retranscribable,
               asNote: item.retranscribeAsNote,
               blockedByServer: item.retranscribeBlockedByServer,
+              routeHold: item.routeHold, // D-MKT-22
             ),
             key: ValueKey<String>('pendingRecovery.sentence.${item.id}'),
             style: TextStyle(

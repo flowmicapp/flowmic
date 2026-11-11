@@ -68,13 +68,16 @@ describe('describeAutostartReason', () => {
 });
 
 describe('SettingsPage really routes bridge.ts reasons through describeAutostartReason (owner 2026-08-30)', () => {
-  it('both autostartError assignments wrap r.reason in describeAutostartReason(...)', () => {
+  // 2026-11-10: the page keeps `{ step, reason }` and renders through
+  // `autostartFailureText`, which is where the reason now meets
+  // describeAutostartReason (main-window/stored-sentence-language-switch.test.ts
+  // pins the page side and the language switch).
+  it('both autostart failures reach describeAutostartReason through autostartFailureText', () => {
     const page = src('../main-window/SettingsPage.vue');
-    expect(page).toContain(
-      'autostartError.value = `${S.set_prefs_autostart_read_failed}${describeAutostartReason(r.reason)}`;',
-    );
-    expect(page).toContain(
-      'autostartError.value = `${S.set_prefs_autostart_failed}${describeAutostartReason(r.reason)}`;',
-    );
+    expect(page).toContain("autostartFailure.value = { step: 'read', reason: r.reason };");
+    expect(page).toContain("autostartFailure.value = { step: 'write', reason: r.reason };");
+    expect(page).toContain('autostartFailureText(autostartFailure.value)');
+    const lib = src('./autostart-reason.ts');
+    expect(lib).toContain('return `${prefix}${describeAutostartReason(f.reason)}`;');
   });
 });

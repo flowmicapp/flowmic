@@ -42,7 +42,7 @@ import { checkRelayLatency, type NodeLatencyRow } from '../lib/relay-latency';
 // 2026-08-30 — maps fetchAutostartState/setAutostartEnabled's machine reason
 // CODE to a localized sentence; unmapped reasons (free-form bridge text) pass
 // through unchanged. See that file's header for why.
-import { describeAutostartReason } from '../lib/autostart-reason';
+import { autostartFailureText, type AutostartFailure } from '../lib/autostart-reason';
 import { settingsSyncNotice } from '../lib/settings-sync-notice';
 import {
   asCloudStatus,
@@ -115,8 +115,14 @@ const resetDone = ref(false);
  *  never from settings storage. */
 const autostart = ref<AutostartInfo | null>(null);
 /** The failure reason is shown verbatim (criterion 1: a registration/read-back
- *  failure must be visible in the UI). */
-const autostartError = ref<string | null>(null);
+ *  failure must be visible in the UI). The ref keeps the failure, not the
+ *  sentence: the sentence is built when it renders, so a language switch made
+ *  after the failure reaches it (2026-11-10, the shape FR-D2 fixed for sign-in;
+ *  pinned by stored-sentence-language-switch.test.ts). */
+const autostartFailure = ref<AutostartFailure | null>(null);
+const autostartError = computed(() =>
+  autostartFailure.value === null ? null : autostartFailureText(autostartFailure.value),
+);
 const autostartPending = ref(false);
 
 /** RV-新B — the CURRENT channel (admission-derived, from the CONNECTION frame), not
@@ -174,7 +180,7 @@ async function loadAutostart(): Promise<void> {
     autostart.value = r.info;
   } else {
     autostart.value = null;
-    autostartError.value = `${S.set_prefs_autostart_read_failed}${describeAutostartReason(r.reason)}`;
+    autostartFailure.value = { step: 'read', reason: r.reason };
   }
 }
 
@@ -186,7 +192,7 @@ async function toggleAutostart(): Promise<void> {
     return;
   }
   autostartPending.value = true;
-  autostartError.value = null;
+  autostartFailure.value = null;
   try {
     const r = await setAutostartEnabled(!autostart.value.enabled);
     if (r.ok) {
@@ -194,7 +200,7 @@ async function toggleAutostart(): Promise<void> {
       // verifies it, not the value we hoped for.
       autostart.value = r.info;
     } else {
-      autostartError.value = `${S.set_prefs_autostart_failed}${describeAutostartReason(r.reason)}`;
+      autostartFailure.value = { step: 'write', reason: r.reason };
       // Even a write that fails partway through must let the display follow the
       // truth (e.g. it got registered but the re-check failed).
       const s = await fetchAutostartState();

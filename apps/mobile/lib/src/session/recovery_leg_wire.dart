@@ -94,9 +94,14 @@ extension RecoveryJournalLegWire on RecoveryJournalLeg {
     // Card RC6 — nor while an account change waits for a yielded attempt's
     // acknowledgement (`RecoveryAttemptLedger.accountChangeOpen`): the outgoing
     // account is still the signed-in one then, and RC-S would let it through.
+    // D-MKT-22 — the route, asked again for the same reason as the account:
+    // the channel can change during the awaits above, and an automatic attempt
+    // must not go out on the new one (recording_route.dart).
     if (_session.articles.attempts.accountChanges != accountChanges ||
         _session.articles.attempts.accountChangeOpen ||
-        _heldForAnotherAccount(c)) {
+        _heldForAnotherAccount(c) ||
+        (identity.attemptKind == RecoveryAttemptKind.autoRetry &&
+            _heldForRoute(c))) {
       diag('audio.recovery.account_changed_before_start', <String, Object?>{
         'recording_id': c.scan.recordingId,
         'attempt_id': identity.attemptId,

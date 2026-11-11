@@ -44,6 +44,7 @@ import '../session/pc_presence.dart';
 import '../session/pc_presence_probe.dart';
 import '../session/presence_route.dart';
 import '../session/recovery_identity.dart';
+import '../session/recording_route.dart' show stampRecordingRoute; // D-MKT-22 (ptt_edges.dart)
 import '../session/platform_device_info.dart';
 import '../settings/declared_client_capabilities.dart' show declaredClientCapabilities; // card HANGUP-3 (ptt_pair.dart)
 import '../timeline/article.dart' show pcmBytesToMs, pcmMsToBytes;

@@ -39,6 +39,12 @@
 //     INJECT_CLIPBOARD_FAIL — the F-4 shape from the 2026-08-03 M5 findings. The
 //     only honest way to close that is a real receipt, and there is not one. It
 //     is a named residual risk, not an oversight.
+//     🔴 CORRECTED IN PLACE (2026-11-10; the bullet above is kept as written):
+//     that arm now takes ANY `Ok` paste, confirmed or not, because the receipt
+//     has not been the image gate since 2026-07-30. A landed picture with a
+//     failed restore is `injected` here too, and the lost clipboard is a
+//     forensic line. Pinned by `clipboard_paste.rs`
+//     `an_unconfirmed_image_paste_survives_a_failed_restore`; contract doc 15 §1.
 //
 // ── The race the fixed delay is buying off ──────────────────────────────────
 //

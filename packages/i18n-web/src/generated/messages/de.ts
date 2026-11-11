@@ -332,7 +332,7 @@ export const DE: WebMessages = {
   "sttStallMessage__2": "Sprach-Engine meldete einen Fehler",
   "sttStallMessage__3": "Keine Sprache erkannt — näher ans Mikro und erneut",
   "sttStallMessage__4": "Das Mikrofon lieferte kein Audio — Mikro-Recht prüfen, oder ob eine andere App es hält",
-  "sttStallConfigMissing": "Die Sprach-Engine startete nicht: Laufzeitteil oder Modelldateien fehlen, oder für diese Sprache ist keine Engine eingerichtet. Installation und Einstellungen der Engine prüfen",
+  "sttStallConfigMissing": "Sprache kann für diese Sprache noch nicht in Text umgewandelt werden. Prüfe die gesprochene Sprache in den Einstellungen oder öffne FlowMic auf dem Computer und prüfe „Spracherkennung“.",
   "sttStallEngineErrorCoded": "Sprach-Engine meldete einen Fehler ({code})",
   "sttStallLanguageUnsupported": "Die für diese Aufnahme verwendete Spracherkennung unterstützt die gewählte Sprache nicht. Wähle in den Einstellungen eine andere Engine für diese Sprache, oder sprich eine, die sie beherrscht",
   "sttStallHeardNoWords": "Es kam Ton an, aber es waren keine Wörter zu erkennen. Geh näher ans Mikro und sprich noch einmal, und prüf, ob die Sprechsprache in den Einstellungen zu dem passt, was du gesagt hast",

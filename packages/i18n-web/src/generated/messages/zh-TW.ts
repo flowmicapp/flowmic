@@ -332,7 +332,7 @@ export const ZH_TW: WebMessages = {
   "sttStallMessage__2": "轉寫引擎報錯",
   "sttStallMessage__3": "沒有聽到語音，請靠近麥克風再說一次",
   "sttStallMessage__4": "麥克風沒有收到任何聲音，請檢查系統的麥克風權限或是否有其他應用程式佔用麥克風",
-  "sttStallConfigMissing": "轉寫引擎無法啟動：引擎元件或模型檔缺失，或該語言尚未設定辨識引擎。請檢查辨識引擎的安裝與設定",
+  "sttStallConfigMissing": "目前無法將所選語言的語音轉成文字。請到設定檢查說話語言，或在電腦上打開 FlowMic 檢查「語音辨識」。",
   "sttStallEngineErrorCoded": "轉寫引擎報錯（{code}）",
   "sttStallLanguageUnsupported": "這次辨識用的引擎不支援你選的說話語言。可以到設定裡為這個語言換一個引擎，或者改說它支援的語言",
   "sttStallHeardNoWords": "聽到了聲音，但沒有聽出內容。請靠近麥克風再說一次，並檢查設定裡的說話語言和你說的是不是同一種",

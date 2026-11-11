@@ -315,75 +315,8 @@ class TranslateTargetChip extends StatelessWidget {
   final bool enabled;
 
   Future<void> _pick(BuildContext context) async {
-    final String? chosen = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext ctx) => SafeArea(
-        child: Container(
-          margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          decoration: BoxDecoration(
-            color: FlowMicColors.surface2,
-            border: Border.all(color: FlowMicColors.line),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          // Scrollable for the same measured reason as the entry context
-          // menu: showModalBottomSheet caps a sheet at half the screen, and
-          // nine rows plus a title do not fit that cap on a short phone.
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(15, 12, 15, 4),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      strings.translateTargetSheetTitle,
-                      style: TextStyle(
-                        color: FlowMicColors.t3,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-                for (final String tag in kTranslateTargets)
-                  InkWell(
-                    onTap: () => Navigator.of(ctx).pop(tag),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 15,
-                        vertical: 11,
-                      ),
-                      child: Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              strings.translateTargetRowLabel(tag),
-                              style: TextStyle(
-                                color: tag == target
-                                    ? FlowMicColors.teal
-                                    : FlowMicColors.t1,
-                                fontSize: 13.5,
-                                fontWeight: tag == target
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                              ),
-                            ),
-                          ),
-                          if (tag == target)
-                            Icon(Icons.check_rounded,
-                                size: 16, color: FlowMicColors.teal),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    final String? chosen = await showTranslateTargetPicker(context,
+        strings: strings, target: target);
     // Dismissed with no choice → nothing changes; re-choosing the current one
     // is a no-op at the controller (`ChatController.setTranslateTarget`
     // early-returns on an unchanged or empty value — grep the guard).
@@ -443,4 +376,84 @@ class TranslateTargetChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The translate-target picker sheet, shared by [TranslateTargetChip] and the
+/// mode row (`chat_flow_composer.dart` `_onModeSelectedRouted`, which opens it
+/// when Translate is picked while the target equals the spoken language).
+/// Resolves to the chosen tag, or null when dismissed.
+Future<String?> showTranslateTargetPicker(
+  BuildContext context, {
+  required AppStrings strings,
+  required String target,
+}) {
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (BuildContext ctx) => SafeArea(
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        decoration: BoxDecoration(
+          color: FlowMicColors.surface2,
+          border: Border.all(color: FlowMicColors.line),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        // Scrollable for the same measured reason as the entry context
+        // menu: showModalBottomSheet caps a sheet at half the screen, and
+        // nine rows plus a title do not fit that cap on a short phone.
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(15, 12, 15, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    strings.translateTargetSheetTitle,
+                    style: TextStyle(
+                      color: FlowMicColors.t3,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              for (final String tag in kTranslateTargets)
+                InkWell(
+                  onTap: () => Navigator.of(ctx).pop(tag),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 15,
+                      vertical: 11,
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            strings.translateTargetRowLabel(tag),
+                            style: TextStyle(
+                              color: tag == target
+                                  ? FlowMicColors.teal
+                                  : FlowMicColors.t1,
+                              fontSize: 13.5,
+                              fontWeight: tag == target
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                        if (tag == target)
+                          Icon(Icons.check_rounded,
+                              size: 16, color: FlowMicColors.teal),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }

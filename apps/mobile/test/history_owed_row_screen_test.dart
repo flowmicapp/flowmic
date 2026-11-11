@@ -337,6 +337,62 @@ void main() {
     timeout: const Timeout(Duration(minutes: 2)),
   );
 
+  // 0.3.122 (handoff 0320 §2 item 8 ②) — the search results were a snapshot:
+  // the row was ⏳ while the queue owed it, and when the computer's late answer
+  // landed the queue stopped owing it while the result list still held the
+  // failed copy ⇒ ✗. REVERSE CONTROL (2026-11-10, this file only): the hit list
+  // drawn from `_hits` as it was (no `store.findById`) ⇒ this case fails at
+  // 「Found 0 widgets with text "✓ …"」; restored, rerun green.
+  testWidgets(
+    '🔴 with a search open: no answer → ✓ when the computer answers, not back to ✗',
+    (WidgetTester tester) async {
+      _tallCanvas(tester);
+      final AppStrings zh = AppStrings.of(AppLocale.zh);
+      final _Rig rig = _Rig();
+      await rig.controller.outbox.load();
+      rig.transport.pushStatus(SocketStatus.connected);
+      rig.session.noteRoomJoined(atHomeNode: true);
+      await _flush(tester);
+
+      await tester.pumpWidget(rig.page);
+      unawaited(rig.controller.sendFavorite('电脑卡住了一会儿'));
+      await _flush(tester);
+      final EventEnvelope frame = rig.transport.emitted
+          .singleWhere((EventEnvelope e) => e.name == FlowMicEvents.injectRequest);
+      await _elapse(tester, const Duration(seconds: 21));
+      expect(rig.timeline.entries.single.failureReason, 'INJECT_NO_RESULT',
+          reason: 'premise: the row watchdog fired');
+
+      await tester.enterText(find.byKey(const ValueKey<String>('history.search')), '卡住');
+      await _flush(tester);
+      expect(find.byKey(const ValueKey<String>('history.search.clear')), findsOneWidget,
+          reason: 'premise: a search is showing');
+      expect(find.text('⏳ ${zh.statusNoAnswerYet}'), findsOneWidget,
+          reason: 'positive control: the hit is drawn, and the queue still owes it');
+
+      final Map<Object?, Object?> data = frame.data! as Map<Object?, Object?>;
+      rig.transport.pushIncoming(FlowMicEvents.injectResult, <String, Object?>{
+        'ok': true,
+        'mode': 'sendinput',
+        'request_id': data['request_id'],
+        'entry_id': data['entry_id'],
+        'inject_target': <String, Object?>{
+          'window_title': 'Untitled - gedit',
+          'process_name': 'gedit',
+          'injected_at': 'now',
+        },
+      });
+      await _flush(tester);
+      expect(find.text('✓ ${zh.statusInjected}'), findsOneWidget,
+          reason: 'the search result follows the row, like the unfiltered list');
+      expect(find.text('✗ ${zh.statusFailed}'), findsNothing);
+
+      rig.controller.session.debugStopIdlePresencePoll();
+      await rig.dispose(tester);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
   testWidgets(
     '🔴 the queue moving with no row written repaints the page: ✗ before the boot load, '
     'pending after it',

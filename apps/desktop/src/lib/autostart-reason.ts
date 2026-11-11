@@ -45,3 +45,19 @@ export function describeAutostartReason(reason: string): string {
   const sentence = AUTOSTART_REASON[reason];
   return sentence !== undefined ? sentence() : reason;
 }
+
+/** One autostart failure as SettingsPage keeps it: which step failed and the
+ *  bridge's `reason`, never the finished sentence (2026-11-10, the FR-D2 shape:
+ *  a sentence built at failure time stays in that moment's language after a
+ *  later `setLocale`). */
+export interface AutostartFailure {
+  step: 'read' | 'write';
+  reason: string;
+}
+
+/** The red line under the autostart toggle, built from `S` when it is read, so a
+ *  render after a language switch reads the new language. */
+export function autostartFailureText(f: AutostartFailure): string {
+  const prefix = f.step === 'read' ? S.set_prefs_autostart_read_failed : S.set_prefs_autostart_failed;
+  return `${prefix}${describeAutostartReason(f.reason)}`;
+}

@@ -381,7 +381,7 @@ void main() {
     });
 
     // ── ENG-3 (fix-030): the NAMED engine refusal renders its own sentence ──
-    test('ENG-3: STT_CONFIG_MISSING renders the both-exits sentence, not the '
+    test('ENG-3: STT_CONFIG_MISSING renders its own sentence, not the '
         'generic 「转写引擎报错」, in all four languages', () {
       for (final AppLocale locale in AppLocale.values) {
         final AppStrings s = AppStrings.of(locale);
@@ -408,13 +408,18 @@ void main() {
         // (Spot-check on the identifiers common to zh/en spellings is not
         // possible across ja/ko, so pin the zh/en pair explicitly below.)
       }
+      // ⚠️ Correction (0.3.122): the sentence no longer names the two exits
+      // (「runtime component」/「model files」, an install instruction to people
+      // on a cloud service). It names the two things the user can check: the
+      // spoken language, and Speech recognition in FlowMic on their computer.
       expect(
         AppStrings.of(AppLocale.zh).sttStallConfigMissing,
-        allOf(contains('引擎组件'), contains('模型文件')),
+        allOf(contains('说话语言'), contains('语音识别'), isNot(contains('引擎组件'))),
       );
       expect(
         AppStrings.of(AppLocale.en).sttStallConfigMissing,
-        allOf(contains('runtime component'), contains('model files')),
+        allOf(contains('spoken language'), contains('Speech recognition'),
+            isNot(contains('runtime component'))),
       );
     });
 

@@ -332,7 +332,7 @@ export const FR: WebMessages = {
   "sttStallMessage__2": "Le moteur de parole a signalé une erreur",
   "sttStallMessage__3": "Aucune parole détectée — rapprochez-vous du micro et réessayez",
   "sttStallMessage__4": "Le microphone n'a produit aucun audio — vérifiez l'autorisation micro, ou si une autre app le tient",
-  "sttStallConfigMissing": "Le moteur de parole n'a pas pu démarrer : son composant d'exécution ou ses fichiers de modèle manquent, ou aucun moteur n'est configuré pour cette langue. Vérifiez l'installation et les réglages du moteur",
+  "sttStallConfigMissing": "Impossible de transcrire la parole pour cette langue. Vérifiez la langue parlée dans les réglages, ou ouvrez FlowMic sur votre ordinateur pour vérifier Reconnaissance vocale.",
   "sttStallEngineErrorCoded": "Le moteur de parole a signalé une erreur ({code})",
   "sttStallLanguageUnsupported": "Le moteur vocal utilisé pour cet enregistrement ne prend pas en charge la langue que vous avez choisie. Choisissez un autre moteur pour cette langue dans les réglages, ou parlez-en une qu'il prend en charge",
   "sttStallHeardNoWords": "Du son est bien arrivé, mais aucun mot n'a pu être reconnu. Rapprochez-vous du micro et réessayez, et vérifiez que la langue parlée dans les réglages correspond à celle que vous avez parlée",

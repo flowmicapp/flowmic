@@ -37,6 +37,25 @@
 // returns it completes one connection, its CONNECT packet carries the old key once,
 // and the `open` arm then ends it. A library fork with a real shutdown call is the
 // only way to close that last case.
+//
+// THE SECOND WAY THE THREAD OUTLIVED ITS SESSION (2026-11-10, the 1-of-32 residue).
+// `Client::disconnect` sets the Engine.IO socket's `connected` flag to false. If the
+// polling thread is blocked in its read at that moment, the read fails and `error`
+// runs: the stop above. If it is NOT in a read (it is handling a packet that just
+// arrived, i.e. inside one of our handlers), its next `poll` sees `connected ==
+// false` and answers `Ok(None)` without reading (rust_engineio 0.6 `socket.rs`
+// `poll`). `Iter::next` turns that into `Err(StoppedEngineIoSocket)`, which runs no
+// callback and is not one of the two errors that start `reconnect()`, so the `for`
+// loop asks again, forever: a thread spinning a core, holding a `Client` clone and
+// with it the websocket, which nobody closes from this side. Measured in
+// tests/session_stop.rs `a_close_that_lands_while_a_packet_is_handled_still_ends_the_thread`.
+// So the end of every handler that runs on the polling thread is a stop point too.
+// POLLING_THREAD_CHECKPOINTS: `lifecycle::wire_open` (start and end),
+// `lifecycle::wire_error`, `lifecycle::wire_any` (after every incoming event's own
+// handler), and the two handshake ack callbacks in `pairing::emit_register` /
+// `pairing::emit_reconnect`. Still uncovered: the device-page ack callbacks in
+// `socket::outbound` (a sign-out has to land inside one of those), and the few
+// instructions between a checkpoint and the next `poll`.
 
 use std::sync::{Arc, Mutex};
 

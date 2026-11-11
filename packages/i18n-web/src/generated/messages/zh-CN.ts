@@ -332,7 +332,7 @@ export const ZH_CN: WebMessages = {
   "sttStallMessage__2": "转写引擎报错",
   "sttStallMessage__3": "未检测到有效语音，请靠近麦克风重试",
   "sttStallMessage__4": "麦克风未采集到有效声音输入，请检查系统麦克风权限或是否有其他应用占用麦克风",
-  "sttStallConfigMissing": "转写引擎无法启动：引擎组件或模型文件缺失，或该语言尚未配置识别引擎。请检查识别引擎的安装与设置",
+  "sttStallConfigMissing": "暂时无法将当前语言的语音转为文字。请在设置中检查说话语言，或在电脑上打开 FlowMic 检查“语音识别”。",
   "sttStallEngineErrorCoded": "转写引擎报错（{code}）",
   "sttStallLanguageUnsupported": "当前转写引擎不支持所选的说话语种。可在设置中为该语种指定兼容引擎，或切换说话语种",
   "sttStallHeardNoWords": "检测到声音输入，但未识别出有效语音。请靠近麦克风重试，并确认所选说话语种是否匹配",

@@ -203,6 +203,9 @@ pub(crate) fn receipt_phrase(confirmed: bool) -> String {
 /// A real ERROR is still a failure: `Err(..)` means one of our own Win32 steps
 /// failed (or the user's clipboard could not be restored), which is a thing we
 /// did wrong and knowably did not do.
+/// (2026-11-10: a failed restore reaches here as `Err` only when the paste step
+/// itself also failed; after a performed paste it is a forensic line and the
+/// `Ok` arm below decides — `clipboard_paste.rs` `paste_image`.)
 ///
 /// ── 2026-08-03 F-4: a DROPPED offer is that same failure, one layer up ────────
 ///

@@ -333,7 +333,7 @@ export const EN = {
   "sttStallMessage__2": "Speech engine reported an error",
   "sttStallMessage__3": "No speech detected — move closer to the mic and try again",
   "sttStallMessage__4": "The microphone produced no audio — check the mic permission, or whether another app is holding it",
-  "sttStallConfigMissing": "The speech engine could not start: its runtime component or model files are missing, or no engine is configured for this language. Check the engine installation and settings",
+  "sttStallConfigMissing": "Can't turn speech into text for this language yet. Check the spoken language in settings, or open FlowMic on your computer to check Speech recognition.",
   "sttStallEngineErrorCoded": "Speech engine reported an error ({code})",
   "sttStallLanguageUnsupported": "The speech engine used for this recording does not support the language you selected. Pick a different engine for this language in settings, or speak one it supports",
   "sttStallHeardNoWords": "Sound came through but no words could be made out. Move closer to the mic and say it again, and check that the spoken language in settings matches the language you spoke",
